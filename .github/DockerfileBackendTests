@@ -1,4 +1,4 @@
-FROM python:3.10-slim-buster as nsjail
+FROM python:3.11-slim-buster as nsjail
 
 WORKDIR /nsjail
 
@@ -41,7 +41,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 
-RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
+RUN wget https://golang.org/dl/go1.21.5.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
@@ -58,8 +58,8 @@ RUN /usr/local/bin/python3 -m pip install nltk
 RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/python3 -m nltk.downloader vader_lexicon
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
-COPY --from=oven/bun:1.0.0 /usr/local/bin/bun /usr/bin/bun
-COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
+COPY --from=oven/bun:1.0 /usr/local/bin/bun /usr/bin/bun
+COPY --from=denoland/deno:1.40.5 /usr/bin/deno /usr/bin/deno
 
 RUN apt-get update \
     && apt-get install -y postgresql-client --allow-unauthenticated

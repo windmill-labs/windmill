@@ -4,7 +4,7 @@
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from './InlineScriptRunnableByPath.svelte'
 	import type { Runnable, StaticAppInput } from '../../inputType'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	export let runnable: HiddenRunnable
 	export let id: string
@@ -24,6 +24,7 @@
 			recomputeOnInputChanged: true
 		}
 	}
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if transformer}
@@ -42,12 +43,13 @@
 			}}
 		/>
 	{:else}
-		<span class="px-2 text-tertiary">
+		<div class="px-2 pt-4 text-tertiary">
 			Selected editor component is a transformer but component has no transformer
-		</span>
+		</div>
 	{/if}
 {:else if runnable?.type === 'runnableByName' && runnable.inlineScript}
 	<InlineScriptEditor
+		on:createScriptFromInlineScript={() => dispatch('createScriptFromInlineScript', runnable)}
 		{id}
 		bind:inlineScript={runnable.inlineScript}
 		bind:name={runnable.name}

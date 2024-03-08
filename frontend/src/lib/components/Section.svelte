@@ -1,17 +1,39 @@
 <script lang="ts">
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle } from 'lucide-svelte'
+	import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let label: string | undefined = undefined
 	export let tooltip: string | undefined = undefined
 	export let eeOnly = false
+	export let small: boolean = false
+
+	export let collapsable: boolean = false
+	let collapsed: boolean = true
 </script>
 
 <div class="w-full">
-	<div class="flex flex-row justify-between">
-		<h2 class="text-base font-semibold mb-2 flex flex-row gap-1">
-			{label}
+	<div class="flex flex-row justify-between items-center mb-2">
+		<h2
+			class={twMerge(
+				'font-semibold flex flex-row items-center gap-1',
+				small ? 'text-sm' : 'text-base'
+			)}
+		>
+			{#if collapsable}
+				<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
+					{#if collapsed}
+						<ChevronRight size={16} />
+					{:else}
+						<ChevronDown size={16} />
+					{/if}
+					{label}
+				</button>
+			{:else}
+				{label}
+			{/if}
+
 			<slot name="header" />
 			{#if tooltip}
 				<Tooltip>{tooltip}</Tooltip>
@@ -27,7 +49,7 @@
 		</h2>
 		<slot name="action" />
 	</div>
-	<div class={$$props.class}>
+	<div class={collapsable && collapsed ? `hidden ${$$props.class}` : `${$$props.class}`}>
 		<slot />
 	</div>
 </div>

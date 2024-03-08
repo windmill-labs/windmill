@@ -19,9 +19,10 @@
 	on:change={() => {
 		if (disablable) {
 			field = {
-				type: 'eval',
+				type: 'evalv2',
 				expr: 'false',
-				fieldType: 'boolean'
+				fieldType: 'boolean',
+				connections: []
 			}
 		} else {
 			field = {

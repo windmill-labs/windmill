@@ -10,6 +10,7 @@
 	import type { FlowModule } from '$lib/gen'
 
 	export let noEditor = false
+	export let enableAi = false
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -46,6 +47,7 @@
 					{noEditor}
 					bind:flowModule
 					previousModule={$flowStore.value.modules[index - 1]}
+					{enableAi}
 				/>
 			{/each}
 		{/key}

@@ -18,6 +18,7 @@ export async function inferDeps(
 					componentId == 'row' ||
 					componentId == 'iter' ||
 					componentId == 'group' ||
+					componentId == 'file' ||
 					id in (worldOutputs[componentId] ?? {})
 			)
 			.map(([componentId, id]) => ({

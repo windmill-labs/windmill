@@ -136,7 +136,7 @@
 	{:else if resolvedConfig.tabsKind == 'sidebar'}
 		<div
 			class={twMerge(
-				'flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400',
+				'flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-secondary opacity-80 px-4 pt-4 border-r ',
 				css?.tabRow?.class,
 				'wm-tabs-tabRow'
 			)}
@@ -147,12 +147,12 @@
 					on:pointerdown|stopPropagation
 					on:click={() => (selected = res)}
 					class={twMerge(
-						'rounded-sm !truncate text-sm hover:bg-gray-100 hover:border-gray-300 border border-transparent hover:text-black px-1 py-2',
+						'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
 						css?.allTabs?.class,
 						'wm-tabs-alltabs',
 						selected == res
 							? twMerge(
-									'outline outline-gray-500 outline-1 bg-surface text-black',
+									'border-r  border-primary border-l bg-surface text-primary',
 									css?.selectedTab?.class,
 									'wm-tabs-selectedTab'
 							  )

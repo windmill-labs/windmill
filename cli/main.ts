@@ -31,7 +31,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.212.0";
+export const VERSION = "v1.286.2";
 
 let command: any = new Command()
   .name("wmill")
@@ -89,7 +89,7 @@ let command: any = new Command()
         "--allow-read",
         "--allow-write",
         "--allow-env",
-        "--unstable",
+        "-q",
       ],
       provider: new DenoLandProvider({ name: "wmill" }),
     })

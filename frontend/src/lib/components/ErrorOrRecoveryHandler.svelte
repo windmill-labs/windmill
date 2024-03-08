@@ -6,7 +6,14 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
-	import { JobService, Script, ScriptService, WorkspaceService } from '$lib/gen'
+	import {
+		FlowService,
+		JobService,
+		Script,
+		ScriptService,
+		WorkspaceService,
+		type Flow
+	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
@@ -16,10 +23,9 @@
 
 	export let errorOrRecovery: 'error' | 'recovery'
 	export let isEditable: boolean
-	export let slackToggleText: string = 'enable'
+	export let slackToggleText: string = 'Enable'
 	export let showScriptHelpText: boolean = false
 	export let handlerSelected: 'custom' | 'slack'
-	export let handlersOnlyForEe: string[]
 
 	export let handlerPath: string | undefined
 	export let handlerExtraArgs: Record<string, any>
@@ -73,7 +79,7 @@
 						workspace: $workspaceStore!,
 						id: slackConnectionTestJob!.uuid,
 						requestBody: {
-							reason: 'Slack message not sent after after 5s'
+							reason: 'Slack message not sent after 5s'
 						}
 					})
 				} catch (err) {
@@ -86,6 +92,7 @@
 	}
 
 	async function loadHandlerScriptArgs(p: string, defaultArgs: string[] = []) {
+		console.log(p)
 		try {
 			let schema: Schema | undefined = emptySchema()
 			if (p.startsWith('hub/')) {
@@ -99,8 +106,11 @@
 					await inferArgs(hubScript.language as SupportedLanguage, hubScript.content ?? '', schema)
 				}
 			} else {
-				const script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
-				schema = script.schema as Schema
+				let scriptOrFlow: Script | Flow =
+					customHandlerKind === 'script'
+						? await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
+						: await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+				schema = scriptOrFlow.schema as Schema
 			}
 			if (schema && schema.properties) {
 				for (let key in schema.properties) {
@@ -175,26 +185,18 @@
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
-		{#if $enterpriseLicense}
-			<Tab value="slack">Slack</Tab>
-			<Tab value="custom">
-				Custom
-				<slot name="custom-tab-tooltip" />
-			</Tab>
-		{:else}
-			<Tab value="custom">
-				Custom
-				<slot name="custom-tab-tooltip" />
-			</Tab>
-			<Tab value="slack">Slack {handlersOnlyForEe.includes('slack') ? '(ee only)' : ''}</Tab>
-		{/if}
+		<Tab value="slack">Slack</Tab>
+		<Tab value="custom">
+			Custom
+			<slot name="custom-tab-tooltip" />
+		</Tab>
 	</Tabs>
 </div>
 
 {#if handlerSelected === 'custom'}
 	<div class="flex flex-row mb-2">
 		<ScriptPicker
-			disabled={!isEditable}
+			disabled={!isEditable || !$enterpriseLicense}
 			initialPath={customInitialScriptPath}
 			kinds={[Script.kind.SCRIPT, Script.kind.FAILURE]}
 			allowFlow={true}

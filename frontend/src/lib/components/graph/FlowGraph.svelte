@@ -12,7 +12,8 @@
 		type Loop,
 		type Branch,
 		type NestedNodes,
-		type GraphModuleState
+		type GraphModuleState,
+		getStateColor
 	} from '.'
 	import { defaultIfEmptyString, encodeState } from '$lib/utils'
 	import { createEventDispatcher, onMount, setContext } from 'svelte'
@@ -159,6 +160,7 @@
 			const layered = layoutNodes(flatNodes)
 
 			nodes = layered.nodes
+
 			let hfull = Math.max(layered.height, minHeight)
 			fullWidth = layered.width
 			height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight * 1.5)
@@ -214,7 +216,8 @@
 		edgeLabel: string | undefined,
 		loopDepth: number,
 		insertableEnd: boolean,
-		modules: FlowModule[]
+		modules: FlowModule[],
+		wrapper: FlowModule | undefined = undefined
 	): GraphItem | undefined {
 		const type = module.value.type
 		const parentIds = getParentIds(parent)
@@ -255,7 +258,8 @@
 			loopDepth,
 			insertableEnd,
 			false,
-			modules
+			modules,
+			wrapper
 		)
 	}
 
@@ -275,24 +279,6 @@
 			return [item.nodeEnd.id]
 		}
 		return []
-	}
-
-	function getStateColor(state: FlowStatusModule.type | undefined): string {
-		const isDark = document.documentElement.classList.contains('dark')
-		switch (state) {
-			case FlowStatusModule.type.SUCCESS:
-				return isDark ? '#059669' : 'rgb(193, 255, 216)'
-			case FlowStatusModule.type.FAILURE:
-				return isDark ? '#dc2626' : 'rgb(248 113 113)'
-			case FlowStatusModule.type.IN_PROGRESS:
-				return isDark ? '#f59e0b' : 'rgb(253, 240, 176)'
-			case FlowStatusModule.type.WAITING_FOR_EVENTS:
-				return isDark ? '#db2777' : 'rgb(229, 176, 253)'
-			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
-				return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
-			default:
-				return isDark ? '#2e3440' : '#fff'
-		}
 	}
 
 	function getResultColor(): string {
@@ -316,7 +302,8 @@
 		loopDepth: number,
 		insertableEnd: boolean,
 		branchable: boolean,
-		modules: FlowModule[]
+		modules: FlowModule[],
+		wrapper: FlowModule | undefined = undefined
 	): Node {
 		return {
 			type: 'node',
@@ -336,7 +323,8 @@
 						annotation,
 						modules,
 						moving,
-						disableAi
+						disableAi,
+						wrapperId: wrapper?.id
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'delete') {
@@ -395,6 +383,7 @@
 			]
 		}
 		const innerModules = module.value.modules
+
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
@@ -404,20 +393,23 @@
 				1000,
 				loopDepth + 1,
 				0,
+				false,
+				undefined,
+				undefined,
+				undefined,
 				true,
-				undefined,
-				undefined,
-				undefined
+				module
 			)
 		)
-		innerModules.forEach((module, i) => {
+		innerModules.forEach((innerModule, i) => {
 			const item = getConvertedFlowModule(
-				module,
+				innerModule,
 				loop.items,
 				undefined,
 				loopDepth + 1,
 				i + 1 == innerModules?.length,
-				innerModules
+				innerModules,
+				module
 			)
 			item && loop.items.push(item)
 		})
@@ -448,6 +440,7 @@
 		loopDepth: number,
 		branchall: boolean
 	): Branch | Node {
+		const wrapper = JSON.parse(JSON.stringify(module))
 		const node = flowModuleToNode(
 			getParentIds(parent),
 			module,
@@ -480,6 +473,7 @@
 
 		branches.forEach(({ summary, modules, removable }, i) => {
 			const items: NestedNodes = []
+
 			items.push(
 				createVirtualNode(
 					branchParent,
@@ -493,18 +487,20 @@
 					removable ? { module, index: i } : undefined,
 					undefined,
 					undefined,
-					false
+					false,
+					wrapper
 				)
 			)
 			if (modules.length) {
-				modules.forEach((module, j) => {
+				modules.forEach((innerModule, j) => {
 					const item = getConvertedFlowModule(
-						module,
+						innerModule,
 						items,
 						undefined,
 						loopDepth,
 						j + 1 == modules?.length,
-						modules
+						modules,
+						module
 					)
 					item && items.push(item)
 				})
@@ -658,9 +654,11 @@
 		deleteBranch: { module: FlowModule; index: number } | undefined,
 		mid: string | undefined,
 		fixed_id: string | undefined,
-		center: boolean = true
+		center: boolean = true,
+		wrapperNode: FlowModule | undefined = undefined
 	): Node {
 		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
+
 		return {
 			type: 'node',
 			id: id.toString(),
@@ -690,7 +688,8 @@
 						id: mid,
 						moving,
 						center,
-						disableAi
+						disableAi,
+						wrapperNode
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {
@@ -777,7 +776,11 @@
 			{#key renderCount}
 				<Svelvet
 					on:expand={() => {
-						localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+						try {
+							localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+						} catch (e) {
+							console.error('error interacting with local storage', e)
+						}
 						window.open('/view_graph', '_blank')
 					}}
 					{download}

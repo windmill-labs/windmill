@@ -45,7 +45,7 @@
 		<span class="text-secondary text-sm">Name (optional)</span>
 		<input type="text" placeholder="name (optional)" bind:value={name} />
 	</div>
-	<Toggle class="mx-2" bind:checked={is_super_admin} options={{ right: 'Superadmin' }} />
+	<Toggle class="mx-2 mb-1" bind:checked={is_super_admin} options={{ right: 'Superadmin' }} />
 	<div class="flex flex-row-reverse grow">
 		<div class="flex">
 			<Button

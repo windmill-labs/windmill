@@ -149,14 +149,14 @@
 	$: componentsFiltered = COMPONENT_SETS.map((set) => ({
 		...set,
 		components: set.components.filter((component) => {
-			const name = componentsRecord[component].name.toLowerCase()
-			return name.includes(search.toLowerCase())
+			const name = componentsRecord[component].name.toLowerCase();
+			return name.includes(search.toLowerCase().trim());
 		}),
 		presets: set.presets?.filter((preset) => {
-			const presetName = presetsRecord[preset].name.toLowerCase()
-			return presetName.includes(search.toLowerCase())
+			const presetName = presetsRecord[preset].name.toLowerCase();
+			return presetName.includes(search.toLowerCase().trim());
 		})
-	}))
+	}));
 
 	$: {
 		if ($workspaceStore) {
@@ -171,7 +171,11 @@
 </script>
 
 <Drawer bind:this={ccDrawer}>
-	<DrawerContent title="Custom Components" on:close={ccDrawer.closeDrawer}>
+	<DrawerContent
+		title="Custom Components"
+		on:close={ccDrawer.closeDrawer}
+		documentationLink="https://www.windmill.dev/docs/apps/react_components"
+	>
 		<ComponentsList on:reload={fetchCustomComponents} />
 	</DrawerContent>
 </Drawer>
@@ -190,7 +194,7 @@
 			{#each componentsFiltered as { title, components, presets }, index (index)}
 				{#if components.length || presets?.length}
 					<div>
-						<ListItem title={`${title} (${components.length})`}>
+						<ListItem title={`${title}`} subtitle={`(${components.length})`}>
 							<div class="flex flex-wrap gap-3 py-2">
 								{#each components as item (item)}
 									<div class="w-20">

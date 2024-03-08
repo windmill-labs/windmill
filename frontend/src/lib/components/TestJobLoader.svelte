@@ -1,15 +1,18 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
+	import { Job, JobService, type FlowStatus } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
+	import { sendUserToast } from '$lib/toast'
 
 	export let isLoading = false
 	export let job: Job | undefined = undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
+	export let jobUpdateLastFetch: Date | undefined = undefined
+	export let toastError = false
 
 	const dispatch = createEventDispatcher()
 
@@ -47,6 +50,9 @@
 			}
 			return testId
 		} catch (err) {
+			if (toastError) {
+				sendUserToast(err.body, true)
+			}
 			// if error happens on submitting the job, reset UI state so the user can try again
 			isLoading = false
 			currentId = undefined
@@ -86,7 +92,8 @@
 		code: string,
 		lang: SupportedLanguage,
 		args: Record<string, any>,
-		tag: string | undefined
+		tag: string | undefined,
+		lock?: string
 	): Promise<string> {
 		return abstractRun(() =>
 			JobService.runScriptPreview({
@@ -96,7 +103,8 @@
 					content: code,
 					args,
 					language: lang as Preview.language,
-					tag
+					tag,
+					lock
 				}
 			})
 		)
@@ -150,9 +158,11 @@
 						running: job.running,
 						logOffset: job.logs?.length ? job.logs?.length + 1 : 0
 					})
-
 					if (previewJobUpdates.new_logs) {
 						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
+					}
+					if (previewJobUpdates.flow_status) {
+						job.flow_status = previewJobUpdates.flow_status as FlowStatus
 					}
 					if (previewJobUpdates.mem_peak && job) {
 						job.mem_peak = previewJobUpdates.mem_peak
@@ -163,6 +173,7 @@
 				} else {
 					job = await JobService.getJob({ workspace: workspace!, id })
 				}
+				jobUpdateLastFetch = new Date()
 
 				if (job?.type === 'CompletedJob') {
 					//only CompletedJob has success property
@@ -178,7 +189,7 @@
 				errorIteration += 1
 				if (errorIteration == 5) {
 					notfound = true
-					await clearCurrentJob()
+					job = undefined
 				}
 				console.warn(err)
 			}
@@ -194,7 +205,9 @@
 			return
 		}
 		syncIteration++
-		await loadTestJob(id)
+		if (await loadTestJob(id)) {
+			return
+		}
 		let nextIteration = 50
 		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
 			nextIteration = 500

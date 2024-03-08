@@ -1,6 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { requireLogin } from "./context.ts";
-import { GlobalOptions } from "./types.ts";
+import {
+  GlobalOptions,
+  isSuperset,
+  removeType,
+  removePathPrefix,
+} from "./types.ts";
 import {
   colors,
   Command,
@@ -9,6 +14,9 @@ import {
   passwordGenerator,
   Table,
   UserService,
+  GroupService,
+  WorkspaceService,
+  GranularAclService,
 } from "./deps.ts";
 
 async function list(opts: GlobalOptions) {
@@ -91,6 +99,269 @@ async function createToken(
 
   await requireLogin(opts);
   log.info("Token: " + (await UserService.createToken({ requestBody: {} })));
+}
+
+interface SimplifiedUser {
+  role: string;
+  username: string;
+  disabled: boolean;
+}
+
+export async function pushWorkspaceUser(
+  workspace: string,
+  path: string,
+  user: SimplifiedUser | undefined,
+  localUser: SimplifiedUser
+): Promise<void> {
+  const email = removePathPrefix(removeType(path, "user"), "users");
+
+  log.debug(`Processing local user ${email}`);
+
+  if (!["operator", "developer", "admin"].includes(localUser.role)) {
+    throw new Error(`Invalid role for user ${email}: ${localUser.role}`);
+  }
+
+  try {
+    const remoteUser = await UserService.getUser({
+      workspace,
+      username: localUser.username,
+    });
+    user = {
+      role: remoteUser.is_admin
+        ? "admin"
+        : remoteUser.operator
+        ? "operator"
+        : "developer",
+      username: remoteUser.username,
+      disabled: remoteUser.disabled,
+    };
+    log.debug(`User ${email} exists on remote`);
+  } catch {
+    log.debug(`User ${email} does not exist on remote`);
+    //ignore
+  }
+
+  if (user) {
+    if (isSuperset(localUser, user)) {
+      log.debug(`User ${email} is up to date`);
+      return;
+    }
+    log.debug(`User ${email} is not up-to-date, updating...`);
+    try {
+      await UserService.updateUser({
+        workspace: workspace,
+        username: localUser.username,
+        requestBody: {
+          is_admin: localUser.role === "admin",
+          operator: localUser.role === "operator",
+          disabled: localUser.disabled,
+        },
+      });
+    } catch (e) {
+      console.error(e.body);
+      throw e;
+    }
+  } else {
+    console.log(colors.bold.yellow("Creating new user: " + email));
+    try {
+      await WorkspaceService.addUser({
+        workspace: workspace,
+        requestBody: {
+          email: email,
+          is_admin: localUser.role === "admin",
+          operator: localUser.role === "operator",
+          username: localUser.username,
+        },
+      });
+    } catch (e) {
+      console.error(e.body);
+      throw e;
+    }
+  }
+}
+
+interface SimplifiedGroup {
+  summary: string | undefined;
+  admins: string[];
+  members: string[];
+}
+
+export async function pushGroup(
+  workspace: string,
+  path: string,
+  group: SimplifiedGroup | undefined,
+  localGroup: SimplifiedGroup
+): Promise<void> {
+  const name = removePathPrefix(removeType(path, "group"), "groups");
+
+  log.debug(`Processing local group ${name}`);
+
+  try {
+    const remoteGroup = await GroupService.getGroup({
+      workspace,
+      name,
+    });
+
+    // only consider extra_perms that concern actual members of the group
+    const admins = Object.entries(remoteGroup.extra_perms ?? {})
+      .filter(([k, v]) => v && remoteGroup.members?.includes(k.slice(2)))
+      .map(([k, _]) => k)
+      .sort();
+    group = {
+      summary: remoteGroup.summary,
+      admins,
+      // remove members that are also admins as they are already in the admins list
+      members: (remoteGroup.members ?? [])
+        .map((m) => "u/" + m)
+        .filter((m) => !admins.includes(m)),
+    };
+    log.debug(`Group ${name} exists on remote`);
+  } catch {
+    log.debug(`Group ${name} does not exist on remote`);
+    //ignore
+  }
+
+  if (group) {
+    if (isSuperset(localGroup, group)) {
+      log.debug(`Group ${name} is up to date`);
+      return;
+    }
+    log.debug(`Group ${name} is not up-to-date, updating...`);
+    try {
+      await GroupService.updateGroup({
+        workspace: workspace,
+        name,
+        requestBody: {
+          summary: localGroup.summary,
+        },
+      });
+    } catch (e) {
+      console.error(e.body);
+      throw e;
+    }
+
+    for (const member of [...localGroup.members, ...localGroup.admins]) {
+      try {
+        if ([...group.members, ...group.admins].includes(member)) {
+          log.debug(`${member} is already in group ${name}`);
+        } else {
+          log.debug(`Adding ${member} to group ${name}`);
+          await GroupService.addUserToGroup({
+            workspace: workspace,
+            name,
+            requestBody: {
+              username: member.slice(2),
+            },
+          });
+        }
+        if (
+          localGroup.admins.includes(member) &&
+          !group.admins.includes(member)
+        ) {
+          log.debug(`Setting role of ${member} as admin in group ${name}`);
+          await GranularAclService.addGranularAcls({
+            workspace: workspace,
+            kind: "group_",
+            path: name,
+            requestBody: {
+              owner: member,
+              write: true,
+            },
+          });
+        }
+
+        if (
+          localGroup.members.includes(member) &&
+          !group.members.includes(member)
+        ) {
+          log.debug(`Setting role of ${member} as member in group ${name}`);
+          await GranularAclService.addGranularAcls({
+            workspace: workspace,
+            kind: "group_",
+            path: name,
+            requestBody: {
+              owner: member,
+              write: false,
+            },
+          });
+        }
+      } catch (e) {
+        console.error(e.body);
+        throw e;
+      }
+    }
+
+    for (const member of [...group.members, ...group.admins]) {
+      if (![...localGroup.members, ...localGroup.admins].includes(member)) {
+        log.debug(
+          `Removing ${member} and any associated role from group ${name}`
+        );
+        try {
+          await GroupService.removeUserToGroup({
+            workspace: workspace,
+            name,
+            requestBody: {
+              username: member.slice(2),
+            },
+          });
+
+          await GranularAclService.removeGranularAcls({
+            workspace: workspace,
+            kind: "group_",
+            path: name,
+            requestBody: {
+              owner: member,
+            },
+          });
+        } catch (e) {
+          console.error(e.body);
+          throw e;
+        }
+      }
+    }
+  } else {
+    console.log(colors.bold.yellow("Creating new user: " + name));
+    try {
+      await GroupService.createGroup({
+        workspace: workspace,
+        requestBody: {
+          name,
+          summary: localGroup.summary,
+        },
+      });
+
+      for (const member of [...localGroup.members, ...localGroup.admins]) {
+        log.debug(`Adding user ${member} to group ${name}`);
+        try {
+          await GroupService.addUserToGroup({
+            workspace: workspace,
+            name,
+            requestBody: {
+              username: member.slice(2),
+            },
+          });
+          if (localGroup.admins.includes(member)) {
+            log.debug(`Setting role of ${member} as admin in group ${name}`);
+            await GranularAclService.addGranularAcls({
+              workspace: workspace,
+              kind: "group_",
+              path: name,
+              requestBody: {
+                owner: member,
+                write: true,
+              },
+            });
+          }
+        } catch (e) {
+          console.error(e.body);
+          throw e;
+        }
+      }
+    } catch (e) {
+      console.error(e.body);
+      throw e;
+    }
+  }
 }
 
 const command = new Command()

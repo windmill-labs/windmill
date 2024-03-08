@@ -69,6 +69,10 @@ const config = {
 		'splitpanes__pane',
 		'splitpanes__splitter',
 		'wm-tab',
+		'autocomplete-list',
+		'autocomplete-list-item',
+		'autocomplete-list-item-create',
+		'selected',
 		'wm-tab-selected',
 		...(process.env.NODE_ENV === 'production'
 			? [
@@ -625,6 +629,7 @@ const config = {
 					{
 						display: 'block',
 						fontSize: theme('fontSize.sm'),
+						boxShadow: theme('boxShadow.sm'),
 						width: '100%',
 						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
 						border: `1px solid ${theme('colors.gray.300')}`,
@@ -796,14 +801,14 @@ const config = {
 						backgroundColor: lightTheme.border + ' !important',
 						margin: '0 !important',
 						transform: 'none !important',
-						zIndex: '1001 !important',
 						transition: 'opacity 200ms !important',
 						opacity: '0',
 						'--splitter-hover-size': '5px',
 						'--splitter-hover-adjustment': '-2px'
 					},
 					'&:hover::after': {
-						opacity: '1'
+						opacity: '1',
+						zIndex: '1001 !important'
 					}
 				},
 				'.dark .splitpanes__splitter': {

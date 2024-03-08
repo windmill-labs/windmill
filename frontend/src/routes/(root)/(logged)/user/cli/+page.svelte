@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
-
 	import { UserService } from '$lib/gen'
 	import { page } from '$app/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -18,7 +16,8 @@
 			}
 		})
 
-		await goto('http://localhost:' + port + '?token=' + newToken + '&workspace=' + $workspaceStore)
+		const url = 'http://localhost:' + port + '?token=' + newToken + '&workspace=' + $workspaceStore
+		window.location.href = url
 	}
 </script>
 

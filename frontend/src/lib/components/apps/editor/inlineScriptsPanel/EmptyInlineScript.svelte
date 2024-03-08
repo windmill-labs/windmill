@@ -95,6 +95,7 @@
 	const langs = [
 		['deno', 'TypeScript (Deno)'],
 		['python3', 'Python'],
+		['bun', 'TypeScript (Bun)'],
 		['go', 'Go'],
 		['bash', 'Bash'],
 		['powershell', 'PowerShell'],
@@ -104,8 +105,7 @@
 		['bigquery', 'BigQuery'],
 		['snowflake', 'Snowflake'],
 		['mssql', 'MS SQL Server'],
-		['graphql', 'GraphQL'],
-		['bun', 'TypeScript (Bun)']
+		['graphql', 'GraphQL']
 	] as [Script.language, string][]
 </script>
 
@@ -171,11 +171,11 @@
 				on:click={() => picker?.openDrawer()}
 				size="xs"
 				variant="border"
-				color="blue"
+				color="light"
 				startIcon={{ icon: GitFork }}
 				btnClasses="truncate"
 			>
-				Fork a script
+				Fork other script
 			</Button>
 
 			<Button

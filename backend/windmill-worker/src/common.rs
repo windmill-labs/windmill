@@ -1,15 +1,28 @@
 use async_recursion::async_recursion;
+use futures::Future;
 use itertools::Itertools;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::sys::signal::{self, Signal};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
+
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
+use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
-use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::error::to_anyhow;
+use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::{
+    get_etag_or_empty, AzureBlobResource, LargeFileStorage, ObjectStoreResource, S3Object,
+    S3Resource,
+};
+use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -19,19 +32,23 @@ use windmill_common::{
 use anyhow::Result;
 use windmill_queue::CanceledBy;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::os::unix::process::ExitStatusExt;
+
 use std::{
     borrow::Borrow,
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    io,
-    os::unix::process::ExitStatusExt,
-    panic,
+    io, panic,
     time::Duration,
 };
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::variables;
+use windmill_common::{variables, DB};
+
+#[cfg(feature = "enterprise")]
+use windmill_common::job_metrics;
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -46,8 +63,8 @@ use futures::{
 };
 
 use crate::{
-    AuthedClient, AuthedClientBackgroundTask, MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGTERM,
-    ROOT_CACHE_DIR, TIMEOUT_DURATION, WHITELIST_ENVS,
+    AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
 };
 
 pub async fn build_args_map<'a>(
@@ -196,6 +213,24 @@ pub async fn transform_json_as_values<'a>(
     Ok(r)
 }
 
+pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
+    let (url, token_opt) = if s.contains(":_authToken=") {
+        let split_url = s.split(":_authToken=").collect::<Vec<&str>>();
+        let url = split_url
+            .get(0)
+            .map(|u| u.to_string())
+            .unwrap_or("".to_string());
+        let token = split_url
+            .get(1)
+            .map(|t| t.to_string())
+            .unwrap_or("".to_string());
+        (url, Some(token))
+    } else {
+        (s.to_owned(), None)
+    };
+    return (url, token_opt);
+}
+
 #[async_recursion]
 pub async fn transform_json_value(
     name: &str,
@@ -255,6 +290,8 @@ pub async fn transform_json_value(
                 flow_path,
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
+                job.root_job.clone().map(|x| x.to_string()),
+                None,
             )
             .await;
 
@@ -364,25 +401,36 @@ pub async fn get_reserved_variables(
         flow_path,
         job.schedule_path.clone(),
         job.flow_step_id.clone(),
+        job.root_job.clone().map(|x| x.to_string()),
+        None,
     )
     .await
     .to_vec();
 
-    Ok(build_envs_map(variables))
+    Ok(build_envs_map(variables).await)
 }
 
-pub fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String, String> {
+pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String, String> {
     let mut r: HashMap<String, String> =
         context.into_iter().map(|rv| (rv.name, rv.value)).collect();
 
-    if let Some(ref envs) = *WHITELIST_ENVS {
-        for e in envs {
-            r.insert(e.0.clone(), e.1.clone());
-        }
+    let envs = WORKER_CONFIG.read().await.clone().env_vars;
+    for env in envs {
+        r.insert(env.0.clone(), env.1.clone());
     }
 
     r
 }
+
+pub fn get_main_override(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> Option<String> {
+    return args
+        .map(|x| {
+            x.0.get(ENTRYPOINT_OVERRIDE)
+                .map(|x| x.get().to_string().replace("\"", ""))
+        })
+        .flatten();
+}
+
 async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1;
@@ -408,9 +456,151 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
         }
         -2
     } else {
+        // rand::random::<i32>() % 100 // to remove - used to fake memory data on MacOS
         -3
     }
 }
+
+pub async fn run_future_with_polling_update_job_poller<Fut, T>(
+    job_id: Uuid,
+    timeout: Option<i32>,
+    db: &DB,
+    mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
+    result_f: Fut,
+    worker_name: &str,
+    w_id: &str,
+) -> anyhow::Result<T>
+where
+    Fut: Future<Output = anyhow::Result<T>>,
+{
+    let (tx, rx) = broadcast::channel::<()>(3);
+
+    let update_job = update_job_poller(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by_ref,
+        || async { 0 },
+        worker_name,
+        w_id,
+        rx,
+    );
+
+    let timeout_ms = u64::try_from(
+        resolve_job_timeout(&db, &w_id, job_id, timeout)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200000);
+
+    let rows = tokio::select! {
+        biased;
+        result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), result_f) => result
+        .map_err(|e| {
+            tracing::error!("Query timeout: {}", e);
+            Error::ExecutionErr(format!("Query timeout after (>{}s)", timeout_ms/1000))
+        })?,
+        _ = update_job, if job_id != Uuid::nil() => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+    }?;
+    drop(tx);
+    Ok(rows)
+}
+
+pub async fn update_job_poller<F, Fut>(
+    job_id: Uuid,
+    db: &DB,
+    mem_peak: &mut i32,
+    canceled_by_ref: &mut Option<CanceledBy>,
+    get_mem: F,
+    worker_name: &str,
+    w_id: &str,
+    mut rx: broadcast::Receiver<()>,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = i32>,
+{
+    let update_job_interval = Duration::from_millis(500);
+    if job_id == Uuid::nil() {
+        return;
+    }
+    let db = db.clone();
+
+    let mut interval = interval(update_job_interval);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let mut i = 0;
+
+    #[cfg(feature = "enterprise")]
+    let mut memory_metric_id: Result<String, Error> =
+        Err(Error::NotFound("not yet initialized".to_string()));
+
+    loop {
+        tokio::select!(
+            _ = rx.recv() => break,
+            _ = interval.tick() => {
+                // update the last_ping column every 5 seconds
+                i+=1;
+                if i % 10 == 0 {
+                    sqlx::query!(
+                        "UPDATE worker_ping SET ping_at = now() WHERE worker = $1",
+                        &worker_name
+                    )
+                    .execute(&db)
+                    .await
+                    .expect("update worker ping");
+                }
+                let current_mem = get_mem().await;
+                if current_mem > *mem_peak {
+                    *mem_peak = current_mem
+                }
+                tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+
+                #[cfg(feature = "enterprise")]
+                {
+                    // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
+                    if i == 2 {
+                        memory_metric_id = job_metrics::register_metric_for_job(
+                            &db,
+                            w_id.to_string(),
+                            job_id,
+                            "memory_kb".to_string(),
+                            job_metrics::MetricKind::TimeseriesInt,
+                            Some("Job Memory Footprint (kB)".to_string()),
+                        )
+                        .await;
+                    }
+                    if let Ok(ref metric_id) = memory_metric_id {
+                        if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
+                            tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        }
+                    }
+                }
+
+                let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
+                    .bind(*mem_peak)
+                    .bind(job_id)
+                    .fetch_optional(&db)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(%e, "error updating job {job_id}: {e}");
+                        Some((false, None, None))
+                    })
+                    .unwrap_or((false, None, None));
+                if canceled {
+                    canceled_by_ref.replace(CanceledBy {
+                        username: canceled_by.clone(),
+                        reason: canceled_reason.clone(),
+                    });
+                    break;
+                }
+            },
+        );
+    }
+    tracing::info!("job {job_id} finished");
+}
+
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -427,13 +617,12 @@ pub async fn handle_child(
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
-    _w_id: &str,
+    w_id: &str,
     child_name: &str,
     custom_timeout: Option<i32>,
     sigterm: bool,
 ) -> error::Result<()> {
     let start = Instant::now();
-    let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
@@ -446,7 +635,7 @@ pub async fn handle_child(
         tracing::info!("could not get child pid");
     }
     let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
-    let (tx, mut rx) = broadcast::channel::<()>(3);
+    let (tx, rx) = broadcast::channel::<()>(3);
     let mut rx2 = tx.subscribe();
 
     let output = child_joined_output_stream(&mut child);
@@ -455,58 +644,16 @@ pub async fn handle_child(
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
-    let update_job = async {
-        if job_id == Uuid::nil() {
-            return;
-        }
-        let db = db.clone();
-
-        let mut interval = interval(update_job_interval);
-        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        let mut i = 0;
-
-        loop {
-            tokio::select!(
-                _ = rx.recv() => break,
-                _ = interval.tick() => {
-                    // update the last_ping column every 5 seconds
-                    i+=1;
-                    if i % 10 == 0 {
-                        sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now() WHERE worker = $1",
-                            &worker_name
-                        )
-                        .execute(&db)
-                        .await
-                        .expect("update worker ping");
-                    }
-                    let current_mem = get_mem_peak(pid, nsjail).await;
-                    if current_mem > *mem_peak {
-                        *mem_peak = current_mem
-                    }
-                    tracing::info!("{worker_name}/{job_id} in {_w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
-                    let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
-                        .bind(*mem_peak)
-                        .bind(job_id)
-                        .fetch_optional(&db)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!(%e, "error updating job {job_id}: {e}");
-                            Some((false, None, None))
-                        })
-                        .unwrap_or((false, None, None));
-                    if canceled {
-                        canceled_by_ref.replace(CanceledBy {
-                            username: canceled_by.clone(),
-                            reason: canceled_reason.clone(),
-                        });
-                        break;
-                    }
-                },
-            );
-        }
-    };
+    let update_job = update_job_poller(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by_ref,
+        || get_mem_peak(pid, nsjail),
+        worker_name,
+        w_id,
+        rx,
+    );
 
     #[derive(PartialEq, Debug)]
     enum KillReason {
@@ -514,38 +661,17 @@ pub async fn handle_child(
         Timeout,
         Cancelled,
     }
+
+    let (timeout_duration, timeout_warn_msg) =
+        resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
+    if let Some(msg) = timeout_warn_msg {
+        logs.push_str(msg.as_str());
+        append_logs(job_id, msg.as_str(), db).await;
+    }
+
     /* a future that completes when the child process exits */
     let wait_on_child = async {
         let db = db.clone();
-
-        #[cfg(not(feature = "enterprise"))]
-        let instance_timeout_duration = *TIMEOUT_DURATION;
-
-        #[cfg(feature = "enterprise")]
-        let premium_workspace = *CLOUD_HOSTED
-            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
-                .fetch_one(&db)
-                .await
-                .map_err(|e| {
-                    tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
-                })
-                .unwrap_or(false);
-
-        #[cfg(feature = "enterprise")]
-        let instance_timeout_duration = if premium_workspace {
-            *TIMEOUT_DURATION * 6 //30mins
-        } else {
-            *TIMEOUT_DURATION
-        };
-
-        let timeout_duration = if let Some(custom_timeout) = custom_timeout {
-            Duration::min(
-                instance_timeout_duration,
-                Duration::from_secs(custom_timeout as u64),
-            )
-        } else {
-            instance_timeout_duration
-        };
 
         let kill_reason = tokio::select! {
             biased;
@@ -568,7 +694,7 @@ pub async fn handle_child(
                         WHERE id = $2
                     "#,
                 )
-                .bind(format!("duration > {}", TIMEOUT_DURATION.as_secs()))
+                .bind(format!("duration > {}", timeout_duration.as_secs()))
                 .bind(job_id)
                 .execute(&db)
                 .await
@@ -578,9 +704,26 @@ pub async fn handle_child(
             }
         };
 
-        if sigterm {
-            if let Some(id) = child.id() {
+        if let Some(id) = child.id() {
+            if *MAX_WAIT_FOR_SIGINT > 0 {
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+
+                for _ in 0..*MAX_WAIT_FOR_SIGINT {
+                    if child.try_wait().is_ok_and(|x| x.is_some()) {
+                        break;
+                    }
+                    sleep(Duration::from_secs(1)).await;
+                }
+                if child.try_wait().is_ok_and(|x| x.is_some()) {
+                    set_reason.await;
+                    return Ok(Err(kill_reason));
+                }
+            }
+            if sigterm {
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+
                 for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                     if child.try_wait().is_ok_and(|x| x.is_some()) {
                         break;
@@ -605,8 +748,13 @@ pub async fn handle_child(
         } else {
             usize::MAX
         };
+
         /* log_remaining is zero when output limit was reached */
-        let mut log_remaining = max_log_size.saturating_sub(logs.chars().count());
+        let mut log_remaining =  if *CLOUD_HOSTED {
+            max_log_size.saturating_sub(logs.chars().count())
+        } else {
+            usize::MAX
+        };
         let mut result = io::Result::Ok(());
         let mut output = output.take_until(rx2.recv()).boxed();
         /* `do_write` resolves the task, but does not contain the Result.
@@ -683,7 +831,6 @@ pub async fn handle_child(
             if *set_too_many_logs.borrow() {
                 break;
             }
-
         }
 
         /* drop our end of the pipe */
@@ -712,12 +859,18 @@ pub async fn handle_child(
             } else if let Some(code) = status.code() {
                 Err(error::Error::ExitStatus(code))
             } else {
-                Err(error::Error::ExecutionErr(format!(
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                return Err(error::Error::ExecutionErr(format!(
                     "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
                     status.signal(),
                     status.stopped_signal(),
                     status.core_dumped()
-                )))
+                )));
+
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+                return Err(error::Error::ExecutionErr(String::from(
+                    "process terminated by signal",
+                )));
             }
         }
         Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
@@ -731,6 +884,64 @@ pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<C
     return cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(Error::IoErr(err), executable));
+}
+
+pub async fn resolve_job_timeout(
+    _db: &Pool<Postgres>,
+    _w_id: &str,
+    _job_id: Uuid,
+    custom_timeout_secs: Option<i32>,
+) -> (Duration, Option<String>) {
+    let mut warn_msg: Option<String> = None;
+    #[cfg(feature = "enterprise")]
+    let cloud_premium_workspace = *CLOUD_HOSTED
+        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
+            .fetch_one(_db)
+            .await
+            .map_err(|e| {
+                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e}");
+            })
+            .unwrap_or(false);
+    #[cfg(not(feature = "enterprise"))]
+    let cloud_premium_workspace = false;
+
+    // compute global max timeout
+    let global_max_timeout_duration = if cloud_premium_workspace {
+        *MAX_TIMEOUT_DURATION * 6 //30mins
+    } else {
+        *MAX_TIMEOUT_DURATION
+    };
+
+    match custom_timeout_secs {
+        Some(timeout_secs)
+            if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
+        {
+            (Duration::from_secs(timeout_secs as u64), warn_msg)
+        }
+        Some(timeout_secs) => {
+            warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the max timeout will be used instead"));
+            tracing::warn!(warn_msg);
+            (global_max_timeout_duration, warn_msg)
+        }
+        None => {
+            // fallback to default timeout or max if not set
+            let default_timeout = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
+                None => global_max_timeout_duration,
+                Some(default_timeout_secs)
+                    if Duration::from_secs(default_timeout_secs as u64)
+                        < global_max_timeout_duration =>
+                {
+                    Duration::from_secs(default_timeout_secs as u64)
+                }
+                Some(default_timeout_secs) => {
+                    warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the global max timeout will be used instead"));
+                    tracing::warn!(warn_msg);
+                    global_max_timeout_duration
+                }
+            };
+            (default_timeout, warn_msg)
+        }
+    }
 }
 
 /// takes stdout and stderr from Child, panics if either are not present
@@ -764,13 +975,27 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
+lazy_static::lazy_static! {
+    static ref RE_00: Regex = Regex::new('\u{00}'.to_string().as_str()).unwrap();
+}
 // as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
 // so this pushes \n to thd destination string in each call
 fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
-    if *limit > 0 {
+    let src_str;
+    let src = {
+        src_str = RE_00.replace_all(src, "");
+        src_str.as_ref()
+    };
+    if !*CLOUD_HOSTED {
         dst.push('\n');
+        dst.push_str(&src);
+        return;
+    } else {
+        if *limit > 0 {
+            dst.push('\n');
+        }
+        *limit -= 1;
     }
-    *limit -= 1;
 
     let src_len = src.chars().count();
     if src_len <= *limit {
@@ -788,13 +1013,28 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
-pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) -> String {
+pub async fn hash_args(
+    _db: &DB,
+    _client: &AuthedClient,
+    _workspace_id: &str,
+    _job_id: &Uuid,
+    v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+) -> String {
     if let Some(vs) = v {
         let mut dh = DefaultHasher::new();
         let hm = &vs.0;
         for k in hm.keys().sorted() {
             k.hash(&mut dh);
-            hm.get(k).unwrap().get().hash(&mut dh);
+            let arg_value = hm.get(k).unwrap();
+            #[cfg(feature = "parquet")]
+            let arg_additions =
+                arg_value_hash_additions(_db, _client, _workspace_id, _job_id, hm.get(k).unwrap())
+                    .await;
+            arg_value.get().hash(&mut dh);
+            #[cfg(feature = "parquet")]
+            for (_, arg_addition) in arg_additions {
+                arg_addition.hash(&mut dh);
+            }
         }
         hex::encode(dh.finish().to_be_bytes())
     } else {
@@ -802,21 +1042,183 @@ pub fn hash_args(v: &Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>) 
     }
 }
 
-#[derive(Serialize)]
-struct StoreCachedResource<'a> {
-    expire: i64,
-    value: &'a RawValue,
+#[cfg(feature = "parquet")]
+async fn get_workspace_s3_resource_path(
+    db: &DB,
+    client: &AuthedClient,
+    workspace_id: &str,
+    job_id: &Uuid,
+) -> Option<ObjectStoreResource> {
+    let raw_lfs_opt = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .flatten()
+    .map(|val| serde_json::from_value::<LargeFileStorage>(val).ok())
+    .flatten();
+
+    match raw_lfs_opt {
+        Some(LargeFileStorage::S3Storage(s3_storage)) => {
+            let resource_path = s3_storage.s3_resource_path.trim_start_matches("$res:");
+            let s3_resource = client
+                .get_resource_value_interpolated::<S3Resource>(
+                    &resource_path,
+                    Some(job_id.to_string()),
+                )
+                .await
+                .ok();
+            s3_resource.map(|resource| ObjectStoreResource::S3Resource(resource))
+        }
+        Some(LargeFileStorage::AzureBlobStorage(azure_blob_storage)) => {
+            let resource_path = azure_blob_storage
+                .azure_blob_resource_path
+                .trim_start_matches("$res:");
+            let azure_blob_resource = client
+                .get_resource_value_interpolated::<AzureBlobResource>(
+                    &resource_path,
+                    Some(job_id.to_string()),
+                )
+                .await
+                .ok();
+            azure_blob_resource.map(|resource| ObjectStoreResource::AzureBlobResource(resource))
+        }
+        None => None,
+    }
 }
 
-pub async fn save_in_cache<'a>(
+#[cfg(feature = "parquet")]
+async fn arg_value_hash_additions(
+    db: &DB,
+    client: &AuthedClient,
+    workspace_id: &str,
+    job_id: &Uuid,
+    raw_value: &Box<RawValue>,
+) -> HashMap<String, String> {
+    let mut result: HashMap<String, String> = HashMap::new();
+    let parsed_s3_values: &mut Vec<S3Object> = &mut Vec::new();
+    extract_all_s3_object_from_raw_value(raw_value, parsed_s3_values);
+    if parsed_s3_values.is_empty() {
+        // no s3 object, nothing to return
+        return result;
+    }
+
+    let s3_resource_opt = get_workspace_s3_resource_path(db, client, workspace_id, job_id).await;
+    if let Some(s3_resource) = s3_resource_opt {
+        for s3_object in parsed_s3_values {
+            let etag = get_etag_or_empty(&s3_resource, s3_object.clone()).await;
+            tracing::warn!("Enriching s3 arg value with etag: {:?}", etag);
+            result.insert(s3_object.s3.clone(), etag.unwrap_or_default()); // TODO: maybe inject a random value to invalidate the cache?
+        }
+    }
+
+    return result;
+}
+
+#[cfg(feature = "parquet")]
+fn extract_all_s3_object_from_raw_value(raw_value: &Box<RawValue>, result: &mut Vec<S3Object>) {
+    let parsed_value = serde_json::from_str::<S3Object>(raw_value.get());
+    if let Ok(parsed_value) = parsed_value {
+        result.push(parsed_value);
+    } else {
+        let parsed_value = serde_json::from_str::<HashMap<String, Box<RawValue>>>(raw_value.get());
+        if let Ok(parsed_value) = parsed_value {
+            for (_, v) in parsed_value {
+                extract_all_s3_object_from_raw_value(&v, result);
+            }
+        } else {
+            let parsed_value = serde_json::from_str::<Vec<Box<RawValue>>>(raw_value.get());
+            if let Ok(parsed_value) = parsed_value {
+                for v in parsed_value {
+                    extract_all_s3_object_from_raw_value(&v, result);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct CachedResource {
+    expire: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    s3_etags: Option<HashMap<String, String>>,
+    value: Box<RawValue>,
+}
+
+pub async fn get_cached_resource_value_if_valid(
+    _db: &DB,
+    client: &AuthedClient,
+    _job_id: &Uuid,
+    _workspace_id: &str,
+    cached_res_path: &str,
+) -> Option<Box<RawValue>> {
+    let resource_opt = client
+        .get_resource_value::<CachedResource>(cached_res_path)
+        .await
+        .ok();
+    if let Some(cached_resource) = resource_opt {
+        if cached_resource.expire <= chrono::Utc::now().timestamp() {
+            // cache expired
+            return None;
+        }
+        #[cfg(feature = "parquet")]
+        {
+            let s3_etags = cached_resource.s3_etags.unwrap_or_default();
+            let object_store_resource_opt: Option<ObjectStoreResource> = if s3_etags.is_empty() {
+                None
+            } else {
+                get_workspace_s3_resource_path(_db, &client, _workspace_id, _job_id).await
+            };
+
+            if !s3_etags.is_empty() && object_store_resource_opt.is_none() {
+                tracing::warn!("Cached result references s3 files that are not retrievable anymore because the workspace S3 resource can't be fetched. Cache will be invalidated");
+                return None;
+            }
+            for (s3_file_key, s3_file_etag) in s3_etags {
+                if let Some(object_store_resource) = object_store_resource_opt.clone() {
+                    let etag = get_etag_or_empty(
+                        &object_store_resource,
+                        S3Object { s3: s3_file_key.clone() },
+                    )
+                    .await;
+                    if etag.is_none() || etag.clone().unwrap() != s3_file_etag {
+                        tracing::warn!("S3 file etag for '{}' has changed. Value from cache is {:?} while current value from S3 is {:?}. Cache will be invalidated", s3_file_key.clone(), s3_file_etag, etag);
+                        return None;
+                    }
+                }
+            }
+        }
+        return Some(cached_resource.value);
+    }
+    return None;
+}
+
+pub async fn save_in_cache(
     db: &Pool<Postgres>,
+    _client: &AuthedClient,
     job: &QueuedJob,
     cached_path: String,
-    r: &'a RawValue,
+    r: &Box<RawValue>,
 ) {
     let expire = chrono::Utc::now().timestamp() + job.cache_ttl.unwrap() as i64;
 
-    let store_cache_resource = StoreCachedResource { expire, value: r };
+    #[cfg(feature = "parquet")]
+    let s3_etags =
+        arg_value_hash_additions(db, _client, job.workspace_id.as_str(), &job.id, r).await;
+
+    #[cfg(feature = "parquet")]
+    let s3_etags = if s3_etags.is_empty() {
+        None
+    } else {
+        Some(s3_etags)
+    };
+
+    #[cfg(not(feature = "parquet"))]
+    let s3_etags = None;
+
+    let store_cache_resource = CachedResource { expire, s3_etags, value: r.clone() };
     let raw_json = sqlx::types::Json(store_cache_resource);
 
     if let Err(e) = sqlx::query!(
@@ -826,7 +1228,7 @@ pub async fn save_in_cache<'a>(
     DO UPDATE SET value = $3",
         job.workspace_id,
         cached_path,
-        raw_json as sqlx::types::Json<StoreCachedResource>,
+        raw_json as sqlx::types::Json<CachedResource>,
         "cache"
     )
     .execute(db)

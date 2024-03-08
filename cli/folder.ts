@@ -43,8 +43,7 @@ export async function pushFolder(
   workspace: string,
   name: string,
   folder: Folder | FolderFile | undefined,
-  localFolder: FolderFile,
-  raw: boolean
+  localFolder: FolderFile
 ): Promise<void> {
   if (name.startsWith(SEP)) {
     name = name.substring(1);
@@ -55,15 +54,13 @@ export async function pushFolder(
   name = name.split(SEP)[0];
   log.debug(`Processing local folder ${name}`);
 
-  if (raw) {
-    // deleting old app if it exists in raw mode
-    try {
-      folder = await FolderService.getFolder({ workspace, name });
-      log.debug(`Folder ${name} exists on remote`);
-    } catch {
-      log.debug(`Folder ${name} does not exist on remote`);
-      //ignore
-    }
+  // deleting old app if it exists in raw mode
+  try {
+    folder = await FolderService.getFolder({ workspace, name });
+    log.debug(`Folder ${name} exists on remote`);
+  } catch {
+    log.debug(`Folder ${name} does not exist on remote`);
+    //ignore
   }
 
   if (folder) {
@@ -120,8 +117,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath),
-    false
+    parseFromFile(filePath)
   );
   console.log(colors.bold.underline.green("Folder pushed"));
 }

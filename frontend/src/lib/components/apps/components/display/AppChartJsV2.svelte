@@ -16,12 +16,13 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { deepMergeWithPriority } from '$lib/utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'piechartcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'chartjscomponent'> | undefined = undefined
 	export let render: boolean
 	export let datasets: RichConfiguration | undefined
 	export let xData: RichConfiguration | undefined
@@ -56,11 +57,10 @@
 		return type === 'bar' || type === 'line' || type === 'scatter' || type === 'bubble'
 	}
 
-	$: options = {
+	$: options = deepMergeWithPriority(resolvedConfig.options, {
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
-		...(resolvedConfig.options ?? {}),
 		plugins: {
 			legend: {
 				labels: {
@@ -82,18 +82,16 @@
 					}
 			  }
 			: {})
-	} as ChartOptions
+	} as ChartOptions)
 
 	$: data =
 		datasets && xData && resolvedDatasets
 			? {
 					labels: resolvedXData,
-					datasets: resolvedDatasets.map((d, index) => {
-						return {
-							label: d.name,
-							data: resolvedDatasetsValues[index]
-						}
-					})
+					datasets: resolvedDatasets?.map((d, index) => ({
+						label: d.name,
+						data: Array.isArray(resolvedDatasetsValues[index]) ? resolvedDatasetsValues[index] : []
+					}))
 			  }
 			: result
 

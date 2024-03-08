@@ -15,7 +15,7 @@
 
 <div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
 	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
-		<div class="flex items-center gap-2 w-full">
+		<div class="flex items-center gap-2 w-full truncate">
 			<CloseButton on:close />
 
 			<span class="font-semibold truncate text-primary !text-lg max-w-sm"

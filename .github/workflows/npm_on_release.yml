@@ -6,7 +6,7 @@ on:
 
 jobs:
   build_npm:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3

@@ -5,11 +5,11 @@ use crate::{error, DB};
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct Smtp {
     pub host: String,
-    pub username: String,
-    pub password: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
     pub port: u16,
     pub from: String,
-    pub tls_implicit: bool,
+    pub tls_implicit: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -33,14 +33,14 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
             .flatten()
             .unwrap_or_default();
 
-    let config_smtp = if let (Some(host), Some(username), Some(password)) =
+    let config_smtp = if let (Some(host), username, password) =
         (config.smtp_host, config.smtp_username, config.smtp_password)
     {
         Some(Smtp {
             host,
             username,
             password,
-            tls_implicit: config.smtp_tls_implicit.unwrap_or(false),
+            tls_implicit: config.smtp_tls_implicit,
             port: config.smtp_port.unwrap_or(587),
             from: config
                 .smtp_from
@@ -50,7 +50,7 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
         None
     };
     let smtp = config_smtp.or(
-        if let (Some(host), Some(username), Some(password)) = (
+        if let (Some(host), username, password) = (
             std::env::var("SMTP_HOST").ok(),
             std::env::var("SMTP_USERNAME").ok(),
             std::env::var("SMTP_PASSWORD").ok(),
@@ -61,8 +61,7 @@ pub async fn load_server_config(db: &DB) -> error::Result<ServerConfig> {
                 password,
                 tls_implicit: std::env::var("SMTP_TLS_IMPLICIT")
                     .ok()
-                    .and_then(|p| p.parse().ok())
-                    .unwrap_or(false),
+                    .and_then(|p| p.parse().ok()),
                 port: std::env::var("SMTP_PORT")
                     .ok()
                     .and_then(|p| p.parse().ok())

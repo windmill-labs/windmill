@@ -13,6 +13,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Check, Code, Zap } from 'lucide-svelte'
+	import SuspendDrawer from './SuspendDrawer.svelte'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -66,19 +67,93 @@
 		{/if}
 		{#if kind == 'trigger'}
 			<div class="mt-2" />
-			<Alert title="Trigger script automatic schedule" role="info">
-				A schedule will be automatically attached to this flow to run every 15 minutes. Adjust
-				frequency in 'Settings -> Schedule'</Alert
+			<Alert title="Trigger scripts" role="info">
+				Trigger scripts are designed to pull data from an external source and return all of the new
+				items since the last run, without resorting to external webhooks.<br /><br />
+
+				A trigger script is intended to be used with
+				<a
+					href="https://www.windmill.dev/docs/core_concepts/scheduling"
+					target="_blank"
+					class="text-blue-400">schedules</a
+				>
+				and
+				<a
+					href="https://www.windmill.dev/docs/core_concepts/resources_and_types#states"
+					target="_blank"
+					class="text-blue-400">states</a
+				>
+				in order to compare the execution to the previous one and process each new item in a
+				<a
+					href="https://www.windmill.dev/docs/flows/flow_loops"
+					target="_blank"
+					class="text-blue-400">for loop</a
+				>. If there are no new items, the flow will be skipped.<br /><br />
+
+				By default, adding a trigger will set the schedule to 15 minutes. To see all ways to trigger
+				a flow, check
+				<a
+					href="https://www.windmill.dev/docs/getting_started/trigger_flows"
+					target="_blank"
+					class="text-blue-400">Triggering Flows</a
+				>.
+			</Alert>
+		{/if}
+
+		{#if kind == 'script' && !noEditor}
+			<div class="mt-2" />
+			<Alert title="Action Scripts" role="info">
+				An action script is simply a script that is neither a trigger nor an approval script. Those
+				are the majority of the scripts.
+			</Alert>
+		{/if}
+
+		{#if kind == 'approval'}
+			{#if !noEditor}
+				
+			<div class="mt-2" />
+			<Alert title="Approval/Prompt Step" role="info">
+				An approval/prompt step will suspend the execution of a flow until it has been approved
+				and/or the prompts have been filled in the UI or through the resume endpoints or the
+				approval page by and solely by the recipients of the secret urls. See details in 'Advanced'
+				-> 'Suspend' settings of the step. A prompt is a specialized approval step with payload that
+				can be self-approved by the caller.<br /><br />
+				For further details, visit
+				<a
+					href="https://www.windmill.dev/docs/flows/flow_approval"
+					target="_blank"
+					class="text-blue-500">Approval/Prompt Steps Documentation</a
+				>
+				or
+				<div class="inline-flex">
+					<SuspendDrawer text="Approval/Step prompt helpers" />
+				</div>
+			</Alert>
+			{:else}
+			<a
+				href="https://www.windmill.dev/docs/flows/flow_approval"
+				target="_blank"
+				class="text-blue-500">Approval/Prompt Steps Documentation</a
 			>
+			{/if}
+
 		{/if}
 		<h3 class="pb-2 pt-4">
 			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
-			<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_error_handler">
-				Embed a script directly inside a flow instead of saving the script into your workspace for
-				reuse. You can always save an inline script to your workspace later.
+			<Tooltip
+				documentationLink={kind === 'script'
+					? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
+					: kind === 'trigger'
+					? 'https://www.windmill.dev/docs/flows/flow_trigger'
+					: kind === 'approval'
+					? 'https://www.windmill.dev/docs/flows/flow_approval'
+					: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
+			>
+				Embed <span>{kind == 'script' ? 'action' : kind}</span> script directly inside a flow instead
+				of saving the script into your workspace for reuse. You can always save an inline script to your
+				workspace later.
 			</Tooltip>
 		</h3>
-
 		{#if noEditor}
 			<div
 				class="py-0.5 text-2xs {summary == undefined || summary == ''
@@ -113,6 +188,20 @@
 					on:click={() => {
 						dispatch('new', {
 							language: RawScript.language.PYTHON3,
+							kind,
+							subkind: 'flow',
+							summary
+						})
+					}}
+				/>
+
+				<FlowScriptPicker
+					disabled={noEditor && (summary == undefined || summary == '')}
+					label="TypeScript (Bun)"
+					lang={Script.language.BUN}
+					on:click={() => {
+						dispatch('new', {
+							language: RawScript.language.BUN,
 							kind,
 							subkind: 'flow',
 							summary
@@ -298,20 +387,6 @@
 						/> -->
 					{/if}
 				{/if}
-
-				<FlowScriptPicker
-					disabled={noEditor && (summary == undefined || summary == '')}
-					label="TypeScript (Bun)"
-					lang={Script.language.BUN}
-					on:click={() => {
-						dispatch('new', {
-							language: RawScript.language.BUN,
-							kind,
-							subkind: 'flow',
-							summary
-						})
-					}}
-				/>
 			</div>
 		</div>
 

@@ -6,7 +6,7 @@ on:
       - "version.txt"
 jobs:
   change_version:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud
     container: node:18
     steps:
       - uses: actions/checkout@v3

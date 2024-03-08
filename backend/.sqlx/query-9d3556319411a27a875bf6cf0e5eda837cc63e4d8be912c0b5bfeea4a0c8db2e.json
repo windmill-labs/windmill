@@ -24,7 +24,9 @@
                 "graphql",
                 "postgresql",
                 "noop",
-                "appdependencies"
+                "appdependencies",
+                "deploymentcallback",
+                "singlescriptflow"
               ]
             }
           }
@@ -40,7 +42,6 @@
                 "bash",
                 "postgresql",
                 "nativets",
-                "Nativets",
                 "bun",
                 "mysql",
                 "bigquery",

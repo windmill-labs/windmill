@@ -14,7 +14,7 @@
 
 {#if canConfigureRecomputeOnInputChanged || canConfigureRunOnStart}
 	<ScriptSettingsSection title="Triggers">
-		<div class="flex flex-col">
+		<div class="flex flex-col gap-2 mb-4">
 			{#if autoRefresh !== undefined && canConfigureRunOnStart}
 				<div class="flex items-center justify-between w-full gap-1">
 					<div class="flex flex-row items-center gap-2 text-xs mb-0.5">

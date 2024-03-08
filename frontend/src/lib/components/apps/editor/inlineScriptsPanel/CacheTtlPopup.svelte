@@ -23,8 +23,10 @@
 				: 'bg-surface text-primay hover:bg-hover'}
 			color="light"
 			variant="border"
-			size="xs">Cache</Button
+			size="xs2"
 		>
+			Cache
+		</Button>
 	</svelte:fragment>
 	<div class="block text-primary">
 		<Toggle

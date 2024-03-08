@@ -54,9 +54,14 @@
 	let password = ''
 	let path: string | undefined = undefined
 
+	/**
+	 * https://github.com/orgs/supabase/discussions/17817
+	 * host is in the format of `aws-0-${region}.pooler.supabase.com`
+	 * user is in the format of `postgres.${id}`
+	 */
 	$: resourceValue = {
-		host: selectedDatabase?.database?.host,
-		user: 'postgres',
+		host: `aws-0-${selectedDatabase?.region}.pooler.supabase.com`,
+		user: `postgres.${selectedDatabase?.id}`,
 		port: 5432,
 		dbname: 'postgres',
 		sslmode: 'prefer',

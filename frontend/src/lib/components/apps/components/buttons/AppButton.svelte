@@ -19,6 +19,8 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { initCss } from '../../utils'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Portal from 'svelte-portal'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -33,6 +35,8 @@
 	export let render: boolean
 	export let errorHandledByComponent: boolean | undefined = false
 	export let extraKey: string | undefined = undefined
+	export let isMenuItem: boolean = false
+	export let noInitialize = false
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -79,6 +83,8 @@
 	$: resolvedConfig.beforeIcon && handleBeforeIcon()
 	$: resolvedConfig.afterIcon && handleAfterIcon()
 
+	let confirmedCallback: (() => void) | undefined = undefined
+
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
 			beforeIconComponent = await loadIcon(resolvedConfig.beforeIcon)
@@ -107,24 +113,29 @@
 		event?.preventDefault()
 
 		$selectedComponent = [id]
-		const inputOutput = { result: outputs.result.peak(), loading: true }
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, inputOutput)
-		}
-		if (iterContext && listInputs) {
-			listInputs.set(id, inputOutput)
-		}
-		if (preclickAction) {
-			await preclickAction()
+		const action = async () => {
+			const inputOutput = { result: outputs.result.peak(), loading: true }
+			if (rowContext && rowInputs) {
+				rowInputs.set(id, inputOutput)
+			}
+			if (iterContext && listInputs) {
+				listInputs.set(id, inputOutput)
+			}
+			if (preclickAction) {
+				await preclickAction()
+			}
+
+			if (!runnableComponent) {
+				runnableWrapper?.handleSideEffect(true)
+			} else {
+				await runnableComponent?.runComponent()
+			}
 		}
 
-		if (!runnableComponent) {
-			runnableWrapper?.handleSideEffect(true)
+		if (resolvedConfig?.confirmationModal?.selected === 'confirmationModal') {
+			confirmedCallback = action
 		} else {
-			await runnableComponent?.runComponent()
-		}
-		if (rowContext && rowInputs) {
-			rowInputs.set(id, { result: outputs.result.peak(), loading: false })
+			await action()
 		}
 	}
 	let loading = false
@@ -132,13 +143,14 @@
 	let css = initCss($app.css?.buttoncomponent, customCss)
 </script>
 
-{#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
+{#each Object.entries(components['buttoncomponent'].initialData.configuration) as [key, initialConfig] (key)}
 	<ResolveConfig
 		{id}
 		{extraKey}
 		{key}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
+		{initialConfig}
 	/>
 {/each}
 
@@ -155,6 +167,7 @@
 
 <!-- gotoNewTab={resolvedConfig.onSuccess.selected == 'goto'} -->
 <RunnableWrapper
+	{noInitialize}
 	bind:this={runnableWrapper}
 	{recomputeIds}
 	bind:runnableComponent
@@ -169,6 +182,16 @@
 	{render}
 	{outputs}
 	{extraKey}
+	onSuccess={(r) => {
+		let inputOutput = { result: r, loading: false }
+		if (rowContext && rowInputs) {
+			rowInputs.set(id, inputOutput)
+		}
+		if (iterContext && listInputs) {
+			listInputs.set(id, inputOutput)
+		}
+		console.log('success', r)
+	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment} class="wm-button-wrapper">
@@ -178,11 +201,18 @@
 		{#key css}
 			<Button
 				on:pointerdown={(e) => e.stopPropagation()}
-				btnClasses={twMerge(css?.button?.class ?? '', 'wm-button')}
+				btnClasses={twMerge(
+					css?.button?.class ?? '',
+					isMenuItem ? 'flex items-center justify-start' : '',
+					isMenuItem ? '!border-0' : '',
+					'wm-button'
+				)}
+				variant={isMenuItem ? 'border' : 'contained'}
 				style={css?.button?.style}
 				wrapperClasses={twMerge(
 					css?.container?.class ?? '',
 					resolvedConfig.fillContainer ? 'w-full h-full' : '',
+					isMenuItem ? 'w-full' : '',
 					'wm-button-container'
 				)}
 				wrapperStyle={css?.container?.style}
@@ -190,20 +220,44 @@
 				on:click={handleClick}
 				size={resolvedConfig.size}
 				color={resolvedConfig.color}
+				startIcon={{
+					icon: resolvedConfig.beforeIcon ? beforeIconComponent : undefined
+				}}
+				endIcon={{
+					icon: resolvedConfig.afterIcon ? afterIconComponent : undefined
+				}}
 				{loading}
 			>
-				<span class="truncate inline-flex gap-2 items-center">
-					{#if resolvedConfig.beforeIcon && beforeIconComponent}
-						<svelte:component this={beforeIconComponent} size={14} />
-					{/if}
-					{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
-						<div>{resolvedConfig.label.toString()}</div>
-					{/if}
-					{#if resolvedConfig.afterIcon && afterIconComponent}
-						<svelte:component this={afterIconComponent} size={14} />
-					{/if}
-				</span>
+				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
+					<div>{resolvedConfig.label.toString()}</div>
+				{/if}
 			</Button>
 		{/key}
 	</AlignWrapper>
 </RunnableWrapper>
+
+{#if resolvedConfig?.confirmationModal?.selected === 'confirmationModal'}
+	<Portal target="#app-editor-top-level-drawer">
+		<ConfirmationModal
+			open={Boolean(confirmedCallback)}
+			title={resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.title ?? ''}
+			confirmationText={resolvedConfig?.confirmationModal?.configuration?.confirmationModal
+				?.confirmationText ?? ''}
+			on:canceled={() => {
+				confirmedCallback = undefined
+			}}
+			on:confirmed={() => {
+				if (confirmedCallback) {
+					confirmedCallback()
+				}
+				confirmedCallback = undefined
+			}}
+		>
+			<div class="flex flex-col w-full space-y-4">
+				<span>
+					{resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.description ?? ''}
+				</span>
+			</div>
+		</ConfirmationModal>
+	</Portal>
+{/if}

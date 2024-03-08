@@ -55,6 +55,7 @@
 			notSet = true
 		}
 	})
+
 	$: workspaceToDeployTo && reload(initialPath)
 
 	async function reload(path: string) {
@@ -65,16 +66,23 @@
 			seeTarget = true
 		} catch {
 			seeTarget = false
+			return
 		}
 
 		const allDeps = await getDependencies(kind, path)
-		for (const dep of allDeps) {
+		let sortedSet: { kind: Kind; path: string }[] = []
+		allDeps.forEach((x) => {
+			if (!sortedSet.find((y) => y.kind == x.kind && y.path == x.path)) {
+				sortedSet.push(x)
+			}
+		})
+		for (const dep of sortedSet) {
 			allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = await checkAlreadyExists(
 				dep.kind,
 				dep.path
 			)
 		}
-		dependencies = allDeps.map((x) => ({
+		dependencies = sortedSet.map((x) => ({
 			...x,
 			include:
 				x.kind != 'variable' &&
@@ -263,7 +271,7 @@
 					workspace: workspaceToDeployTo!,
 					requestBody: {
 						...script,
-						lock: script.lock?.split('\n'),
+						lock: script.lock,
 						parent_hash: alreadyExists
 							? (
 									await ScriptService.getScriptByPath({
@@ -432,7 +440,7 @@
 						x.value.hash = undefined
 					}
 				})
-				return flow.value
+				return { summary: flow.summary, description: flow.description, value: flow.value }
 			} else if (kind == 'script') {
 				const script = await ScriptService.getScriptByPath({
 					workspace: workspace,
@@ -551,7 +559,7 @@
 				{@const statusPath = computeStatusPath(kind, path)}
 				<div class="col-span-1 truncate text-secondary text-sm pt-0.5">{kind}</div><div
 					class="col-span-5 truncate font-semibold">{path}</div
-				><div class="col-span-1"><Toggle size="xs" bind:checked={include} /></div><div
+				><div class="col-span-1 pt-1.5"><Toggle size="xs" bind:checked={include} /></div><div
 					class="col-span-1"
 				>
 					{#if allAlreadyExists[statusPath] == false}

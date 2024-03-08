@@ -1,8 +1,13 @@
 <script lang="ts">
-	import { usersWorkspaceStore } from '$lib/stores'
+	import {
+		codeCompletionSessionEnabled,
+		metadataCompletionEnabled,
+		stepInputCompletionEnabled,
+		usersWorkspaceStore
+	} from '$lib/stores'
 	import type { TruncatedToken, NewToken } from '$lib/gen'
 	import { UserService } from '$lib/gen'
-	import { displayDate, copyToClipboard } from '$lib/utils'
+	import { displayDate, copyToClipboard, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -14,6 +19,8 @@
 	import Version from './Version.svelte'
 	import { Clipboard, Plus } from 'lucide-svelte'
 	import DarkModeToggle from './sidebar/DarkModeToggle.svelte'
+	import Toggle from './Toggle.svelte'
+	import type { Writable } from 'svelte/store'
 
 	export let scopes: string[] | undefined = undefined
 
@@ -76,7 +83,7 @@
 	}
 
 	async function listTokens(): Promise<void> {
-		tokens = await UserService.listTokens()
+		tokens = await UserService.listTokens({ excludeEphemeral: true })
 	}
 
 	async function deleteToken(tokenPrefix: string) {
@@ -84,6 +91,21 @@
 		sendUserToast('Succesfully deleted token')
 		listTokens()
 	}
+
+	function loadSettings() {
+		$codeCompletionSessionEnabled =
+			(getLocalSetting('codeCompletionSessionEnabled') ?? 'true') == 'true'
+		$metadataCompletionEnabled = (getLocalSetting('metadataCompletionEnabled') ?? 'true') == 'true'
+		$stepInputCompletionEnabled =
+			(getLocalSetting('stepInputCompletionEnabled') ?? 'true') == 'true'
+	}
+
+	function updateSetting(store: Writable<boolean>, value: boolean, setting: string) {
+		store.set(value)
+		storeLocalSetting(setting, value.toString())
+	}
+
+	loadSettings()
 </script>
 
 <Drawer bind:this={drawer} size="800px" on:close={removeHash}>
@@ -96,30 +118,32 @@
 				<div class="font-semibold flex items-baseline">
 					Theme: <DarkModeToggle forcedDarkMode={false} />
 				</div>
-				{#if scopes == undefined}
-					<h2 class="border-b mt-4">User info</h2>
-					<div class="">
-						{#if passwordError}
-							<div class="text-red-600 text-2xs grow">{passwordError}</div>
-						{/if}
-						<div class="flex flex-col gap-2 w-full">
-							<div class="mt-4">
-								<label class="block w-60 mb-2 text-tertiary">
-									<div class="text-secondary">email</div>
-									<input
-										type="text"
-										disabled
-										value={$usersWorkspaceStore?.email}
-										class="input mt-1"
-									/>
-								</label>
-								{#if login_type == 'password'}
-									<label class="block w-120">
-										<div class="text-secondary">password</div>
-										<input
-											type="password"
-											bind:value={newPassword}
-											class="
+				<div class="flex flex-wrap md:gap-40 gap-10 mt-2">
+					{#if scopes == undefined}
+						<div>
+							<h2 class="border-b">User info</h2>
+							<div class="">
+								{#if passwordError}
+									<div class="text-red-600 text-2xs grow">{passwordError}</div>
+								{/if}
+								<div class="flex flex-col gap-2 w-full">
+									<div class="mt-4">
+										<label class="block w-60 mb-2 text-tertiary">
+											<div class="text-secondary">email</div>
+											<input
+												type="text"
+												disabled
+												value={$usersWorkspaceStore?.email}
+												class="input mt-1"
+											/>
+										</label>
+										{#if login_type == 'password'}
+											<label class="block w-120">
+												<div class="text-secondary">password</div>
+												<input
+													type="password"
+													bind:value={newPassword}
+													class="
 							w-full
 							block
 							py-1
@@ -131,18 +155,60 @@
 							focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
 							text-sm
 							"
-										/>
-										<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}
-											>Set password</Button
-										>
-									</label>
-								{:else if login_type == 'github'}
-									<span>Authentified through Github OAuth2. Cannot set a password.</span>
-								{/if}
+												/>
+												<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}
+													>Set password</Button
+												>
+											</label>
+										{:else if login_type == 'github'}
+											<span>Authentified through Github OAuth2. Cannot set a password.</span>
+										{/if}
+									</div>
+								</div>
 							</div>
 						</div>
+					{/if}
+					<div>
+						<h2 class="border-b">AI user settings</h2>
+
+						<div class="flex flex-col gap-4 mt-2">
+							<Toggle
+								on:change={(e) => {
+									updateSetting(
+										codeCompletionSessionEnabled,
+										e.detail,
+										'codeCompletionSessionEnabled'
+									)
+								}}
+								checked={$codeCompletionSessionEnabled}
+								options={{
+									right: 'Code completion',
+									rightTooltip: 'AI completion in the code editors'
+								}}
+							/>
+							<Toggle
+								on:change={(e) => {
+									updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
+								}}
+								checked={$metadataCompletionEnabled}
+								options={{
+									right: 'Metadata completion',
+									rightTooltip: 'AI completion for summaries and descriptions'
+								}}
+							/>
+							<Toggle
+								on:change={(e) => {
+									updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
+								}}
+								checked={$stepInputCompletionEnabled}
+								options={{
+									right: 'Flow step input completion',
+									rightTooltip: 'AI completion for flow step inputs'
+								}}
+							/>
+						</div>
 					</div>
-				{/if}
+				</div>
 
 				<div class="grid grid-cols-2 pt-8 pb-1">
 					<h2 class="py-0 my-0 border-b pt-3">Tokens</h2>

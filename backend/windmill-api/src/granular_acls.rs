@@ -12,6 +12,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 use crate::db::ApiAuthed;
 
@@ -39,6 +40,7 @@ async fn add_granular_acl(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write }): Json<GranularAcl>,
 ) -> Result<String> {
@@ -79,6 +81,66 @@ async fn add_granular_acl(
     let _ = not_found_if_none(obj_o, &kind, &path)?;
     tx.commit().await?;
 
+    match kind {
+        "folder" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Folder { path: format!("f/{}", path) },
+                Some(format!("Folder '{}' changed permissions", path)),
+                rsmq,
+                true,
+            )
+            .await?
+        }
+        // "app" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+        //         Some(format!("App '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "script" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Script {
+        //             path: path.to_string(),
+        //             parent_path: None,
+        //             hash: ScriptHash(0),
+        //         },
+        //         Some(format!("Script '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "flow" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
+        //         Some(format!("Flow '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        _ => (),
+    }
+
     Ok("Successfully modified granular acl".to_string())
 }
 
@@ -86,6 +148,7 @@ async fn remove_granular_acl(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write: _ }): Json<GranularAcl>,
 ) -> Result<String> {
@@ -124,12 +187,72 @@ async fn remove_granular_acl(
     ))
     .bind(owner)
     .bind(path)
-    .bind(w_id)
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
     tx.commit().await?;
+
+    match kind {
+        "folder" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Folder { path: format!("f/{}", path) },
+                Some(format!("Folder '{}' changed permissions", path)),
+                rsmq,
+                true,
+            )
+            .await?
+        }
+        // "app" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+        //         Some(format!("App '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "script" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Script {
+        //             path: path.to_string(),
+        //             parent_path: None,
+        //             hash: ScriptHash(0),
+        //         },
+        //         Some(format!("Script '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        // "flow" => {
+        //     handle_deployment_metadata(
+        //         &authed.email,
+        //         &authed.username,
+        //         &db,
+        //         &w_id,
+        //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
+        //         Some(format!("Flow '{}' changed permissions", path)),
+        //         rsmq,
+        //         true,
+        //     )
+        //     .await?
+        // }
+        _ => (),
+    }
 
     Ok("Successfully removed granular acl".to_string())
 }

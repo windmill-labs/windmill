@@ -23,7 +23,10 @@
 </script>
 
 <Drawer bind:this={$drawerStore}>
-	<DrawerContent on:close={$drawerStore.closeDrawer} title="AI Flow Builder">
+	<DrawerContent on:close={$drawerStore.closeDrawer}
+	title="AI Flow Builder"
+	tooltip="Build flows from prompts"
+	documentationLink="https://www.windmill.dev/docs/core_concepts/ai_generation#windmill-ai-for-flows">
 		<div class="flex flex-col gap-6">
 			{#if $flowStore.value.modules.length > 0 && $currentStepStore === undefined}
 				<Alert type="error" title="Flow not empty">All flow steps will be overriden</Alert>
@@ -119,7 +122,10 @@
 									<div class="w-full text-left font-normal">
 										<div class="text-primary flex-wrap text-sm font-medium">
 											{copilotModule.source === 'hub' && copilotModule.selectedCompletion
-												? copilotModule.selectedCompletion.summary
+												? copilotModule.selectedCompletion.summary +
+												  ' (' +
+												  copilotModule.selectedCompletion.app +
+												  ')'
 												: `Generate "${copilotModule.description}" in ${
 														copilotModule.lang === 'bun' ? 'TypeScript' : 'Python'
 												  }`}
@@ -248,7 +254,7 @@
 
 													<div class="text-left font-normal text-sm">
 														<div class="text-primary font-medium">
-															{item.summary ?? ''}
+															{(item.summary ?? '') + ' (' + item['app'] + ')'}
 														</div>
 													</div>
 												</div>

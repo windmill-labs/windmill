@@ -45,7 +45,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.listcomponent, customCss)
 	let result: any[] | undefined = undefined
 
 	$: isCard = resolvedConfig.width?.selected == 'card'
@@ -172,8 +172,7 @@
 								: 'h-0 float overflow-hidden invisible absolute'}
 						>
 							<ListWrapper
-								on:set={(e) => {
-									const { id, value } = e.detail
+								onSet={(id, value) => {
 									if (!inputs[id]) {
 										inputs[id] = { [index]: value }
 									} else {
@@ -181,8 +180,7 @@
 									}
 									outputs?.inputs.set(inputs, true)
 								}}
-								on:remove={(e) => {
-									const id = e.detail
+								onRemove={(id) => {
 									if (inputs?.[id] == undefined) {
 										return
 									}

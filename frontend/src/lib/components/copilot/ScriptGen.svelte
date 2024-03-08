@@ -6,7 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
 	import Popup from '../common/popup/Popup.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -19,9 +19,10 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Ban, Check, ExternalLink, HistoryIcon, Wand2, X, ZapIcon } from 'lucide-svelte'
+	import { Ban, Bot, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
+	import { twMerge } from 'tailwind-merge'
 
 	// props
 	export let iconOnly: boolean = false
@@ -30,6 +31,7 @@
 	export let diffEditor: DiffEditor | undefined
 	export let inlineScript = false
 	export let args: Record<string, any>
+	export let transformer = false
 
 	// state
 	let funcDesc: string = ''
@@ -55,11 +57,12 @@
 			if (mode === 'edit') {
 				await copilot(
 					{
-						language: lang,
+						language: transformer && lang === 'frontend' ? 'transformer' : lang,
 						description: funcDesc,
 						code: editor?.getCode() || '',
 						dbSchema: dbSchema,
-						type: 'edit'
+						type: 'edit',
+						workspace: $workspaceStore!
 					},
 					generatedCode,
 					abortController
@@ -67,10 +70,11 @@
 			} else {
 				await copilot(
 					{
-						language: lang,
+						language: transformer && lang === 'frontend' ? 'transformer' : lang,
 						description: funcDesc,
 						dbSchema: dbSchema,
-						type: 'gen'
+						type: 'gen',
+						workspace: $workspaceStore!
 					},
 					generatedCode,
 					abortController
@@ -85,14 +89,17 @@
 			showDiff()
 			funcDesc = ''
 		} catch (err) {
-			if (err?.message) {
-				sendUserToast('Failed to generate code: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to generate code', true)
-				console.error(err)
+			if (!abortController?.signal.aborted) {
+				if (err?.message) {
+					sendUserToast('Failed to generate code: ' + err.message, true)
+				} else {
+					sendUserToast('Failed to generate code', true)
+					console.error(err)
+				}
 			}
 		} finally {
 			genLoading = false
+			blockPopupOpen = false
 		}
 	}
 
@@ -158,7 +165,11 @@
 
 	let promptHistory: string[] = []
 	function getPromptHistory() {
-		promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+		try {
+			promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 
 	function savePrompt() {
@@ -169,12 +180,20 @@
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
-		localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		try {
+			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
-		localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		try {
+			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 	$: lang && getPromptHistory()
 
@@ -252,17 +271,33 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading ? '!px-3' : '!px-2 !bg-surface-secondary hover:!bg-surface-hover'}
-					nonCaptureEvent={!genLoading}
-					on:click={genLoading ? () => abortController?.abort() : undefined}
+					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
+					propagateEvent
+					on:click={genLoading
+						? () => abortController?.abort()
+						: () => {
+								if (editor) {
+									if (isInitialCode(editor.getCode())) {
+										mode = 'gen'
+									} else {
+										mode = 'edit'
+									}
+								}
+						  }}
 					bind:element={button}
 					iconOnly
-					startIcon={{ icon: genLoading ? Ban : Wand2 }}
+					title="Generate code from Prompt"
+					startIcon={genLoading
+						? { icon: Ban }
+						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses={'!font-medium ' + (genLoading ? 'z-[5000]' : '')}
+					btnClasses={twMerge(
+						'!font-medium',
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
+					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
@@ -280,6 +315,7 @@
 								}
 						  }}
 					bind:element={button}
+					{iconOnly}
 				>
 					{#if genLoading}
 						<WindmillIcon
@@ -291,7 +327,7 @@
 						/>
 						Stop
 					{:else}
-						AI
+						AI Gen
 					{/if}
 				</Button>
 			{/if}
@@ -316,7 +352,7 @@
 						</ToggleButtonGroup>
 
 						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							GPT-4 Turbo<ZapIcon size={14} />
+							GPT-4 Turbo<Bot size={14} />
 						</div>
 					</div>
 					<div class="flex w-96">
@@ -335,9 +371,10 @@
 						/>
 						<Button
 							size="xs"
-							color="blue"
+							color="light"
 							buttonType="button"
-							btnClasses="!p-1 !w-[38px] !ml-2"
+							btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							title="Generate code from prompt"
 							aria-label="Generate"
 							on:click={() => {
 								onGenerate(() => close(input || null))

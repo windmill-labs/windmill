@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use crate::db::ApiAuthed;
 use crate::{
     db::DB,
@@ -24,10 +26,12 @@ use axum::{
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::{
     db::UserDB,
@@ -38,7 +42,7 @@ use windmill_common::{
     scripts::Schema,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, StripPath},
 };
-use windmill_queue::PushArgs;
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
@@ -75,13 +79,12 @@ async fn list_search_flows(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchFlow>> {
-    let mut tx = user_db.begin(&authed).await?;
-
     #[cfg(feature = "enterprise")]
     let n = 1000;
 
     #[cfg(not(feature = "enterprise"))]
     let n = 3;
+    let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as!(
         SearchFlow,
@@ -218,20 +221,27 @@ pub async fn get_hub_flow_by_id(
 pub struct ToggleWorkspaceErrorHandler {
     pub muted: Option<bool>,
 }
+
+#[cfg(not(feature = "enterprise"))]
+async fn toggle_workspace_error_handler(
+    _authed: ApiAuthed,
+    Extension(_user_db): Extension<UserDB>,
+    Path((_w_id, _path)): Path<(String, StripPath)>,
+    Json(_req): Json<ToggleWorkspaceErrorHandler>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Muting the error handler for certain flow is only available in enterprise version"
+            .to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
-    #[cfg(not(feature = "enterprise"))]
-    {
-        return Err(Error::BadRequest(
-            "Muting the error handler for certain flow is only available in enterprise version"
-                .to_string(),
-        ));
-    }
-
     let mut tx = user_db.begin(&authed).await?;
 
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
@@ -354,8 +364,13 @@ async fn create_flow(
     )
     .await?;
 
+    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(dm) = nf.deployment_message {
+        args.insert("deployment_message".to_string(), json!(dm));
+    }
+
     let tx = PushIsolationLevel::Transaction(tx);
-    let (dependency_job_uuid, mut tx) = push(
+    let (dependency_job_uuid, mut new_tx) = push(
         &db,
         tx,
         &w_id,
@@ -363,7 +378,7 @@ async fn create_flow(
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
         },
-        PushArgs::empty(),
+        args,
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -389,10 +404,10 @@ async fn create_flow(
         nf.path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut new_tx)
     .await?;
-    tx.commit().await?;
 
+    new_tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
@@ -520,6 +535,7 @@ async fn update_flow(
     .await?;
 
     if let Some(schedule) = schedule {
+        clear_schedule(tx.transaction_mut(), &flow_path, &w_id).await?;
         schedulables.push(schedule);
     }
 
@@ -566,7 +582,13 @@ async fn update_flow(
 
     let tx = PushIsolationLevel::Transaction(tx);
 
-    let (dependency_job_uuid, mut tx) = push(
+    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Some(dm) = nf.deployment_message {
+        args.insert("deployment_message".to_string(), json!(dm));
+    }
+    args.insert("parent_path".to_string(), json!(flow_path));
+
+    let (dependency_job_uuid, mut new_tx) = push(
         &db,
         tx,
         &w_id,
@@ -574,7 +596,7 @@ async fn update_flow(
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
         },
-        PushArgs::empty(),
+        args,
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -599,17 +621,19 @@ async fn update_flow(
         nf.path,
         w_id
     )
-    .execute(&mut tx)
+    .execute(&mut new_tx)
     .await?;
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE queue SET canceled = true WHERE id = $1",
             old_dep_job
         )
-        .execute(&mut tx)
+        .execute(&mut new_tx)
         .await?;
     }
-    tx.commit().await?;
+
+    new_tx.commit().await?;
+
     Ok(nf.path.to_string())
 }
 
@@ -703,8 +727,10 @@ struct Archived {
 
 async fn archive_flow_by_path(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
@@ -731,6 +757,27 @@ async fn archive_flow_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!(
+            "Flow '{}' {}",
+            path,
+            if archived.archived.unwrap_or(true) {
+                "archived"
+            } else {
+                "unarchived"
+            }
+        )),
+        rsmq,
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::ArchiveFlow { workspace: w_id, path: path.to_owned() },
@@ -741,7 +788,9 @@ async fn archive_flow_by_path(
 
 async fn delete_flow_by_path(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -775,6 +824,32 @@ async fn delete_flow_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!("Flow '{}' deleted", path)),
+        rsmq,
+        true,
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE path = $1 AND workspace_id = $2 AND script_hash IS NULL and app_version IS NULL",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+        ))
+    })?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteFlow { workspace: w_id, path: path.to_owned() },
@@ -812,6 +887,7 @@ mod tests {
                         )]
                         .into(),
                         hash: None,
+                        tag_override: None,
                     },
                     stop_after_if: None,
                     summary: None,
@@ -822,6 +898,7 @@ mod tests {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -847,6 +924,7 @@ mod tests {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -869,6 +947,7 @@ mod tests {
                     mock: None,
                     timeout: None,
                     priority: None,
+                    delete_after_use: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -877,6 +956,7 @@ mod tests {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
                     hash: None,
+                    tag_override: None,
                 },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
@@ -890,14 +970,15 @@ mod tests {
                 mock: None,
                 timeout: None,
                 priority: None,
+                delete_after_use: None,
             }),
             same_worker: false,
             concurrent_limit: None,
             concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
-            ws_error_handler_muted: None,
             priority: None,
+            early_return: None,
         };
         let expect = serde_json::json!({
           "modules": [
@@ -911,7 +992,8 @@ mod tests {
                     }
                   },
                 "type": "script",
-                "path": "test"
+                "path": "test",
+                "tag_override": Option::<String>::None,
               },
             },
             {
@@ -954,7 +1036,8 @@ mod tests {
             "value": {
               "input_transforms": {},
               "type": "script",
-              "path": "test"
+              "path": "test",
+              "tag_override": Option::<String>::None,
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
@@ -990,7 +1073,12 @@ mod tests {
         assert_eq!(
             Retry {
                 constant: Default::default(),
-                exponential: ExponentialDelay { attempts: 0, multiplier: 1, seconds: 123 }
+                exponential: ExponentialDelay {
+                    attempts: 0,
+                    multiplier: 1,
+                    seconds: 123,
+                    random_factor: None
+                }
             },
             serde_json::from_str(
                 r#"
@@ -1008,7 +1096,12 @@ mod tests {
     fn retry_exponential() {
         let retry = Retry {
             constant: ConstantDelay::default(),
-            exponential: ExponentialDelay { attempts: 3, multiplier: 4, seconds: 3 },
+            exponential: ExponentialDelay {
+                attempts: 3,
+                multiplier: 4,
+                seconds: 3,
+                random_factor: None,
+            },
         };
         assert_eq!(
             vec![
@@ -1029,7 +1122,12 @@ mod tests {
     fn retry_both() {
         let retry = Retry {
             constant: ConstantDelay { attempts: 2, seconds: 4 },
-            exponential: ExponentialDelay { attempts: 2, multiplier: 1, seconds: 3 },
+            exponential: ExponentialDelay {
+                attempts: 2,
+                multiplier: 1,
+                seconds: 3,
+                random_factor: None,
+            },
         };
         assert_eq!(
             vec![

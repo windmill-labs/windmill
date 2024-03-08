@@ -19,7 +19,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="900px">
-	<DrawerContent title="Deploy {initialPath} to staging or prod" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Deploy {initialPath}" on:close={drawer.closeDrawer}>
 		{#if kind != undefined && initialPath != undefined}
 			<DeployWorkspace
 				hideButton

@@ -71,7 +71,7 @@
 			</div>
 		</div>
 
-		{#if !$enterpriseLicense}
+		{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 			<Alert title="Redacted audit logs" type="warning">
 				You need an enterprise license to see unredacted audit logs.
 			</Alert>

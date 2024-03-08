@@ -1,21 +1,22 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 	import Popover from '../Popover.svelte'
 
-	export let label: string
+	export let label: string | undefined = undefined
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
-
-	let isSelected = false
+	export let lightMode: boolean = false
 </script>
 
 {#if !disabled}
 	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
 		<button
-			class={classNames(
+			class={twMerge(
 				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
-				isSelected ? 'bg-[#30404e] hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
+				lightMode
+					? 'text-primary hover:bg-surface-hover '
+					: '  hover:bg-[#34363c] text-primary-inverse dark:text-primary',
 				'transition-all',
 				$$props.class
 			)}
@@ -25,23 +26,21 @@
 				<svelte:component
 					this={icon}
 					size={16}
-					class={classNames(
+					class={twMerge(
 						'flex-shrink-0',
-						isSelected
-							? 'text-blue-100 group-hover:text-white'
-							: 'text-gray-100 group-hover:text-white',
+						lightMode
+							? 'text-primary group-hover:text-secondary'
+							: 'text-primary-inverse group-hover:text-secondary-inverse dark:group-hover:text-secondary dark:text-primary',
 						'transition-all'
 					)}
 				/>
 			{/if}
 
-			{#if !isCollapsed}
+			{#if !isCollapsed && label}
 				<span
-					class={classNames(
+					class={twMerge(
 						'whitespace-pre truncate',
-						isSelected
-							? 'text-blue-100 group-hover:text-white font-semibold'
-							: 'text-gray-100 group-hover:text-white',
+						lightMode ? 'text-primary' : 'text-primary-inverse  dark:text-primary',
 						'transition-all',
 						$$props.class
 					)}
@@ -51,7 +50,9 @@
 			{/if}
 		</button>
 		<svelte:fragment slot="text">
-			{label}
+			{#if label}
+				{label}
+			{/if}
 		</svelte:fragment>
 	</Popover>
 {/if}

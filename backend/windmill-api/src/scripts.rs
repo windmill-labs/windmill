@@ -27,11 +27,12 @@ use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     sync::Arc,
 };
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
@@ -39,16 +40,16 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
-        ScriptKind, ScriptLang,
+        ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang,
     },
     users::username_to_permissioned_as,
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
 };
-use windmill_queue::{
-    self, schedule::push_scheduled_job, PushArgs, PushIsolationLevel, QueueTransaction,
-};
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_parser_ts::remove_pinned_imports;
+use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -81,6 +82,14 @@ pub struct ScriptWDraft {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart_unless_cancelled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_key: Option<String>,
 }
 
 pub fn global_service() -> Router {
@@ -108,6 +117,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_script_by_path_w_draft))
         .route("/get/p/*path", get(get_script_by_path))
         .route("/raw/p/*path", get(raw_script_by_path))
+        .route("/raw_unpinned/p/*path", get(raw_script_by_path_unpinned))
         .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
@@ -119,6 +129,11 @@ pub fn workspaced_service() -> Router {
         .route(
             "/toggle_workspace_error_handler/p/*path",
             post(toggle_workspace_error_handler),
+        )
+        .route("/history/p/*path", get(get_script_history))
+        .route(
+            "/history_update/h/:hash/p/*path",
+            post(update_script_history),
         )
 }
 
@@ -310,9 +325,10 @@ async fn create_script(
         ));
     }
 
+    let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
-    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), user_db.begin(&authed).await?).into();
 
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -445,8 +461,6 @@ async fn create_script(
         Some(String::new())
     } else {
         ns.lock
-            .as_ref()
-            .map(|x| x.join("\n"))
             .and_then(|e| if e.is_empty() { None } else { Some(e) })
     };
 
@@ -463,8 +477,9 @@ async fn create_script(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-         dedicated_worker, ws_error_handler_muted, priority) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)",
+         dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+         delete_after_use, timeout, concurrency_key) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)",
         &w_id,
         &hash.0,
         ns.path,
@@ -488,11 +503,16 @@ async fn create_script(
         ns.dedicated_worker,
         ns.ws_error_handler_muted.unwrap_or(false),
         ns.priority,
+        ns.restart_unless_cancelled,
+        ns.delete_after_use,
+        ns.timeout,
+        ns.concurrency_key,
     )
     .execute(&mut tx)
     .await?;
 
-    if let Some(p_path) = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone()) {
+    let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
+    if let Some(ref p_path) = p_path_opt {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
             p_path,
@@ -587,37 +607,39 @@ async fn create_script(
         );
     }
 
-    let mut tx = PushIsolationLevel::Transaction(tx);
-
+    let permissioned_as = username_to_permissioned_as(&authed.username);
     if needs_lock_gen {
-        let dependencies = match ns.language {
-            ScriptLang::Python3 => {
-                windmill_parser_py_imports::parse_python_imports(&ns.content, &w_id, &ns.path, &db)
-                    .await?
-                    .join("\n")
-            }
-            _ => ns.content,
-        };
         let tag = if ns.dedicated_worker.is_some_and(|x| x) {
             Some(format!("{}:{}", &w_id, &ns.path,))
+        } else if ns.tag.as_ref().is_some_and(|x| x.contains("$args[")) {
+            None
         } else {
             ns.tag
         };
+
+        let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+        if let Some(dm) = ns.deployment_message {
+            args.insert("deployment_message".to_string(), json!(dm));
+        }
+        if let Some(ref p_path) = p_path_opt {
+            args.insert("parent_path".to_string(), json!(p_path));
+        }
+
+        let tx = PushIsolationLevel::Transaction(tx);
         let (_, new_tx) = windmill_queue::push(
             &db,
             tx,
             &w_id,
             JobPayload::Dependencies {
                 hash,
-                dependencies,
                 language: ns.language,
                 path: ns.path,
                 dedicated_worker: ns.dedicated_worker,
             },
-            PushArgs::empty(),
+            args,
             &authed.username,
             &authed.email,
-            username_to_permissioned_as(&authed.username),
+            permissioned_as,
             None,
             None,
             None,
@@ -633,16 +655,24 @@ async fn create_script(
             None,
         )
         .await?;
-        tx = PushIsolationLevel::Transaction(new_tx);
-    }
-
-    match tx {
-        PushIsolationLevel::Transaction(tx) => tx.commit().await?,
-        _ => {
-            return Err(Error::InternalErr(
-                "Expected a transaction here".to_string(),
-            ));
-        }
+        new_tx.commit().await?;
+    } else {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Script {
+                hash: hash.clone(),
+                path: script_path.clone(),
+                parent_path: p_path_opt,
+            },
+            ns.deployment_message,
+            rsmq,
+            false,
+        )
+        .await?;
+        tx.commit().await?;
     }
 
     Ok((StatusCode::CREATED, format!("{}", hash)))
@@ -696,7 +726,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
@@ -710,6 +740,54 @@ async fn get_script_by_path_w_draft(
 
     let script = not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn get_script_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<ScriptHistory>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let query_result = sqlx::query!(
+        "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
+        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
+        WHERE s.workspace_id = $1 AND s.path = $2
+        ORDER by created_at DESC",
+        w_id,
+        path.to_path(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let result: Vec<ScriptHistory> = query_result
+        .into_iter()
+        .map(|row| ScriptHistory {
+            script_hash: ScriptHash(row.hash),
+            deployment_msg: row.deployment_msg,
+        })
+        .collect();
+    return Ok(Json(result));
+}
+
+async fn update_script_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_hash, script_path)): Path<(String, ScriptHash, StripPath)>,
+    Json(script_history_update): Json<ScriptHistoryUpdate>,
+) -> Result<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        w_id,
+        script_path.to_path(),
+        script_hash.0,
+        script_history_update.deployment_msg,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    return Ok(());
 }
 
 async fn list_paths(
@@ -734,20 +812,27 @@ async fn list_paths(
 pub struct ToggleWorkspaceErrorHandler {
     pub muted: Option<bool>,
 }
+
+#[cfg(not(feature = "enterprise"))]
+async fn toggle_workspace_error_handler(
+    _authed: ApiAuthed,
+    Extension(_user_db): Extension<UserDB>,
+    Path((_w_id, _path)): Path<(String, StripPath)>,
+    Json(_req): Json<ToggleWorkspaceErrorHandler>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Muting the error handler for certain script is only available in enterprise version"
+            .to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
-    #[cfg(not(feature = "enterprise"))]
-    {
-        return Err(Error::BadRequest(
-            "Muting the error handler for certain script is only available in enterprise version"
-                .to_string(),
-        ));
-    }
-
     let mut tx = user_db.begin(&authed).await?;
 
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
@@ -801,6 +886,24 @@ async fn raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    raw_script_by_path_internal(path, user_db, authed, w_id, false).await
+}
+
+async fn raw_script_by_path_unpinned(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    raw_script_by_path_internal(path, user_db, authed, w_id, true).await
+}
+
+async fn raw_script_by_path_internal(
+    path: StripPath,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    w_id: String,
+    unpin: bool,
+) -> Result<String> {
     let path = path.to_path();
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
@@ -814,6 +917,8 @@ async fn raw_script_by_path(
     }
     let path = path
         .trim_end_matches(".py")
+        .trim_end_matches(".bun.ts")
+        .trim_end_matches(".deno.ts")
         .trim_end_matches(".ts")
         .trim_end_matches(".go")
         .trim_end_matches(".sh");
@@ -832,7 +937,12 @@ async fn raw_script_by_path(
     tx.commit().await?;
 
     let content = not_found_if_none(content_o, "Script", path)?;
-    Ok(content)
+
+    if unpin {
+        return Ok(remove_pinned_imports(&content)?);
+    } else {
+        return Ok(content);
+    }
 }
 
 async fn exists_script_by_path(
@@ -939,6 +1049,7 @@ async fn archive_script_by_path(
     Extension(webhook): Extension<WebhookShared>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
     let path = path.to_path();
@@ -965,6 +1076,23 @@ async fn archive_script_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Script {
+            hash: ScriptHash(0), // dummy hash as it will not get inserted in db
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+        },
+        Some(format!("Script '{}' archived", path)),
+        rsmq,
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
@@ -1054,6 +1182,7 @@ async fn delete_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<String> {
     let path = path.to_path();
@@ -1087,6 +1216,14 @@ async fn delete_script_by_path(
     .await
     .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e}")))?;
 
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed.username,
@@ -1098,6 +1235,35 @@ async fn delete_script_by_path(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Script {
+            hash: ScriptHash(0), // Temporary value as it will get removed right after
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+        },
+        Some(format!("Script '{}' deleted", path)),
+        rsmq,
+        true,
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE path = $1 AND workspace_id = $2 AND script_hash IS NOT NULL",
+        path,
+        w_id
+    )
+    .execute(&db)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+        ))
+    })?;
 
     webhook.send_message(
         w_id.clone(),

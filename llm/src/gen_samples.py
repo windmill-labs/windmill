@@ -121,7 +121,7 @@ def gen_samples(queries_path: str, answers_path: str, prompts_path: str):
         )
         client = openai.OpenAI()
         chat_completion = client.chat.completions.create(
-            model="gpt-4-1106-preview",
+            model="gpt-4-0125-preview",
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},

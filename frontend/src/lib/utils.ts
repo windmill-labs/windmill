@@ -49,6 +49,19 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 	}
 }
 
+export function displayTime(dateString: string | Date | undefined): string {
+	const date = new Date(dateString ?? '')
+	if (date.toString() === 'Invalid Date') {
+		return ''
+	} else {
+		return `${date.toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		})}.${date.getMilliseconds()}`
+	}
+}
+
 export function displaySize(sizeInBytes: number | undefined): string | undefined {
 	if (sizeInBytes === undefined) {
 		return undefined
@@ -103,10 +116,20 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
+const portalDivs = ['app-editor-select']
+
 export function clickOutside(node: Node, capture?: boolean): { destroy(): void } {
 	const handleClick = (event: MouseEvent) => {
-		if (node && !node.contains(<HTMLElement>event.target) && !event.defaultPrevented) {
-			node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
+		const target = event.target as HTMLElement
+
+		if (node && !node.contains(target) && !event.defaultPrevented) {
+			const portalDivsSelector = portalDivs.map((id) => `#${id}`).join(', ')
+
+			const parent = target.closest(portalDivsSelector)
+
+			if (!parent) {
+				node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
+			}
 		}
 	}
 
@@ -337,6 +360,7 @@ export type InputCat =
 	| 'object'
 	| 'sql'
 	| 'yaml'
+	| 'currency'
 
 export function setInputCat(
 	type: string | undefined,
@@ -367,6 +391,8 @@ export function setInputCat(
 		return 'base64'
 	} else if (type == 'string' && format == 'email') {
 		return 'email'
+	} else if (type == 'string' && format == 'currency') {
+		return 'currency'
 	} else {
 		return 'string'
 	}
@@ -444,7 +470,7 @@ export function addWhitespaceBeforeCapitals(word?: string): string {
 }
 
 export function isObject(obj: any) {
-	return typeof obj === 'object'
+	return obj != null && typeof obj === 'object'
 }
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
@@ -475,7 +501,7 @@ export function isMac(): boolean {
 }
 
 export function getModifierKey(): string {
-	return isMac() ? '⌘' : 'Ctrl'
+	return isMac() ? '⌘' : 'Ctrl+'
 }
 
 export function isValidHexColor(color: string): boolean {
@@ -511,9 +537,14 @@ export function deepMergeWithPriority<T>(target: T, source: T): T {
 
 	for (const key in source) {
 		if (source.hasOwnProperty(key) && merged?.hasOwnProperty(key)) {
+			console.log(target)
 			if (target?.hasOwnProperty(key)) {
 				merged[key] = deepMergeWithPriority(target[key], source[key])
 			} else {
+				merged[key] = source[key]
+			}
+		} else {
+			if (merged) {
 				merged[key] = source[key]
 			}
 		}
@@ -657,6 +688,7 @@ export function roughSizeOfObject(object: object | string) {
 	if (typeof object == 'string') {
 		return object.length * 2
 	}
+
 	var objectList: any[] = []
 	var stack = [object]
 	var bytes = 0
@@ -711,8 +743,91 @@ export function orderedJsonStringify(obj: any, space?: string | number) {
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }
 
+function sortObjectKeys(obj: any): any {
+	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+		const sortedObj: any = {}
+		Object.keys(obj)
+			.sort()
+			.forEach((key) => {
+				sortedObj[key] = sortObjectKeys(obj[key])
+			})
+		return sortedObj
+	} else if (Array.isArray(obj)) {
+		return obj.map((item) => sortObjectKeys(item))
+	} else {
+		return obj
+	}
+}
+
 export function orderedYamlStringify(obj: any) {
-	const allKeys = new Set()
-	YAML.stringify(obj, (key, value) => (allKeys.add(key), value))
-	return YAML.stringify(obj, (Array.from(allKeys) as string[]).sort())
+	const sortedObj = sortObjectKeys(obj)
+	return YAML.stringify(sortedObj)
+}
+
+function evalJs(expr: string) {
+	let template = `
+return function (fields) {
+"use strict";
+return ${expr.startsWith('return ') ? expr.substring(7) : expr}
+}
+`
+	let functor = Function(template)
+	return functor()
+}
+export function computeShow(argName: string, expr: string | undefined, args: any) {
+	if (expr) {
+		try {
+			let r = evalJs(expr)(args ?? {})
+			if (!r && args[argName] !== undefined) {
+				delete args[argName]
+			}
+			return r
+		} catch (e) {
+			console.error(`Impossible to eval ${expr}:`, e)
+			return true
+		}
+	}
+	return true
+}
+
+function urlizeTokenInternal(token: string, formatter: 'html' | 'md'): string {
+	if (token.startsWith('http://') || token.startsWith('https://')) {
+		if (formatter == 'html') {
+			return `<a href="${token}" target="_blank" rel="noopener noreferrer">${token}</a>`
+		} else {
+			return `[${token}](${token})`
+		}
+	} else {
+		return token
+	}
+}
+
+export function urlize(input: string, formatter: 'html' | 'md'): string {
+	if (!input) return ''
+
+	return input
+		.split('\n')
+		.map((line) => {
+			return line
+				.split(' ')
+				.map((word) => urlizeTokenInternal(word, formatter))
+				.join(' ')
+		})
+		.join('\n')
+}
+
+export function storeLocalSetting(name: string, value: string | undefined) {
+	if (value != undefined) {
+		localStorage.setItem(name, value)
+	} else {
+		localStorage.removeItem(name)
+	}
+}
+
+export function getLocalSetting(name: string) {
+	try {
+		return localStorage.getItem(name)
+	} catch (e) {
+		return undefined
+	}
 }

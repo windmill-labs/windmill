@@ -8,7 +8,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import { RawScript, type FlowModule, Script } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -19,6 +19,7 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
+	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
@@ -55,6 +56,7 @@
 	export let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let noEditor: boolean
+	export let enableAi: boolean
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -65,12 +67,12 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false,
-		bun: false
+		shellcheck: false
 	}
 	let selected = 'inputs'
 	let advancedSelected = 'retries'
-	let s3Kind = 'push'
+	let advancedRuntimeSelected = 'concurrency'
+	let s3Kind = 's3_client'
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
@@ -176,7 +178,14 @@
 
 {#if flowModule.value}
 	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
-		<FlowCard {noEditor} bind:flowModule>
+		<FlowCard
+			on:reload={() => {
+				forceReload++
+				reload(flowModule)
+			}}
+			{noEditor}
+			bind:flowModule
+		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
@@ -184,7 +193,7 @@
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleMock={() => selectAdvanced('mock')}
 					on:toggleRetry={() => selectAdvanced('retries')}
-					on:toggleConcurrency={() => selectAdvanced('concurrency')}
+					on:toggleConcurrency={() => selectAdvanced('runtime')}
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
@@ -252,8 +261,8 @@
 										bind:this={editor}
 										class="h-full relative"
 										bind:code={flowModule.value.content}
-										deno={flowModule.value.language === RawScript.language.DENO}
 										lang={scriptLangToEditorLang(flowModule.value.language)}
+										scriptLang={flowModule.value.language}
 										automaticLayout={true}
 										cmdEnterAction={async () => {
 											selected = 'test'
@@ -310,7 +319,9 @@
 							<Tab value="test">Test this step</Tab>
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
-						<div class="h-[calc(100%-32px)]">
+						<div
+							class={advancedSelected === 'runtime' ? 'h-[calc(100%-64px)]' : 'h-[calc(100%-32px)]'}
+						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
 								<div class="h-full overflow-auto" id="flow-editor-step-input">
 									<PropPickerWrapper
@@ -319,10 +330,12 @@
 									>
 										<InputTransformSchemaForm
 											bind:this={inputTransformSchemaForm}
+											pickableProperties={stepPropPicker.pickableProperties}
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											previousModuleId={previousModule?.id}
 											bind:args={flowModule.value.input_transforms}
 											extraLib={stepPropPicker.extraLib}
+											{enableAi}
 										/>
 									</PropPickerWrapper>
 								</div>
@@ -333,53 +346,48 @@
 									mod={flowModule}
 									{editor}
 									{diffEditor}
+									{noEditor}
 									lang={flowModule.value['language'] ?? 'deno'}
 									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
 							{:else if selected === 'advanced'}
 								<Tabs bind:selected={advancedSelected}>
-									<Tab value="retries">Retries</Tab>
+									<Tab value="retries" active={flowModule.retry !== undefined}>Retries</Tab>
 									{#if !$selectedId.includes('failure')}
-										<Tab value="cache">Cache</Tab>
-										<Tab value="concurrency">Concurrency</Tab>
-										<Tab value="early-stop">Early Stop</Tab>
-										<Tab value="suspend">Suspend</Tab>
-										<Tab value="sleep">Sleep</Tab>
-										<Tab value="mock">Mock</Tab>
+										<Tab value="runtime">Runtime</Tab>
+										<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
+										<Tab value="early-stop" active={Boolean(flowModule.stop_after_if)}>
+											Early Stop
+										</Tab>
+										<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
+										<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
+										<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
 										<Tab value="same_worker">Shared Directory</Tab>
-										<Tab value="timeout">Timeout</Tab>
-										<Tab value="priority">Priority</Tab>
 										{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
 											<Tab value="s3">S3</Tab>
 										{/if}
 									{/if}
 								</Tabs>
+								{#if advancedSelected === 'runtime'}
+									<Tabs bind:selected={advancedRuntimeSelected}>
+										<Tab value="concurrency">Concurrency</Tab>
+										<Tab value="timeout">Timeout</Tab>
+										<Tab value="priority">Priority</Tab>
+										<Tab value="lifetime">Lifetime</Tab>
+									</Tabs>
+								{/if}
 								<div class="h-[calc(100%-32px)] overflow-auto p-4">
 									{#if advancedSelected === 'retries'}
-										<FlowRetries bind:flowModule />
-									{:else if advancedSelected === 'early-stop'}
-										<FlowModuleEarlyStop bind:flowModule />
-									{:else if advancedSelected === 'suspend'}
-										<div>
-											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'sleep'}
-										<div>
-											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'cache'}
-										<div>
-											<FlowModuleCache bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'mock'}
-										<div>
-											<FlowModuleMock bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'timeout'}
-										<div>
-											<FlowModuleTimeout bind:flowModule />
-										</div>
-									{:else if advancedSelected === 'concurrency'}
+										<Section label="Retries">
+											<svelte:fragment slot="header">
+												<Tooltip documentationLink="https://www.windmill.dev/docs/flows/retries">
+													If defined, upon error this step will be retried with a delay and a
+													maximum number of attempts as defined below.
+												</Tooltip>
+											</svelte:fragment>
+											<FlowRetries bind:flowModuleRetry={flowModule.retry} />
+										</Section>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 										<Section label="Concurrency Limits" class="flex flex-col gap-4" eeOnly>
 											<svelte:fragment slot="header">
 												<Tooltip>Allowed concurrency within a given timeframe</Tooltip>
@@ -412,6 +420,12 @@
 														bind:seconds={flowModule.value.concurrency_time_window_s}
 													/>
 												</Label>
+												<Label label="Custom concurrency key">
+													<div class="text-tertiary text-xs"
+														>Custom concurrency keys can only be set as the setting of a workspace
+														script</div
+													>
+												</Label>
 											{:else}
 												<Alert type="warning" title="Limitation" size="xs">
 													The concurrency limit of a workspace script is only settable in the script
@@ -419,6 +433,79 @@
 												</Alert>
 											{/if}
 										</Section>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'timeout'}
+										<div>
+											<FlowModuleTimeout bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'priority'}
+										<Section label="Priority" class="flex flex-col gap-4">
+											<!-- TODO: Add EE-only badge when we have it -->
+											<Toggle
+												disabled={!$enterpriseLicense || isCloudHosted()}
+												checked={flowModule.priority !== undefined && flowModule.priority > 0}
+												on:change={() => {
+													if (flowModule.priority) {
+														flowModule.priority = undefined
+													} else {
+														flowModule.priority = 100
+													}
+												}}
+												options={{
+													right: 'Enabled high priority flow step',
+													rightTooltip: `Jobs scheduled from this step when the flow is executed are labeled as high priority and take precedence over the other jobs in the jobs queue. ${
+														!$enterpriseLicense
+															? 'This is a feature only available on enterprise edition.'
+															: ''
+													}`
+												}}
+											/>
+											<Label label="Priority number">
+												<svelte:fragment slot="header">
+													<Tooltip>The higher the number, the higher the priority.</Tooltip>
+												</svelte:fragment>
+												<input
+													type="number"
+													class="!w-24"
+													disabled={flowModule.priority === undefined}
+													bind:value={flowModule.priority}
+													on:focus
+													on:change={() => {
+														if (flowModule.priority && flowModule.priority > 100) {
+															flowModule.priority = 100
+														} else if (flowModule.priority && flowModule.priority < 0) {
+															flowModule.priority = 0
+														}
+													}}
+												/>
+											</Label>
+
+											<Alert type="warning" title="Limitation" size="xs">
+												Setting priority is only available for enterprise edition and not available
+												on the cloud.
+											</Alert>
+										</Section>
+									{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'lifetime'}
+										<div>
+											<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
+										</div>
+									{:else if advancedSelected === 'cache'}
+										<div>
+											<FlowModuleCache bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'early-stop'}
+										<FlowModuleEarlyStop bind:flowModule />
+									{:else if advancedSelected === 'suspend'}
+										<div>
+											<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'sleep'}
+										<div>
+											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'mock'}
+										<div>
+											<FlowModuleMock bind:flowModule />
+										</div>
 									{:else if advancedSelected === 'same_worker'}
 										<div>
 											<Alert type="info" title="Share a directory between steps">
@@ -434,64 +521,29 @@
 												Set shared directory in the flow settings
 											</Button>
 										</div>
-									{:else if advancedSelected === 'priority'}
-										<Section label="Priority" class="flex flex-col gap-4">
-											<!-- TODO: Add EE-only badge when we have it -->
-											<Toggle
-												disabled={!$enterpriseLicense || isCloudHosted()}
-												checked={flowModule.priority !== undefined && flowModule.priority > 0}
-												on:change={() => {
-													if (flowModule.priority) {
-														flowModule.priority = undefined
-													} else {
-														flowModule.priority = 100
-													}
-												}}
-												options={{
-													right: 'High priority flow step',
-													rightTooltip: `Jobs scheduled from this step when the flow is executed are labeled as high priority and take precedence over the other jobs in the jobs queue. ${
-														!$enterpriseLicense
-															? 'This is a feature only available on enterprise edition.'
-															: ''
-													}`
-												}}
-											>
-												<svelte:fragment slot="right">
-													<input
-														type="number"
-														class="!w-14 ml-4"
-														disabled={flowModule.priority === undefined}
-														bind:value={flowModule.priority}
-														on:focus
-														on:change={() => {
-															if (flowModule.priority && flowModule.priority > 100) {
-																flowModule.priority = 100
-															} else if (flowModule.priority && flowModule.priority < 0) {
-																flowModule.priority = 0
-															}
-														}}
-													/>
-												</svelte:fragment>
-											</Toggle>
-										</Section>
 									{:else if advancedSelected === 's3'}
 										<div>
 											<h2 class="pb-4">
 												S3 snippets
 												<Tooltip>
-													Pull, push and aggregate snippets for S3, particularly useful for ETL
-													processes.
+													Read/Write object from/to S3 and leverage Polars and DuckDB to run
+													efficient ETL processes.
 												</Tooltip>
 											</h2>
 										</div>
 										<div class="flex gap-2 justify-between mb-4 items-center">
 											<div class="flex gap-2">
 												<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
-													<ToggleButton value="push" size="sm" label="Push" />
-													<ToggleButton value="pull" size="sm" label="Pull" />
-													<ToggleButton value="aggregate" size="sm" label="Aggregate" />
+													{#if flowModule.value['language'] === 'deno'}
+														<ToggleButton value="s3_client" size="sm" label="S3 lite client" />
+													{:else}
+														<ToggleButton value="s3_client" size="sm" label="Boto3" />
+														<ToggleButton value="polars" size="sm" label="Polars" />
+														<ToggleButton value="duckdb" size="sm" label="DuckDB" />
+													{/if}
 												</ToggleButtonGroup>
 											</div>
+
 											<Button
 												size="xs"
 												on:click={() =>
@@ -501,7 +553,7 @@
 											</Button>
 										</div>
 										<HighlightCode
-											language={Script.language.DENO}
+											language={flowModule.value['language']}
 											code={s3Scripts[flowModule.value['language']][s3Kind]}
 										/>
 									{/if}

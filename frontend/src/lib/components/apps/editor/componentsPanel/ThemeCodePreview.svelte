@@ -29,6 +29,5 @@
 		small
 		automaticLayout
 		bind:this={cssEditor}
-		deno={false}
 	/>
 </div>

@@ -14,7 +14,8 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{db::UserDB, users::username_to_permissioned_as};
 use windmill_common::{
@@ -43,6 +44,7 @@ pub fn global_service() -> Router {
         .route("/list", get(list_igroups))
         .route("/get/:name", get(get_igroup))
         .route("/create", post(create_igroup))
+        .route("/update/:name", post(update_igroup))
         .route("/delete/:name", delete(delete_igroup))
         .route("/adduser/:name", post(add_user_igroup))
         .route("/removeuser/:name", post(remove_user_igroup))
@@ -292,14 +294,59 @@ async fn create_igroup(
     Ok(format!("Created group {}", ng.name))
 }
 
-async fn delete_igroup(
+#[derive(Deserialize)]
+struct IGroupUpdate {
+    new_summary: String,
+}
+
+async fn update_igroup(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Json(ng): Json<NewGroup>,
+    Path(name): Path<String>,
+    Json(igroup_update): Json<IGroupUpdate>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
-    sqlx::query!("DELETE FROM instance_group WHERE name = $1", ng.name,)
+
+    let exists_opt = sqlx::query("SELECT 1 FROM instance_group WHERE name = $1")
+        .bind(name.clone())
+        .fetch_optional(&mut *tx)
+        .await?;
+    not_found_if_none(exists_opt, "instance_group", name.clone())?;
+
+    sqlx::query("UPDATE instance_group SET summary = $1 WHERE name = $2")
+        .bind(igroup_update.new_summary)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "igroup.updated",
+        ActionKind::Delete,
+        "global",
+        Some(&name.to_string()),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok(format!("Deleted group {}", name))
+}
+
+async fn delete_igroup(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(name): Path<String>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    sqlx::query!("DELETE FROM instance_group WHERE name = $1", name)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", name)
         .execute(&mut *tx)
         .await?;
 
@@ -309,13 +356,13 @@ async fn delete_igroup(
         "igroup.delete",
         ActionKind::Delete,
         "global",
-        Some(&ng.name.to_string()),
+        Some(&name.to_string()),
         None,
     )
     .await?;
 
     tx.commit().await?;
-    Ok(format!("Created group {}", ng.name))
+    Ok(format!("Deleted group {}", name))
 }
 
 pub async fn get_group_opt<'c>(
@@ -535,6 +582,7 @@ async fn add_user_igroup(
 #[derive(Serialize)]
 struct IGroup {
     name: String,
+    summary: Option<String>,
     emails: Option<Vec<String>>,
 }
 async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
@@ -542,7 +590,7 @@ async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
 
     let groups = sqlx::query_as!(
         IGroup,
-        "SELECT name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -554,7 +602,7 @@ async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
 async fn get_igroup(Path(name): Path<String>, Extension(db): Extension<DB>) -> JsonResult<IGroup> {
     let group = sqlx::query_as!(
         IGroup,
-        "SELECT name, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name",
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name",
         name
     )
     .fetch_optional(&db)

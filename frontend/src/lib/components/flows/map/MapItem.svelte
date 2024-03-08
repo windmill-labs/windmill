@@ -3,14 +3,21 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { Building, ClipboardCopy, GitBranchPlus, Repeat, Square } from 'lucide-svelte'
+	import {
+		Building,
+		ClipboardCopy,
+		GitBranchPlus,
+		Repeat,
+		Square,
+		ArrowDown,
+		GitBranch
+	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
-	import { ArrowDown, GitBranch } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	export let mod: FlowModule
@@ -23,7 +30,8 @@
 	export let modules: FlowModule[]
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
-	export let disableAi
+	export let disableAi: boolean = false
+	export let wrapperId: string | undefined = undefined
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
 
@@ -34,6 +42,7 @@
 			modules: FlowModule[]
 			index: number
 			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'move'
+			script?: { path: string; summary: string; hash: string | undefined }
 		}
 		select: string
 		newBranch: { module: FlowModule }
@@ -72,6 +81,7 @@
 						dispatch('insert', { modules, index: idx, detail: 'move' })
 					}}
 					type="button"
+					disabled={wrapperId === moving}
 					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
 					<ClipboardCopy class="m-[5px]" size={15} />
@@ -81,6 +91,9 @@
 					{disableAi}
 					bind:open={openMenu}
 					{trigger}
+					on:insert={(e) => {
+						dispatch('insert', { modules, index: idx + 1, detail: 'script', script: e.detail })
+					}}
 					on:new={(e) => {
 						dispatch('insert', { modules, index: idx, detail: e.detail })
 					}}
@@ -152,7 +165,7 @@
 					on:click={() => dispatch('select', mod.id)}
 					id={mod.id}
 					{...itemProps}
-					label={mod.summary || 'Run all branches'}
+					label={mod.summary || `Run all branches${ mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
 				>
 					<div slot="icon">
@@ -216,6 +229,7 @@
 						dispatch('insert', { modules, index: idx + 1, detail: 'move' })
 					}}
 					type="button"
+					disabled={wrapperId === moving}
 					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
 					<ClipboardCopy class="m-[5px]" size={15} />
@@ -225,6 +239,9 @@
 					{disableAi}
 					bind:open={openMenu2}
 					{trigger}
+					on:insert={(e) => {
+						dispatch('insert', { modules, index: idx + 1, detail: 'script', script: e.detail })
+					}}
 					on:new={(e) => {
 						dispatch('insert', { modules, index: idx + 1, detail: e.detail })
 					}}

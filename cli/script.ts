@@ -4,6 +4,7 @@ import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
   Command,
+  Confirm,
   JobService,
   log,
   NewScript,
@@ -12,8 +13,32 @@ import {
   ScriptService,
   Table,
   writeAllSync,
-  yamlParse,
+  yamlStringify,
 } from "./deps.ts";
+import { deepEqual } from "./utils.ts";
+import {
+  defaultScriptMetadata,
+  scriptBootstrapCode,
+} from "./bootstrap/script_bootstrap.ts";
+
+import { Workspace } from "./workspace.ts";
+import { generateMetadataInternal, parseMetadataFile } from "./metadata.ts";
+import {
+  ScriptLanguage,
+  inferContentTypeFromFilePath,
+} from "./script_common.ts";
+import {
+  elementsToMap,
+  readDirRecursiveWithIgnore,
+  yamlOptions,
+} from "./sync.ts";
+import { ignoreF } from "./sync.ts";
+import { FSFSElement } from "./sync.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readConfigFile,
+} from "./conf.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -27,6 +52,7 @@ export interface ScriptFile {
 
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string) {
+  opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
 
   if (!validatePath(filePath)) {
@@ -45,18 +71,28 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
-  await handleFile(filePath, workspace.workspaceId, []);
+  const globalDeps = await findGlobalDeps();
+  await handleFile(filePath, workspace, [], undefined, opts, globalDeps);
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
 export async function handleScriptMetadata(
   path: string,
-  workspace: string,
-  alreadySynced: string[]
+  workspace: Workspace,
+  alreadySynced: string[],
+  message: string | undefined,
+  globalDeps: GlobalDeps
 ): Promise<boolean> {
   if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
     const contentPath = await findContentFile(path);
-    return handleFile(contentPath, workspace, alreadySynced);
+    return handleFile(
+      contentPath,
+      workspace,
+      alreadySynced,
+      message,
+      undefined,
+      globalDeps
+    );
   } else {
     return false;
   }
@@ -64,18 +100,15 @@ export async function handleScriptMetadata(
 
 export async function handleFile(
   path: string,
-  workspace: string,
-  alreadySynced: string[]
+  workspace: Workspace,
+  alreadySynced: string[],
+  message: string | undefined,
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined,
+  globalDeps: GlobalDeps
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
-    (path.endsWith(".ts") ||
-      path.endsWith(".py") ||
-      path.endsWith(".go") ||
-      path.endsWith(".sh") ||
-      path.endsWith(".sql") ||
-      path.endsWith(".gql") ||
-      path.endsWith(".ps1"))
+    exts.some((exts) => path.endsWith(exts))
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -86,27 +119,21 @@ export async function handleFile(
     const remotePath = path
       .substring(0, path.indexOf("."))
       .replaceAll("\\", "/");
-    const metaPath = remotePath + ".script.json";
-    let typed = undefined;
-    try {
-      await Deno.stat(metaPath);
-      typed = JSON.parse(await Deno.readTextFile(metaPath));
-    } catch {
-      const metaPath = remotePath + ".script.yaml";
-      try {
-        await Deno.stat(metaPath);
-        typed = yamlParse(await Deno.readTextFile(metaPath));
-      } catch {
-        // no meta file
-      }
-    }
+    const typed = (
+      await parseMetadataFile(
+        remotePath,
+        opts ? { ...opts, path, workspaceRemote: workspace } : undefined,
+        globalDeps
+      )
+    )?.payload;
+    const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
-    const language = inferContentTypeFromFilePath(path);
+    const workspaceId = workspace.workspaceId;
 
     let remote = undefined;
     try {
       remote = await ScriptService.getScriptByPath({
-        workspace,
+        workspace: workspaceId,
         path: remotePath.replaceAll("\\", "/"),
       });
       log.debug(`Script ${remotePath} exists on remote`);
@@ -121,32 +148,40 @@ export async function handleFile(
           typed == undefined ||
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
-            typed.is_template === remote.is_template &&
             typed.kind == remote.kind &&
             !remote.archived &&
-            remote?.lock == typed.lock?.join("\n") &&
-            JSON.stringify(typed.schema) == JSON.stringify(remote.schema))
+            (Array.isArray(remote?.lock)
+              ? remote?.lock?.join("\n")
+              : remote?.lock ?? ""
+            ).trim() == (typed?.lock ?? "").trim() &&
+            deepEqual(typed.schema, remote.schema) &&
+            typed.tag == remote.tag &&
+            (typed.ws_error_handler_muted ?? false) ==
+              remote.ws_error_handler_muted &&
+            typed.dedicated_worker == remote.dedicated_worker &&
+            typed.cache_ttl == remote.cache_ttl &&
+            typed.concurrency_time_window_s ==
+              remote.concurrency_time_window_s &&
+            typed.concurrent_limit == remote.concurrent_limit &&
+            Boolean(typed.restart_unless_cancelled) ==
+              Boolean(remote.restart_unless_cancelled))
         ) {
-          log.info(
-            colors.yellow(
-              `No change to push for script ${remotePath}, skipping`
-            )
-          );
+          log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
         }
       }
+
       log.info(
         colors.yellow.bold(`Creating script with a parent ${remotePath}`)
       );
       await ScriptService.createScript({
-        workspace,
+        workspace: workspaceId,
         requestBody: {
           content,
           description: typed?.description ?? "",
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: typed?.lock,
           parent_hash: remote.hash,
@@ -157,6 +192,8 @@ export async function handleFile(
           cache_ttl: typed?.cache_ttl,
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
+          deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     } else {
@@ -165,14 +202,13 @@ export async function handleFile(
       );
       // no parent hash
       await ScriptService.createScript({
-        workspace: workspace,
+        workspace: workspaceId,
         requestBody: {
           content,
           description: typed?.description ?? "",
           language: language as NewScript.language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
-          is_template: typed?.is_template,
           kind: typed?.kind,
           lock: typed?.lock,
           parent_hash: undefined,
@@ -183,6 +219,8 @@ export async function handleFile(
           cache_ttl: typed?.cache_ttl,
           concurrency_time_window_s: typed?.concurrency_time_window_s,
           concurrent_limit: typed?.concurrent_limit,
+          deployment_message: message,
+          restart_unless_cancelled: typed?.restart_unless_cancelled,
         },
       });
     }
@@ -193,33 +231,9 @@ export async function handleFile(
 
 export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
-    ? [
-        filePath.replace(".script.json", ".fetch.ts"),
-        filePath.replace(".script.json", ".bun.ts"),
-        filePath.replace(".script.json", ".ts"),
-        filePath.replace(".script.json", ".py"),
-        filePath.replace(".script.json", ".go"),
-        filePath.replace(".script.json", ".sh"),
-        filePath.replace(".script.json", "pg.sql"),
-        filePath.replace(".script.json", "my.sql"),
-        filePath.replace(".script.json", "bq.sql"),
-        filePath.replace(".script.json", "sf.sql"),
-        filePath.replace(".script.json", ".gql"),
-        filePath.replace(".script.json", ".ps1"),
-      ]
-    : [
-        filePath.replace(".script.yaml", ".fetch.ts"),
-        filePath.replace(".script.yaml", ".bun.ts"),
-        filePath.replace(".script.yaml", ".ts"),
-        filePath.replace(".script.yaml", ".py"),
-        filePath.replace(".script.yaml", ".go"),
-        filePath.replace(".script.yaml", ".sh"),
-        filePath.replace(".script.yaml", "pg.sql"),
-        filePath.replace(".script.yaml", "bq.sql"),
-        filePath.replace(".script.yaml", "sf.sql"),
-        filePath.replace(".script.yaml", ".gql"),
-        filePath.replace(".script.yaml", ".ps1"),
-      ];
+    ? exts.map((x) => filePath.replace(".script.json", x))
+    : exts.map((x) => filePath.replace(".script.yaml", x));
+
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
@@ -241,58 +255,81 @@ export async function findContentFile(filePath: string) {
     );
   }
   if (validCandidates.length < 1) {
-    throw new Error("No content path given and no content file found.");
+    throw new Error(
+      `No content path given and no content file found for ${filePath}.`
+    );
   }
   return validCandidates[0];
 }
 
-export function inferContentTypeFromFilePath(
-  contentPath: string
-):
-  | "python3"
-  | "deno"
-  | "bun"
-  | "nativets"
-  | "go"
-  | "bash"
-  | "powershell"
-  | "postgresql"
-  | "mysql"
-  | "bigquery"
-  | "snowflake"
-  | "mssql"
-  | "graphql" {
-  if (contentPath.endsWith(".py")) {
-    return "python3";
-  } else if (contentPath.endsWith("fetch.ts")) {
-    return "nativets";
-  } else if (contentPath.endsWith("bun.ts")) {
-    return "bun";
-  } else if (contentPath.endsWith(".ts")) {
-    return "deno";
-  } else if (contentPath.endsWith(".go")) {
-    return "go";
-  } else if (contentPath.endsWith(".my.sql")) {
-    return "mysql";
-  } else if (contentPath.endsWith(".bq.sql")) {
-    return "bigquery";
-  } else if (contentPath.endsWith(".sf.sql")) {
-    return "snowflake";
-  } else if (contentPath.endsWith(".ms.sql")) {
-    return "mssql";
-  } else if (contentPath.endsWith(".pg.sql")) {
-    return "postgresql";
-  } else if (contentPath.endsWith(".gql")) {
-    return "graphql";
-  } else if (contentPath.endsWith(".sh")) {
-    return "bash";
-  } else if (contentPath.endsWith(".ps1")) {
-    return "powershell";
+export function filePathExtensionFromContentType(
+  language: ScriptLanguage,
+  defaultTs: "bun" | "deno" | undefined
+): string {
+  if (language === "python3") {
+    return ".py";
+  } else if (language === "nativets") {
+    return ".fetch.ts";
+  } else if (language === "bun") {
+    if (defaultTs == undefined || defaultTs == "deno") {
+      return ".bun.ts";
+    } else {
+      return ".ts";
+    }
+  } else if (language === "deno") {
+    if (defaultTs == "bun") {
+      return ".deno.ts";
+    } else {
+      return ".ts";
+    }
+  } else if (language === "go") {
+    return ".go";
+  } else if (language === "mysql") {
+    return ".my.sql";
+  } else if (language === "bigquery") {
+    return ".bq.sql";
+  } else if (language === "snowflake") {
+    return ".sf.sql";
+  } else if (language === "mssql") {
+    return ".ms.sql";
+  } else if (language === "postgresql") {
+    return ".pg.sql";
+  } else if (language === "graphql") {
+    return ".gql";
+  } else if (language === "bash") {
+    return ".sh";
+  } else if (language === "powershell") {
+    return ".ps1";
   } else {
-    throw new Error(
-      "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))
-    );
+    throw new Error("Invalid language: " + language);
   }
+}
+
+export const exts = [
+  ".fetch.ts",
+  ".deno.ts",
+  ".bun.ts",
+  ".ts",
+  ".py",
+  ".go",
+  ".sh",
+  ".pg.sql",
+  ".my.sql",
+  ".bq.sql",
+  ".sf.sql",
+  ".ms.sql",
+  ".sql",
+  ".gql",
+  ".ps1",
+];
+
+export function removeExtensionToPath(path: string): string {
+  for (const ext of exts) {
+    if (path.endsWith(ext)) {
+      return path.substring(0, path.length - ext.length);
+    }
+  }
+  throw new Error("Invalid extension: " + path);
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {
@@ -373,7 +410,12 @@ async function run(
             id,
           })
         ).result ?? {};
-      log.info(result);
+
+      if (opts.silent) {
+        console.log(result);
+      } else {
+        log.info(result);
+      }
 
       break;
     } catch {
@@ -474,6 +516,169 @@ async function show(opts: GlobalOptions, path: string) {
   log.info(s.content);
 }
 
+async function bootstrap(
+  opts: GlobalOptions & { summary: string; description: string },
+  scriptPath: string,
+  language: ScriptLanguage
+) {
+  if (!validatePath(scriptPath)) {
+    return;
+  }
+
+  const scriptInitialCode = scriptBootstrapCode[language];
+  if (scriptInitialCode === undefined) {
+    throw new Error("Language unknown");
+  }
+
+  const config = await readConfigFile();
+
+  const extension = filePathExtensionFromContentType(
+    language,
+    config.defaultTs
+  );
+  const scriptCodeFileFullPath = scriptPath + extension;
+  const scriptMetadataFileFullPath = scriptPath + ".script.yaml";
+
+  try {
+    await Deno.stat(scriptCodeFileFullPath);
+    await Deno.stat(scriptMetadataFileFullPath);
+    throw new Error("File already exists in repository");
+  } catch {
+    // file does not exist, we can continue
+  }
+
+  const scriptMetadata = defaultScriptMetadata();
+  if (opts.summary !== undefined) {
+    scriptMetadata.summary = opts.summary;
+  }
+  if (opts.description !== undefined) {
+    scriptMetadata.description = opts.description;
+  }
+
+  const scriptInitialMetadataYaml = yamlStringify(
+    scriptMetadata as Record<string, any>,
+    yamlOptions
+  );
+
+  Deno.writeTextFile(scriptCodeFileFullPath, scriptInitialCode, {
+    createNew: true,
+  });
+  Deno.writeTextFile(scriptMetadataFileFullPath, scriptInitialMetadataYaml, {
+    createNew: true,
+  });
+}
+
+export type GlobalDeps = {
+  pkgs: Record<string, string>;
+  reqs: Record<string, string>;
+};
+export async function findGlobalDeps(): Promise<GlobalDeps> {
+  const pkgs: { [key: string]: string } = {};
+  const reqs: { [key: string]: string } = {};
+  const els = await FSFSElement(Deno.cwd());
+  for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
+    p = "/" + p;
+    return (
+      !isDir && !(p.endsWith("/package.json") || p.endsWith("requirements.txt"))
+    );
+  }, els)) {
+    if (entry.isDirectory || entry.ignored) continue;
+    const content = await entry.getContentText();
+    if (entry.path.endsWith("package.json")) {
+      pkgs[entry.path.substring(0, entry.path.length - 12)] = content;
+    } else if (entry.path.endsWith("requirements.txt")) {
+      reqs[entry.path.substring(0, entry.path.length - 16)] = content;
+    }
+  }
+  return { pkgs, reqs };
+}
+async function generateMetadata(
+  opts: GlobalOptions & {
+    lockOnly?: boolean;
+    schemaOnly?: boolean;
+    yes?: boolean;
+  } & SyncOptions,
+  scriptPath?: string
+) {
+  if (scriptPath == "") {
+    scriptPath = undefined;
+  }
+  if (scriptPath && !validatePath(scriptPath)) {
+    return;
+  }
+
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
+
+  const globalDeps = await findGlobalDeps();
+  if (scriptPath) {
+    // read script metadata file
+    await generateMetadataInternal(
+      scriptPath,
+      workspace,
+      opts,
+      false,
+      false,
+      globalDeps
+    );
+  } else {
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(Deno.cwd()),
+      (p, isD) => {
+        return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          ignore(p, isD) ||
+          p.includes(".flow/")
+        );
+      },
+      false,
+      {}
+    );
+    let hasAny = false;
+    log.info("Generating metadata for all stale scripts:");
+    for (const e of Object.keys(elems)) {
+      const candidate = await generateMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true,
+        true,
+        globalDeps
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+    if (hasAny) {
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the metadata of the above scripts?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No metadata to update"));
+      return;
+    }
+    for (const e of Object.keys(elems)) {
+      await generateMetadataInternal(
+        e,
+        workspace,
+        opts,
+        false,
+        true,
+        globalDeps
+      );
+    }
+  }
+}
+
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
@@ -495,8 +700,30 @@ const command = new Command()
   )
   .option(
     "-s --silent",
-    "Do not ouput anything other then the final output. Useful for scripting."
+    "Do not output anything other then the final output. Useful for scripting."
   )
-  .action(run as any);
+  .action(run as any)
+  .command("bootstrap", "create a new script")
+  .arguments("<path:file> <language:string>")
+  .option("--summary <summary:string>", "script summary")
+  .option("--description <description:string>", "script description")
+  .action(bootstrap as any)
+  .command(
+    "generate-metadata",
+    "re-generate the metadata file updating the lock and the script schema"
+  )
+  .arguments("[script:file]")
+  .option("--yes", "Skip confirmation prompt")
+  .option("--lock-only", "re-generate only the lock")
+  .option("--schema-only", "re-generate only script schema")
+  .option(
+    "-i --includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+  )
+  .option(
+    "-e --excludes <patterns:file[]>",
+    "Comma separated patterns to specify which file to NOT take into account."
+  )
+  .action(generateMetadata as any);
 
 export default command;

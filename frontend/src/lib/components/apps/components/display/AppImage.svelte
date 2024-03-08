@@ -58,7 +58,13 @@
 	<Loader loading={resolvedConfig.source == undefined}>
 		<img
 			on:pointerdown|preventDefault
-			src={resolvedConfig.source}
+			src={resolvedConfig.sourceKind == 'png encoded as base64'
+				? 'data:image/png;base64,' + resolvedConfig.source
+				: resolvedConfig.sourceKind == 'jpeg encoded as base64'
+				? 'data:image/jpeg;base64,' + resolvedConfig.source
+				: resolvedConfig.sourceKind == 'svg encoded as base64'
+				? 'data:image/svg+xml;base64,' + resolvedConfig.source
+				: resolvedConfig.source}
 			alt={resolvedConfig.altText}
 			style={css?.image?.style ?? ''}
 			class={twMerge(

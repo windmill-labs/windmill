@@ -7,10 +7,9 @@
 	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
 	import Okta from '$lib/components/icons/brands/Okta.svelte'
 
-	import { onMount } from 'svelte'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, parseQueryParams } from '$lib/utils'
+	import { usersWorkspaceStore, workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
+	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -20,6 +19,7 @@
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { clearStores } from '$lib/storeUtils'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -93,7 +93,7 @@
 		}
 
 		if (rd?.startsWith('http')) {
-			goto(rd)
+			window.location.href = rd
 			return
 		}
 		if ($workspaceStore) {
@@ -115,8 +115,21 @@
 			const allWorkspaces = $usersWorkspaceStore?.workspaces.filter((x) => x.id != 'admins')
 
 			if (allWorkspaces?.length == 1) {
-				$workspaceStore = allWorkspaces[0].id
-				goto(rd ?? '/')
+				workspaceStore.set(allWorkspaces[0].id)
+				$userStore = await getUserExt($workspaceStore!)
+
+				if (!$userStore?.is_super_admin && $userStore?.operator) {
+					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
+						workspace: $workspaceStore!
+					})
+					if (!emptyString(defaultApp.default_app_path)) {
+						goto(`/apps/get/${defaultApp.default_app_path}`)
+					} else {
+						goto(rd ?? '/')
+					}
+				} else {
+					goto(rd ?? '/')
+				}
 			} else if (rd?.startsWith('/user/workspaces')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
@@ -135,15 +148,18 @@
 		showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 	}
 
-	onMount(async () => {
-		try {
-			loadLogins()
-			await UserService.getCurrentEmail()
-			redirectUser()
-		} catch {
-			clearStores()
-		}
-	})
+	async function redirectIfNecessary() {
+		await UserService.getCurrentEmail()
+		redirectUser()
+	}
+
+	try {
+		setLicense()
+		loadLogins()
+		redirectIfNecessary()
+	} catch {
+		clearStores()
+	}
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -176,7 +192,9 @@
 	<LoginPageHeader />
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
 		<div class="mx-auto flex justify-center">
-			<WindmillIcon height="80px" width="80px" spin="slow" />
+			{#if !$enterpriseLicense || !$enterpriseLicense?.endsWith('_whitelabel')}
+				<WindmillIcon height="80px" width="80px" spin="slow" />
+			{/if}
 		</div>
 		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-primary">
 			Log in or sign up
@@ -227,7 +245,13 @@
 						color="dark"
 						variant="border"
 						btnClasses="mt-2 w-full !border-gray-300"
-						on:click={() => saml && goto(saml)}
+						on:click={() => {
+							if (saml) {
+								window.location.href = saml
+							} else {
+								sendUserToast('No SAML login available', true)
+							}
+						}}
 					>
 						SSO
 					</Button>

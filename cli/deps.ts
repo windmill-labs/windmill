@@ -1,20 +1,20 @@
 // windmill
-export { setClient } from "https://deno.land/x/windmill@v1.188.1/mod.ts";
-export * from "https://deno.land/x/windmill@v1.188.1/windmill-api/index.ts";
+export { setClient } from "https://deno.land/x/windmill@v1.283.0/mod.ts";
+export * from "https://deno.land/x/windmill@v1.283.0/windmill-api/index.ts";
 export { SEP } from "https://deno.land/std@0.201.0/path/separator.ts";
 // cliffy
-export { Command } from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/mod.ts";
-export { Table } from "https://deno.land/x/cliffy@v1.0.0-rc.2/table/table.ts";
-export { colors } from "https://deno.land/x/cliffy@v1.0.0-rc.2/ansi/colors.ts";
-export { Secret } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/secret.ts";
-export { Select } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/select.ts";
-export { Confirm } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/confirm.ts";
-export { Input } from "https://deno.land/x/cliffy@v1.0.0-rc.2/prompt/input.ts";
+export { Command } from "https://deno.land/x/cliffy@v1.0.0-rc.3/command/mod.ts";
+export { Table } from "https://deno.land/x/cliffy@v1.0.0-rc.3/table/table.ts";
+export { colors } from "https://deno.land/x/cliffy@v1.0.0-rc.3/ansi/colors.ts";
+export { Secret } from "https://deno.land/x/cliffy@v1.0.0-rc.3/prompt/secret.ts";
+export { Select } from "https://deno.land/x/cliffy@v1.0.0-rc.3/prompt/select.ts";
+export { Confirm } from "https://deno.land/x/cliffy@v1.0.0-rc.3/prompt/confirm.ts";
+export { Input } from "https://deno.land/x/cliffy@v1.0.0-rc.3/prompt/input.ts";
 export {
   DenoLandProvider,
   UpgradeCommand,
-} from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/upgrade/mod.ts";
-export { CompletionsCommand } from "https://deno.land/x/cliffy@v1.0.0-rc.2/command/completions/mod.ts";
+} from "https://deno.land/x/cliffy@v1.0.0-rc.3/command/upgrade/mod.ts";
+export { CompletionsCommand } from "https://deno.land/x/cliffy@v1.0.0-rc.3/command/completions/mod.ts";
 // std
 export * as path from "https://deno.land/std@0.184.0/path/mod.ts";
 export { ensureDir } from "https://deno.land/std@0.184.0/fs/ensure_dir.ts";
@@ -40,7 +40,7 @@ export * as cbor from "https://deno.land/x/cbor@v1.4.1/index.js";
 export { default as Murmurhash3 } from "https://deno.land/x/murmurhash@v1.0.0/mod.ts";
 export { default as microdiff } from "https://deno.land/x/microdiff@v1.3.1/index.ts";
 export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";
-export { default as gitignore_parser } from "npm:gitignore-parser";
+export { minimatch } from "npm:minimatch";
 export { default as JSZip } from "npm:jszip@3.7.1";
 export * as log from "https://deno.land/std@0.186.0/log/mod.ts";
 export {
@@ -48,3 +48,5 @@ export {
   parse as yamlParse,
 } from "https://deno.land/std@0.184.0/yaml/mod.ts";
 export { open } from "https://deno.land/x/open@v0.0.5/index.ts";
+export { encodeHex } from "https://deno.land/std@0.207.0/encoding/hex.ts";
+export { default as gitignore_parser } from "npm:gitignore-parser";

@@ -1,5 +1,5 @@
 <script>
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { fly, fade } from 'svelte/transition'
 
 	// Props
@@ -67,6 +67,10 @@
 		currentThumb = null
 	}
 
+	onDestroy(() => {
+		if (document.body.contains(mouseEventShield)) document.body.removeChild(mouseEventShield)
+	})
+
 	// Check if mouse event cords overlay with an element's area
 	function isMouseInElement(event, element) {
 		let rect = element.getBoundingClientRect()
@@ -104,6 +108,7 @@
 	}
 
 	function calculateNewValue(clientX) {
+		resizeWindow()
 		// Find distance between cursor and element's left cord (20px / 2 = 10px) - Center of thumb
 		let delta = clientX - (elementX + 10)
 

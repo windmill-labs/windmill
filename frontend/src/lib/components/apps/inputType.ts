@@ -1,5 +1,5 @@
 import type { ReadFileAs } from '../common/fileInput/model'
-import type { TypedComponent } from './editor/component'
+import type { DecisionTreeNode, TypedComponent } from './editor/component'
 import type { InlineScript } from './types'
 
 export type InputType =
@@ -26,6 +26,19 @@ export type InputType =
 	| 'table-column'
 	| 'plotly'
 	| 'chartjs'
+	| 'DecisionTreeNode'
+	| 'ag-chart'
+	| 'resource'
+	| 'db-explorer'
+	| 'db-table'
+	| 's3'
+	| 'number-tuple'
+	// Used for selecting the right resource type in the Database Studio
+	| 'postgres'
+	| 'mysql'
+	| 'ms_sql_server'
+	| 'snowflake'
+	| 'bigquery'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -67,6 +80,7 @@ export type EvalInputV2 = {
 	type: 'evalv2'
 	expr: string
 	connections: InputConnectionEval[]
+	onDemandOnly?: boolean
 }
 
 export type RowInput = {
@@ -139,6 +153,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 	fieldType: T
 	subFieldType?: V
 	format?: string | undefined
+	loading?: boolean
 	fileUpload?: {
 		/** Use `*` to accept anything. */
 		accept: string
@@ -154,6 +169,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 		convertTo?: ReadFileAs
 	}
 	noStatic?: boolean
+	onDemandOnly?: boolean
 }
 
 export type StaticOptions = {
@@ -172,7 +188,7 @@ export type AppInput =
 	| AppInputSpec<'any', any>
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
-	| (AppInputSpec<'select', string> & StaticOptions)
+	| (AppInputSpec<'select', string, 'db-table'> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'color', string>
 	| AppInputSpec<'array', string[], 'text'>
@@ -191,9 +207,20 @@ export type AppInput =
 	| AppInputSpec<'array', object[], 'tab-select'>
 	| AppInputSpec<'schema', object>
 	| AppInputSpec<'array', object[], 'ag-grid'>
+	| AppInputSpec<'array', object[], 'db-explorer'>
 	| AppInputSpec<'array', object[], 'table-column'>
 	| AppInputSpec<'array', object[], 'plotly'>
 	| AppInputSpec<'array', object[], 'chartjs'>
+	| AppInputSpec<'array', DecisionTreeNode, 'DecisionTreeNode'>
+	| AppInputSpec<'array', object[], 'ag-chart'>
+	| AppInputSpec<'resource', string>
+	| AppInputSpec<'resource', string, 's3'>
+	| AppInputSpec<'resource', string, 'postgres'>
+	| AppInputSpec<'resource', string, 'mysql'>
+	| AppInputSpec<'resource', string, 'ms_sql_server'>
+	| AppInputSpec<'resource', string, 'snowflake'>
+	| AppInputSpec<'resource', string, 'bigquery'>
+	| AppInputSpec<'array', object[], 'number-tuple'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>
@@ -202,6 +229,9 @@ export type UserAppInput = Extract<AppInput, { type: 'user' }>
 export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
 export type EvalAppInput = Extract<AppInput, { type: 'eval' }>
 export type EvalV2AppInput = Extract<AppInput, { type: 'evalv2' }>
+export type StaticAppInputOnDemand = Extract<StaticAppInput, { onDemandOnly: true }>
+export type TemplateV2AppInput = Extract<AppInput, { type: 'templatev2' }>
+
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
 
 export type RichAppInput =

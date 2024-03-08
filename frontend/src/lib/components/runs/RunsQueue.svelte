@@ -4,6 +4,7 @@
 	import Popup from '../common/popup/Popup.svelte'
 
 	export let queue_count: Tweened<number> | undefined = undefined
+	export let allWorkspaces: boolean = false
 </script>
 
 <div class="flex gap-1 relative max-w-36 min-w-[50px] items-baseline">
@@ -15,7 +16,7 @@
 				<svelte:fragment slot="button">
 					<span class="text-2xs truncate">jobs</span>
 				</svelte:fragment>
-				<QueuePopover />
+				<QueuePopover {allWorkspaces} />
 			</Popup>
 		{/if}
 	</div>

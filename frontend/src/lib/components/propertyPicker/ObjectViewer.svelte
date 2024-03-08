@@ -7,7 +7,9 @@
 	import WarningMessage from './WarningMessage.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from 'svelte-portal'
+	import { Download, PanelRightOpen } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let json: any
 	export let level = 0
@@ -55,21 +57,18 @@
 	}
 
 	$: keyLimit = isArray ? 1 : 100
+
+	$: fullyCollapsed = keys.length > 1 && collapsed
 </script>
 
 <Portal>
-	<S3FilePicker
-		bind:this={s3FileViewer}
-		initialFileKey={json}
-		selectedFileKey={json}
-		readOnlyMode={true}
-	/>
+	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
 
 {#if keys.length > 0}
-	{#if !collapsed}
+	{#if !fullyCollapsed}
 		<span>
-			{#if level != 0}
+			{#if level != 0 && keys.length > 1}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<span class="cursor-pointer border hover:bg-surface-hover px-1 rounded" on:click={collapse}>
@@ -105,7 +104,7 @@
 							/>
 						{:else}
 							<button
-								class="val {pureViewer
+								class="val text-left {pureViewer
 									? 'cursor-auto'
 									: ''} rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
 								on:click={() => selectProp(key, json[key])}
@@ -135,16 +134,25 @@
 				{/if}
 			</ul>
 			{#if level == 0 && topBrackets}
-				<span class="h-0">{closeBracket}</span>
-				{#if getTypeAsString(json) === 's3object'}
-					<button
-						class="text-secondary underline text-2xs whitespace-nowrap ml-1"
-						on:click={() => {
-							s3FileViewer?.open?.()
-						}}
-						>s3 explorer
-					</button>
-				{/if}
+				<div class="flex">
+					<span class="h-0">{closeBracket}</span>
+					{#if getTypeAsString(json) === 's3object'}
+						<a
+							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
+							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}`}
+							download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
+						>
+							<span class="flex items-center gap-1"><Download size={12} />download</span>
+						</a>
+						<button
+							class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+							on:click={() => {
+								s3FileViewer?.open?.(json)
+							}}
+							><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</span>
 	{/if}
@@ -153,12 +161,12 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<span
 		class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200"
-		class:hidden={!collapsed}
+		class:hidden={!fullyCollapsed}
 		on:click={collapse}
 	>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
-	{#if collapsed}
+	{#if fullyCollapsed}
 		<span class="text-tertiary text-xs">
 			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
 		</span>
@@ -189,6 +197,7 @@
 
 	.val.number {
 		@apply text-orange-600;
+		@apply font-mono;
 	}
 	.val.boolean {
 		@apply text-blue-600;

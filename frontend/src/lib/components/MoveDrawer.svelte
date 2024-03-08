@@ -67,7 +67,7 @@
 				requestBody: {
 					...script,
 					description: script.description ?? '',
-					lock: script.lock?.split('\n'),
+					lock: script.lock,
 					parent_hash: script.hash,
 					path: path ?? ''
 				}

@@ -1,12 +1,18 @@
+use futures::TryFutureExt;
 use serde_json::{json, value::RawValue, Value};
+use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::parse_bigquery_sig;
-use windmill_queue::HTTP_CLIENT;
+use windmill_parser_sql::{parse_bigquery_sig, parse_db_resource};
+use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
 
-use crate::{common::build_args_values, AuthedClientBackgroundTask};
+use crate::common::run_future_with_polling_update_job_poller;
+use crate::{
+    common::{build_args_values, resolve_job_timeout},
+    AuthedClientBackgroundTask,
+};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
@@ -56,17 +62,34 @@ pub async fn do_bigquery(
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let bigquery_args = build_args_values(job, client, db).await?;
 
-    let database = bigquery_args
-        .get("database")
-        .unwrap_or(&json!({}))
-        .to_string();
+    let inline_db_res_path = parse_db_resource(&query);
 
-    if database == "{}" {
-        return Err(Error::ExecutionErr("Invalid database".to_string()));
-    }
+    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
+        Some(
+            client
+                .get_authed()
+                .await
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
+    } else {
+        bigquery_args.get("database").cloned()
+    };
+
+    let database = if let Some(db) = db_arg {
+        db.to_string()
+    } else {
+        return Err(Error::BadRequest("Missing database argument".to_string()));
+    };
 
     let service_account = CustomServiceAccount::from_json(&database)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
@@ -126,91 +149,127 @@ pub async fn do_bigquery(
         statement_values.push(bigquery_v);
     }
 
-    let response = HTTP_CLIENT
-        .post(
-            "https://bigquery.googleapis.com/bigquery/v2/projects/".to_string()
-                + authentication_manager
-                    .project_id()
-                    .await
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?
+    let timeout_ms = i32::try_from(
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200000);
+
+    let result_f = async {
+        let response = HTTP_CLIENT
+            .post(
+                "https://bigquery.googleapis.com/bigquery/v2/projects/".to_string()
+                    + authentication_manager
+                        .project_id()
+                        .await
+                        .map_err(|e| Error::ExecutionErr(e.to_string()))?
+                        .as_str()
+                    + "/queries",
+            )
+            .bearer_auth(token.as_str())
+            .json(&json!({
+                "query": query,
+                "useLegacySql": false,
+                "maxResults": 10000,
+                "timeoutMs": timeout_ms,
+                "queryParameters": statement_values,
+            }))
+            .send()
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!("Could not send query to BigQuery API: {}", e))
+            })?;
+
+        match response.error_for_status_ref() {
+            Ok(_) => {
+                let result = response.json::<BigqueryResponse>().await.map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "BigQuery API response could not be parsed: {}",
+                        e.to_string()
+                    ))
+                })?;
+
+                if !result.jobComplete {
+                    return Err(Error::ExecutionErr(
+                        "BigQuery API did not answer query in time".to_string(),
+                    ));
+                }
+
+                if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
+                    return Ok(serde_json::from_str("[]").unwrap());
+                }
+
+                if result.schema.is_none() {
+                    return Err(Error::ExecutionErr(
+                        "Incomplete response from BigQuery API".to_string(),
+                    ));
+                }
+
+                if result
+                    .totalRows
+                    .unwrap_or(json!(""))
                     .as_str()
-                + "/queries",
-        )
-        .bearer_auth(token.as_str())
-        .json(&json!({
-            "query": query,
-            "useLegacySql": false,
-            "maxResults": 10000,
-            "timeoutMs": 10000, // default
-            "queryParameters": statement_values,
-        }))
-        .send()
-        .await
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    match response.error_for_status_ref() {
-        Ok(_) => {
-            let result = response
-                .json::<BigqueryResponse>()
-                .await
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-            if !result.jobComplete {
-                return Err(Error::ExecutionErr(
-                    "BigQuery API did not answer query in time".to_string(),
-                ));
-            }
-
-            if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
-                return Ok(serde_json::from_str("[]").unwrap());
-            }
-
-            if result.schema.is_none() {
-                return Err(Error::ExecutionErr(
-                    "Incomplete response from BigQuery API".to_string(),
-                ));
-            }
-
-            if result
-                .totalRows
-                .unwrap_or(json!(""))
-                .as_str()
-                .unwrap_or("")
-                .parse::<i64>()
-                .unwrap_or(0)
-                > 10000
-            {
-                return Err(Error::ExecutionErr(
+                    .unwrap_or("")
+                    .parse::<i64>()
+                    .unwrap_or(0)
+                    > 10000
+                {
+                    return Err(Error::ExecutionErr(
                     "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
                 ));
+                }
+
+                let rows = result
+                    .rows
+                    .unwrap()
+                    .iter()
+                    .map(|row| {
+                        let mut row_map = serde_json::Map::new();
+                        row.f
+                            .iter()
+                            .zip(result.schema.as_ref().unwrap().fields.iter())
+                            .for_each(|(field, schema)| {
+                                row_map.insert(
+                                    schema.name.clone(),
+                                    parse_val(&field.v, &schema.r#type, &schema),
+                                );
+                            });
+                        Value::from(row_map)
+                    })
+                    .collect::<Vec<_>>();
+
+                return Ok(to_raw_value(&rows));
             }
-
-            let rows = result
-                .rows
-                .unwrap()
-                .iter()
-                .map(|row| {
-                    let mut row_map = serde_json::Map::new();
-                    row.f
-                        .iter()
-                        .zip(result.schema.as_ref().unwrap().fields.iter())
-                        .for_each(|(field, schema)| {
-                            row_map.insert(
-                                schema.name.clone(),
-                                parse_val(&field.v, &schema.r#type, &schema),
-                            );
-                        });
-                    Value::from(row_map)
-                })
-                .collect::<Vec<_>>();
-
-            return Ok(to_raw_value(&rows));
+            Err(e) => match response.json::<BigqueryErrorResponse>().await {
+                Ok(bq_err) => Err(Error::ExecutionErr(format!(
+                    "Error from BigQuery API: {}",
+                    bq_err.error.message
+                )))
+                .map_err(to_anyhow)?,
+                Err(_) => Err(Error::ExecutionErr(format!(
+                    "Error from BigQuery API could not be parsed: {}",
+                    e.to_string()
+                )))
+                .map_err(to_anyhow)?,
+            },
         }
-        Err(e) => match response.json::<BigqueryErrorResponse>().await {
-            Ok(bq_err) => return Err(Error::ExecutionErr(bq_err.error.message)),
-            Err(_) => return Err(Error::ExecutionErr(e.to_string())),
-        },
-    }
+    };
+    let r = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        db,
+        mem_peak,
+        canceled_by,
+        result_f.map_err(to_anyhow),
+        worker_name,
+        &job.workspace_id,
+    )
+    .await?;
+
+    *mem_peak = (r.get().len() / 1000) as i32;
+    Ok(r)
 }
 
 fn convert_val(arg_t: String, arg_v: Value) -> Value {
@@ -220,7 +279,7 @@ fn convert_val(arg_t: String, arg_v: Value) -> Value {
 
             match arg_t.as_str() {
                 "timestamp" | "datetime" => {
-                    v = v + ":00";
+                    v = v.trim_end_matches("Z").to_string();
                 }
                 "date" => {
                     let arr = v.split("T").collect::<Vec<&str>>();
@@ -235,7 +294,7 @@ fn convert_val(arg_t: String, arg_v: Value) -> Value {
                     let arr = v.split("T").collect::<Vec<&str>>();
                     match arr.as_slice() {
                         [_, time] => {
-                            v = time.to_string() + ":00";
+                            v = time.trim_end_matches("Z").to_string();
                         }
                         _ => {}
                     }

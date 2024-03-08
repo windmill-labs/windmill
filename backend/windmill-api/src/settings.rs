@@ -56,9 +56,20 @@ pub async fn test_email(
     require_super_admin(&db, &authed.email).await?;
     let smtp = test_email.smtp;
     let to = test_email.to;
-    let client = SmtpClientBuilder::new(smtp.host, smtp.port)
-        .implicit_tls(smtp.tls_implicit)
-        .credentials((smtp.username, smtp.password));
+    let mut client = SmtpClientBuilder::new(smtp.host, smtp.port)
+        .implicit_tls(smtp.tls_implicit.unwrap_or(false));
+    if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
+        client = client.allow_invalid_certs();
+    }
+    let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
+        if !username.is_empty() {
+            client.credentials((username, password))
+        } else {
+            client
+        }
+    } else {
+        client
+    };
     let message = MessageBuilder::new()
         .from(("Windmill", smtp.from.as_str()))
         .to(to.clone())
@@ -172,11 +183,12 @@ pub async fn get_global_setting(
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats::send_stats(
+    windmill_common::stats_ee::send_stats(
         &"manual".to_string(),
         &windmill_common::utils::Mode::Server,
         &HTTP_CLIENT,
         &db,
+        cfg!(feature = "enterprise"),
     )
     .await?;
 

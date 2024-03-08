@@ -26,6 +26,8 @@
 	export let render: boolean
 	export let extraKey: string | undefined = undefined
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
+	export let noInitialize = false
+	export let onToggle: string[] | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -47,6 +49,9 @@
 	$componentControl[id] = {
 		setValue(nvalue: boolean) {
 			value = nvalue
+			if (recomputeIds) {
+				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
 		}
 	}
 
@@ -69,14 +74,14 @@
 		if (rowContext && rowInputs) {
 			rowInputs.set(id, value)
 		}
-		if (recomputeIds) {
-			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
-		}
 	}
 
 	function handleDefault() {
 		value = resolvedConfig.defaultValue ?? false
 		handleInput()
+		if (recomputeIds) {
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
 	}
 
 	onDestroy(() => {
@@ -111,7 +116,10 @@
 	/>
 {/each}
 
-<InitializeComponent {id} />
+{#if !noInitialize}
+	<InitializeComponent {id} />
+{/if}
+
 <AlignWrapper
 	{render}
 	{horizontalAlignment}
@@ -128,6 +136,12 @@
 		on:change={(e) => {
 			preclickAction?.()
 			value = e.detail
+			if (recomputeIds) {
+				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
+			if (onToggle) {
+				onToggle.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+			}
 		}}
 		disabled={resolvedConfig.disabled}
 	/>

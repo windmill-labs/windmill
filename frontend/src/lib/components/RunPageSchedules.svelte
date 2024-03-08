@@ -95,7 +95,7 @@
 {#if schedule}
 	<div class="p-2 flex flex-col gap-2">
 		<div class="flex flex-row justify-between h-8">
-			<div class="flex flex-row gap-2">
+			<div class="flex flex-row gap-2 items-center">
 				<input
 					class="inline-block !w-32"
 					type="text"
@@ -105,14 +105,16 @@
 					value={schedule.schedule}
 					disabled={true}
 				/>
-				<Badge color="indigo" small
-					>Primary schedule&nbsp;<Tooltip
-						>Share the same path as the script or flow it is attached to and its path get renamed
-						whenever the source path is renamed</Tooltip
-					></Badge
-				>
+				<div>
+					<Badge color="indigo" small
+						>Primary&nbsp;<Tooltip light
+							>Share the same path as the script or flow it is attached to and its path get renamed
+							whenever the source path is renamed</Tooltip
+						></Badge
+					>
+				</div>
 			</div>
-			<div class="flex flex-row gap-2">
+			<div class="flex flex-row gap-2 items-center">
 				<Toggle
 					checked={schedule.enabled}
 					on:change={(e) => {
@@ -161,11 +163,11 @@
 		<div class="text-xs text-secondary px-2"> No other schedules </div>
 	{:else}
 		<div class="flex flex-col divide-y px-2 pt-2">
-			{#each schedules as schedule}
+			{#each schedules as schedule (schedule.path)}
 				<div class="grid grid-cols-6 text-2xs items-center py-2"
 					><div class="col-span-3 truncate">{schedule.path}</div><div>{schedule.schedule}</div>
 					<div>{schedule.enabled ? 'on' : 'off'}</div>
-					<button on:click={() => scheduleEditor?.openEdit(path, isFlow)}>Edit</button>
+					<button on:click={() => scheduleEditor?.openEdit(schedule.path, isFlow)}>Edit</button>
 				</div>
 			{/each}
 		</div>

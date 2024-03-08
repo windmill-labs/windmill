@@ -25,7 +25,8 @@
 		Calendar,
 		Share,
 		Archive,
-		Clipboard
+		Clipboard,
+		Eye
 	} from 'lucide-svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
@@ -38,8 +39,6 @@
 	export let errorHandlerMuted: boolean
 	export let depth: number = 0
 	export let menuOpen: boolean = false
-
-	let { summary, path, extra_perms, canWrite, workspace_id, archived, draft_only, has_draft } = flow
 
 	const dispatch = createEventDispatcher()
 
@@ -74,39 +73,39 @@
 {/if}
 
 <Row
-	href={draft_only
-		? `/flows/edit/${path}?nodraft=true`
-		: `/flows/get/${path}?workspace=${$workspaceStore}`}
+	href={flow.draft_only
+		? `/flows/edit/${flow.path}?nodraft=true`
+		: `/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
-	workspaceId={workspace_id ?? $workspaceStore ?? ''}
+	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
-	{path}
-	{summary}
+	path={flow.path}
+	summary={flow.summary}
 	{starred}
 	{errorHandlerMuted}
 	on:change
-	canFavorite={!draft_only}
+	canFavorite={!flow.draft_only}
 	{depth}
 >
 	<svelte:fragment slot="badges">
-		{#if archived}
+		{#if flow.archived}
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		<DraftBadge {has_draft} {draft_only} />
+		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
 		<div class="w-8 center-center" />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if canWrite && !archived}
+				{#if flow.canWrite && !flow.archived}
 					<div>
 						<Button
 							color="light"
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/flows/edit/{path}?nodraft=true"
+							href="/flows/edit/{flow.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -118,7 +117,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/flows/add?template={path}"
+							href="/flows/add?template={flow.path}"
 						>
 							Fork
 						</Button>
@@ -129,6 +128,7 @@
 
 		<Dropdown
 			items={() => {
+				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				if (draft_only) {
 					return [
@@ -146,7 +146,8 @@
 								}
 							},
 							type: 'delete',
-							disabled: !owner
+							disabled: !owner,
+							hide: $userStore?.operator
 						}
 					]
 				}
@@ -154,7 +155,8 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/flows/add?template=${path}`
+						href: `/flows/add?template=${path}`,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'View runs',
@@ -162,12 +164,19 @@
 						href: `/runs/${path}`
 					},
 					{
+						displayName: 'Audit logs',
+						icon: Eye,
+						href: `/audit_logs?resource=${path}`,
+						hide: $userStore?.operator
+					},
+					{
 						displayName: 'Move/Rename',
 						icon: FileUp,
 						action: () => {
-							moveDrawer.openDrawer(path, summary, 'flow')
+							moveDrawer.openDrawer(path, flow.summary, 'flow')
 						},
-						disabled: !owner || archived
+						disabled: !owner || archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Copy path',
@@ -182,7 +191,8 @@
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'flow')
 						},
-						disabled: archived
+						disabled: archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Schedule',
@@ -190,14 +200,16 @@
 						action: () => {
 							scheduleEditor?.openNew(true, path)
 						},
-						disabled: archived
+						disabled: archived,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: owner ? 'Share' : 'See Permissions',
 						icon: Share,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
-						}
+						},
+						hide: $userStore?.operator
 					},
 					{
 						displayName: archived ? 'Unarchive' : 'Archive',
@@ -206,7 +218,8 @@
 							path && archiveFlow(path, !archived)
 						},
 						type: 'delete',
-						disabled: !owner
+						disabled: !owner,
+						hide: $userStore?.operator
 					},
 					...(has_draft
 						? [
@@ -222,7 +235,8 @@
 										dispatch('change')
 									},
 									type: DELETE,
-									disabled: !owner
+									disabled: !owner,
+									hide: $userStore?.operator
 								}
 						  ]
 						: []),
@@ -240,7 +254,8 @@
 							}
 						},
 						type: 'delete',
-						disabled: !owner
+						disabled: !owner,
+						hide: $userStore?.operator
 					}
 				]
 			}}

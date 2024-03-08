@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.212.0"
+version = "1.286.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -11,6 +11,7 @@ members = [
     "./windmill-worker",
     "./windmill-common",
     "./windmill-audit",
+    "./windmill-git-sync",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -21,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.212.0"
+version = "1.286.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -34,18 +35,27 @@ opt-level = 0
 incremental = true
 
 [features]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+default = []
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
+enterprise_saml = ["windmill-api/enterprise_saml"]
+stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
 flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 pg_embed = ["dep:pg-embed"]
+embedding = ["windmill-api/embedding"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet"]
+prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
+flow_testing = ["windmill-worker/flow_testing"]
 
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
 dotenv.workspace = true
-windmill-common = { workspace = true, features = ["tracing_init"] }
-windmill-api.workspace = true
+windmill-queue.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-git-sync.workspace = true
+windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
 futures.workspace = true
 tracing.workspace = true
@@ -65,7 +75,8 @@ uuid.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true} 
+deno_core.workspace = true
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -77,11 +88,12 @@ windmill-api-client.workspace = true
 
 
 [workspace.dependencies]
-windmill-api = { path = "./windmill-api" }
+windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
-windmill-common = { path = "./windmill-common" }
+windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
+windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -97,8 +109,8 @@ headers = "^0"
 hyper = { version = "^0", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
 tower = "^0"
-tower-http = { version = "^0", features = ["trace", "cors"] }
-tower-cookies = "^0"
+tower-http = { version = "^0.4", features = ["trace", "cors"] }
+tower-cookies = "0.9.0"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
@@ -121,7 +133,7 @@ rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = "0.3.0"
+rustpython-parser = { git = "https://github.com/RustPython/Parser", rev = "29c4728dbedc7e69cc2560b9b34058bbba9b1303" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
@@ -136,22 +148,23 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_fetch = "0.139.0"
-deno_console = "0.115.0"
-deno_url = "0.115.0"
-deno_webidl = "0.115.0"
-deno_web = "0.146.0"
-deno_core = "0.200.0"
-deno_ast = { version = "0.28.0", features = ["transpiling"] }
+deno_fetch = "0.162.0"
+deno_tls = "0.125.0"
+deno_console = "0.138.0"
+deno_url = "0.138.0"
+deno_webidl = "0.138.0"
+deno_web = "0.169.0"
+deno_core = "0.262.0"
+deno_ast = { version = "0.33.3", features = ["transpiling"] }
 async-recursion = "^1"
-swc_common = "0.31.21"
-swc_ecma_parser = "0.137.15"
-swc_ecma_ast = "0.107.7"
-swc_ecma_visit = "0.93.7"
+swc_common = "=0.33.17"
+swc_ecma_parser = "=0.143.3"
+swc_ecma_ast = "=0.112.2"
+swc_ecma_visit = "=0.98.2"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-sqlx = { version = "^0", features = [
+sqlx = { version = "0.7.3", features = [
     "macros",
     "migrate",
     "uuid",
@@ -180,10 +193,10 @@ async-stripe = { version = "0.25.2", features = [
 async_zip = { version = "0.0.11", features = ["full"] }
 once_cell = "1.17.1"
 rsmq_async = { version = "5.1.5" }
-gosyn = "0.2.2"
+gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "0.2"
+wasm-bindgen = "=0.2.89"
 serde-wasm-bindgen = "0.4"
 wasm-bindgen-test = "0.3.0"
 convert_case = "0.6.0"
@@ -192,7 +205,9 @@ tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
-samael = { version = "0.0.12", features = ["xmlsec"] }
+# samael will break compilation on MacOS. Use this fork instead to make it work
+# samael = { git="https://github.com/gbouv/samael", rev="2344211ed0ac041a86222b38b928adfc1030cb94", features = ["xmlsec"] }
+samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres"]}
 jsonwebtoken = "8.3.0"
@@ -204,4 +219,11 @@ tokenizers = "0.14.1"
 candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
-tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono"] }
+tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"] }
+pin-project = "1"
+
+polars = { version = "0.35.4", features = ["lazy", "parquet", "aws", "azure", "csv", "dtype-full", "serde", "strings", "extract_groups"] }
+polars-io = { version = "0.35.4", features = ["csv"] }
+object_store = { version = "0.8.0", features = ["aws", "azure"] }
+openidconnect = { version = "3.4.0" }
+

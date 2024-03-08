@@ -1,8 +1,4 @@
 [build]
-rustflags = [
-    "--cfg",
-    "tokio_unstable"
-]
 incremental = true
 
 [target.x86_64-apple-darwin]

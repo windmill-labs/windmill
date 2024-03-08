@@ -23,3 +23,4 @@ serde_json.workspace = true
 anyhow.workspace = true
 convert_case.workspace = true
 regex.workspace = true
+lazy_static.workspace = true

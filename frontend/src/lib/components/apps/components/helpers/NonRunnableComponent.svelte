@@ -11,6 +11,7 @@
 	export let result: any
 	export let render: boolean
 	export let hasChildrens: boolean
+	export let noInitialize
 
 	// Sync the result to the output
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -27,7 +28,9 @@
 	$: result != undefined && outputs && setOutput(result)
 </script>
 
-<InitializeComponent {id} />
+{#if !noInitialize}
+	<InitializeComponent {id} />
+{/if}
 
 {#if componentInput.type !== 'runnable'}
 	<InputValue key="nonrunnable" {id} input={componentInput} bind:value={result} />

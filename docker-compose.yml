@@ -5,12 +5,15 @@ services:
     deploy:
       # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
       replicas: 1
-    image: postgres:14
+    image: postgres:16
+    shm_size: 1g
     restart: unless-stopped
     volumes:
       - db_data:/var/lib/postgresql/data
     expose:
       - 5432
+    ports:
+      - 5432:5432
     environment:
       POSTGRES_PASSWORD: changeme
       POSTGRES_DB: windmill
@@ -78,6 +81,30 @@ services:
       db:
         condition: service_healthy
 
+  ## This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
+  # windmill_worker_reports:
+  #   image: ${WM_IMAGE}
+  #   pull_policy: always
+  #   deploy:
+  #     replicas: 1
+  #     resources:
+  #       limits:
+  #         cpus: "1"
+  #         memory: 2048M
+  #   restart: unless-stopped
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - MODE=worker
+  #     - WORKER_GROUP=reports
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+  #   volumes:
+  #     # mount the docker socket to allow to run docker containers from within the workers
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - worker_dependency_cache:/tmp/windmill/cache
+
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
     pull_policy: always
@@ -102,7 +129,7 @@ services:
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
-      # - ./certs:/certs # Provide custom certificate files like cert.pem and key.pem to enable HTTPS - See the corresponding section in the Caffyfile
+      # - ./certs:/certs # Provide custom certificate files like cert.pem and key.pem to enable HTTPS - See the corresponding section in the Caddyfile
     ports:
       # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80

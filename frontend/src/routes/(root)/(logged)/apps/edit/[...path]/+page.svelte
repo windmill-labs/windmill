@@ -45,14 +45,17 @@
 			path: app_w_draft_.path,
 			policy: app_w_draft_.policy,
 			draft_only: app_w_draft_.draft_only,
-			draft: app_w_draft_.draft
-				? {
-						summary: app_w_draft_.summary,
-						value: app_w_draft_.draft,
-						path: app_w_draft_.path,
-						policy: app_w_draft_.policy
-				  }
-				: undefined
+			draft:
+				app_w_draft_.draft?.summary !== undefined // backward compatibility for old drafts missing metadata
+					? app_w_draft_.draft
+					: app_w_draft_.draft
+					? {
+							summary: app_w_draft_.summary,
+							value: app_w_draft_.draft,
+							path: app_w_draft_.path,
+							policy: app_w_draft_.policy
+					  }
+					: undefined
 		}
 
 		if (stateLoadedFromUrl) {
@@ -64,7 +67,7 @@
 			const actions: ToastAction[] = []
 			if (stateLoadedFromUrl) {
 				actions.push({
-					label: 'Discard URL stored autosave and reload',
+					label: 'Discard browser autosave and reload',
 					callback: reloadAction
 				})
 
@@ -92,10 +95,19 @@
 			app_w_draft.value = stateLoadedFromUrl
 			app = app_w_draft
 		} else if (app_w_draft.draft) {
-			app = {
-				...app_w_draft,
-				value: app_w_draft.draft
+			if (app_w_draft.summary !== undefined) {
+				// backward compatibility for old drafts missing metadata
+				app = {
+					...app_w_draft,
+					...app_w_draft.draft
+				}
+			} else {
+				app = {
+					...app_w_draft,
+					value: app_w_draft.draft
+				}
 			}
+
 			if (!app_w_draft.draft_only) {
 				const reloadAction = () => {
 					stateLoadedFromUrl = undefined
@@ -104,10 +116,7 @@
 				}
 
 				const deployed = cleanValueProperties(app_w_draft)
-				const draft = {
-					...deployed,
-					value: app.value
-				}
+				const draft = cleanValueProperties(app ?? {})
 				sendUserToast('app loaded from latest saved draft', false, [
 					{
 						label: 'Discard draft and load from latest deployed version',
@@ -140,11 +149,12 @@
 	}
 
 	async function restoreDraft() {
-		if (!savedApp) {
+		if (!savedApp || !savedApp.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
 		diffDrawer.closeDrawer()
+		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
 	}
@@ -162,6 +172,7 @@
 				path: savedApp.path
 			})
 		}
+		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
 	}
@@ -180,13 +191,13 @@
 					app = e.detail
 					redraw++
 				}}
-				versions={app.versions}
 				summary={app.summary}
 				app={app.value}
 				path={app.path}
 				policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
+				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
 			/>
 		</div>
 	{/if}

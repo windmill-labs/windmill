@@ -63,6 +63,16 @@
 	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
 	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
 	import AppCustomComponent from '../../components/display/AppCustomComponent.svelte'
+	import AppStatCard from '../../components/display/AppStatCard.svelte'
+	import AppMenu from '../../components/display/AppMenu.svelte'
+	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
+	import AppAgCharts from '../../components/display/charts/AppAgCharts.svelte'
+	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
+	import AppS3FileInput from '../../components/inputs/AppS3FileInput.svelte'
+	import AppAlert from '../../components/display/AppAlert.svelte'
+	import AppDateSliderInput from '../../components/inputs/AppDateSliderInput.svelte'
+	import AppTimeInput from '../../components/inputs/AppTimeInput.svelte'
+	import AppDateTimeInput from '../../components/inputs/AppDateTimeInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -292,6 +302,30 @@
 				componentInput={component.componentInput}
 				{render}
 			/>
+		{:else if component.type === 'agchartscomponent'}
+			<AppAgCharts
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				{render}
+			/>
+		{:else if component.type === 'agchartscomponentee'}
+			<AppAgCharts
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				componentInput={component.componentInput}
+				datasets={component.datasets}
+				xData={component.xData}
+				license={component.license}
+				ee={true}
+				{render}
+			/>
 		{:else if component.type === 'tablecomponent'}
 			<AppTable
 				configuration={component.configuration}
@@ -300,6 +334,14 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				actionButtons={component.actionButtons}
+				{render}
+			/>
+		{:else if component.type === 'dbexplorercomponent'}
+			<AppDbExplorer
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponent'}
@@ -361,6 +403,7 @@
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				onSelect={component.onSelect}
 				{render}
 			/>
 		{:else if component.type === 'multiselectcomponent'}
@@ -401,6 +444,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				recomputeIds={component.recomputeIds}
+				onToggle={component.onToggle}
 				{render}
 			/>
 		{:else if component.type === 'textinputcomponent'}
@@ -452,6 +496,23 @@
 				customCss={component.customCss}
 				{render}
 			/>
+		{:else if component.type === 'timeinputcomponent'}
+			<AppTimeInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'datetimeinputcomponent'}
+			<AppDateTimeInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="date"
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
 		{:else if component.type === 'numberinputcomponent'}
 			<AppNumberInput
 				verticalAlignment={component.verticalAlignment}
@@ -470,6 +531,14 @@
 			/>
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'dateslidercomponent'}
+			<AppDateSliderInput
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				id={component.id}
@@ -581,6 +650,13 @@
 				customCss={component.customCss}
 				{render}
 			/>
+		{:else if component.type === 's3fileinputcomponent'}
+			<AppS3FileInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				{render}
+			/>
 		{:else if component.type === 'imagecomponent'}
 			<AppImage
 				configuration={component.configuration}
@@ -676,6 +752,39 @@
 				{componentContainerHeight}
 				{render}
 				bind:initializing
+			/>
+		{:else if component.type === 'statcomponent'}
+			<AppStatCard
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'menucomponent'}
+			<AppMenu
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				menuItems={component.menuItems}
+				{render}
+			/>
+		{:else if component.type === 'decisiontreecomponent' && component.nodes}
+			<AppDecisionTree
+				id={component.id}
+				nodes={component.nodes}
+				customCss={component.customCss}
+				{componentContainerHeight}
+				{render}
+			/>
+		{:else if component.type === 'alertcomponent'}
+			<AppAlert
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
+				{render}
 			/>
 		{/if}
 	</div>

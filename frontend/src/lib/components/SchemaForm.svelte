@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue } from '$lib/utils'
+	import { allTrue, computeShow } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -19,7 +19,6 @@
 	export let disabledArgs: string[] = []
 	export let disabled = false
 
-	export let editableSchema = false
 	export let isValid: boolean = true
 	export let autofocus = false
 
@@ -33,6 +32,7 @@
 	export let prettifyHeader = false
 	export let disablePortal = false
 	export let showSchemaExplorer = false
+	export let showReset = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -42,6 +42,19 @@
 	$: if (args == undefined || typeof args !== 'object') {
 		args = {}
 	}
+
+	export function setDefaults() {
+		const nargs = {}
+
+		Object.keys(schema?.properties ?? {}).forEach((key) => {
+			if (schema?.properties[key].default != undefined && args[key] == undefined) {
+				nargs[key] = schema?.properties[key].default
+			}
+		})
+		args = nargs
+	}
+
+	let keys: string[] = []
 
 	function removeExtraKey() {
 		const nargs = {}
@@ -57,7 +70,6 @@
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
 
-	let keys: string[] = []
 	$: {
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
@@ -77,50 +89,49 @@
 	}
 
 	loadResourceTypes()
+
+	$: schema && reorder()
+
+	function reorder() {
+		if (schema?.order && Array.isArray(schema.order)) {
+			const n = {}
+
+			;(schema.order as string[]).forEach((x) => {
+				if (schema.properties && schema.properties[x] != undefined) {
+					n[x] = schema.properties[x]
+				}
+			})
+
+			Object.keys(schema.properties ?? {})
+				.filter((x) => !schema.order?.includes(x))
+				.forEach((x) => {
+					n[x] = schema.properties[x]
+				})
+			schema.properties = n
+			keys = Object.keys(schema.properties ?? {})
+		}
+	}
 </script>
 
-<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
+{#if showReset}
+	<div class="flex flex-row-reverse w-full">
+		<Button size="xs" color="light" on:click={() => setDefaults()}
+			>Reset args to runnable's defaults</Button
+		>
+	</div>
+{/if}
+<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
 			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
-						{#if editableSchema}
+						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
 							<ArgInput
 								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
-								autofocus={i == 0 && autofocus}
-								label={argName}
-								bind:description={schema.properties[argName].description}
-								bind:value={args[argName]}
-								type={schema.properties[argName].type}
-								required={schema.required?.includes(argName) ?? false}
-								bind:pattern={schema.properties[argName].pattern}
-								bind:valid={inputCheck[argName]}
-								defaultValue={schema.properties[argName].default}
-								bind:enum_={schema.properties[argName].enum}
-								bind:format={schema.properties[argName].format}
-								bind:contentEncoding={schema.properties[argName].contentEncoding}
-								bind:customErrorMessage={schema.properties[argName].customErrorMessage}
-								properties={schema.properties[argName].properties}
-								nestedRequired={schema.properties[argName].required}
-								bind:itemsType={schema.properties[argName].items}
-								disabled={disabledArgs.includes(argName) || disabled}
-								{editableSchema}
-								{compact}
-								{variableEditor}
-								{itemPicker}
-								bind:pickForField
-								bind:extra={schema.properties[argName]}
-								simpleTooltip={schemaFieldTooltip[argName]}
-							/>
-						{:else}
-							<ArgInput
-								{disablePortal}
-								{resourceTypes}
-								{prettifyHeader}
-								autofocus={i == 0 && autofocus}
+								autofocus={i == 0 && autofocus ? true : null}
 								label={argName}
 								description={schema.properties[argName].description}
 								bind:value={args[argName]}

@@ -21,10 +21,12 @@
 	export let id: string | undefined = undefined
 	export let moving: string | undefined = undefined
 	export let center = true
-	export let disableAi = false
+	export let disableAi: boolean = false
+	export let wrapperNode: FlowModule | undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		insert: {
+			script?: { path: string; summary: string; hash: string | undefined }
 			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'trigger' | 'move'
 			modules: FlowModule[]
 			index: number
@@ -115,6 +117,7 @@
 					}
 				}}
 				type="button"
+				disabled={wrapperNode?.id === moving}
 				class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 			>
 				<ClipboardCopy size={12} />
@@ -124,6 +127,16 @@
 				{disableAi}
 				bind:open={openMenu}
 				trigger={label == 'Input'}
+				on:insert={(e) => {
+					if (modules) {
+						dispatch('insert', {
+							modules,
+							index,
+							detail: 'script',
+							script: e.detail
+						})
+					}
+				}}
 				on:new={(e) => {
 					if (modules) {
 						dispatch('insert', {
@@ -159,7 +172,7 @@
 						: undefined}
 					slot="trigger"
 					type="button"
-					class="text-primary bg-surface border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
+					class=" bg-surface text-violet-800 dark:text-violet-400 border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
 				>
 					<Wand2 size={16} />
 				</button>

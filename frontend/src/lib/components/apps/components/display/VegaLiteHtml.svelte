@@ -24,15 +24,14 @@
 
 	let vegaEmbed
 	onMount(async () => {
-		if (divEl) {
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega@5.22.1')
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega-lite@5.6.0')
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega-embed@6.21.0')
-			vegaEmbed = window['vegaEmbed']
-		}
+		//@ts-ignore
+		await import('https://cdn.jsdelivr.net/npm/vega@5.22.1')
+		//@ts-ignore
+		await import('https://cdn.jsdelivr.net/npm/vega-lite@5.6.0')
+		//@ts-ignore
+		await import('https://cdn.jsdelivr.net/npm/vega-embed@6.21.0')
+
+		vegaEmbed = window['vegaEmbed']
 	})
 
 	let h: number | undefined = undefined
@@ -46,7 +45,16 @@
 		w &&
 		vegaEmbed(
 			divEl,
-			{ ...result, ...{ width: w - 100 } },
+			{
+				...result,
+				...{
+					width: w - 100,
+					config: {
+						legend: { orient: 'bottom', ...(result?.['config']?.['legend'] ?? {}) },
+						...(result?.['config'] ?? {})
+					}
+				}
+			},
 			{
 				mode: 'vega-lite',
 				actions: false,

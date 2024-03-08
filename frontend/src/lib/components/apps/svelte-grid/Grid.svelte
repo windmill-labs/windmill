@@ -116,12 +116,7 @@
 					}
 				}
 
-				sortedItems = moveItem(
-					activeItem,
-					sortedItems,
-					getComputedCols,
-					getItemById(id, sortedItems)
-				)
+				sortedItems = moveItem(activeItem, sortedItems, getComputedCols)
 			}
 		}
 
@@ -198,7 +193,7 @@
 				nativeContainer={container}
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} item={item[getComputedCols]} />
+					<slot dataItem={item} />
 				{/if}
 			</MoveResize>
 		{/if}

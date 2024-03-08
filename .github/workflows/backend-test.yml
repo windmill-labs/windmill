@@ -15,7 +15,7 @@ on:
 
 jobs:
   cargo_test:
-    runs-on: [self-hosted, new]
+    runs-on: ubicloud-standard-8
     container:
       image: ghcr.io/windmill-labs/backend-tests
     services:
@@ -31,15 +31,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            backend
-            backend -> target
+          toolchain: 1.75.0
+      # - uses: Swatinem/rust-cache@v2
+      #   with:
+      #     workspaces: |
+      #       backend
+      #       backend -> target
       - name: cargo test
-        timeout-minutes: 10
+        timeout-minutes: 15
         run:
           mkdir frontend/build && cd backend && touch
           windmill-api/openapi-deref.yaml &&
-          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill DISABLE_EMBEDDING=true cargo
-          test --features enterprise --all -- --nocapture 
+          DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill
+          DISABLE_EMBEDDING=true RUST_LOG=info cargo test --features enterprise
+          --all -- --nocapture

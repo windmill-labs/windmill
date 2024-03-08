@@ -1,3 +1,8 @@
+<script context="module">
+	let cssClassesLoaded = writable(false)
+	let tailwindClassesLoaded = writable(false)
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
@@ -20,14 +25,17 @@
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
 
-	import { allClasses, authorizedClassnames } from './apps/editor/componentsPanel/cssUtils'
+	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import libStdContent from '$lib/es5.d.ts.txt?raw'
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
+	import libStdContent from '$lib/es6.d.ts.txt?raw'
+	import domContent from '$lib/dom.d.ts.txt?raw'
+	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
+	import { tailwindClasses } from './apps/editor/componentsPanel/tailwindUtils'
+	import { writable } from 'svelte/store'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -42,10 +50,13 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let extraLib: string = ''
+
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
 	export let fixedOverflowWidgets = true
 	export let small = false
+	export let domLib = false
+	export let autofocus = false
 
 	const dispatch = createEventDispatcher()
 
@@ -114,15 +125,32 @@
 		divEl?.classList.add('hidden')
 	}
 
+	let suggestion = ''
+	export function setSuggestion(value: string): void {
+		suggestion = value
+	}
+
 	let width = 0
 	let initialized = false
+
+	let disableTabCond: meditor.IContextKey<boolean> | undefined
+	$: disableTabCond?.set(!code && !!suggestion)
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
 		languages.typescript.javascriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
 			allowNonTsExtensions: true,
-			noLib: true
+			noSemanticValidation: false,
+			noLib: true,
+			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		})
+		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
 		})
 
 		languages.json.jsonDefaults.setDiagnosticsOptions({
@@ -143,18 +171,22 @@
 			model = nmodel
 		}
 		model.updateOptions(updateOptions)
-		let widgets: HTMLElement | undefined =
-			document.getElementById('monaco-widgets-root') ?? undefined
+		// let widgets: HTMLElement | undefined =
+		// 	document.getElementById('monaco-widgets-root') ?? undefined
 
+		if (!divEl) {
+			return
+		}
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
 			model,
-			overflowWidgetsDomNode: widgets,
+			// overflowWidgetsDomNode: widgets,
 			fontSize: small ? 12 : 14
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
+			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				code = getCode()
@@ -169,6 +201,9 @@
 				code = getCode()
 				shouldBindKey && format && format()
 			})
+
+			disableTabCond = editor.createContextKey('disableTabCond', !code)
+			editor.addCommand(KeyCode.Tab, function () {}, 'disableTabCond')
 		})
 
 		if (autoHeight) {
@@ -200,11 +235,21 @@
 		})
 
 		editor.onDidBlurEditorText(() => {
+			dispatch('blur')
 			code = getCode()
 		})
-	}
 
-	$: lang == 'css' && addCSSClassCompletions()
+		if (lang === 'css' && !$cssClassesLoaded) {
+			$cssClassesLoaded = true
+			addCSSClassCompletions()
+		}
+
+		if (lang === 'tailwindcss' && !$tailwindClassesLoaded) {
+			languages.register({ id: 'tailwindcss' })
+			$tailwindClassesLoaded = true
+			addTailwindClassCompletions()
+		}
+	}
 
 	function addCSSClassCompletions() {
 		languages.registerCompletionItemProvider('css', {
@@ -238,52 +283,53 @@
 		})
 	}
 
+	function addTailwindClassCompletions() {
+		languages.registerCompletionItemProvider('tailwindcss', {
+			provideCompletionItems: function (model, position, context, token) {
+				const word = model.getWordUntilPosition(position)
+				const range = {
+					startLineNumber: position.lineNumber,
+					startColumn: word.startColumn,
+					endLineNumber: position.lineNumber,
+					endColumn: word.endColumn
+				}
+
+				if (word && word.word) {
+					const currentWord = word.word
+
+					const suggestions = tailwindClasses
+						.filter((className) => className.includes(currentWord))
+						.map((className) => ({
+							label: className,
+							kind: languages.CompletionItemKind.Class,
+							insertText: className,
+							documentation: 'Custom CSS class',
+							range: range
+						}))
+
+					return { suggestions }
+				}
+
+				return { suggestions: [] }
+			}
+		})
+	}
+
 	function loadExtraLib() {
 		if (lang == 'javascript') {
-			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
-			if (extraLib != '') {
-				languages.typescript.javascriptDefaults.setExtraLibs([
-					{
-						content: extraLib,
-						filePath: 'windmill.d.ts'
-					},
-					stdLib
-				])
-			} else {
-				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+			const libs = [stdLib]
+			if (domLib) {
+				const domDTS = { content: domContent, filePath: 'dom.d.ts' }
+				libs.push(domDTS)
 			}
-		} else if (lang === 'css') {
-			const cssClasses = authorizedClassnames.map((className) => '.' + className)
-
-			languages.registerCompletionItemProvider('css', {
-				provideCompletionItems: function (model, position, context, token) {
-					const word = model.getWordUntilPosition(position)
-					const range = {
-						startLineNumber: position.lineNumber,
-						startColumn: word.startColumn,
-						endLineNumber: position.lineNumber,
-						endColumn: word.endColumn
-					}
-
-					if (word && word.word) {
-						const currentWord = word.word
-
-						const suggestions = cssClasses
-							.filter((className) => className.includes(currentWord))
-							.map((className) => ({
-								label: className,
-								kind: languages.CompletionItemKind.Class,
-								insertText: className,
-								documentation: 'Custom CSS class',
-								range: range
-							}))
-
-						return { suggestions }
-					}
-
-					return { suggestions: [] }
-				}
-			})
+			if (extraLib != '') {
+				libs.push({
+					content: extraLib,
+					filePath: 'windmill.d.ts'
+				})
+			}
+			languages.typescript.javascriptDefaults.setExtraLibs(libs)
 		}
 	}
 
@@ -292,6 +338,11 @@
 		if (BROWSER) {
 			mounted = true
 			await loadMonaco()
+			if (autofocus) {
+				setTimeout(() => {
+					focus()
+				}, 0)
+			}
 		}
 	})
 
@@ -306,6 +357,15 @@
 </script>
 
 <EditorTheme />
+
+{#if editor && suggestion && code.length === 0}
+	<div
+		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
+		style={`max-width: calc(${width}px - 2.05rem)`}
+	>
+		{suggestion}
+	</div>
+{/if}
 
 <div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
 

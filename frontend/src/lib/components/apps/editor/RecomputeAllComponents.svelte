@@ -27,6 +27,12 @@
 		if (appEditorContext) {
 			appEditorContext.refreshComponents.set(refresh)
 		}
+		document.addEventListener('visibilitychange', visChange)
+		// setTimeout(() => refresh(), 1000)
+		return () => {
+			document.removeEventListener('visibilitychange', visChange)
+			if (timeout) clearInterval(timeout)
+		}
 	})
 
 	function onClick(stopAfterClear = true) {
@@ -57,6 +63,7 @@
 		}
 		loading = true
 
+		console.log('refresh all')
 		const promises = Object.keys($runnableComponents)
 			.flatMap((id) => {
 				if (
@@ -66,6 +73,7 @@
 					return
 				}
 
+				console.log('refresh start', id)
 				return $runnableComponents?.[id]?.cb?.map((f) =>
 					f().then(() => console.log('refreshed', id))
 				)
@@ -88,15 +96,6 @@
 		}
 	}
 
-	onMount(() => {
-		document.addEventListener('visibilitychange', visChange)
-		// setTimeout(() => refresh(), 1000)
-		return () => {
-			document.removeEventListener('visibilitychange', visChange)
-			if (timeout) clearInterval(timeout)
-		}
-	})
-
 	let items = [
 		{
 			displayName: 'Once',
@@ -109,10 +108,10 @@
 	]
 </script>
 
-<!-- {$initialized.initializedComponents?.join(', ')} -->
-<!-- {allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length}
-{$initialized.initializedComponents}
-{allItems($app.grid, $app.subgrids)
+<!-- {$initialized.initializedComponents?.join(', ')}
+{allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length} -->
+<!-- {$initialized.initializedComponents} -->
+<!-- {allItems($app.grid, $app.subgrids)
 	.map((x) => x.id)
 	.filter((x) => !$initialized.initializedComponents?.includes(x))
 	.sort()
@@ -126,12 +125,12 @@
 		color={timeout ? 'blue' : 'light'}
 		variant={timeout ? 'contained' : 'border'}
 		size="xs"
-		btnClasses="!rounded-r-none {timeout ? '!border !border-blue-500' : ''}"
+		btnClasses="!rounded-r-none text-tertiary !text-2xs {timeout ? '!border !border-blue-500' : ''}"
 		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
 			? `every ${interval / 1000} seconds`
 			: 'once'}"
 	>
-		<RefreshCw class={loading ? 'animate-spin' : ''} size={16} /> &nbsp;({componentNumber})
+		<RefreshCw class={loading ? 'animate-spin' : ''} size={14} /> &nbsp;{componentNumber}
 	</Button>
 
 	<ButtonDropdown hasPadding={true}>
@@ -155,7 +154,7 @@
 				>
 					<div
 						class={classNames(
-							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
 						)}
 					>
 						{#if index === 0}

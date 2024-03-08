@@ -8,6 +8,7 @@
 	import type { FlowEditorContext } from '../types'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Pen } from 'lucide-svelte'
+	import PredicateGen from '$lib/components/copilot/PredicateGen.svelte'
 
 	export let branch: {
 		summary?: string
@@ -16,6 +17,7 @@
 	}
 	export let parentModule: FlowModule
 	export let previousModule: FlowModule | undefined
+	export let enableAi = false
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -55,8 +57,20 @@
 	</PropPickerWrapper>
 {:else}
 	<div class="flex justify-between gap-4 p-2">
-		<div><pre class="text-sm">{branch.expr}</pre></div><div>
+		<div><pre class="text-sm">{branch.expr}</pre></div><div
+			class="flex flex-row gap-2 items-center"
+		>
+			{#if enableAi}
+				<PredicateGen
+					on:setExpr={(e) => {
+						branch.expr = e.detail
+					}}
+					on:updateSummary
+					pickableProperties={stepPropPicker.pickableProperties}
+				/>
+			{/if}
 			<Button
+				size="xs"
 				startIcon={{ icon: Pen }}
 				variant="border"
 				on:click={() => (open = !open)}

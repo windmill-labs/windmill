@@ -45,6 +45,7 @@
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
+				dedicated_worker?: boolean
 		  }
 		| undefined = undefined
 
@@ -79,17 +80,12 @@
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
 					requestBody: {
-						path: script.path,
-						summary: script.summary,
+						...script,
 						description: script.description ?? '',
-						content: script.content,
 						parent_hash: script.hash != '' ? script.hash : undefined,
-						schema: script.schema,
 						is_template: false,
-						language: script.language,
 						kind: script.kind as Script.kind | undefined,
-						envs: script.envs,
-						ws_error_handler_muted: script.ws_error_handler_muted
+						lock: undefined
 					}
 				})
 				savedScript = cloneDeep(script)
@@ -169,6 +165,8 @@
 		</Button>
 	</div>
 </ConfirmationModal>
+<!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
+
 <Drawer
 	bind:this={scriptEditorDrawer}
 	size="1200px"
@@ -192,7 +190,7 @@
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
-					fixedOverflowWidgets={true}
+					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
 					tag={undefined}

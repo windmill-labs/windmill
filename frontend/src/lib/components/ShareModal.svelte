@@ -125,6 +125,8 @@
 						</div>
 						{#key ownerKind}
 							<AutoComplete
+								required
+								noInputStyles
 								items={ownerKind === 'user' ? usernames : groups}
 								bind:selectedItem={owner}
 							/>

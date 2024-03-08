@@ -13,6 +13,8 @@
 	import SnowflakeIcon from '$lib/components/icons/SnowflakeIcon.svelte'
 	import GraphqlIcon from '$lib/components/icons/GraphqlIcon.svelte'
 	import MSSqlServerIcon from '$lib/components/icons/MSSqlServerIcon.svelte'
+	import BunIcon from '$lib/components/icons/BunIcon.svelte'
+	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -64,12 +66,39 @@
 		nativets: RestIcon,
 		graphql: GraphqlIcon
 	}
+
+	let subIconScale = width === 30 ? 0.6 : 0.8
 </script>
 
-<svelte:component
-	this={langToComponent[lang]}
-	title={languageLabel[lang]}
-	width={width * scale}
-	height={height * scale}
-	{...$$restProps}
-/>
+<div class="relative">
+	<svelte:component
+		this={langToComponent[lang]}
+		title={languageLabel[lang]}
+		width={width * scale}
+		height={height * scale}
+		{...$$restProps}
+	/>
+	{#if lang === 'deno'}
+		<div
+			class="absolute -top-1.5 -right-1.5 bg-surface rounded-full flex items-center"
+			style={`width: ${width * scale * subIconScale}px; height: ${
+				height * scale * subIconScale
+			}px;`}
+		>
+			<DenoIcon width={width * scale * subIconScale} height={height * scale * subIconScale} />
+		</div>
+	{/if}
+	{#if lang === 'bun'}
+		<div
+			class="absolute -top-1.5 -right-1.5 bg-surface rounded-full flex items-center justify-center"
+			style={`width: ${width * scale * subIconScale}px; height: ${
+				height * scale * subIconScale
+			}px;`}
+		>
+			<BunIcon
+				width={width * scale * (subIconScale - 0.1)}
+				height={height * scale * (subIconScale - 0.1)}
+			/>
+		</div>
+	{/if}
+</div>

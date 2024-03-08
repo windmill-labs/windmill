@@ -87,6 +87,26 @@
         "ordinal": 16,
         "name": "large_file_storage",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 17,
+        "name": "git_sync",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 18,
+        "name": "default_app",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 19,
+        "name": "auto_add",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 20,
+        "name": "automatic_billing",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -111,7 +131,11 @@
       false,
       true,
       false,
-      true
+      true,
+      true,
+      true,
+      true,
+      false
     ]
   },
   "hash": "5445083864b2b092b012e894bff7630a1d7b9deb8d33e9f909061f351f96844e"

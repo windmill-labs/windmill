@@ -8,7 +8,7 @@ env:
 
 jobs:
   build_deno_and_push_to_repo:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud
     steps:
       - uses: actions/checkout@v3
       - name: generate_deno
@@ -31,7 +31,7 @@ jobs:
 
   tag_repo:
     needs: [build_deno_and_push_to_repo]
-    runs-on: ubuntu-latest
+    runs-on: ubicloud
     steps:
       - uses: actions/checkout@v3
         with:

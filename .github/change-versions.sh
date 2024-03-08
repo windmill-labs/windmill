@@ -1,22 +1,25 @@
 #!/bin/bash
+set -euo pipefail
+script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root_dirpath="$(cd "${script_dirpath}/.." && pwd)"
 
 VERSION=$1
 echo "Updating versions to: $VERSION"
 
-sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" backend/Cargo.toml
-sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" cli/main.ts
-sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" benchmarks/lib.ts
-sed -i -e "/version: /s/: .*/: $VERSION/" backend/windmill-api/openapi.yaml
-sed -i -e "/version: /s/: .*/: $VERSION/" openflow.openapi.yaml
-sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" typescript-client/package.json
-sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" frontend/package.json
-sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill/pyproject.toml
-sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill/pyproject.toml
-sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill_pg/pyproject.toml
-# sed -i -e "/^wmill =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill_pg/pyproject.toml
-sed -i -e "/^wmill =/s/= .*/= \">=$VERSION\"/" lsp/Pipfile
-sed -i -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" lsp/Pipfile
+sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/backend/Cargo.toml
+sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" ${root_dirpath}/cli/main.ts
+sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" ${root_dirpath}/benchmarks/lib.ts
+sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/backend/windmill-api/openapi.yaml
+sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/openflow.openapi.yaml
+sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/package.json
+sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/frontend/package.json
+sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
+sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
+sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill_pg/pyproject.toml
+# sed -i -e "/^wmill =/s/= .*/= \"\\^$VERSION\"/" ${root_dirpath}/python-client/wmill_pg/pyproject.toml
+sed -i -e "/^wmill =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
+sed -i -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
 
-sed -i -zE "s/name = \"windmill\"\nversion = \"[^\"]*\"\\n(.*)/name = \"windmill\"\nversion = \"$VERSION\"\\n\\1/" backend/Cargo.lock
+sed -i -zE "s/name = \"windmill\"\nversion = \"[^\"]*\"\\n(.*)/name = \"windmill\"\nversion = \"$VERSION\"\\n\\1/" ${root_dirpath}/backend/Cargo.lock
 
-cd frontend && npm i --package-lock-only
+cd ${root_dirpath}/frontend && npm i --package-lock-only

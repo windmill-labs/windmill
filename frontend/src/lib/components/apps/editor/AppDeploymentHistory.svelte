@@ -5,11 +5,11 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 
-	let versions: number[] = []
+	let appPath: string | undefined = undefined
 	let historyBrowserDrawerOpen = false
 
-	export function open(newVersions: number[]) {
-		versions = newVersions
+	export function open(appPath: string) {
+		appPath = appPath
 		historyBrowserDrawerOpen = true
 	}
 
@@ -33,7 +33,7 @@
 				sendUserToast('App restored from previous deployment')
 				updateApp(e.detail)
 			}}
-			{versions}
+			{appPath}
 			on:close={() => {
 				historyBrowserDrawerOpen = false
 			}}

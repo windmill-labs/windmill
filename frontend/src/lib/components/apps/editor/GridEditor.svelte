@@ -17,6 +17,9 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { BG_PREFIX } from '../utils'
+	import { Loader2 } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
+	import GridEditorMenu from './GridEditorMenu.svelte'
 
 	export let policy: Policy
 
@@ -29,7 +32,8 @@
 		focusedGrid,
 		parentWidth,
 		breakpoint,
-		allIdsInPath
+		allIdsInPath,
+		bgRuns
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, scale, componentActive } = getContext<AppEditorContext>('AppEditorContext')
@@ -50,9 +54,29 @@
 			: 'z-50'} {$connectingInput?.opened ? '' : 'bg-surface'} px-4 py-1 items-center gap-4"
 	>
 		<h3 class="truncate">{$summary}</h3>
-		<div>
-			{#if !$connectingInput.opened}
-				<RecomputeAllComponents />
+		<div class="flex gap-2 items-center">
+			<div>
+				{#if !$connectingInput.opened}
+					<RecomputeAllComponents />
+				{/if}
+			</div>
+			{#if $bgRuns.length > 0}
+				<Popover notClickable>
+					<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+						><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
+					</span>
+					<span slot="text"
+						><div class="flex flex-col">
+							{#each $bgRuns as bgRun}
+								<div class="flex gap-2 items-center">
+									<div class="text-2xs text-tertiary">{bgRun}</div>
+								</div>
+							{/each}
+						</div></span
+					>
+				</Popover>
+			{:else}
+				<span class="w-9" />
 			{/if}
 		</div>
 		<div class="flex text-2xs gap-8 items-center">
@@ -113,25 +137,27 @@
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
 				>
-					<Component
-						render={true}
-						component={dataItem.data}
-						selected={Boolean($selectedComponent?.includes(dataItem.id))}
-						locked={isFixed(dataItem)}
-						on:lock={() => {
-							const gridItem = findGridItem($app, dataItem.id)
-							if (gridItem) {
-								toggleFixed(gridItem)
-							}
-							$app = $app
-						}}
-						on:expand={() => {
-							push(history, $app)
-							$selectedComponent = [dataItem.id]
-							expandGriditem($app.grid, dataItem.id, $breakpoint)
-							$app = $app
-						}}
-					/>
+					<GridEditorMenu id={dataItem.id}>
+						<Component
+							render={true}
+							component={dataItem.data}
+							selected={Boolean($selectedComponent?.includes(dataItem.id))}
+							locked={isFixed(dataItem)}
+							on:lock={() => {
+								const gridItem = findGridItem($app, dataItem.id)
+								if (gridItem) {
+									toggleFixed(gridItem)
+								}
+								$app = $app
+							}}
+							on:expand={() => {
+								push(history, $app)
+								$selectedComponent = [dataItem.id]
+								expandGriditem($app.grid, dataItem.id, $breakpoint)
+								$app = $app
+							}}
+						/>
+					</GridEditorMenu>
 				</ComponentWrapper>
 			</Grid>
 		</div>

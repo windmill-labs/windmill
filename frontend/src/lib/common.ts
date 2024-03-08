@@ -28,9 +28,17 @@ export interface SchemaProperty {
 		contentEncoding?: 'base64'
 		enum?: string[]
 	}
+	min?: number
+	max?: number
+	currency?: string
+	currencyLocale?: string
+	multiselect?: boolean
 	customErrorMessage?: string
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
+	showExpr?: string
+	password?: boolean
+	order?: string[]
 }
 
 export interface ModalSchemaProperty {
@@ -38,14 +46,21 @@ export interface ModalSchemaProperty {
 	description: string
 	name: string
 	required: boolean
+	min?: number
+	max?: number
+	currency?: string
+	currencyLocale?: string
+	multiselect?: boolean
 	format?: string
 	pattern?: string
 	enum_?: string[]
 	default?: any
-	items?: { type?: 'string' | 'number' }
+	items?: { type?: 'string' | 'number'; enum?: string[] }
 	contentEncoding?: 'base64' | 'binary'
 	schema?: Schema
 	customErrorMessage?: string
+	showExpr?: string
+	password?: boolean
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -60,7 +75,14 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		format: schema.format,
 		customErrorMessage: schema.customErrorMessage,
 		properties: schema.schema?.properties,
-		required: schema.schema?.required
+		required: schema.schema?.required,
+		min: schema.min,
+		max: schema.max,
+		currency: schema.currency,
+		currencyLocale: schema.currencyLocale,
+		multiselect: schema.multiselect,
+		showExpr: schema.showExpr,
+		password: schema.password
 	}
 }
 export type Schema = {
@@ -69,6 +91,24 @@ export type Schema = {
 	properties: { [name: string]: SchemaProperty }
 	order?: string[]
 	required: string[]
+}
+
+export function mergeSchema(
+	schema: Schema | Record<string, any>,
+	enum_payload: Record<string, any> = {}
+) {
+	if (!schema.properties || !enum_payload) {
+		return schema
+	}
+	let new_schema: Schema = JSON.parse(JSON.stringify(schema))
+	for (let [key, value] of Object.entries(new_schema.properties ?? {})) {
+		if (enum_payload[key]) {
+			value.enum = enum_payload[key]
+			value['disableCreate'] = true
+		}
+	}
+
+	return new_schema
 }
 
 export type Meta = { ownerKind: OwnerKind; owner: string; name: string }

@@ -7,7 +7,6 @@
  */
 
 use axum::response::Response;
-#[cfg(feature = "axum")]
 use axum::{
     body::{self, BoxBody},
     response::IntoResponse,
@@ -15,15 +14,11 @@ use axum::{
 };
 
 use hyper::StatusCode;
-use serde_json::value::RawValue;
-#[cfg(feature = "sqlx")]
 use sqlx::migrate::MigrateError;
 use thiserror::Error;
-#[cfg(feature = "tokio")]
 use tokio::io;
 
 pub type Result<T> = std::result::Result<T, Error>;
-#[cfg(feature = "axum")]
 pub type JsonResult<T> = std::result::Result<Json<T>, Error>;
 
 #[derive(Debug, Error)]
@@ -45,10 +40,8 @@ pub enum Error {
     #[error("{0}")]
     ExecutionErr(String),
     #[error("IO error: {0}")]
-    #[cfg(feature = "tokio")]
     IoErr(#[from] io::Error),
     #[error("Sql error: {0}")]
-    #[cfg(feature = "sqlx")]
     SqlErr(#[from] sqlx::Error),
     #[error("Bad request: {0}")]
     BadRequest(String),
@@ -57,7 +50,6 @@ pub enum Error {
     #[error("Hexadecimal decoding error: {0}")]
     HexErr(#[from] hex::FromHexError),
     #[error("Migrating database: {0}")]
-    #[cfg(feature = "sqlx")]
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status: {0}")]
     ExitStatus(i32),
@@ -65,8 +57,6 @@ pub enum Error {
     Anyhow(#[from] anyhow::Error),
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
-    #[error("Custom Status Code: {0:#?}")]
-    CustomStatusCode(StatusCode, Option<Box<RawValue>>),
     #[error("{0}")]
     OpenAIError(String),
 }
@@ -82,44 +72,32 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
     From::from(e)
 }
 
-#[cfg(feature = "axum")]
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response<BoxBody> {
-        match self {
-            Self::CustomStatusCode(code, result) => {
-                let mut res = Json(result).into_response();
-                let status_mut = res.status_mut();
-                *status_mut = code;
-                res
+        let e = &self;
+        let body = body::boxed(body::Full::from(e.to_string()));
+
+        let status = match self {
+            Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
+            Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
+            Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
+            Self::SqlErr(_) | Self::BadRequest(_) | Self::OpenAIError(_) => {
+                axum::http::StatusCode::BAD_REQUEST
             }
-            _ => {
-                let e = &self;
-                let body = body::boxed(body::Full::from(e.to_string()));
+            _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        };
 
-                let status = match self {
-                    Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
-                    Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
-                    Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
-                    Self::CustomStatusCode(code, _) => code,
-                    Self::SqlErr(_) | Self::BadRequest(_) | Self::OpenAIError(_) => {
-                        axum::http::StatusCode::BAD_REQUEST
-                    }
-                    _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                };
+        if matches!(status, axum::http::StatusCode::NOT_FOUND) {
+            tracing::warn!(message = e.to_string());
+        } else {
+            tracing::error!(message = e.to_string());
+        };
 
-                if matches!(status, axum::http::StatusCode::NOT_FOUND) {
-                    tracing::warn!(not_found = e.to_string());
-                } else {
-                    tracing::error!(error = e.to_string());
-                };
-
-                axum::response::Response::builder()
-                    .header("Content-Type", "text/plain")
-                    .status(status)
-                    .body(body)
-                    .unwrap()
-            }
-        }
+        axum::response::Response::builder()
+            .header("Content-Type", "text/plain")
+            .status(status)
+            .body(body)
+            .unwrap()
     }
 }
 
@@ -150,7 +128,7 @@ impl IntoResponse for AppError {
 }
 
 // This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, AppError>`. That way you don't need to do that manually.
+// `Result<_, AppError>`. That way you don't need to do that manually
 impl<E> From<E> for AppError
 where
     E: Into<anyhow::Error>,

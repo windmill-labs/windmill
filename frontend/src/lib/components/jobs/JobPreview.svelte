@@ -100,16 +100,22 @@
 			border shadow-xl flex justify-start items-start w-[600px] h-80
 			overflow-hidden"
 		>
-			<div class="absolute bottom-0 right-1 flex justify-end gap-2 pb-0.5">
+			<div class="absolute bottom-0 right-1 flex justify-end gap-2 pb-0.5 z-50 bg-surface-primary">
+				{#if job?.started_at}
+					<Badge>{new Date(job?.['started_at']).toLocaleString()}</Badge>
+				{/if}
 				<Badge>
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
 				{#if job?.['duration_ms']}
-					<DurationMs duration_ms={job?.['duration_ms']} />
+					<DurationMs
+						flow={job.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+						duration_ms={job?.['duration_ms']}
+					/>
 				{/if}
 			</div>
 			<div class="w-1/2 h-full overflow-auto">
-				<JobArgs args={job?.args} tableClass="!pt-0 !min-w-0 !block" />
+				<JobArgs args={job?.args} />
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}

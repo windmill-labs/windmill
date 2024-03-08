@@ -5,7 +5,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema } from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Popover from '../Popover.svelte'
@@ -45,7 +45,8 @@
 					code: editor?.getCode() || '',
 					error,
 					dbSchema: dbSchema,
-					type: 'fix'
+					type: 'fix',
+					workspace: $workspaceStore!
 				},
 				generatedCode,
 				abortController,
@@ -58,11 +59,13 @@
 			await sleep(300)
 			showDiff()
 		} catch (err) {
-			if (err?.message) {
-				sendUserToast('Failed to generate code: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to generate code', true)
-				console.error(err)
+			if (!abortController?.signal.aborted) {
+				if (err?.message) {
+					sendUserToast('Failed to generate code: ' + err.message, true)
+				} else {
+					sendUserToast('Failed to generate code', true)
+					console.error(err)
+				}
 			}
 			closePopup()
 		} finally {
@@ -114,7 +117,7 @@
 </script>
 
 {#if SUPPORTED_LANGUAGES.has(lang)}
-	<div class="mb-2">
+	<div>
 		{#if !genLoading && $generatedCode.length > 0}
 			<div class="flex gap-1">
 				<Button
@@ -149,14 +152,7 @@
 				floatingConfig={{
 					middleware: [
 						autoPlacement({
-							allowedPlacements: [
-								'bottom-start',
-								'bottom-end',
-								'top-start',
-								'top-end',
-								'top',
-								'bottom'
-							]
+							allowedPlacements: ['bottom-end', 'top-end']
 						})
 					]
 				}}
@@ -166,11 +162,14 @@
 					<Button
 						title="Fix code"
 						size="xs"
-						color={genLoading ? 'red' : 'blue'}
+						color={genLoading ? 'red' : 'light'}
 						spacingSize="xs2"
 						startIcon={genLoading ? undefined : { icon: Wand2 }}
 						nonCaptureEvent={!genLoading}
 						on:click={genLoading ? () => abortController?.abort() : undefined}
+						btnClasses={genLoading
+							? ''
+							: 'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700'}
 						>{#if genLoading}
 							<WindmillIcon
 								white

@@ -21,7 +21,18 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	onMount(() => {
-		if (!isAppTainted($app) && !$ignoredTutorials.includes(7) && $tutorialsToDo.includes(7)) {
+		const urlParams = new URLSearchParams(window.location.search)
+
+		const forkedFromTheHub = urlParams.get('hub')
+		const forkedFromTemplate = urlParams.get('template')
+
+		if (
+			!isAppTainted($app) &&
+			!$ignoredTutorials.includes(7) &&
+			$tutorialsToDo.includes(7) &&
+			!forkedFromTheHub &&
+			!forkedFromTemplate
+		) {
 			appTutorials?.runTutorialById('simpleapptutorial')
 		}
 	})

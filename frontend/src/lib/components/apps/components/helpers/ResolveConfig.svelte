@@ -7,7 +7,7 @@
 	export let key: string
 	export let resolvedConfig: any | { type: 'oneOf'; configuration: any; selected: string }
 	export let configuration: RichConfiguration
-
+	export let initialConfig: RichConfiguration | undefined = undefined
 	$: configuration?.type == 'oneOf' && handleSelected(configuration.selected)
 
 	function handleSelected(selected: string) {
@@ -22,13 +22,26 @@
 	{#each Object.keys(configuration.configuration?.[choice] ?? {}) as nestedKey (nestedKey)}
 		{#if resolvedConfig.configuration?.[choice] != undefined}
 			<InputValue
+				field={nestedKey}
 				key={key + choice + nestedKey + extraKey}
 				{id}
 				input={configuration?.configuration?.[choice]?.[nestedKey]}
 				bind:value={resolvedConfig.configuration[choice][nestedKey]}
+				onDemandOnly={initialConfig?.type == 'oneOf' &&
+					initialConfig?.configuration?.[choice]?.[nestedKey]?.onDemandOnly}
+				exportValueFunction
 			/>
 		{/if}
 	{/each}
 {:else}
-	<InputValue key={key + extraKey} {id} input={configuration} bind:value={resolvedConfig} />
+	<InputValue
+		field={key}
+		key={key + extraKey}
+		{id}
+		input={configuration}
+		onDemandOnly={(initialConfig?.type == 'static' || initialConfig?.type == 'evalv2') &&
+			initialConfig?.onDemandOnly}
+		bind:value={resolvedConfig}
+		exportValueFunction
+	/>
 {/if}

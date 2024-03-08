@@ -10,12 +10,13 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = []
+enterprise = ["windmill-common/enterprise"]
 benchmark = []
+prometheus = ["dep:prometheus"]
 
 [dependencies]
 windmill-audit.workspace = true
-windmill-common = { workspace = true, features = ["sqlx", "reqwest"] }
+windmill-common = { workspace = true, default-features = false }
 anyhow.workspace = true
 hmac.workspace = true
 sql-builder.workspace = true
@@ -30,7 +31,7 @@ chrono-tz.workspace = true
 hex.workspace = true
 reqwest.workspace = true
 lazy_static.workspace = true
-prometheus.workspace = true
+prometheus = { workspace = true, optional = true }
 cron.workspace = true
 rsmq_async.workspace = true
 tokio.workspace = true
@@ -39,3 +40,5 @@ itertools.workspace = true
 async-recursion.workspace = true
 bigdecimal.workspace = true
 axum.workspace = true
+serde_urlencoded.workspace = true
+regex.workspace = true

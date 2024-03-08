@@ -4,24 +4,25 @@
 		NewScript,
 		Script,
 		ScriptService,
-		WorkerService,
-		type NewScriptWithDraft
+		type NewScriptWithDraft,
+		ScheduleService
 	} from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { enterpriseLicense, userStore, workerTags, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
 		emptySchema,
+		emptyString,
 		encodeState,
-		getModifierKey,
+		formatCron,
 		orderedJsonStringify
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
-	import { Alert, Badge, Button, Drawer, Kbd, SecondsInput, Tab, TabContent, Tabs } from './common'
+	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -31,11 +32,10 @@
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
 		Bug,
+		Calendar,
 		CheckCircle,
 		Code,
 		DiffIcon,
-		ExternalLink,
-		Loader2,
 		Pen,
 		Plus,
 		Rocket,
@@ -43,7 +43,6 @@
 		Settings,
 		X
 	} from 'lucide-svelte'
-	import autosize from 'svelte-autosize'
 	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -58,6 +57,11 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
 	import type Editor from './Editor.svelte'
+	import WorkerTagPicker from './WorkerTagPicker.svelte'
+	import MetadataGen from './copilot/MetadataGen.svelte'
+	import ScriptSchedules from './ScriptSchedules.svelte'
+	import { writable } from 'svelte/store'
+	import { type ScriptSchedule, loadScriptSchedule } from '$lib/scripts'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -77,15 +81,27 @@
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
-
-	loadWorkerGroups()
-
-	async function loadWorkerGroups() {
-		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags()
+	let scheduleStore = writable<ScriptSchedule>({
+		summary: '',
+		cron: '0 */5 * * *',
+		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+		args: {},
+		enabled: false
+	})
+	async function loadSchedule() {
+		const scheduleRes = await loadScriptSchedule(initialPath, $workspaceStore!)
+		if (scheduleRes) {
+			scheduleStore.set(scheduleRes)
 		}
 	}
+
+	$: {
+		if (initialPath != '') {
+			loadSchedule()
+		}
+	}
+
+	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql']
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -177,11 +193,36 @@
 		}
 	}
 
-	async function editScript(): Promise<void> {
+	async function createSchedule(path: string) {
+		const { cron, timezone, args, enabled, summary } = $scheduleStore
+
+		try {
+			await ScheduleService.createSchedule({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: path,
+					schedule: formatCron(cron),
+					timezone,
+					script_path: path,
+					is_flow: false,
+					args,
+					enabled,
+					summary
+				}
+			})
+		} catch (err) {
+			sendUserToast(`The primary schedule could not be created: ${err}`, true)
+		}
+	}
+
+	async function editScript(stay: boolean): Promise<void> {
 		loadingSave = true
 		try {
-			localStorage.removeItem(script.path)
-
+			try {
+				localStorage.removeItem(script.path)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)
@@ -210,12 +251,60 @@
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					cache_ttl: script.cache_ttl,
 					ws_error_handler_muted: script.ws_error_handler_muted,
-					priority: script.priority
+					priority: script.priority,
+					restart_unless_cancelled: script.restart_unless_cancelled,
+					delete_after_use: script.delete_after_use,
+					timeout: script.timeout,
+					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key
 				}
 			})
+
+			const { enabled, timezone, args, cron, summary } = $scheduleStore
+			const scheduleExists = await ScheduleService.existsSchedule({
+				workspace: $workspaceStore ?? '',
+				path: script.path
+			})
+
+			if (scheduleExists) {
+				const schedule = await ScheduleService.getSchedule({
+					workspace: $workspaceStore ?? '',
+					path: script.path
+				})
+				if (
+					JSON.stringify(schedule.args) != JSON.stringify(args) ||
+					schedule.schedule != cron ||
+					schedule.timezone != timezone ||
+					schedule.summary != summary
+				) {
+					await ScheduleService.updateSchedule({
+						workspace: $workspaceStore ?? '',
+						path: script.path,
+						requestBody: {
+							schedule: formatCron(cron),
+							timezone,
+							args,
+							summary
+						}
+					})
+				}
+				if (enabled != schedule.enabled) {
+					await ScheduleService.setScheduleEnabled({
+						workspace: $workspaceStore ?? '',
+						path: script.path,
+						requestBody: { enabled }
+					})
+				}
+			} else if (enabled) {
+				await createSchedule(script.path)
+			}
+
 			savedScript = cloneDeep(script) as NewScriptWithDraft
 			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
-			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+			if (stay) {
+				script.parent_hash = newHash
+			} else {
+				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+			}
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
@@ -244,8 +333,11 @@
 
 		loadingDraft = true
 		try {
-			localStorage.removeItem(script.path)
-
+			try {
+				localStorage.removeItem(script.path)
+			} catch (e) {
+				console.error('error interacting with local storage', e)
+			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)
@@ -255,7 +347,14 @@
 				)
 			}
 
-			if (initialPath == '') {
+			if (initialPath == '' || savedScript?.draft_only) {
+				if (savedScript?.draft_only) {
+					await ScriptService.deleteScriptByPath({
+						workspace: $workspaceStore!,
+						path: initialPath
+					})
+					script.parent_hash = undefined
+				}
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
 					requestBody: {
@@ -274,25 +373,34 @@
 						concurrency_time_window_s: script.concurrency_time_window_s,
 						cache_ttl: script.cache_ttl,
 						ws_error_handler_muted: script.ws_error_handler_muted,
-						priority: script.priority
+						priority: script.priority,
+						restart_unless_cancelled: script.restart_unless_cancelled,
+						delete_after_use: script.delete_after_use,
+						timeout: script.timeout,
+						concurrency_key: emptyString(script.concurrency_key)
+							? undefined
+							: script.concurrency_key
 					}
 				})
+				initialPath = script.path
 			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: initialPath == '' ? script.path : initialPath,
+					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
 					typ: 'script',
 					value: script
 				}
 			})
 
 			savedScript = {
-				...(initialPath == '' ? { ...cloneDeep(script), draft_only: true } : savedScript),
+				...(initialPath == '' || savedScript?.draft_only
+					? { ...cloneDeep(script), draft_only: true }
+					: savedScript),
 				draft: cloneDeep(script)
 			} as NewScriptWithDraft
 
-			if (initialPath == '') {
+			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
 				goto(`/scripts/edit/${script.path}`)
 			}
 			sendUserToast('Saved as draft')
@@ -309,6 +417,12 @@
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != ''
 				? [
+						{
+							label: 'Deploy & Stay here',
+							onClick: () => {
+								editScript(true)
+							}
+						},
 						{
 							label: 'Fork',
 							onClick: () => {
@@ -345,7 +459,7 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' = 'metadata'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -367,6 +481,7 @@
 						cannot be inferred from the type directly.
 					</Tooltip>
 				</Tab>
+				<Tab value="schedule" active={$scheduleStore.enabled}>Schedule</Tab>
 				<svelte:fragment slot="content">
 					<div class="p-4">
 						<TabContent value="metadata">
@@ -384,12 +499,14 @@
 									</svelte:fragment>
 									<div class="flex flex-col gap-4">
 										<Label label="Summary">
-											<input
-												type="text"
-												autofocus
-												bind:value={script.summary}
-												placeholder="Short summary to be displayed when listed"
-												on:keyup={() => {
+											<MetadataGen
+												label="Summary"
+												bind:content={script.summary}
+												lang={script.language}
+												code={script.content}
+												promptConfigName="summary"
+												generateOnAppear
+												on:change={() => {
 													if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
 														path?.setName(
 															script.summary
@@ -399,6 +516,10 @@
 																.replace(/^-|-$/g, '')
 														)
 													}
+												}}
+												elementProps={{
+													type: 'text',
+													placeholder: 'Short summary to be displayed when listed'
 												}}
 											/>
 										</Label>
@@ -415,11 +536,15 @@
 											/>
 										</Label>
 										<Label label="Description">
-											<textarea
-												use:autosize
-												bind:value={script.description}
-												placeholder="Description displayed in the details page"
-												class="text-sm"
+											<MetadataGen
+												bind:content={script.description}
+												lang={script.language}
+												code={script.content}
+												promptConfigName="description"
+												elementType="textarea"
+												elementProps={{
+													placeholder: 'Description displayed'
+												}}
 											/>
 										</Label>
 									</div>
@@ -544,6 +669,7 @@
 													on:click={() => {
 														script.concurrent_limit = undefined
 														script.concurrency_time_window_s = undefined
+														script.concurrency_key = undefined
 													}}
 													variant="border">Remove Limits</Button
 												>
@@ -555,58 +681,31 @@
 												bind:seconds={script.concurrency_time_window_s}
 											/>
 										</Label>
+										<Label label="Custom concurrency key">
+											<input
+												type="text"
+												autofocus
+												bind:value={script.concurrency_key}
+												placeholder={`$workspace/script/${script.path}-$args[foo]`}
+											/>
+											<Tooltip
+												>Concurrency keys are global, you can have them be workspace specific using
+												the variable `$workspace`. You can also use an argument's value using
+												`$args[name_of_arg]`</Tooltip
+											>
+										</Label>
 									</div>
 								</Section>
-								<Section label="Worker group tag">
+								<Section label="Worker Group Tag (Queue)">
 									<svelte:fragment slot="header">
 										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 										>
-											The script will be executed on a worker configured to accept its worker group
-											tag. For instance, you could setup an "highmem", or "gpu" worker group.
+											The script will be executed on a worker configured to listen to this worker
+											group tag (queue). For instance, you could setup an "highmem", or "gpu" tag.
 										</Tooltip>
 									</svelte:fragment>
-
-									{#if $workerTags}
-										{#if $workerTags?.length > 0}
-											<div class="max-w-sm">
-												<select
-													bind:value={script.tag}
-													on:change={(e) => {
-														if (script.tag == '') {
-															script.tag = undefined
-														}
-													}}
-												>
-													{#if script.tag}
-														<option value="">reset to default</option>
-													{:else}
-														<option value="" disabled selected>Worker Group</option>
-													{/if}
-													{#each $workerTags ?? [] as tag (tag)}
-														<option value={tag}>{tag}</option>
-													{/each}
-												</select>
-											</div>
-										{:else}
-											<div class="text-sm text-secondary flex flex-row gap-2">
-												No custom worker group tag defined on this instance in "Workers {'->'} Assignable
-												Tags"
-												<a
-													href="https://www.windmill.dev/docs/core_concepts/worker_groups"
-													target="_blank"
-													class="hover:underline"
-												>
-													<div class="flex flex-row gap-2 items-center">
-														See documentation
-														<ExternalLink size="12" />
-													</div>
-												</a>
-											</div>
-										{/if}
-									{:else}
-										<Loader2 class="animate-spin" />
-									{/if}
+									<WorkerTagPicker bind:tag={script.tag} />
 								</Section>
 								<Section label="Cache">
 									<div class="flex gap-2 shrink flex-col">
@@ -632,6 +731,48 @@
 										{:else}
 											<SecondsInput disabled />
 										{/if}
+									</div>
+								</Section>
+								<Section label="Timeout">
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											size="sm"
+											checked={Boolean(script.timeout)}
+											on:change={() => {
+												if (script.timeout && script.timeout != undefined) {
+													script.timeout = undefined
+												} else {
+													script.timeout = 300
+												}
+											}}
+											options={{
+												right: 'Add a custom timeout for this script'
+											}}
+										/>
+										<span class="text-secondary text-sm leading-none"> Timeout duration </span>
+										{#if script.timeout}
+											<SecondsInput bind:seconds={script.timeout} />
+										{:else}
+											<SecondsInput disabled />
+										{/if}
+									</div>
+								</Section>
+								<Section label="Perpetual Script">
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											size="sm"
+											checked={Boolean(script.restart_unless_cancelled)}
+											on:change={() => {
+												if (script.restart_unless_cancelled) {
+													script.restart_unless_cancelled = undefined
+												} else {
+													script.restart_unless_cancelled = true
+												}
+											}}
+											options={{
+												right: 'Restart upon ending unless cancelled'
+											}}
+										/>
 									</div>
 								</Section>
 								<Section label="Dedicated Workers" eeOnly>
@@ -672,8 +813,46 @@
 										>
 									</svelte:fragment>
 								</Section>
+								<Section label="Delete after use">
+									<svelte:fragment slot="header">
+										<Tooltip>
+											WARNING: This settings ONLY applies to synchronous webhooks or when the script
+											is used within a flow. If used individually, this script must be triggered
+											using a synchronous endpoint to have the desired effect.
+											<br />
+											<br />
+											The logs, arguments and results of the job will be completely deleted from Windmill
+											once it is complete and the result has been returned.
+											<br />
+											<br />
+											The deletion is irreversible.
+											{#if !$enterpriseLicense}
+												<br />
+												<br />
+												This option is only available on Windmill Enterprise Edition.
+											{/if}
+										</Tooltip>
+									</svelte:fragment>
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											disabled={!$enterpriseLicense}
+											size="sm"
+											checked={Boolean(script.delete_after_use)}
+											on:change={() => {
+												if (script.delete_after_use) {
+													script.delete_after_use = undefined
+												} else {
+													script.delete_after_use = true
+												}
+											}}
+											options={{
+												right: 'Delete logs, arguments and results after use'
+											}}
+										/>
+									</div>
+								</Section>
 								{#if !isCloudHosted()}
-									<Section label="High priority script">
+									<Section label="High priority script" eeOnly>
 										<Toggle
 											disabled={!$enterpriseLicense || isCloudHosted()}
 											size="sm"
@@ -721,7 +900,7 @@
 									<Section label="Custom env variables">
 										<svelte:fragment slot="header">
 											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/reference#custom-environment-variables"
+												documentationLink="https://www.windmill.dev/docs/script_editor/custom_environment_variables"
 											>
 												Additional static custom env variables to pass to the script.
 											</Tooltip>
@@ -779,6 +958,9 @@
 							<div class="mt-4" />
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
+						<TabContent value="schedule">
+							<ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} />
+						</TabContent>
 					</div>
 				</svelte:fragment>
 			</Tabs>
@@ -798,7 +980,7 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<div class="min-w-64 w-full max-w-md">
+					<div class="min-w-32 lg:min-w-64 w-full max-w-md">
 						<input
 							type="text"
 							placeholder="Script summary"
@@ -809,7 +991,22 @@
 				</div>
 
 				<div class="gap-4 flex">
-					<div class="flex justify-start w-full">
+					{#if $scheduleStore.enabled}
+						<Button
+							btnClasses="hidden lg:inline-flex"
+							startIcon={{ icon: Calendar }}
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={async () => {
+								metadataOpen = true
+								selectedTab = 'schedule'
+							}}
+						>
+							{$scheduleStore.cron ?? ''}
+						</Button>
+					{/if}
+					<div class="flex justify-start w-full border rounded-md overflow-hidden">
 						<div>
 							<button
 								on:click={async () => {
@@ -818,7 +1015,7 @@
 							>
 								<Badge
 									color="gray"
-									class="center-center !bg-surface-selected !text-tertiary !h-[28px]  !w-[70px] rounded-r-none"
+									class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
 								>
 									<Pen size={12} class="mr-2" /> Path
 								</Badge>
@@ -829,7 +1026,7 @@
 							readonly
 							value={script.path}
 							size={script.path?.length || 50}
-							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
 							on:focus={({ currentTarget }) => {
 								currentTarget.select()
 							}}
@@ -862,7 +1059,7 @@
 					>
 						<div class="flex flex-row gap-2 items-center">
 							<DiffIcon size={14} />
-							Diff
+							<span class="hidden lg:flex"> Diff </span>
 						</div>
 					</Button>
 					<Button
@@ -874,7 +1071,7 @@
 						}}
 						startIcon={{ icon: Settings }}
 					>
-						Settings
+						<span class="hidden lg:flex"> Settings </span>
 					</Button>
 					<Button
 						loading={loadingDraft}
@@ -882,17 +1079,17 @@
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={initialPath != '' && !savedScript}
+						shortCut={{
+							key: 'S'
+						}}
 					>
-						<span class="hidden sm:flex">
-							Save draft&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-						</span>
-						<Kbd small>S</Kbd>
+						<span class="hidden lg:flex"> Draft </span>
 					</Button>
 					<Button
 						loading={loadingSave}
 						size="xs"
 						startIcon={{ icon: Save }}
-						on:click={() => editScript()}
+						on:click={() => editScript(false)}
 						dropdownItems={computeDropdownItems(initialPath)}
 					>
 						Deploy

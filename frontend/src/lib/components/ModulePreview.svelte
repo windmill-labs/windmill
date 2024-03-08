@@ -2,10 +2,9 @@
 	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type Job, Script, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getModifierKey } from '$lib/utils'
 	import { getScriptByPath } from '$lib/scripts'
 
-	import { Loader2 } from 'lucide-svelte'
+	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Button from './common/button/Button.svelte'
@@ -14,7 +13,6 @@
 	import LogViewer from './LogViewer.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import ModulePreviewForm from './ModulePreviewForm.svelte'
-	import { Kbd } from './common'
 	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
 	import type DiffEditor from './DiffEditor.svelte'
@@ -25,8 +23,9 @@
 	export let schema: Schema
 	export let pickableProperties: PickableProperties | undefined
 	export let lang: Script.language
-	export let editor: Editor
-	export let diffEditor: DiffEditor
+	export let editor: Editor | undefined
+	export let diffEditor: DiffEditor | undefined
+	export let noEditor = false
 
 	const { flowStore, flowStateStore, testStepStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -37,7 +36,7 @@
 	let testJob: Job | undefined = undefined
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
-		Object.keys(schema.properties).map((k) => [
+		Object.keys(schema.properties ?? {}).map((k) => [
 			k,
 			evalValue(k, mod, $testStepStore, pickableProperties, false)
 		])
@@ -91,6 +90,7 @@
 </script>
 
 <TestJobLoader
+	toastError={noEditor}
 	on:done={() => jobDone()}
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
@@ -111,10 +111,17 @@
 					Cancel
 				</Button>
 			{:else}
-				<Button color="dark" btnClasses="truncate" size="sm" on:click={() => runTest(stepArgs)}
-					>Run&nbsp; <Kbd small isModifier>{getModifierKey()}</Kbd>
-					<Kbd small><span class="text-lg font-bold">⏎</span></Kbd></Button
+				<Button
+					color="dark"
+					btnClasses="truncate"
+					size="sm"
+					on:click={() => runTest(stepArgs)}
+					shortCut={{
+						Icon: CornerDownLeft
+					}}
 				>
+					Run
+				</Button>
 			{/if}
 		</div>
 
@@ -124,6 +131,7 @@
 		<Splitpanes horizontal>
 			<Pane size={50} minSize={10}>
 				<LogViewer
+					small
 					jobId={testJob?.id}
 					duration={testJob?.['duration_ms']}
 					mem={testJob?.['mem_peak']}
@@ -134,11 +142,12 @@
 			</Pane>
 			<Pane size={50} minSize={10} class="text-sm text-tertiary">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<pre class="overflow-x-auto break-words relative h-full px-2"
-						><DisplayResult
+					<div class="break-words relative h-full p-2">
+						<DisplayResult
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
-							result={testJob.result}>
+							result={testJob.result}
+						>
 							<svelte:fragment slot="copilot-fix">
 								{#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
 									<ScriptFix
@@ -151,7 +160,7 @@
 								{/if}
 							</svelte:fragment>
 						</DisplayResult>
-					</pre>
+					</div>
 				{:else}
 					<div class="p-2">
 						{#if testIsLoading}

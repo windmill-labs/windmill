@@ -62,7 +62,7 @@
 			})
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
-			const urlScript = cleanValueProperties(statePath)
+			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
 			flow = stateLoadedFromUrl.flow
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
@@ -102,7 +102,7 @@
 				draft: flowWithDraft.draft
 					? {
 							...cloneDeep(flowWithDraft.draft),
-							path: flowWithDraft.path
+							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 					  }
 					: undefined
 			} as Flow & {
@@ -162,12 +162,12 @@
 	let diffDrawer: DiffDrawer
 
 	async function restoreDraft() {
-		if (!savedFlow) {
+		if (!savedFlow || !savedFlow.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
 		diffDrawer.closeDrawer()
-		goto(`/flows/edit/${savedFlow.path}`)
+		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
 
@@ -189,7 +189,7 @@
 	}
 </script>
 
-<div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" />
+<!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 <FlowBuilder

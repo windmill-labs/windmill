@@ -3,6 +3,7 @@ system: |-
   Only output code. Wrap the code in a code block. 
   Explain the error and the fix after generating the code inside an <explanation> tag.
   Also put explanations directly in the code as comments.
+  Return the complete fixed code.
 
   Here's how interactions have to look like:
   user: {sample_question}

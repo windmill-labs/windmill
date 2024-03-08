@@ -16,7 +16,7 @@
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'piechartcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'chartjscomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')

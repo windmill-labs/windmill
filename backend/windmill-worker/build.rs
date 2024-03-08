@@ -1,4 +1,3 @@
-use deno_core::OpState;
 use deno_fetch::FetchPermissions;
 use deno_web::{BlobStore, TimersPermission};
 use std::env;
@@ -8,6 +7,7 @@ use std::sync::Arc;
 pub struct PermissionsContainer;
 
 impl FetchPermissions for PermissionsContainer {
+    #[inline(always)]
     fn check_net_url(
         &mut self,
         _url: &deno_core::url::Url,
@@ -16,6 +16,7 @@ impl FetchPermissions for PermissionsContainer {
         Ok(())
     }
 
+    #[inline(always)]
     fn check_read(
         &mut self,
         _p: &std::path::Path,
@@ -26,12 +27,9 @@ impl FetchPermissions for PermissionsContainer {
 }
 
 impl TimersPermission for PermissionsContainer {
+    #[inline(always)]
     fn allow_hrtime(&mut self) -> bool {
         true
-    }
-
-    fn check_unstable(&self, _state: &OpState, _api_name: &'static str) {
-        ()
     }
 }
 
@@ -70,6 +68,8 @@ fn main() {
             extensions: exts,
             compression_cb: None,
             with_runtime_cb: None,
+            skip_op_registration: false,
         },
+        None,
     );
 }

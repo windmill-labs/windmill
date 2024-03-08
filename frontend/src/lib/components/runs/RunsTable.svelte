@@ -2,11 +2,12 @@
 	import type { Job } from '$lib/gen'
 	import RunRow from './RunRow.svelte'
 	import VirtualList from 'svelte-tiny-virtual-list'
-	import { onMount } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
-	export let jobs: Job[] = []
+	export let jobs: Job[] | undefined = undefined
 	export let selectedId: string | undefined = undefined
+	export let selectedWorkspace: string | undefined = undefined
 	// const loadMoreQuantity: number = 100
 
 	function getTime(job: Job): string | undefined {
@@ -56,7 +57,7 @@
 		return sortedLogs
 	}
 
-	$: groupedJobs = groupJobsByDay(jobs)
+	$: groupedJobs = jobs ? groupJobsByDay(jobs) : undefined
 
 	type FlatJobs =
 		| {
@@ -81,14 +82,14 @@
 		return flatJobs
 	}
 
-	$: flatJobs = flattenJobs(groupedJobs)
+	$: flatJobs = groupedJobs ? flattenJobs(groupedJobs) : undefined
 
 	let stickyIndices: number[] = []
 
 	$: {
 		stickyIndices = []
 		let index = 0
-		for (const entry of flatJobs) {
+		for (const entry of flatJobs ?? []) {
 			if (entry.type === 'date') {
 				stickyIndices.push(index)
 			}
@@ -117,17 +118,29 @@
 	}
 	*/
 
-	onMount(() => {
+	function computeHeight() {
 		tableHeight = document.querySelector('#runs-table-wrapper')!.parentElement?.clientHeight ?? 0
+	}
+	onMount(() => {
+		computeHeight()
 	})
+	const dispatch = createEventDispatcher()
 </script>
 
-<div class="divide-y min-w-[640px]" id="runs-table-wrapper" bind:clientWidth={containerWidth}>
+<svelte:window on:resize={() => computeHeight()} />
+
+<div
+	class="divide-y min-w-[640px] h-full"
+	id="runs-table-wrapper"
+	bind:clientWidth={containerWidth}
+>
 	<div
 		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4"
 		bind:clientHeight={header}
 	>
-		<div class="w-1/12" />
+		<div class="w-1/12 text-2xs"
+			>{jobs?.length == 1000 ? '1000+' : jobs ? jobs.length.toString() : '...'} jobs</div
+		>
 		<div class="w-4/12 text-xs font-semibold">Timestamp</div>
 		<div class="w-4/12 text-xs font-semibold">Path</div>
 		<div class="w-3/12 text-xs font-semibold">Triggered by</div>
@@ -136,44 +149,48 @@
 	<VirtualList
 		width="100%"
 		height={tableHeight - header}
-		itemCount={flatJobs.length}
+		itemCount={flatJobs?.length ?? 3}
 		itemSize={42}
 		{stickyIndices}
 	>
 		<div slot="item" let:index let:style {style} class="w-full">
-			{@const jobOrDate = flatJobs[index]}
+			{#if flatJobs}
+				{@const jobOrDate = flatJobs[index]}
 
-			{#if jobOrDate}
-				{#if jobOrDate?.type === 'date'}
-					<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
-						{jobOrDate.date}
-					</div>
+				{#if jobOrDate}
+					{#if jobOrDate?.type === 'date'}
+						<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+							{jobOrDate.date}
+						</div>
+					{:else}
+						<div class="flex flex-row items-center h-full w-full">
+							<RunRow
+								job={jobOrDate.job}
+								{selectedId}
+								on:select={() => {
+									selectedWorkspace = jobOrDate.job.workspace_id
+									selectedId = jobOrDate.job.id
+									dispatch('select')
+								}}
+								on:filterByPath
+								on:filterByUser
+								on:filterByFolder
+								{containerWidth}
+							/>
+						</div>
+					{/if}
 				{:else}
-					<div class="flex flex-row items-center h-full w-full">
-						<RunRow
-							job={jobOrDate.job}
-							bind:selectedId
-							on:select
-							on:filterByPath
-							on:filterByUser
-							on:filterByFolder
-							{containerWidth}
-						/>
-					</div>
+					{JSON.stringify(jobOrDate)}
 				{/if}
 			{:else}
-				{JSON.stringify(jobOrDate)}
+				<div class="flex flex-row items-center h-full w-full">
+					<div class="w-1/12 text-2xs">...</div>
+					<div class="w-4/12 text-xs">...</div>
+					<div class="w-4/12 text-xs">...</div>
+					<div class="w-3/12 text-xs">...</div>
+				</div>
 			{/if}
 		</div>
-		<!-- <div slot="footer">
-			<InfiniteLoading on:infinite={infiniteHandler}>
-				<div slot="noMore">
-					<div class="text-center text-xs text-secondary p-2">
-						Reached the limit of {MAX_ITEMS} jobs. Please refine your search using filters.
-					</div>
-				</div>
-			</InfiniteLoading>
-		</div> -->
 	</VirtualList>
 </div>
 {#if jobs?.length == 0}

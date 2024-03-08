@@ -1,10 +1,9 @@
 {
 	"compilerOptions": {
-		"moduleResolution": "node",
+		"moduleResolution": "bundler",
 		"module": "esnext",
 		"lib": ["es2021", "DOM"],
 		"target": "esnext",
-		"preserveValueImports": true,
 		"outDir": "build",
 		"noUnusedLocals": true,
 		// "noUnusedParameters": true,
@@ -13,7 +12,6 @@
 			svelte-preprocess cannot figure out whether you have a value or a type, so tell TypeScript
 			to enforce using \`import type\` instead of \`import\` for Types.
 			*/
-		"importsNotUsedAsValues": "error",
 		"isolatedModules": true,
 		"resolveJsonModule": true,
 		"noImplicitAny": false,
@@ -25,18 +23,13 @@
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
-		"baseUrl": ".",
 		"allowJs": true,
 		"checkJs": true,
 		"strictNullChecks": true,
 		"strictPropertyInitialization": true,
 		"useUnknownInCatchVariables": false,
 		"strict": true,
-		"paths": {
-			"$lib": ["src/lib"],
-			"$lib/*": ["src/lib/*"]
-		},
-		"types": ["@modyfi/vite-plugin-yaml/modules"]
+		"types": []
 	},
 	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"],
 	"extends": "./.svelte-kit/tsconfig.json"

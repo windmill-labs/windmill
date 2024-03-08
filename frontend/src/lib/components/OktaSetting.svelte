@@ -3,28 +3,29 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	export let value: any
 
 	$: enabled = value != undefined
 
-	let org = ''
+	$: changeDomain(value?.['domain'], value?.['custom'])
 
-	$: changeOrg(org)
-
-	function changeOrg(org) {
+	function changeDomain(domain, custom) {
 		if (value) {
+			let baseUrl = custom ? `https://${domain}` : `https://${domain}.okta.com`
 			value = {
 				...value,
 				login_config: {
-					auth_url: `https://${org}.okta.com/oauth2/v1/authorize`,
-					token_url: `https://${org}.okta.com/oauth2/v1/token`,
-					userinfo_url: `https://${org}.okta.com/oauth2/v1/userinfo`,
+					auth_url: `${baseUrl}/oauth2/v1/authorize`,
+					token_url: `${baseUrl}/oauth2/v1/token`,
+					userinfo_url: `${baseUrl}/oauth2/v1/userinfo`,
 					scopes: ['openid', 'profile', 'email']
 				},
 				connect_config: {
-					auth_url: `https://${org}.okta.com/oauth2/v1/authorize`,
-					token_url: `https://${org}.okta.com/oauth2/v1/token`,
+					auth_url: `${baseUrl}/oauth2/v1/authorize`,
+					token_url: `${baseUrl}/oauth2/v1/token`,
 					scopes: ['openid', 'profile', 'email']
 				}
 			}
@@ -38,7 +39,7 @@
 			checked={enabled}
 			on:change={(e) => {
 				if (e.detail) {
-					value = { id: '', secret: '' }
+					value = { id: '', secret: '', domain: '', custom: false }
 				} else {
 					value = undefined
 				}
@@ -48,9 +49,21 @@
 	{#if enabled}
 		<div class="p-2 rounded border">
 			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Org ({'https://<your org>.okta.com'})</span
-				>
-				<input type="text" placeholder="yourorg" bind:value={org} />
+				<div class="flex gap-2 items-end">
+					<div>
+						<ToggleButtonGroup bind:selected={value['custom']}>
+							<ToggleButton value={false} label={'Org'} />
+							<ToggleButton value={true} label="Custom" />
+						</ToggleButtonGroup>
+					</div>
+					<div class="grow">
+						<span class="text-primary font-semibold text-sm"
+							>{#if value['custom']}Custom ({'https://<domain>'}){:else}
+								Org ({'https://<your org>.okta.com'}){/if}</span
+						>
+						<input type="text" placeholder="yourorg" bind:value={value['domain']} />
+					</div>
+				</div>
 			</label>
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm"
@@ -70,14 +83,18 @@
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-sm text-secondary border p-2">
-					From your Admin page, setup windmill using the service flow Create a new app integration
-					a. For "sign-in method" select "OIDC - Open ID Connect" b. For "application type" select
-					"Web Appliction" Select all of the following options for Grant type of "Client acting on
-					behalf of a user" Authorization Code Refresh Token Implicit (hybrid) Allow ID Token with
-					implicit grant type Allow Access Token with implicit grant type For Refresh Token, select
-					"Rotate token after every use" Under "LOGIN", set the following: "Sign-in redirect URIs"
-					BASE_URL/user/login_callback/okta "Sign-out redirect URIs" BASE_URL/auth/logout "Login
-					initiated by" App Only "Initiate login URI" BASE_URL/user/login
+					From your Admin page, setup windmill using the service flow <br />Create a new app
+					integration <br />a. For "sign-in method" select "OIDC - Open ID Connect" <br />
+					b. For "application type" select "Web Appliction" <br />
+					Select all of the following options for Grant type of "Client acting on behalf of a user":
+					<br /> Authorization Code Refresh Token Implicit (hybrid) <br />
+					Allow ID Token with implicit grant type <br />
+					Allow Access Token with implicit grant type <br />
+					For Refresh Token, select "Rotate token after every use" <br />
+					Under "LOGIN", set the following: <br />"Sign-in redirect URIs"
+					`BASE_URL/user/login_callback/okta`<br />
+					"Sign-out redirect URIs" `BASE_URL/auth/logout` <br />"Login initiated by" App Only <br />
+					"Initiate login URI" `BASE_URL/user/login`
 				</div>
 			</CollapseLink>
 		</div>

@@ -6,7 +6,7 @@
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
-	import { Alert, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
+	import { Alert, Button, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -26,7 +26,9 @@
 		GitFork,
 		History,
 		Columns,
-		Pen
+		Pen,
+		Eye,
+		Calendar
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -41,17 +43,22 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
+	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
 
 	let flow: Flow | undefined
 	let can_write = false
-	let path = $page.params.path
+	$: path = $page.params.path
 	let shareModal: ShareModal
 	let deploymentInProgress = false
+
+	let scheduledForStr: string | undefined = undefined
+	let invisible_to_owner: false | undefined = undefined
+	let overrideTag: string | undefined = undefined
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
 	$: {
-		if ($workspaceStore && $userStore) {
+		if ($workspaceStore && $userStore && $page.params.path) {
 			loadFlow()
 		}
 	}
@@ -71,9 +78,13 @@
 		goto('/')
 	}
 
+	let schedule: Schedule | undefined = undefined
 	async function loadFlow(): Promise<void> {
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
+		try {
+			schedule = await loadFlowSchedule(path, $workspaceStore!)
+		} catch {}
 	}
 
 	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
@@ -85,7 +96,8 @@
 	async function runFlow(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
-		invisibleToOwner?: boolean
+		invisibleToOwner: boolean | undefined,
+		overrideTag: string | undefined
 	) {
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -94,7 +106,8 @@
 			path,
 			invisibleToOwner,
 			requestBody: args,
-			scheduledFor
+			scheduledFor,
+			tag: overrideTag
 		})
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
@@ -113,7 +126,7 @@
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
 
-		if (flow) {
+		if (flow && !$userStore?.operator) {
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
@@ -126,7 +139,7 @@
 			})
 		}
 
-		if (!flow || $userStore?.operator || !can_write) {
+		if (!flow) {
 			return buttons
 		}
 
@@ -139,6 +152,10 @@
 				startIcon: History
 			}
 		})
+
+		if (!flow || $userStore?.operator || !can_write) {
+			return buttons
+		}
 
 		if (!$userStore?.operator) {
 			buttons.push({
@@ -192,6 +209,14 @@
 		})
 
 		menuItems.push({
+			label: 'Audit logs',
+			Icon: Eye,
+			onclick: () => {
+				goto(`/audit_logs?resource=${flow?.path}`)
+			}
+		})
+
+		menuItems.push({
 			label: 'Deploy to staging/prod',
 			onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
 			Icon: Server
@@ -229,6 +254,10 @@
 		}
 	}
 	let stepDetail: FlowModule | string | undefined = undefined
+	let token = 'TOKEN_TO_CREATE'
+	let detailSelected = 'saved_inputs'
+
+	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 </script>
 
 <Skeleton
@@ -249,6 +278,8 @@
 
 {#if flow}
 	<DetailPageLayout
+		bind:triggerSelected
+		bind:selected={detailSelected}
 		isOperator={$userStore?.operator}
 		flow_json={{
 			value: flow.value,
@@ -282,6 +313,21 @@
 						</HeaderBadge>
 					</div>
 				{/if}
+				{#if schedule?.enabled}
+					<Button
+						btnClasses="inline-flex"
+						startIcon={{ icon: Calendar }}
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={() => {
+							detailSelected = 'details'
+							triggerSelected = 'schedule'
+						}}
+					>
+						{schedule.cron ?? ''}
+					</Button>
+				{/if}
 			</DetailPageHeader>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
@@ -290,9 +336,9 @@
 					<Pane size={60} minSize={20}>
 						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
 							<div class="flex flex-col gap-2 mb-8">
-								{#if !emptyString(flow.description)}
+								{#if !emptyString(flow?.description)}
 									<div class=" break-words whitespace-pre-wrap text-sm mb-4 !text-secondary">
-										<Urlize text={defaultIfEmptyString(flow.description, 'No description')} />
+										<Urlize text={defaultIfEmptyString(flow?.description, 'No description')} />
 									</div>
 								{/if}
 							</div>
@@ -305,6 +351,9 @@
 							{/if}
 
 							<RunForm
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
 								viewKeybinding
 								{loading}
 								autofocus
@@ -374,6 +423,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="webhooks">
 			<WebhooksPanel
+				bind:token
 				scopes={[`run:flow/${flow?.path}`]}
 				webhooks={{
 					async: {

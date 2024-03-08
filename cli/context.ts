@@ -95,6 +95,23 @@ export async function requireLogin(
   }
 }
 
+export async function fetchVersion(baseUrl: string): Promise<string> {
+  const requestHeaders: HeadersInit = new Headers();
+
+  const extraHeaders = getHeaders();
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      // @ts-ignore
+      requestHeaders.set(key, value);
+    }
+  }
+
+  const response = await fetch(
+    new URL(new URL(baseUrl).origin + "/api/version"),
+    { headers: requestHeaders, method: "GET" }
+  );
+  return await response.text();
+}
 export async function tryResolveVersion(
   opts: GlobalOptions
 ): Promise<number | undefined> {
@@ -104,21 +121,8 @@ export async function tryResolveVersion(
 
   const workspaceRes = await tryResolveWorkspace(opts);
   if (workspaceRes.isError) return undefined;
+  const version = await fetchVersion(workspaceRes.value.remote);
 
-  const requestHeaders: HeadersInit = new Headers();
-
-  const extraHeaders = getHeaders();
-  if (extraHeaders) {
-    for (const [key, value] of Object.entries(extraHeaders)) {
-      requestHeaders.set(key, value);
-    }
-  }
-
-  const response = await fetch(
-    new URL(new URL(workspaceRes.value.remote).origin + "/api/version"),
-    { headers: requestHeaders, method: "GET" }
-  );
-  const version = await response.text();
   try {
     return Number.parseInt(
       version.split("-", 1)[0].replaceAll(".", "").replace("v", "")

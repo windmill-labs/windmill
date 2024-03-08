@@ -10,7 +10,10 @@ export async function downloadZip(
   skipVariables?: boolean,
   skipResources?: boolean,
   skipSecrets?: boolean,
-  includeSchedules?: boolean
+  includeSchedules?: boolean,
+  includeUsers?: boolean,
+  includeGroups?: boolean,
+  defaultTs?: "bun" | "deno"
 ): Promise<JSZip | undefined> {
   const requestHeaders: HeadersInit = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
@@ -33,7 +36,9 @@ export async function downloadZip(
         skipResources ?? false
       }&skip_secrets=${skipSecrets ?? false}&include_schedules=${
         includeSchedules ?? false
-      }`,
+      }&include_users=${includeUsers ?? false}&include_groups=${
+        includeGroups ?? false
+      }&default_ts=${defaultTs ?? "deno"}`,
     {
       headers: requestHeaders,
       method: "GET",

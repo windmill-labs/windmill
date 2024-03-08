@@ -77,12 +77,10 @@
 			</span>
 		{/if}
 	</div>
-	<div class="-my-1">
-		<Toggle
-			size={small ? 'xs' : 'sm'}
-			checked={Boolean($flowStore?.value?.failure_module)}
-			on:change={onToggle}
-			id="error-handler-toggle"
-		/>
-	</div>
+	<Toggle
+		size={small ? 'xs' : 'sm'}
+		checked={Boolean($flowStore?.value?.failure_module)}
+		on:change={onToggle}
+		id="error-handler-toggle"
+	/>
 </div>

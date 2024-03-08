@@ -19,7 +19,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import type { AppInput } from '../../inputType'
 	import { RunnableWrapper } from '../helpers'
-	import { workspaceStore } from '$lib/stores'
 	import type { CustomComponentConfig } from '../../editor/component'
 	import { Loader2 } from 'lucide-svelte'
 
@@ -29,7 +28,7 @@
 	export let customComponent: CustomComponentConfig
 
 	let divId = `custom-component-${id}`
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -75,7 +74,7 @@
 		//@ts-ignore
 		await import(
 			/* @vite-ignore */
-			`/api/w/${$workspaceStore ?? 'NO_W'}/resources_u/custom_component/${customComponent.name}`
+			`/api/w/${workspace ?? 'NO_W'}/resources_u/custom_component/${customComponent.name}`
 		)
 		loaded = true
 		try {
@@ -105,7 +104,6 @@
 </script>
 
 <InitializeComponent {id} />
-
 {#if render}
 	<div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
 		<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:result>

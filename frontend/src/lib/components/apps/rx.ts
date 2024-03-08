@@ -1,7 +1,7 @@
 import type { InputConnectionEval } from './inputType'
 import { writable, type Writable } from 'svelte/store'
 import { deepEqual } from 'fast-equals'
-
+import sum from 'hash-sum'
 export interface Subscriber<T> {
 	id?: string
 	next(v: T): void
@@ -156,8 +156,11 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 		}
 	}
 
+	let lastHash: any = undefined
 	function set(x: T, force: boolean = false) {
-		if (!deepEqual(value, x) || force) {
+		let newHash = typeof x === 'object' ? sum(x) : x
+		if (lastHash != newHash || force) {
+			lastHash = newHash
 			state.update((x) => x + 1)
 
 			if (typeof x === 'object') {

@@ -7,8 +7,8 @@ use windmill_queue::CanceledBy;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        start_child_process, write_file,
+        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
+        parse_npm_config, read_result, set_logs, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
@@ -41,6 +41,8 @@ lazy_static::lazy_static! {
         .map(|x| format!(";{x}"))
         .unwrap_or_else(|| String::new());
 
+    static ref DENO_CERT: String = std::env::var("DENO_CERT").ok().unwrap_or_else(|| String::new());
+    static ref DENO_TLS_CA_STORE: String = std::env::var("DENO_TLS_CA_STORE").ok().unwrap_or_else(|| String::new());
 
 }
 async fn get_common_deno_proc_envs(
@@ -68,7 +70,14 @@ async fn get_common_deno_proc_envs(
     ]);
 
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+        let (url, _token_opt) = parse_npm_config(s);
+        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
+    }
+    if DENO_CERT.len() > 0 {
+        deno_envs.insert(String::from("DENO_CERT"), DENO_CERT.clone());
+    }
+    if DENO_TLS_CA_STORE.len() > 0 {
+        deno_envs.insert(String::from("DENO_TLS_CA_STORE"), DENO_TLS_CA_STORE.clone());
     }
     return deno_envs;
 }
@@ -100,14 +109,21 @@ pub async fn generate_deno_lock(
 
     let mut deno_envs = HashMap::new();
     if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+        let (url, _token_opt) = parse_npm_config(s);
+        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
     }
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
         .args(vec![
             "cache",
-            "--unstable",
+            "--unstable-unsafe-proto",
+            "--unstable-bare-node-builtins",
+            "--unstable-webgpu",
+            "--unstable-ffi",
+            "--unstable-fs",
+            "--unstable-worker-options",
+            "--unstable-http",
             "--lock=lock.json",
             "--lock-write",
             "--import-map",
@@ -169,11 +185,15 @@ pub async fn handle_deno_job(
         Ok(()) as error::Result<()>
     };
 
+    let main_override = get_main_override(job.args.as_ref());
+
     let write_main_f = write_file(job_dir, "main.ts", inner_content);
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let args =
+            windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
+                .args;
         let dates = args
             .iter()
             .enumerate()
@@ -188,10 +208,11 @@ pub async fn handle_deno_job(
             .join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
+        let main_name = main_override.unwrap_or("main".to_string());
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         let wrapper_content: String = format!(
             r#"
-import {{ main }} from "./main.ts";
+import {{ {main_name} }} from "./main.ts";
 
 const args = await Deno.readTextFile("args.json")
     .then(JSON.parse)
@@ -203,15 +224,22 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res: any = await main(...args);
+    let res: any = await {main_name}(...args);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
 }}
-run().catch(async (e) => {{
-    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+try {{
+    await run();
+}} catch(e) {{
+    let err = {{ message: e.message, name: e.name, stack: e.stack }};
+    let step_id = Deno.env.get("WM_FLOW_STEP_ID");
+    if (step_id) {{
+        err["step_id"] = step_id;
+    }}
+    await Deno.writeTextFile("result.json", JSON.stringify(err));
     Deno.exit(1);
-}});
+}}
     "#,
         );
         write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
@@ -263,7 +291,13 @@ run().catch(async (e) => {{
         args.push("--import-map");
         args.push(&import_map_path);
         args.push(&reload);
-        args.push("--unstable");
+        args.push("--unstable-unsafe-proto");
+        args.push("--unstable-bare-node-builtins");
+        args.push("--unstable-webgpu");
+        args.push("--unstable-ffi");
+        args.push("--unstable-fs");
+        args.push("--unstable-worker-options");
+        args.push("--unstable-http");
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {
                 let _ = write_file(job_dir, "lock.json", &reqs).await?;
@@ -271,15 +305,22 @@ run().catch(async (e) => {{
                 args.push("--lock-write");
             }
         }
+        let allow_read = format!(
+            "--allow-read=./,/tmp/windmill/cache/deno/,{}",
+            DENO_PATH.as_str()
+        );
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
             for flag in deno_flags {
                 args.push(flag);
             }
         } else if !*DISABLE_NSJAIL {
             args.push("--allow-net");
-            args.push("--allow-read=./,/tmp/windmill/cache/deno/");
+            args.push("--allow-sys");
+            args.push("--allow-hrtime");
+            args.push(allow_read.as_str());
             args.push("--allow-write=./");
             args.push("--allow-env");
+            args.push("--allow-run=git,/usr/bin/chromium");
         } else {
             args.push("-A");
         }
@@ -403,13 +444,15 @@ pub async fn start_worker(
         None,
         None,
         None,
+        None,
+        None,
     )
     .await;
-    let context_envs = build_envs_map(context.to_vec());
+    let context_envs = build_envs_map(context.to_vec()).await;
 
     {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true)?.args;
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, None)?.args;
         let dates = args
             .iter()
             .enumerate()
@@ -450,9 +493,9 @@ for await (const chunk of Deno.stdin.readable) {{
         try {{
             let {{ {spread} }} = JSON.parse(line) 
             let res: any = await main(...[ {spread} ]);
-            console.log("wm_res:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
         }} catch (e) {{
-            console.log("wm_res:" + JSON.stringify({{ error: {{ message: e.message, name: e.name, stack: e.stack, line: line }}}}) + '\n');
+            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
         }}
     }}
     if (exit) {{
@@ -479,7 +522,13 @@ for await (const chunk of Deno.stdin.readable) {{
             "--import-map",
             &format!("{job_dir}/import_map.json"),
             &format!("--reload={base_internal_url}"),
-            "--unstable",
+            "--unstable-unsafe-proto",
+            "--unstable-bare-node-builtins",
+            "--unstable-webgpu",
+            "--unstable-ffi",
+            "--unstable-fs",
+            "--unstable-worker-options",
+            "--unstable-http",
             "-A",
             &format!("{job_dir}/wrapper.ts"),
         ],

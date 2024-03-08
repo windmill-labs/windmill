@@ -29,7 +29,7 @@
 		const steps = [
 			{
 				popover: {
-					title: 'Welcome to the Windmil Flow editor',
+					title: 'Branch all tutorial',
 					description:
 						'Learn how to build our first branch to be executed on a condition. You can use arrow keys to navigate'
 				}

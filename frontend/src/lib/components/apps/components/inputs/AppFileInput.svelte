@@ -11,7 +11,7 @@
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'fileinputcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -20,6 +20,7 @@
 	let allowMultiple: boolean | undefined = undefined
 	let text: string | undefined = undefined
 	let includeMimeType: boolean | undefined = undefined
+	let submittedFileText: string | undefined = undefined
 
 	let outputs = initOutput($worldStore, id, {
 		result: [] as { name: string; data: string }[] | undefined
@@ -33,7 +34,6 @@
 				return { name: file.name, data }
 			})
 		}
-
 		outputs?.result.set(files)
 	}
 
@@ -59,6 +59,12 @@
 <InputValue key="multiple" {id} input={configuration.allowMultiple} bind:value={allowMultiple} />
 <InputValue key="text" {id} input={configuration.text} bind:value={text} />
 <InputValue key="mime" {id} input={configuration.includeMimeType} bind:value={includeMimeType} />
+<InputValue
+	key="submittedFileText"
+	{id}
+	input={configuration.submittedFileText}
+	bind:value={submittedFileText}
+/>
 
 <InitializeComponent {id} />
 
@@ -74,6 +80,7 @@
 			}}
 			class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}
 			style={css?.container?.style}
+			submittedText={submittedFileText}
 		>
 			{text}
 		</FileInput>

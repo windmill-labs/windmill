@@ -7,10 +7,12 @@
 	import type { SupportedLanguage } from '$lib/common'
 
 	export let isLoading = false
-	export let job: { completed: boolean; result: any; id: string } | undefined = undefined
+	export let job: { completed: boolean; result: any; id: string; success?: boolean } | undefined =
+		undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
 	export let isEditor = false
+	export let allowConcurentRequests = false
 
 	const dispatch = createEventDispatcher()
 
@@ -27,22 +29,28 @@
 
 	$: isLoading = currentId !== undefined
 
+	type Callbacks = { done: (x: any[]) => void; cancel: () => void; error: () => void }
+
 	let running = false
-	export async function abstractRun(fn: () => Promise<string>) {
+	let lastCallbacks: Callbacks | undefined = undefined
+
+	let finished: string[] = []
+	export async function abstractRun(fn: () => Promise<string>, callbacks?: Callbacks) {
 		try {
 			running = false
 			isLoading = true
 			clearCurrentJob()
 			const startedAt = Date.now()
 			const testId = await fn()
-
-			if (lastStartedAt < startedAt) {
+			lastCallbacks = callbacks
+			if (lastStartedAt < startedAt || allowConcurentRequests) {
 				lastStartedAt = startedAt
 				if (testId) {
 					dispatch('started', testId)
 					try {
-						await watchJob(testId)
+						await watchJob(testId, callbacks)
 					} catch {
+						callbacks?.cancel()
 						dispatch('cancel', testId)
 						if (currentId === testId) {
 							currentId = undefined
@@ -52,6 +60,7 @@
 			}
 			return testId
 		} catch (err) {
+			callbacks?.error()
 			// if error happens on submitting the job, reset UI state so the user can try again
 			isLoading = false
 			currentId = undefined
@@ -110,6 +119,9 @@
 	export async function cancelJob() {
 		const id = currentId
 		if (id) {
+			lastCallbacks?.cancel()
+			lastCallbacks = undefined
+			// console.log('cancel', 2)
 			dispatch('cancel', id)
 			currentId = undefined
 			try {
@@ -125,29 +137,32 @@
 	}
 
 	export async function clearCurrentJob() {
-		if (currentId) {
+		if (currentId && !allowConcurentRequests) {
+			lastCallbacks?.cancel()
+			// console.log('cancel', 3)
 			dispatch('cancel', currentId)
+			lastCallbacks = undefined
 			job = undefined
 			await cancelJob()
 		}
 	}
 
-	export async function watchJob(testId: string) {
+	export async function watchJob(testId: string, callbacks?: Callbacks) {
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
 		job = undefined
-		const isCompleted = await loadTestJob(testId)
+		const isCompleted = await loadTestJob(testId, callbacks)
 		if (!isCompleted) {
 			setTimeout(() => {
-				syncer(testId)
+				syncer(testId, callbacks)
 			}, 50)
 		}
 	}
 
-	async function loadTestJob(id: string): Promise<boolean> {
+	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
-		if (currentId === id) {
+		if (currentId === id || allowConcurentRequests) {
 			try {
 				let maybe_job = await JobService.getCompletedJobResultMaybe({
 					workspace: workspace ?? '',
@@ -160,19 +175,26 @@
 				}
 				if (maybe_job.completed) {
 					isCompleted = true
-					if (currentId === id) {
+					if (currentId === id || allowConcurentRequests) {
 						job = { ...maybe_job, id }
 						await tick()
-						if ('error' in job ?? {}) {
+						if (!job?.success && typeof job?.result == 'object' && 'error' in (job?.result ?? {})) {
+							callbacks?.error()
 							dispatch('doneError', {
 								id,
 								error: job.result.error
 							})
 						} else {
+							callbacks?.done(job.result)
 							dispatch('done', job)
 						}
-						currentId = undefined
+						finished.push(id)
+						if (!allowConcurentRequests) {
+							currentId = undefined
+						}
 					} else {
+						// console.log('cancel', 3)
+						callbacks?.cancel()
 						dispatch('cancel', id)
 					}
 				}
@@ -188,25 +210,32 @@
 			}
 			return isCompleted
 		} else {
+			// console.log('cancel', 6)
+			callbacks?.cancel()
 			dispatch('cancel', id)
 			return true
 		}
 	}
 
-	async function syncer(id: string): Promise<void> {
-		if (currentId != id) {
+	async function syncer(id: string, callbacks?: Callbacks): Promise<void> {
+		if ((currentId != id && !allowConcurentRequests) || finished.includes(id)) {
+			callbacks?.cancel()
+			// console.log('cancel', 7)
 			dispatch('cancel', id)
 			return
 		}
 		syncIteration++
-		await loadTestJob(id)
+		let r = await loadTestJob(id, callbacks)
+		if (r) {
+			return
+		}
 		let nextIteration = 50
 		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
 			nextIteration = 500
 		} else if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
 			nextIteration = 2000
 		}
-		setTimeout(() => syncer(id), nextIteration)
+		setTimeout(() => syncer(id, callbacks), nextIteration)
 	}
 
 	onDestroy(async () => {

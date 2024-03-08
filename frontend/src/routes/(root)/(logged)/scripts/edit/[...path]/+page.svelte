@@ -157,12 +157,12 @@
 	let diffDrawer: DiffDrawer
 
 	async function restoreDraft() {
-		if (!savedScript) {
+		if (!savedScript || !savedScript.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
 		diffDrawer.closeDrawer()
-		goto(`/scripts/edit/${savedScript.path}`)
+		goto(`/scripts/edit/${savedScript.draft.path}`)
 		loadScript()
 	}
 
@@ -172,7 +172,7 @@
 			return
 		}
 		diffDrawer.closeDrawer()
-		if (savedScript['draft']) {
+		if (savedScript.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
 				kind: 'script',

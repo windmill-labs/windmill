@@ -17,7 +17,7 @@
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Badge from './common/badge/Badge.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -25,7 +25,8 @@
 	import { random_adj } from './random_positive_adjetive'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { Eye, Folder, Plus, User } from 'lucide-svelte'
+	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
+	import ContentSearch from './ContentSearch.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
@@ -261,7 +262,13 @@
 	function setDirty() {
 		!dirty && (dirty = true)
 	}
+
+	let contentSearch: ContentSearch
 </script>
+
+{#if kind != 'app' && kind != 'schedule' && initialPath != '' && initialPath != undefined}
+	<ContentSearch bind:this={contentSearch} />
+{/if}
 
 <Drawer bind:this={newFolder}>
 	<DrawerContent
@@ -295,7 +302,7 @@
 		{#if meta != undefined}
 			<div class="flex gap-x-4 shrink">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
-				<label class="block">
+				<div class="block">
 					<span class="text-secondary text-sm whitespace-nowrap">&nbsp;</span>
 
 					<ToggleButtonGroup
@@ -335,7 +342,7 @@
 							label="Folder"
 						/>
 					</ToggleButtonGroup>
-				</label>
+				</div>
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
 						<span class="text-secondary text-sm">User</span>
@@ -396,10 +403,13 @@
 				{/if}
 			</div>
 			<label class="block grow w-full max-w-md">
-				<span class="text-secondary text-sm">
-					Name
-					<Required required={true} />
-				</span>
+				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+					<div>
+						Name
+						<Required required={true} />
+					</div>
+					<div class="text-2xs text-tertiary"> '/' for subfolders </div>
+				</div>
 				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					{disabled}
@@ -441,6 +451,26 @@
 		</div>
 		<div class="text-red-600 dark:text-red-400 text-2xs">{error}</div>
 	</div>
+
+	{#if kind != 'app' && kind != 'schedule' && initialPath != '' && initialPath != undefined && initialPath != path}
+		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
+			You are renaming an item that may be depended upon by other items. This may break apps, flows
+			or resources. Find if it used elsewhere using the content search. Note that linked variables
+			and resources (having the same path) are automatically moved together.
+			<div class="flex pt-2">
+				<Button
+					variant="border"
+					color="dark"
+					on:click={() => {
+						contentSearch?.open(initialPath)
+					}}
+					startIcon={{ icon: SearchCode }}
+				>
+					Search
+				</Button>
+			</div>
+		</Alert>
+	{/if}
 </div>
 
 <style>

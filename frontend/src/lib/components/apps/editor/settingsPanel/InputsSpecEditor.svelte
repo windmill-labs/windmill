@@ -12,7 +12,7 @@
 	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { FunctionSquare, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
+	import { FunctionSquare, Loader2, Pen, Plug, Plug2, Upload, User } from 'lucide-svelte'
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import { Button } from '$lib/components/common'
@@ -34,6 +34,13 @@
 	export let displayType: boolean = false
 	export let allowTypeChange: boolean = true
 	export let shouldFormatExpression: boolean = false
+	export let fixedOverflowWidgets: boolean = true
+	export let loading: boolean = false
+	export let acceptSelf: boolean = false
+	export let recomputeOnInputChanged = true
+	export let showOnDemandOnlyToggle = true
+	export let documentationLink: string | undefined = undefined
+	export let markdownTooltip: string | undefined = undefined
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -72,8 +79,11 @@
 							? capitalize(addWhitespaceBeforeCapitals(key))
 							: key}
 					</span>
-					{#if tooltip}
-						<Tooltip small>
+					{#if loading}
+						<Loader2 size={14} class="animate-spin ml-2" />
+					{/if}
+					{#if tooltip || markdownTooltip}
+						<Tooltip small {documentationLink} {markdownTooltip}>
 							{tooltip}
 						</Tooltip>
 					{/if}
@@ -151,6 +161,7 @@
 		{:else if componentInput?.type === 'static'}
 			<div class={'w-full flex flex-row-reverse'}>
 				<StaticInputEditor
+					{id}
 					{fieldType}
 					{subFieldType}
 					{selectOptions}
@@ -162,7 +173,16 @@
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {id} bind:componentInput />
 		{:else if componentInput?.type === 'evalv2'}
-			<EvalV2InputEditor bind:this={evalV2editor} {id} bind:componentInput />
+			<EvalV2InputEditor
+				{acceptSelf}
+				field={key}
+				bind:this={evalV2editor}
+				{id}
+				bind:componentInput
+				{fixedOverflowWidgets}
+				{recomputeOnInputChanged}
+				{showOnDemandOnlyToggle}
+			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}

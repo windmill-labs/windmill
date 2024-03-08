@@ -1,4 +1,12 @@
-import type { Script, FlowModule, HubScriptKind } from '$lib/gen'
+import {
+	type Script,
+	type FlowModule,
+	type HubScriptKind,
+	ScriptService,
+	RawScript,
+	type PathScript,
+	type InputTransform
+} from '$lib/gen'
 import { addResourceTypes, deltaCodeCompletion, getNonStreamingCompletion } from './lib'
 import type { Writable } from 'svelte/store'
 import type Editor from '../Editor.svelte'
@@ -39,6 +47,13 @@ export type FlowCopilotContext = {
 	shouldUpdatePropertyType: Writable<{
 		[key: string]: 'static' | 'javascript' | undefined
 	}>
+	stepInputsLoading: Writable<boolean>
+	generatedExprs: Writable<{
+		[key: string]: string | undefined
+	}>
+	exprsToSet: Writable<{
+		[key: string]: InputTransform | undefined
+	}>
 }
 
 const systemPrompt = `You are a helpful coding assistant for Windmill, a developer platform for running scripts. You write code as instructed by the user. Each user message includes some contextual information which should guide your answer.
@@ -56,7 +71,7 @@ const additionalInfos: {
 	python3: string
 } = {
 	bun: `<contextual_information>
-You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it.
+You have to write TypeScript code and export a "main" function like this: "export async function main(...)" and specify the parameter types but do not call it. You should generally return the result.
 The fetch standard method is available globally.
 You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
 <resourceTypes>
@@ -66,7 +81,7 @@ You need to define the type of the resources that are needed before the main fun
 The resource type name has to be exactly as specified (no resource suffix). If the type name conflicts with any imported methods, you have to rename the imported method with the conflicting name.
 </contextual_information>`,
 	python3: `<contextual_information>
-You have to write a function in Python called "main". Specify the parameter types. Do not call the main function.
+You have to write a function in Python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.
 You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
 <resourceTypes>
 {resourceTypes}
@@ -114,32 +129,67 @@ Return the script's output.
 {additionalInformation}`
 
 const inferTypeGluePrompt =
-	"Infer its type from the previous's step code: ```{codeLang}\n{prevCode}\n```"
+	"Infer its properties from the previous's step code: ```{codeLang}\n{prevCode}\n```"
 
 const loopGluePrompt = `I'm building a workflow which is a sequence of script steps. 
 My current step code has the following inputs: {inputs}. 
-Determine what to pass as inputs. You can only use the following:
-- \`flow_input\` (javascript object): general inputs that are passed to the workflow, you can assume any object properties.
+Determine for each input, what to pass from the following:
+- \`flow_input\` (javascript object): general inputs that are passed to the workflow, you can assume any object properties (snake case).
 - \`flow_input.iter.value\` (javascript object): it is ONE ELEMENT of the output of the previous step. {inferTypeGluePrompt}
 
-Reply in the following format:
+Reply with the most probable answer, do not explain or discuss.
+Your answer has to be in the following format (one line per input):
 input_name: expr`
 
 const gluePrompt = `I'm building a workflow which is a sequence of script steps. 
 My current step code has the following inputs: {inputs}. 
-Determine what to pass as inputs. You can only use the following:
-- \`flow_input\` (javascript object): general inputs that are passed to the workflow, you can assume any object properties.
-- \`results.{prevId}\` (javascript object): previous output is the output of the previous step. {inferTypeGluePrompt}
+Determine for each input, what to pass from the following:
+- \`flow_input\` (javascript object): general inputs that are passed to the workflow, you can assume any object properties (snake case).
+- \`results.{prevId}\` (javascript object): output of the previous step. {inferTypeGluePrompt}
 
-Reply in the following format:
+Reply with the most probable answer, do not explain or discuss.
+Your answer has to be in the following format (one line per input):
 input_name: expr`
+
+async function getPreviousStepContent(
+	pastModule: FlowModule & {
+		value: RawScript | PathScript
+	},
+	workspace: string
+) {
+	if (pastModule.value.type === 'rawscript') {
+		return { prevCode: pastModule.value.content, prevLang: pastModule.value.language }
+	} else {
+		if (pastModule.value.path.startsWith('hub/')) {
+			const script = await ScriptService.getHubScriptByPath({
+				path: pastModule.value.path
+			})
+			return { prevCode: script.content, prevLang: script.language as Script.language }
+		} else if (pastModule.value.hash) {
+			const script = await ScriptService.getScriptByHash({
+				workspace,
+				hash: pastModule.value.hash
+			})
+			return { prevCode: script.content, prevLang: script.language }
+		} else {
+			const script = await ScriptService.getScriptByPath({
+				workspace,
+				path: pastModule.value.path
+			})
+			return { prevCode: script.content, prevLang: script.language }
+		}
+	}
+}
 
 export async function stepCopilot(
 	module: FlowCopilotModule,
 	deltaCodeStore: Writable<string>,
-	prevCode: string,
-	prevLang: Script.language | undefined,
-	isFirstAction: boolean,
+	workspace: string,
+	pastModule:
+		| (FlowModule & {
+				value: RawScript | PathScript
+		  })
+		| undefined,
 	isFirstInLoop: boolean,
 	abortController: AbortController
 ) {
@@ -151,16 +201,20 @@ export async function stepCopilot(
 	let prompt =
 		module.type === 'trigger'
 			? triggerPrompts[lang]
-			: isFirstAction
+			: pastModule === undefined
 			? firstActionPrompt
 			: isFirstInLoop
 			? loopActionPrompt
 			: actionPrompt
+
+	const { prevCode, prevLang } = pastModule
+		? await getPreviousStepContent(pastModule, workspace)
+		: { prevCode: undefined, prevLang: undefined }
 	prompt = prompt
 		.replace('{codeLang}', codeLang)
 		.replace(
 			'{inferTypePrompt}',
-			prevCode.length > 0 && prevLang
+			prevCode && prevLang
 				? (isFirstInLoop ? inferTypeLoopPrompt : inferTypePrompt)
 						.replace('{prevCode}', prevCode)
 						.replace('{codeLang}', scriptLangToEditorLang(prevLang))
@@ -173,7 +227,8 @@ export async function stepCopilot(
 			type: 'gen',
 			language: lang as Script.language,
 			description: module.description,
-			dbSchema: undefined
+			dbSchema: undefined,
+			workspace
 		},
 		prompt
 	)
@@ -195,41 +250,75 @@ export async function stepCopilot(
 }
 
 export async function glueCopilot(
-	inputs: string[],
-	prevCode: string,
-	prevLang: Script.language | undefined,
-	prevId: string,
+	inputs: Record<string, InputTransform>,
+	workspace: string,
+	pastModule: FlowModule & {
+		value: RawScript | PathScript
+	},
 	isFirstInLoop: boolean,
 	abortController: AbortController
 ) {
+	const { prevCode, prevLang } = await getPreviousStepContent(pastModule, workspace)
+
+	const stringInputs: string[] = []
+	for (const inputName in inputs) {
+		const input = inputs[inputName]
+		if (
+			input.type === 'static' &&
+			input.value &&
+			typeof input.value === 'object' &&
+			!Array.isArray(input.value)
+		) {
+			// nested object
+			stringInputs.push(`${inputName} (${Object.keys(input.value).join(', ')})`)
+		} else {
+			stringInputs.push(inputName)
+		}
+	}
+
 	let response = await getNonStreamingCompletion(
 		[
 			{
 				role: 'user',
 				content: (isFirstInLoop ? loopGluePrompt : gluePrompt)
-					.replace('{inputs}', inputs.join(', '))
-					.replace('{prevId}', prevId)
+					.replace('{inputs}', stringInputs.join(', '))
+					.replace('{prevId}', pastModule.id)
 					.replace(
 						'{inferTypeGluePrompt}',
-						prevCode.length > 0 && prevLang
-							? inferTypeGluePrompt
-									.replace('{prevCode}', prevCode)
-									.replace('{codeLang}', scriptLangToEditorLang(prevLang))
-							: ''
+						inferTypeGluePrompt
+							.replace('{prevCode}', prevCode)
+							.replace('{codeLang}', scriptLangToEditorLang(prevLang))
 					)
 			}
 		],
 		abortController
 	)
 
-	const matches = response.matchAll(/([a-zA-Z_0-9]+): (.+)/g)
+	const matches = response.matchAll(/([a-zA-Z_0-9.]+): (.+)/g)
 
 	const result: Record<string, string> = {}
+	const allExprs: Record<string, string> = {}
 	for (const match of matches) {
 		const inputName = match[1]
 		const inputExpr = match[2].replace(',', '')
-		result[inputName] = inputExpr
+
+		allExprs[inputName] = inputExpr
+		if (inputName.includes('.')) {
+			// nested key returned by copilot (e.g. body.content: ...)
+			const [firstKey, ...rest] = inputName.split('.')
+			const restStr = rest.join('.')
+			if (!result[firstKey]) {
+				result[firstKey] = `{\n  "${restStr}": ${inputExpr}\n}`
+			} else {
+				result[firstKey] = result[firstKey].replace('\n}', `,\n  "${restStr}": ${inputExpr}\n}`)
+			}
+		} else {
+			result[inputName] = inputExpr
+		}
 	}
 
-	return result
+	return {
+		inputs: result,
+		allExprs
+	}
 }

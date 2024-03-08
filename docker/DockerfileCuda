@@ -1,0 +1,27 @@
+FROM ghcr.io/windmill-labs/windmill-ee:dev
+
+# Install any necessary dependencies for managing repositories and packages
+RUN apt-get update && apt-get install -y curl gnupg2
+
+RUN curl "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb" -o cuda.deb && \
+  dpkg -i cuda.deb && rm cuda.deb
+
+RUN apt-get update -y && \
+  apt-get install -y --no-install-recommends \
+  cuda-cudart-12-2 cuda-nvcc-12-2 cuda-nvrtc-12-2 \
+  libcudnn8 libcublas-12-2 && \
+  rm -rf /var/lib/apt/lists/*
+
+# Install FFmpeg if needed
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# Make sure the PyTorch version is compatible with the installed CUDA version
+
+# Set necessary environment variables for CUDA libraries (if needed)
+ENV PATH=/usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility

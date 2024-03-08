@@ -18,6 +18,8 @@ export interface Setting {
 		| 'license_key'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
+	error?: string
+	defaultValue?: () => any
 }
 
 export type SettingStorage = 'setting' | 'config'
@@ -31,8 +33,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'https://windmill.com',
 			storage: 'setting',
+			error: 'Base url must start with http:// or https:// and not end with / or a space',
 			isValid: (value: string | undefined) =>
-				value ? value?.startsWith('http') && value.includes('://') && !value?.endsWith('/') : true
+				value
+					? value?.startsWith('http') &&
+					  value.includes('://') &&
+					  !value?.endsWith('/') &&
+					  !value?.endsWith(' ')
+					: false
 		},
 		{
 			label: 'Request Size Limit In MB',
@@ -44,11 +52,10 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Retention Period in secs',
-			key: 'retention_period_secs',
-			description: 'How long to keep the jobs data in the database.',
+			label: 'Default timeout',
+			key: 'job_default_timeout',
+			description: 'Default timeout for individual jobs',
 			fieldType: 'seconds',
-			placeholder: '60',
 			storage: 'setting',
 			cloudonly: false
 		},
@@ -69,24 +76,14 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Pip Extra Index Url',
-			description: 'Add private PIP registry',
-			key: 'pip_extra_index_url',
-			fieldType: 'text',
-			placeholder: 'https://username:password@pypi.company.com/simple',
+			label: 'Retention Period in secs',
+			key: 'retention_period_secs',
+			description: 'How long to keep the jobs data in the database (max 30 days on CE)',
+			fieldType: 'seconds',
+			placeholder: '30',
 			storage: 'setting',
-			ee_only:
-				'You can still set this setting by using PIP_EXTRA_INDEX_URL as env variable to the worker containers'
-		},
-		{
-			label: 'Npm Config Registry',
-			description: 'Add private NPM registry',
-			key: 'npm_config_registry',
-			fieldType: 'text',
-			placeholder: 'https://yourregistry',
-			storage: 'setting',
-			ee_only:
-				'You can still set this setting by using NPM_CONFIG_REGISTRY as env variable to the worker containers'
+			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			cloudonly: false
 		},
 		{
 			label: 'Expose metrics',
@@ -94,7 +91,56 @@ export const settings: Record<string, Setting[]> = {
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: 'No workaround around this'
+			ee_only: ''
+		},
+		{
+			label: 'Azure OpenAI base path',
+			description:
+				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}',
+			key: 'openai_azure_base_path',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
+	'SSO/OAuth': [],
+	Registries: [
+		{
+			label: 'Pip Index Url',
+			description: 'Add private PIP registry',
+			key: 'pip_index_url',
+			fieldType: 'text',
+			placeholder: 'https://username:password@pypi.company.com/simple',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Pip Extra Index Url',
+			description: 'Add private extra PIP registry',
+			key: 'pip_extra_index_url',
+			fieldType: 'text',
+			placeholder: 'https://username:password@pypi.company.com/simple',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Npm Config Registry',
+			description: 'Add private NPM registry',
+			key: 'npm_config_registry',
+			fieldType: 'text',
+			placeholder: 'https://registry.npmjs.org/:_authToken=npm_FOOBAR',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Bunfig Install Scopes',
+			description:
+				'Add private scoped registries for Bun, See: https://bun.sh/docs/install/registries',
+			key: 'bunfig_install_scopes',
+			fieldType: 'text',
+			placeholder: '"@myorg3" = { token = "mytoken", url = "https://registry.myorg.com/" }',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	SMTP: [
@@ -139,12 +185,24 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'config'
 		}
 	],
-	'SSO/OAuth': [
+	'SCIM/SAML': [
 		{
-			label: 'Require users to have been added manually to windmill to sign in through OAuth',
-			key: 'require_preexisting_user_for_oauth',
-			fieldType: 'boolean',
-			storage: 'setting'
+			label: 'SCIM Token',
+			description: 'Token used to authenticate requests from the IdP',
+			key: 'scim_token',
+			fieldType: 'text',
+			placeholder: 'mytoken',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'SAML metadata',
+			description: 'XML metadata url OR content for the SAML IdP',
+			key: 'saml_metadata',
+			fieldType: 'textarea',
+			placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	Debug: [

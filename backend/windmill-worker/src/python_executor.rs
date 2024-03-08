@@ -3,13 +3,15 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use sqlx::{Pool, Postgres};
+use sqlx::{types::Json, Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder, File},
     io::AsyncReadExt,
     process::Command,
 };
 use uuid::Uuid;
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -17,6 +19,10 @@ use windmill_common::{
     worker::WORKER_CONFIG,
     DB,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::variables::get_secret_value_as_admin;
+
 use windmill_queue::CanceledBy;
 
 lazy_static::lazy_static! {
@@ -25,14 +31,15 @@ lazy_static::lazy_static! {
 
     static ref FLOCK_PATH: String =
     std::env::var("FLOCK_PATH").unwrap_or_else(|_| "/usr/bin/flock".to_string());
+    static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
-
-
-    static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
+    static ref PIP_INDEX_CERT: Option<String> = std::env::var("PIP_INDEX_CERT").ok();
 
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
+
+    static ref EPHEMERAL_TOKEN_CMD: Option<String> = std::env::var("EPHEMERAL_TOKEN_CMD").ok();
 
 }
 
@@ -48,11 +55,12 @@ use crate::S3_CACHE_BUCKET;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, handle_child, read_result, set_logs,
-        start_child_process, write_file,
+        create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
+        read_result, set_logs, start_child_process, write_file,
     },
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HTTPS_PROXY, HTTP_PROXY,
-    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL, TZ_ENV,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
+    LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, TZ_ENV,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -61,6 +69,27 @@ pub async fn create_dependencies_dir(job_dir: &str) {
         .create(&format!("{job_dir}/dependencies"))
         .await
         .expect("could not create dependencies dir");
+}
+
+#[inline(always)]
+pub fn handle_ephemeral_token(x: String) -> String {
+    #[cfg(feature = "enterprise")]
+    {
+        if let Some(full_cmd) = EPHEMERAL_TOKEN_CMD.as_ref() {
+            let mut splitted = full_cmd.split(" ");
+            let cmd = splitted.next().unwrap();
+            let args = splitted.collect::<Vec<&str>>();
+            let output = std::process::Command::new(cmd)
+                .args(args)
+                .output()
+                .map(|x| String::from_utf8(x.stdout).unwrap())
+                .unwrap_or_else(|e| panic!("failed to execute  replace_ephemeral command: {}", e));
+            let r = x.replace("EPHEMERAL_TOKEN", &output.trim());
+            tracing::debug!("replaced ephemeral token: '{}'", r);
+            return r;
+        }
+    }
+    x
 }
 
 pub async fn pip_compile(
@@ -81,20 +110,34 @@ pub async fn pip_compile(
         WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
     {
         let deps = pip_local_dependencies.clone();
+        let compiled_deps = deps.iter().map(|dep| {
+            let compiled_dep = Regex::new(dep);
+            match compiled_dep {
+                Ok(compiled_dep) => Some(compiled_dep),
+                Err(e) => {
+                    tracing::warn!("regex compilation failed for Python local dependency: '{}' - it will be ignored", e);
+                    return None;
+                }
+            }
+        }).filter(|dep_maybe| dep_maybe.is_some()).map(|dep| dep.unwrap()).collect::<Vec<Regex>>();
         requirements
             .lines()
             .filter(|s| {
-                if !deps.contains(&s.to_string()) {
-                    return true;
-                } else {
+                if compiled_deps.iter().any(|dep| dep.is_match(s)) {
                     logs.push_str(&format!("\nignoring local dependency: {}", s));
                     return false;
+                } else {
+                    return true;
                 }
             })
             .join("\n")
     } else {
         requirements.to_string()
     };
+
+    #[cfg(feature = "enterprise")]
+    let requirements = replace_pip_secret(db, w_id, &requirements, worker_name, job_id).await?;
+
     let req_hash = format!("py-{}", calculate_hash(&requirements));
     if let Some(cached) = sqlx::query_scalar!(
         "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
@@ -111,16 +154,36 @@ pub async fn pip_compile(
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
-    let pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+    let mut pip_args = vec![];
+    let pip_extra_index_url = PIP_EXTRA_INDEX_URL
+        .read()
+        .await
+        .clone()
+        .map(handle_ephemeral_token);
     if let Some(url) = pip_extra_index_url.as_ref() {
-        args.extend(["--extra-index-url", url]);
+        args.extend(["--extra-index-url", url, "--no-emit-index-url"]);
+        pip_args.push(format!("--extra-index-url {}", url));
     }
-    if let Some(url) = PIP_INDEX_URL.as_ref() {
-        args.extend(["--index-url", url]);
+    let pip_index_url = PIP_INDEX_URL
+        .read()
+        .await
+        .clone()
+        .map(handle_ephemeral_token);
+    if let Some(url) = pip_index_url.as_ref() {
+        args.extend(["--index-url", url, "--no-emit-index-url"]);
+        pip_args.push(format!("--index-url {}", url));
     }
     if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
     }
+    if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+        args.extend(["--cert", cert_path]);
+    }
+    let pip_args_str = pip_args.join(" ");
+    if pip_args.len() > 0 {
+        args.extend(["--pip-args", &pip_args_str]);
+    }
+    tracing::debug!("pip-compile args: {:?}", args);
 
     let mut child_cmd = Command::new("pip-compile");
     child_cmd
@@ -209,10 +272,17 @@ pub async fn handle_python_job(
         last,
         transforms,
         spread,
-    ) = prepare_wrapper(job_dir, inner_content, script_path).await?;
+        main_name,
+    ) = prepare_wrapper(job_dir, inner_content, script_path, job.args.as_ref()).await?;
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
+    let os_main_override = if let Some(main_override) = main_name.as_ref() {
+        format!("import os\nos.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
+    } else {
+        String::new()
+    };
+    let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let wrapper_content: String = format!(
         r#"
 import json
@@ -221,6 +291,7 @@ import json
 {import_datetime}
 import traceback
 import sys
+{os_main_override}
 from {module_dir_dot} import {last} as inner_script
 import re
 
@@ -238,9 +309,9 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'\bNaN\b')
+replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
 try:
-    res = inner_script.main(**args)
+    res = inner_script.{main_override}(**args)
     typ = type(res)
     if typ.__name__ == 'DataFrame':
         if typ.__module__ == 'pandas.core.frame':
@@ -256,11 +327,16 @@ try:
     res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
     with open("result.json", 'w') as f:
         f.write(res_json)
-except Exception as e:
+except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
     with open("result.json", 'w') as f:
-        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+        err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}
+        import os
+        flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
+        if flow_node_id:
+            err['step_id'] = flow_node_id
+        err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
 "#,
@@ -346,6 +422,7 @@ mount {{
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", HOME_ENV.as_str())
             .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -374,6 +451,7 @@ async fn prepare_wrapper(
     job_dir: &str,
     inner_content: &str,
     script_path: &str,
+    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -383,7 +461,10 @@ async fn prepare_wrapper(
     String,
     String,
     String,
+    Option<String>,
 )> {
+    let main_override = get_main_override(args);
+
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
     let script_path_splitted = script_path.split("/");
@@ -422,7 +503,7 @@ async fn prepare_wrapper(
         let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
     }
 
-    let sig = windmill_parser_py::parse_python_signature(inner_content)?;
+    let sig = windmill_parser_py::parse_python_signature(inner_content, main_override.clone())?;
     let transforms = sig
         .args
         .iter()
@@ -500,7 +581,40 @@ if args["{name}"] is None:
         last,
         transforms,
         spread,
+        main_override,
     ))
+}
+
+#[cfg(feature = "enterprise")]
+async fn replace_pip_secret(
+    db: &DB,
+    w_id: &str,
+    req: &str,
+    worker_name: &str,
+    job_id: &Uuid,
+) -> error::Result<String> {
+    if PIP_SECRET_VARIABLE.is_match(req) {
+        let capture = PIP_SECRET_VARIABLE.captures(req);
+        let variable = capture.unwrap().get(1).unwrap().as_str();
+        if !variable.contains("/PIP_SECRET_") {
+            return Err(error::Error::InternalErr(format!(
+                "invalid secret variable in pip requirements, (last part of path ma): {}",
+                req
+            )));
+        }
+        let secret = get_secret_value_as_admin(db, w_id, variable).await?;
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job_id,
+            workspace_id = %w_id,
+            "found secret variable in pip requirements: {}",
+            req
+        );
+        let req = PIP_SECRET_VARIABLE.replace(req, secret.as_str());
+        Ok(req.to_string())
+    } else {
+        Ok(req.to_string())
+    }
 }
 
 async fn handle_python_deps(
@@ -530,11 +644,14 @@ async fn handle_python_deps(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
+            let mut already_visited = vec![];
+
             let requirements = windmill_parser_py_imports::parse_python_imports(
                 inner_content,
                 w_id,
                 script_path,
                 db,
+                &mut already_visited,
             )
             .await?
             .join("\n");
@@ -561,7 +678,7 @@ async fn handle_python_deps(
     };
 
     if requirements.len() > 0 {
-        additional_python_paths = handle_python_reqs(
+        let mut venv_path = handle_python_reqs(
             requirements
                 .split("\n")
                 .filter(|x| !x.starts_with("--"))
@@ -577,8 +694,13 @@ async fn handle_python_deps(
             worker_dir,
         )
         .await?;
+        additional_python_paths.append(&mut venv_path);
     }
     Ok(additional_python_paths)
+}
+
+lazy_static::lazy_static! {
+    static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^s\}]+)\}").unwrap();
 }
 
 pub async fn handle_python_reqs(
@@ -596,14 +718,30 @@ pub async fn handle_python_reqs(
     let mut req_paths: Vec<String> = vec![];
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
     let pip_extra_index_url;
+    let pip_index_url;
 
     if !*DISABLE_NSJAIL {
-        pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+        pip_extra_index_url = PIP_EXTRA_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+
         if let Some(url) = pip_extra_index_url.as_ref() {
             vars.push(("EXTRA_INDEX_URL", url));
         }
-        if let Some(url) = PIP_INDEX_URL.as_ref() {
+
+        pip_index_url = PIP_INDEX_URL
+            .read()
+            .await
+            .clone()
+            .map(handle_ephemeral_token);
+
+        if let Some(url) = pip_index_url.as_ref() {
             vars.push(("INDEX_URL", url));
+        }
+        if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+            vars.push(("PIP_INDEX_CERT", cert_path));
         }
         if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
@@ -642,12 +780,16 @@ pub async fn handle_python_reqs(
 
         #[cfg(feature = "enterprise")]
         if let Some(ref bucket) = *S3_CACHE_BUCKET {
-            sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                .execute(db)
-                .await?;
-            if pull_from_tar(bucket, venv_p.clone()).await.is_ok() {
-                req_paths.push(venv_p.clone());
-                continue;
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::warn!("S3 cache not available in the pro plan");
+            } else {
+                sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
+                    .execute(db)
+                    .await?;
+                if pull_from_tar(bucket, venv_p.clone()).await.is_ok() {
+                    req_paths.push(venv_p.clone());
+                    continue;
+                }
             }
         }
 
@@ -682,6 +824,8 @@ pub async fn handle_python_reqs(
                 .stderr(Stdio::piped());
             start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
         } else {
+            let fssafe_req = NON_ALPHANUM_CHAR.replace_all(&req, "_").to_string();
+            let req = format!("'{}'", req);
             let mut command_args = vec![
                 PYTHON_PATH.as_str(),
                 "-m",
@@ -697,16 +841,31 @@ pub async fn handle_python_reqs(
                 "-t",
                 venv_p.as_str(),
             ];
-            let pip_extra_index_url = PIP_EXTRA_INDEX_URL.read().await.clone();
+            let pip_extra_index_url = PIP_EXTRA_INDEX_URL
+                .read()
+                .await
+                .clone()
+                .map(handle_ephemeral_token);
+
             if let Some(url) = pip_extra_index_url.as_ref() {
                 command_args.extend(["--extra-index-url", url]);
             }
-            if let Some(url) = PIP_INDEX_URL.as_ref() {
+            let pip_index_url = PIP_INDEX_URL
+                .read()
+                .await
+                .clone()
+                .map(handle_ephemeral_token);
+
+            if let Some(url) = pip_index_url.as_ref() {
                 command_args.extend(["--index-url", url]);
+            }
+            if let Some(cert_path) = PIP_INDEX_CERT.as_ref() {
+                command_args.extend(["--cert", cert_path]);
             }
             if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 command_args.extend(["--trusted-host", &host]);
             }
+
             let mut envs = vec![("PATH", PATH_ENV.as_str())];
             if let Some(http_proxy) = HTTP_PROXY.as_ref() {
                 envs.push(("HTTP_PROXY", http_proxy));
@@ -718,13 +877,17 @@ pub async fn handle_python_reqs(
                 envs.push(("NO_PROXY", no_proxy));
             }
 
+            envs.push(("HOME", HOME_ENV.as_str()));
+
+            tracing::debug!("pip install command: {:?}", command_args);
+
             let mut flock_cmd = Command::new(FLOCK_PATH.as_str());
             flock_cmd
                 .env_clear()
                 .envs(envs)
                 .args([
                     "-x",
-                    &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, req),
+                    &format!("{}/pip-{}.lock", LOCK_CACHE_DIR, fssafe_req),
                     "--command",
                     &command_args.join(" "),
                 ])
@@ -760,8 +923,12 @@ pub async fn handle_python_reqs(
 
         #[cfg(feature = "enterprise")]
         if let Some(ref bucket) = *S3_CACHE_BUCKET {
-            let venv_p = venv_p.clone();
-            tokio::spawn(build_tar_and_push(bucket, venv_p));
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::warn!("S3 cache not available in the pro plan");
+            } else {
+                let venv_p = venv_p.clone();
+                tokio::spawn(build_tar_and_push(bucket, venv_p));
+            }
         }
         req_paths.push(venv_p);
     }
@@ -811,11 +978,13 @@ pub async fn start_worker(
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .to_vec();
 
-    let context_envs = build_envs_map(context);
+    let context_envs = build_envs_map(context).await;
     let additional_python_paths = handle_python_deps(
         job_dir,
         requirements_o,
@@ -835,6 +1004,7 @@ pub async fn start_worker(
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
     set_logs(&mut logs, &Uuid::nil(), db).await;
 
+    let _args = None;
     let (
         import_loader,
         import_base64,
@@ -844,7 +1014,8 @@ pub async fn start_worker(
         last,
         transforms,
         spread,
-    ) = prepare_wrapper(job_dir, inner_content, script_path).await?;
+        _,
+    ) = prepare_wrapper(job_dir, inner_content, script_path, _args.as_ref()).await?;
 
     {
         let indented_transforms = transforms
@@ -875,7 +1046,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'\bNaN\b')
+replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
 sys.stdout.write('start\n')
 
 for line in sys.stdin:
@@ -904,12 +1075,12 @@ for line in sys.stdin:
                 if type(v).__name__ == 'bytes':
                     res[k] = to_b_64(v)
         res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
-        sys.stdout.write("wm_res:" + res_json + "\n")
-    except Exception as e:
+        sys.stdout.write("wm_res[success]:" + res_json + "\n")
+    except BaseException as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         tb = traceback.format_tb(exc_traceback)
-        err_json = json.dumps({{ "error": {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }} }}, separators=(',', ':'), default=str).replace('\n', '')
-        sys.stdout.write("wm_res:" + err_json + "\n")
+        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+        sys.stdout.write("wm_res[error]:" + err_json + "\n")
     sys.stdout.flush()
 "#,
         );
@@ -922,8 +1093,10 @@ for line in sys.stdin:
         "dedicated_worker",
         "dedicated_worker",
         Uuid::nil().to_string().as_str(),
-        "dedicted_worker",
+        "dedicated_worker",
         Some(script_path.to_string()),
+        None,
+        None,
         None,
         None,
         None,

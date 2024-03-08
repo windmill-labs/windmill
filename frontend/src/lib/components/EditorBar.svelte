@@ -23,7 +23,19 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import { DollarSign, History, Library, Link, Package, Plus, RotateCw, Users } from 'lucide-svelte'
+	import FormatOnSave from './FormatOnSave.svelte'
+
+	import {
+		DollarSign,
+		History,
+		Library,
+		Link,
+		Package,
+		Plus,
+		RotateCw,
+		Save,
+		Users
+	} from 'lucide-svelte'
 	import { capitalize, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
@@ -32,6 +44,7 @@
 	import { getResetCode } from '$lib/script_helpers'
 	import type { Script } from '$lib/gen'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
+	import Popover from './Popover.svelte'
 
 	export let lang: SupportedLanguage
 	export let editor: Editor | undefined
@@ -42,7 +55,6 @@
 		deno: boolean
 		go: boolean
 		shellcheck: boolean
-		bun: boolean
 	}
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -50,10 +62,13 @@
 	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let collabMode = false
 	export let collabLive = false
+	export let formatOnSave = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
 	export let args: Record<string, any>
+	export let noHistory = false
+	export let saveToWorkspace = false
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -66,10 +81,11 @@
 	let showResourcePicker = false
 	let showResourceTypePicker = false
 
-	$: showContextVarPicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
-	$: showVarPicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
-	$: showResourcePicker = ['python3', 'bash', 'go', 'deno', 'bun'].includes(lang)
-	$: showResourceTypePicker = scriptLangToEditorLang(lang) === 'typescript' || lang === 'python3'
+	$: showContextVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
+	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
+	$: showResourcePicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
+	$: showResourceTypePicker =
+		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) || lang === 'python3'
 
 	let codeViewer: Drawer
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
@@ -230,6 +246,8 @@
 			editor.insertAtCursor(`os.Getenv("${name}")`)
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`$${name}`)
+		} else if (lang == 'powershell') {
+			editor.insertAtCursor(`$Env:${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -269,6 +287,12 @@
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
   "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}" | jq -r .`)
+		} else if (lang == 'powershell') {
+			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
+			editor.arrowDown()
+			editor.insertAtCursor(
+				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/variables/get_value/${path}"`
+			)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -322,6 +346,12 @@
 		} else if (lang == 'bash') {
 			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
   "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}" | jq`)
+		} else if (lang == 'powershell') {
+			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
+			editor.arrowDown()
+			editor.insertAtCursor(
+				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/resources/get_value_interpolated/${path}"`
+			)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
@@ -461,53 +491,54 @@
 				Reset
 			</Button>
 
-			<Button
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={() => editor?.reloadWebsocket()}
-				startIcon={{
-					icon: RotateCw,
-					classes: websocketAlive[lang] == false ? 'animate-spin' : ''
-				}}
-				title="Reload assistants"
-			>
-				{#if !iconOnly}
-					Assistants
-				{/if}
-				<span class="ml-1 -my-1">
-					{#if lang == 'deno'}
-						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-					{:else if lang == 'bun'}
-						(<span class={websocketAlive.bun ? 'green' : 'text-red-700'}>Bun</span>)
-					{:else if lang == 'go'}
-						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-					{:else if lang == 'python3'}
-						(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
-						<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
-					{:else if lang == 'bash'}
-						(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+			{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				<Button
+					btnClasses="!font-medium text-tertiary"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={() => editor?.reloadWebsocket()}
+					startIcon={{
+						icon: RotateCw,
+						classes: websocketAlive[lang] == false ? 'animate-spin' : ''
+					}}
+					title="Reload assistants"
+				>
+					{#if !iconOnly}
+						Assistants
 					{/if}
-				</span>
-			</Button>
+					<span class="-my-1">
+						{#if lang == 'deno'}
+							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+						{:else if lang == 'go'}
+							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+						{:else if lang == 'python3'}
+							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>
+							<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
+						{:else if lang == 'bash'}
+							(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+						{/if}
+					</span>
+				</Button>
+			{/if}
 			{#if collabMode}
-				<div class="flex items-center px-1">
+				<div class="flex items-center px-3">
 					<Toggle
-						options={{ right: iconOnly ? '' : 'Multiplayer' }}
+						options={{ right: '' }}
 						size="xs"
 						checked={collabLive}
 						on:change={() => dispatch('toggleCollabMode')}
 					/>
-					{#if iconOnly}
-						<Users class="ml-1" size={12} />
-					{/if}
+					<Popover>
+						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
+						<Users class="ml-1 text-tertiary" size={14} />
+					</Popover>
 					{#if collabLive}
 						<button
 							title="Show invite link"
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
-							on:click={() => dispatch('collabPopup')}><Link size={12} /></button
+							on:click={() => dispatch('collabPopup')}><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}
@@ -525,39 +556,16 @@
 				</div>
 			{/if}
 
+			<FormatOnSave />
+
 			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
 
 			<CodeCompletionStatus />
-
-			<!-- <Popover
-				notClickable
-				placement="bottom"
-				disappearTimeout={0}
-				class="px-1"
-				disablePopup={!iconOnly}
-			>
-				<Button
-					btnClasses="!font-medium"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={editor?.format}
-					{iconOnly}
-					startIcon={{ icon: faBroom }}
-				>
-					Format ({getModifierKey()}+S)
-				</Button>
-				<svelte:fragment slot="text">
-					Format <Kbd class="!text-gray-800">{getModifierKey()}</Kbd> + <Kbd class="!text-gray-800">
-						S
-					</Kbd>
-				</svelte:fragment>
-			</Popover> -->
 		</div>
 	</div>
 
 	<div class="flex flex-row items-center gap-2">
-		{#if scriptPath}
+		{#if scriptPath && !noHistory}
 			<Button
 				btnClasses="!font-medium text-tertiary"
 				size="xs"
@@ -583,6 +591,17 @@
 				title="Explore other scripts"
 			>
 				Library
+			</Button>
+		{/if}
+		{#if saveToWorkspace}
+			<Button
+				size="xs"
+				color="light"
+				startIcon={{ icon: Save }}
+				on:click={() => dispatch('createScriptFromInlineScript')}
+				iconOnly={false}
+			>
+				Save to workspace
 			</Button>
 		{/if}
 	</div>

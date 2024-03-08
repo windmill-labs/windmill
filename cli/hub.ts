@@ -84,7 +84,8 @@ async function pull(opts: GlobalOptions) {
         (y) =>
           y.name === x.name &&
           typeof y.schema !== "string" &&
-          deepEqual(y.schema, x.schema)
+          deepEqual(y.schema, x.schema) &&
+          y.description === x.description
       )
     ) {
       log.info("skipping " + x.name + " (same as current)");
@@ -106,7 +107,7 @@ const command = new Command()
   .name("hub")
   .description("Hub related commands. EXPERIMENTAL. INTERNAL USE ONLY.")
   .command("pull")
-  .description("pull any supported defintions. EXPERIMENTAL.")
+  .description("pull any supported definitions. EXPERIMENTAL.")
   .action(pull as any);
 
 export default command;

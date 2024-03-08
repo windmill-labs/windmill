@@ -7,7 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 
-	export let resource_type: string | undefined
+	export let resourceType: string | undefined
 	export let args: Record<string, any> | any = {}
 
 	const scripts: {
@@ -43,6 +43,22 @@
 			lang: 'mssql',
 			argName: 'database'
 		},
+		s3: {
+			code: `
+import { S3Client } from "https://deno.land/x/s3_lite_client@0.6.1/mod.ts";		
+
+type S3 = object
+
+export async function main(s3: S3) {
+	const s3client = new S3Client(s3);
+	for await (const obj of s3client.listObjects({ prefix: "/" })) {
+		console.log(obj);
+	}
+}
+`,
+			lang: 'deno',
+			argName: 's3'
+		},
 		graphql: {
 			code: '{ __typename }',
 			lang: 'graphql',
@@ -70,14 +86,15 @@
 
 	let loading = false
 	async function testConnection() {
-		if (!resource_type) return
+		if (!resourceType) return
 		loading = true
 
-		const resourceScript = scripts[resource_type]
+		const resourceScript = scripts[resourceType]
 
 		const job = await JobService.runScriptPreview({
 			workspace: $workspaceStore!,
 			requestBody: {
+				path: `testConnection: ${resourceType}`,
 				language: resourceScript.lang as Preview.language,
 				content: resourceScript.code,
 				args: {
@@ -105,13 +122,17 @@
 			},
 			timeoutCode: async () => {
 				loading = false
-				sendUserToast('Connection did not resolve after 5s', true)
+				sendUserToast(
+					'Connection did not resolve after 5s or job did not start. Do you have native workers or a worker group listening to the proper tag available?',
+					true
+				)
 				try {
 					await JobService.cancelQueuedJob({
 						workspace: $workspaceStore!,
 						id: job,
 						requestBody: {
-							reason: 'Connection did not resolve after 5s'
+							reason:
+								'Connection did not resolve after 5s. Do you have native workers or a worker group listening to the proper tag available?'
 						}
 					})
 				} catch (err) {
@@ -124,7 +145,7 @@
 	}
 </script>
 
-{#if Object.keys(scripts).includes(resource_type || '')}
+{#if Object.keys(scripts).includes(resourceType || '')}
 	<Button
 		spacingSize="sm"
 		size="xs"

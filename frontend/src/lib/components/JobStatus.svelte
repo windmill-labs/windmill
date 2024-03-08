@@ -5,6 +5,7 @@
 	import { forLater } from '$lib/forLater'
 	import DurationMs from './DurationMs.svelte'
 	import { Calendar, CheckCircle2, Circle, Clock, XCircle } from 'lucide-svelte'
+	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 
 	const SMALL_ICON_SIZE = 12
 
@@ -16,12 +17,18 @@
 		<Badge large color="green" icon={{ icon: CheckCircle2, position: 'left' }}>
 			Success {job.is_skipped ? '(Skipped)' : ''}
 		</Badge>
-		<DurationMs duration_ms={job.duration_ms} />
+		<DurationMs
+			flow={job.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+			duration_ms={job.duration_ms}
+		/>
 	</div>
 {:else if job && 'success' in job}
 	<div class="flex flex-row flex-wrap gap-y-1 mb-1 gap-x-2">
 		<Badge large color="red" icon={{ icon: XCircle, position: 'left' }}>Failed</Badge>
-		<DurationMs duration_ms={job.duration_ms} />
+		<DurationMs
+			flow={job.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
+			duration_ms={job.duration_ms}
+		/>
 	</div>
 {:else if job && 'running' in job && job.running}
 	<div>
@@ -39,8 +46,9 @@
 		</Badge>
 	</div>
 {:else if job && 'running' in job}
-	<div>
+	<div class="flex flex-row gap-1 items-center">
 		<Badge icon={{ icon: Clock, position: 'left' }}>Queued</Badge>
+		<NoWorkerWithTagWarning tag={job.tag} />
 	</div>
 {:else}
 	<Circle size={SMALL_ICON_SIZE} class="text-gray-200" />

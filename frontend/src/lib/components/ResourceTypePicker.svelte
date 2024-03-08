@@ -4,7 +4,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
-	import { Button } from './common'
+	import { Button, ClearableInput } from './common'
 
 	let resources: string[] = []
 
@@ -27,10 +27,16 @@
 	$: if ($workspaceStore) {
 		loadResources()
 	}
+	let search: string = ''
+
+	$: filteredResources = resources.filter((r) => r.toLowerCase().includes(search.toLowerCase()))
 </script>
 
+<div class="mb-2">
+	<ClearableInput bind:value={search} placeholder="Search resource..." />
+</div>
 <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-	{#if nonePickable}
+	{#if nonePickable && search === ''}
 		{@const isPicked = value === undefined}
 		<Button
 			size="sm"
@@ -43,7 +49,7 @@
 			None
 		</Button>
 	{/if}
-	{#each resources as r}
+	{#each filteredResources as r}
 		{@const isPicked = value === r}
 		<Button
 			size="sm"
@@ -56,4 +62,8 @@
 			<IconedResourceType name={r} after={true} width="20px" height="20px" />
 		</Button>
 	{/each}
+
+	{#if filteredResources.length === 0 && search !== ''}
+		<div class="text-tertiary text-sm">No resources found</div>
+	{/if}
 </div>

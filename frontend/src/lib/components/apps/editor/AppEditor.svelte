@@ -23,7 +23,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState } from '$lib/utils'
+	import { classNames, encodeState, sendUserToast } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -54,13 +54,13 @@
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import RunnableJobPanel from './RunnableJobPanel.svelte'
 
 	export let app: App
 	export let path: string
 	export let policy: Policy
 	export let summary: string
 	export let fromHub: boolean = false
-	export let versions: number[]
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedApp:
 		| {
@@ -72,6 +72,7 @@
 				draft_only?: boolean
 		  }
 		| undefined = undefined
+	export let version: number | undefined = undefined
 
 	migrateApp(app)
 
@@ -118,6 +119,7 @@
 
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
+	const initialized = writable({ initialized: false, initializedComponents: [] })
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
@@ -126,10 +128,11 @@
 		worldStore,
 		app: appStore,
 		summary: summaryStore,
-		initialized: writable({ initialized: false, initializedComponents: [] }),
+		initialized: initialized,
 		selectedComponent,
 		mode,
 		connectingInput,
+		bgRuns: writable([]),
 		breakpoint,
 		runnableComponents: writable({}),
 		appPath: path,
@@ -151,7 +154,8 @@
 		allIdsInPath: writable([]),
 		darkMode,
 		cssEditorOpen,
-		previewTheme
+		previewTheme,
+		debuggingComponents: writable({})
 	})
 
 	let scale = writable(100)
@@ -160,8 +164,11 @@
 
 	let yTop = writable(0)
 
+	let runnableJob = writable({ focused: false, jobs: {}, frontendJobs: {}, width: 100 })
 	setContext<AppEditorContext>('AppEditorContext', {
 		yTop,
+		runnableJobEditorPanel: runnableJob,
+		evalPreview: writable({}),
 		componentActive,
 		dndItem: writable({}),
 		refreshComponents: writable(undefined),
@@ -218,7 +225,16 @@
 						parentComponentId: befSelected,
 						subGridIndex: 0
 					}
-				} else if (item?.data.type === 'tabscomponent' || item?.data.type === 'steppercomponent') {
+				} else if (item?.data.type === 'steppercomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex:
+							($worldStore.outputsById?.[befSelected]?.currentStepIndex?.peak() as number) ?? 0
+					}
+				} else if (
+					item?.data.type === 'tabscomponent' ||
+					item?.data.type === 'conditionalwrapper'
+				) {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex:
@@ -403,7 +419,9 @@
 				css = currentAppStore.theme.css
 			} else if (currentAppStore.theme.type === 'path' && currentAppStore.theme?.path) {
 				let loadedCss = await getTheme($workspaceStore!, currentAppStore.theme.path)
-				css = loadedCss.value
+				if (loadedCss) {
+					css = loadedCss.value
+				}
 			}
 			lastTheme = JSON.stringify(currentAppStore.theme)
 		}
@@ -453,6 +471,23 @@
 	onMount(() => {
 		mounted = true
 
+		setTimeout(() => {
+			if ($initialized?.initialized === false) {
+				sendUserToast(
+					'App is not yet initialized, please check the Troubleshoot Panel for more information',
+					true,
+					[
+						{
+							label: 'Open Troubleshoot Panel',
+							callback: () => {
+								appEditorHeader?.openTroubleshootPanel()
+							}
+						}
+					]
+				)
+			}
+		}, 10000)
+
 		parseScroll()
 	})
 
@@ -476,6 +511,8 @@
 			}
 		}
 	}
+
+	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -486,12 +523,12 @@
 	{#if $appStore}
 		<AppEditorHeader
 			on:restore
-			{versions}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}
 			{diffDrawer}
 			bind:savedApp
+			{version}
 		/>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
@@ -549,15 +586,14 @@
 									class={twMerge(
 										'bg-surface-secondary h-full w-full relative',
 										$appStore.css?.['app']?.['viewer']?.class,
-										'wm-app-viewer z-[100]  h-full overflow-visible'
+										'wm-app-viewer h-full overflow-visible'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
-									<div class="absolute bottom-2 left-4 z-50">
-										<div class="flex flex-row gap-2 text-xs items-center">
+									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
+										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
 												color="light"
-												variant="border"
 												size="xs2"
 												disabled={$scale <= 30}
 												on:click={() => {
@@ -566,10 +602,11 @@
 											>
 												<Minus size={14} />
 											</Button>
-											{$scale}%
+											<div class="w-8 flex justify-center text-2xs h-full items-center">
+												{$scale}%
+											</div>
 											<Button
 												color="light"
-												variant="border"
 												size="xs2"
 												disabled={$scale >= 100}
 												on:click={() => {
@@ -592,7 +629,7 @@
 										on:scroll={parseScroll}
 										class={classNames(
 											'mx-auto w-full h-full z-50',
-											$appStore.fullscreen ? '' : 'max-w-7xl border-x',
+											$appStore.fullscreen ? '' : 'max-w-7xl',
 											$componentActive ? 'absolute' : 'overflow-auto'
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
@@ -612,15 +649,29 @@
 							</Pane>
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
-									<div class="relative h-full w-full z-[100]">
+									<!-- svelte-ignore a11y-no-static-element-interactions -->
+									<div
+										class="relative h-full w-full overflow-x-visible"
+										on:mouseenter={() => {
+											runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
+											$runnableJob.focused = true
+										}}
+										on:mouseleave={() => {
+											runnableJobEnterTimeout = setTimeout(
+												() => ($runnableJob.focused = false),
+												200
+											)
+										}}
+									>
 										<InlineScriptsPanel />
+										<RunnableJobPanel />
 									</div>
 								</Pane>
 							{/if}
 						</Splitpanes>
 					</Pane>
 					<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
-						<div class="relative flex flex-col h-full">
+						<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 								<Popover disappearTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component library</svelte:fragment>

@@ -15,6 +15,10 @@
 		componentInput?.expr && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, false)
 			: undefined
+
+	// 	`
+	// /** The current's app state */
+	// const state: Record<string, any> = ${JSON.stringify(state)};`
 </script>
 
 {#if componentInput?.type === 'eval'}

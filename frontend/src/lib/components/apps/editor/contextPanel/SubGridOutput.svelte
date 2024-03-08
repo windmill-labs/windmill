@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import { slide } from 'svelte/transition'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
 	import { connectInput } from '../appUtils'
@@ -11,6 +10,7 @@
 	export let parentId: string
 	export let expanded: boolean = false
 	export let subGrids: string[]
+	export let nameOverrides: string[] | undefined = undefined
 
 	const { app, connectingInput, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -56,14 +56,20 @@
 				}}
 			>
 				<div class="text-xs">
-					{name ? name : 'Should implement name'}
-					{index + 1}
+					{#if nameOverrides && nameOverrides[index]}
+						{#key nameOverrides[index]}
+							{nameOverrides[index]}
+						{/key}
+					{:else}
+						{name ? name : 'Should implement name'}
+						{index + 1}
+					{/if}
 				</div>
 			</div>
 		{/if}
 
 		{#if selected === index || name !== 'Tabs'}
-			<div transition:slide|local class="border-l">
+			<div class="border-l">
 				{#if items.length > 0}
 					{#each items as subGridItem, index (subGridItem.id)}
 						<ComponentOutput

@@ -41,7 +41,7 @@
 
 		setPeers()
 		// You can observe when a user updates their awareness information
-		awareness.on('change', (changes) => {
+		awareness?.on('change', (changes) => {
 			setPeers()
 		})
 	}

@@ -65,6 +65,21 @@ function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppS
 				)
 			})
 		}
+
+		if (component.type === 'menucomponent') {
+			component.menuItems?.forEach((menuItem) => {
+				if (menuItem.componentInput?.type !== 'runnable') {
+					return
+				}
+				processRunnable(
+					menuItem.componentInput.runnable,
+					menuItem.componentInput.transformer,
+					menuItem.id,
+					list
+				)
+			})
+		}
+
 		if (componentInput?.type === 'runnable') {
 			processRunnable(componentInput.runnable, componentInput.transformer, gridItem.id, list)
 		}

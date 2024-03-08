@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 1s
+  external_labels:
+    env: "infrastructure"
+
+scrape_configs:
+  - job_name: "windmill_server"
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_prometheus_job]
+        regex: windmill_server
+        action: keep
+    scrape_interval: 1s
+
+  - job_name: "windmill_worker"
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_prometheus_job]
+        regex: windmill_worker
+        action: keep
+    scrape_interval: 1s
+
+  - job_name: "prometheus_gateway"
+    static_configs:
+      - targets: ["prometheus_gateway:9091"]
+    scrape_interval: 1s

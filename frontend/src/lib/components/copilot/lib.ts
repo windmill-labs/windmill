@@ -1,31 +1,53 @@
 import { OpenAI } from 'openai'
-import { OpenAPI } from '../../gen/core/OpenAPI'
-import { ResourceService, Script, WorkspaceService } from '../../gen'
+import { OpenAPI, ResourceService, Script } from '../../gen'
 import type { Writable } from 'svelte/store'
 
-import { copilotInfo, workspaceStore, type DBSchema } from '$lib/stores'
+import type { DBSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
+
+import { buildClientSchema, printSchema } from 'graphql'
 import type {
 	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam
-} from 'openai/resources/chat'
-import { buildClientSchema, printSchema } from 'graphql'
+} from 'openai/resources/index.mjs'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
 const openaiConfig: ChatCompletionCreateParamsStreaming = {
 	temperature: 0,
-	max_tokens: 2048,
-	model: 'gpt-4-1106-preview',
+	max_tokens: 4096,
+	model: 'gpt-4-0125-preview',
 	seed: 42,
 	stream: true,
 	messages: []
 }
 
-let workspace: string | undefined = undefined
-let openai: OpenAI | undefined = undefined
+class WorkspacedOpenai {
+	private client: OpenAI | undefined
+
+	init(workspace: string, token: string | undefined = undefined) {
+		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
+		this.client = new OpenAI({
+			baseURL,
+			apiKey: 'fakekey',
+			defaultHeaders: {
+				Authorization: token ? `Bearer ${token}` : ''
+			},
+			dangerouslyAllowBrowser: true
+		})
+	}
+
+	getClient() {
+		if (!this.client) {
+			throw new Error('OpenAI not initialized')
+		}
+		return this.client
+	}
+}
+
+export let workspacedOpenai = new WorkspacedOpenai()
 
 export async function testKey({
 	apiKey,
@@ -52,37 +74,14 @@ export async function testKey({
 			}
 		)
 	} else {
-		await getNonStreamingCompletion(messages, abortController)
+		await getNonStreamingCompletion(messages, abortController, undefined, true)
 	}
 }
 
-workspaceStore.subscribe(async (value) => {
-	workspace = value
-	const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
-	openai = new OpenAI({
-		baseURL,
-		apiKey: 'fakekey',
-		defaultHeaders: {
-			Authorization: ''
-		},
-		dangerouslyAllowBrowser: true
-	})
-	if (value) {
-		try {
-			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace: value }))
-		} catch (err) {
-			copilotInfo.set({
-				exists_openai_resource_path: false,
-				code_completion_enabled: false
-			})
-			console.error('Could not get copilot info')
-		}
-	}
-})
-
 interface BaseOptions {
-	language: Script.language | 'frontend'
+	language: Script.language | 'frontend' | 'transformer'
 	dbSchema: DBSchema | undefined
+	workspace: string
 }
 
 interface ScriptGenerationOptions extends BaseOptions {
@@ -105,10 +104,6 @@ interface FixScriptOpions extends BaseOptions {
 type CopilotOptions = ScriptGenerationOptions | EditScriptOptions | FixScriptOpions
 
 async function getResourceTypes(scriptOptions: CopilotOptions) {
-	if (!workspace) {
-		throw new Error('Workspace not initialized')
-	}
-
 	const elems =
 		scriptOptions.type === 'gen' || scriptOptions.type === 'edit' ? [scriptOptions.description] : []
 
@@ -132,7 +127,7 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 	}
 
 	const resourceTypes = await ResourceService.queryResourceTypes({
-		workspace,
+		workspace: scriptOptions.workspace,
 		text: elems.join(';'),
 		limit: 3
 	})
@@ -239,13 +234,11 @@ const PROMPTS_CONFIGS = {
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	model: string = 'gpt-4-1106-preview'
+	model = openaiConfig.model,
+	noCache?: boolean
 ) {
-	if (!openai) {
-		throw new Error('OpenAI not initialized')
-	}
-
-	const completion = await openai.chat.completions.create(
+	const openaiClient = workspacedOpenai.getClient()
+	const completion = await openaiClient.chat.completions.create(
 		{
 			...openaiConfig,
 			messages,
@@ -253,6 +246,9 @@ export async function getNonStreamingCompletion(
 			model
 		},
 		{
+			query: {
+				no_cache: noCache
+			},
 			signal: abortController.signal
 		}
 	)
@@ -267,16 +263,15 @@ export async function getNonStreamingCompletion(
 
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
-	abortController: AbortController
+	abortController: AbortController,
+	model = openaiConfig.model
 ) {
-	if (!openai) {
-		throw new Error('OpenAI not initialized')
-	}
-
-	const completion = await openai.chat.completions.create(
+	const openaiClient = workspacedOpenai.getClient()
+	const completion = await openaiClient.chat.completions.create(
 		{
 			...openaiConfig,
-			messages
+			messages,
+			model
 		},
 		{
 			signal: abortController.signal

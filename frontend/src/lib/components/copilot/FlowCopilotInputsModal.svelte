@@ -19,7 +19,7 @@
 	on:canceled
 	title="Windmill AI wants to add the following inputs to the flow:"
 >
-	<ul class="text-lg list-disc pl-5">
+	<ul class=" list-disc pl-5">
 		{#each inputs as input}
 			<li>{input}</li>
 		{/each}

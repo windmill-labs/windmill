@@ -1,0 +1,10 @@
+{
+  "name": "@windmill/helloworld",
+  "version": "0.0.1",
+  "description": "hello world test package",
+  "main": "index.js",
+  "scripts": {},
+  "keywords": [],
+  "author": "Windmill",
+  "license": "Apache-2.0"
+}

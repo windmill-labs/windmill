@@ -1,6 +1,5 @@
 <script lang="ts">
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
-	import Slider from '$lib/components/Slider.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
@@ -16,6 +15,7 @@
 	import type { FlowEditorContext } from '../types'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import SuspendDrawer from './SuspendDrawer.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
@@ -49,13 +49,18 @@
 	}
 </script>
 
-<Section label="Suspend/Approval" class="w-full">
+<Section label="Suspend/Approval/Prompt" class="w-full">
 	<svelte:fragment slot="header">
 		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_approval">
 			If defined, at the end of the step, the flow will be suspended until it receives external
 			requests to be resumed or canceled. This is most useful to implement approval steps but can be
-			used flexibly for other purpose.
+			used flexibly for other purposes.
 		</Tooltip>
+		<div class="ml-4">
+			<div class="flex">
+				<SuspendDrawer text="Approval/Prompt helpers" />
+			</div>
+		</div>
 	</svelte:fragment>
 
 	<Toggle
@@ -134,17 +139,33 @@
 									}
 								} else if (!e.detail) {
 									flowModule.suspend.user_groups_required = undefined
+									flowModule.suspend.self_approval_disabled = false
 								}
 							}
 						}}
 					/>
+
+					<Toggle
+						options={{
+							right: 'Disable self-approval',
+							rightTooltip: 'The user who triggered the flow will not be allowed to approve it'
+						}}
+						checked={Boolean(flowModule.suspend.self_approval_disabled)}
+						disabled={!Boolean(flowModule.suspend.user_auth_required)}
+						on:change={(e) => {
+							if (flowModule.suspend) {
+								flowModule.suspend.self_approval_disabled = e.detail
+							}
+						}}
+					/>
+
 					<div class="mb-4" />
 
-					<span class="text-xs font-bold"
-						>Require approvers to be members of one of the following user groups (leave empty for
-						any)
-					</span>
-					{#if allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
+					{#if Boolean(flowModule.suspend.user_auth_required) && allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
+						<span class="text-xs font-bold"
+							>Require approvers to be members of one of the following user groups (leave empty for
+							any)
+						</span>
 						<div class="border">
 							<PropPickerWrapper
 								{result}
@@ -171,40 +192,33 @@
 	{:else}
 		<div class="flex flex-col mt-4 gap-4">
 			{#if flowModule.suspend}
-				<Toggle
-					checked={Boolean(flowModule.suspend.resume_form)}
-					options={{
-						right: 'Add a form to the approval page'
-					}}
-					on:change={(e) => {
-						if (flowModule.suspend) {
-							if (e.detail) {
-								flowModule.suspend.resume_form = {
-									schema: emptySchema()
+				{#if emptyString($enterpriseLicense)}
+					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
+				{/if}
+
+				<div class="flex gap-4">
+					<Toggle
+						checked={Boolean(flowModule.suspend.resume_form)}
+						options={{
+							right: 'Add a form to the approval page'
+						}}
+						disabled={emptyString($enterpriseLicense)}
+						on:change={(e) => {
+							if (flowModule.suspend) {
+								if (e.detail) {
+									flowModule.suspend.resume_form = {
+										schema: emptySchema()
+									}
+								} else {
+									flowModule.suspend.resume_form = undefined
 								}
-							} else {
-								flowModule.suspend.resume_form = undefined
 							}
-						}
-					}}
-				/>
-				<div>
-					<Slider size="xs" text="How to add dynamic default args">
-						As one of the return key of this step, return an object `default_args` that contains the
-						default arguments of the form arguments. e.g:
-						<pre
-							><code
-								>{`return {
-	endpoints,
-	default_args: {
-		foo: "foo",
-		bar: true,
-	},
-}`}</code
-							></pre
-						>
-					</Slider></div
-				>
+						}}
+					/>
+					<div class="flex">
+						<SuspendDrawer text="Default args & Dynamic enums help" />
+					</div>
+				</div>
 			{/if}
 			{#if flowModule.suspend?.resume_form}
 				<SchemaEditor bind:schema={flowModule.suspend.resume_form.schema} />

@@ -20,20 +20,31 @@
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
 
+	function decodeStateAndHandleError(state) {
+		try {
+			return decodeState(state)
+		} catch (e) {
+			console.error('Error decoding state', e)
+			return defaultScript
+		}
+	}
+
+	function defaultScript() {
+		return {
+			hash: '',
+			path: path ?? '',
+			summary: '',
+			content: '',
+			schema: schema,
+			is_template: false,
+			extra_perms: {},
+			language: 'deno',
+			kind: Script.kind.SCRIPT
+		}
+	}
+
 	let script: NewScript =
-		!path && initialState != undefined
-			? decodeState(initialState)
-			: {
-					hash: '',
-					path: path ?? '',
-					summary: '',
-					content: '',
-					schema: schema,
-					is_template: false,
-					extra_perms: {},
-					language: 'deno',
-					kind: Script.kind.SCRIPT
-			  }
+		!path && initialState != undefined ? decodeStateAndHandleError(initialState) : defaultScript()
 
 	async function loadTemplate(): Promise<void> {
 		if (templatePath) {

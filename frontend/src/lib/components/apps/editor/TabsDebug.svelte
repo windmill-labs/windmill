@@ -14,6 +14,7 @@
 	const dispatch = createEventDispatcher()
 
 	let isManuallySelected: boolean = false
+	let selected: number | null = null
 </script>
 
 <button
@@ -28,17 +29,33 @@
 	on:pointerdown|stopPropagation
 >
 	<ButtonDropdown hasPadding={false}>
+		<svelte:fragment slot="buttonReplacement">
+			<div class="px-1">
+				{#if isManuallySelected}
+					<div>
+						{#if selected === tabs.length - 1}
+							{isConditionalDebugMode ? `Debug default condition` : `Debug tab ${selected + 1}`}
+						{:else}
+							{`Debugging ${isConditionalDebugMode ? 'condition' : 'tab'} ${(selected ?? 0) + 1}`}
+						{/if}
+					</div>
+				{:else}
+					{isConditionalDebugMode ? `Debug conditions` : `Debug tabs`}
+				{/if}
+			</div>
+		</svelte:fragment>
 		<svelte:fragment slot="items">
 			{#each tabs ?? [] as { }, index}
 				<MenuItem
 					on:click={() => {
 						$componentControl?.[id]?.setTab?.(index)
+						selected = index
 						isManuallySelected = true
 					}}
 				>
 					<div
 						class={classNames(
-							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
 						)}
 					>
 						{#if index === tabs.length - 1}
@@ -52,12 +69,13 @@
 			<MenuItem
 				on:click={() => {
 					$componentControl?.[id]?.setTab?.(-1)
+					selected = null
 					isManuallySelected = false
 				}}
 			>
 				<div
 					class={classNames(
-						'!text-red-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
+						'!text-red-600 dark:!text-red-400 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
 					)}
 				>
 					{`Reset debug mode`}

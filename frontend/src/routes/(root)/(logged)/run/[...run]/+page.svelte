@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job } from '$lib/gen'
-	import { canWrite, displayDate, emptyString, truncateHash } from '$lib/utils'
+	import { JobService, Job, ScriptService, Script, type WorkflowStatus } from '$lib/gen'
+	import { canWrite, copyToClipboard, displayDate, emptyString, truncateHash } from '$lib/utils'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
+		Activity,
 		ArrowRight,
 		Calendar,
 		CheckCircle2,
@@ -16,7 +18,10 @@
 		Scroll,
 		TimerOff,
 		Trash,
-		XCircle
+		XCircle,
+		Code2,
+		ClipboardCopy,
+		MoreVertical
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -33,7 +38,16 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { ActionRow, Button, Popup, Skeleton, Tab, Alert, MenuItem } from '$lib/components/common'
+	import {
+		ActionRow,
+		Button,
+		Popup,
+		Skeleton,
+		Tab,
+		Alert,
+		MenuItem,
+		DrawerContent
+	} from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -44,10 +58,19 @@
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
+	import Portal from 'svelte-portal'
+	import MemoryFootprintViewer from '$lib/components/MemoryFootprintViewer.svelte'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import { json } from 'svelte-highlight/languages'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
 
 	let job: Job | undefined
+	let jobUpdateLastFetch: Date | undefined
 
-	let viewTab: 'result' | 'logs' | 'code' = 'result'
+	let viewTab: 'result' | 'logs' | 'code' | 'stats' = 'result'
 	let selectedJobStep: string | undefined = undefined
 	let branchOrIterationN: number = 0
 
@@ -57,6 +80,8 @@
 
 	let testIsLoading = false
 	let testJobLoader: TestJobLoader
+
+	let persistentScriptDrawer: PersistentScriptDrawer
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
@@ -110,7 +135,6 @@
 	}
 
 	function onSelectedJobStepChange() {
-		console.log('yo')
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
 				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
@@ -131,6 +155,21 @@
 		}
 	}
 
+	let persistentScriptDefinition: Script | undefined = undefined
+
+	async function onJobLoaded() {
+		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
+			return
+		}
+		const script = await ScriptService.getScriptByHash({
+			workspace: $workspaceStore!,
+			hash: job.script_hash
+		})
+		if (script.restart_unless_cancelled ?? false) {
+			persistentScriptDefinition = script
+		}
+	}
+
 	$: {
 		if ($workspaceStore && $page.params.run && testJobLoader) {
 			forceCancel = false
@@ -139,19 +178,99 @@
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
+	$: job && onJobLoaded()
 
 	let notfound = false
 	let forceCancel = false
+
+	let debugViewer: Drawer
+	let debugContent: any = undefined
+	async function debugInfo() {
+		if (job?.id) {
+			debugContent = await JobService.getFlowDebugInfo({ workspace: $workspaceStore!, id: job?.id })
+			debugViewer?.openDrawer()
+		} else {
+			sendUserToast('Job has no id', true)
+		}
+	}
+
+	function removeSensitiveInfos(
+		jobs: { [job: string]: { args: any; result: any; logs: string } },
+		redactSensitive: boolean
+	) {
+		if (!redactSensitive) {
+			return jobs
+		}
+		if (jobs === undefined || typeof jobs !== 'object') {
+			return []
+		}
+		return Object.fromEntries(
+			Object.entries(jobs).map(([k, job]) => {
+				return [
+					k,
+					{
+						...job,
+						args: '[redacted]',
+						result: '[redacted]',
+						logs: '[redacted]'
+					}
+				]
+			})
+		)
+	}
+
+	let redactSensitive = false
+
+	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
+		return x as Record<string, WorkflowStatus>
+	}
 </script>
+
+{#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
+	<Drawer bind:this={debugViewer} size="800px">
+		<DrawerContent title="Debug Detail" on:close={debugViewer.closeDrawer}>
+			<svelte:fragment slot="actions">
+				<div class="flex items-center gap-1">
+					<div class="w-60 pt-2">
+						<Toggle bind:checked={redactSensitive} options={{ right: 'Redact args/result/logs' }} />
+					</div>
+					<Button
+						on:click={() =>
+							copyToClipboard(
+								JSON.stringify(removeSensitiveInfos(debugContent, redactSensitive), null, 4)
+							)}
+						color="light"
+						size="xs"
+					>
+						<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
+					</Button>
+				</div>
+			</svelte:fragment>
+			<pre
+				><code class="text-2xs p-2">
+					<Highlight
+						language={json}
+						code={JSON.stringify(removeSensitiveInfos(debugContent, redactSensitive), null, 4)}
+					/>
+			</code></pre
+			>
+		</DrawerContent>
+	</Drawer>
+{/if}
 
 <TestJobLoader
 	on:done={() => (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job
+	bind:jobUpdateLastFetch
 	workspaceOverride={$workspaceStore}
 	bind:notfound
 />
+
+<Portal>
+	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
+</Portal>
 
 {#if notfound}
 	<CenteredPage>
@@ -191,13 +310,7 @@
 				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 					<ButtonDropdown target="body" hasPadding={false}>
 						<svelte:fragment slot="buttonReplacement">
-							<Button
-								btnClasses="!py-2"
-								nonCaptureEvent
-								variant="border"
-								size="sm"
-								startIcon={{ icon: Trash }}
-							/>
+							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
 						</svelte:fragment>
 						<svelte:fragment slot="items">
 							<MenuItem
@@ -227,6 +340,34 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
+				<div class="inline">
+					<ButtonDropdown hasPadding={false}>
+						<svelte:fragment slot="buttonReplacement">
+							<Button nonCaptureEvent size="xs" color="light">
+								<div class="flex flex-row items-center">
+									<MoreVertical size={14} />
+								</div>
+							</Button>
+						</svelte:fragment>
+						<svelte:fragment slot="items">
+							<MenuItem on:click={debugInfo}>Show Flow Debug Info</MenuItem>
+						</svelte:fragment>
+					</ButtonDropdown>
+				</div>
+			{/if}
+			{#if persistentScriptDefinition !== undefined}
+				<Button
+					color="blue"
+					size="md"
+					startIcon={{ icon: Activity }}
+					on:click={() => {
+						persistentScriptDrawer.open?.(persistentScriptDefinition)
+					}}
+				>
+					Current runs
+				</Button>
+			{/if}
 			{#if job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
@@ -348,7 +489,7 @@
 						goto(viewHref)
 					}}
 					color="blue"
-					size="md"
+					size="sm"
 					startIcon={{ icon: RefreshCw }}>Run again</Button
 				>
 			{/if}
@@ -361,12 +502,20 @@
 								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
-							size="md"
+							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
 					{/if}
 				{/if}
-				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: Scroll }}>
+				<Button
+					href={viewHref}
+					color="blue"
+					size="sm"
+					startIcon={{
+						icon:
+							job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Scroll
+					}}
+				>
 					View {job?.job_kind}
 				</Button>
 			{/if}
@@ -402,6 +551,11 @@
 							<div>
 								<Badge color="blue">{job.job_kind}</Badge>
 							</div>
+						{/if}
+						{#if persistentScriptDefinition}
+							<button on:click={() => persistentScriptDrawer.open?.(persistentScriptDefinition)}
+								><Badge color="red">persistent</Badge></button
+							>
 						{/if}
 						{#if job && 'priority' in job}
 							<div>
@@ -451,22 +605,28 @@
 					tag={job?.tag}
 				/>
 			</div>
-		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
+			{#if job?.flow_status}
+				<div class="mt-10" />
+				<WorkflowTimeline
+					flow_status={asWorkflowStatus(job.flow_status)}
+					flowDone={job.type == 'CompletedJob'}
+				/>
+			{/if}
 			<!-- Logs and outputs-->
 			<div class="mr-2 sm:mr-0 mt-12">
 				<Tabs bind:selected={viewTab}>
 					<Tab value="result">Result</Tab>
 					<Tab value="logs">Logs</Tab>
-					{#if job?.job_kind == 'dependencies'}
-						<Tab value="code">Code</Tab>
-					{:else if job?.job_kind == 'preview'}
+					<Tab value="stats">Metrics</Tab>
+					{#if job?.job_kind == 'preview'}
 						<Tab value="code">Code</Tab>
 					{/if}
 				</Tabs>
 
 				<Skeleton loading={!job} layout={[[5]]} />
 				{#if job}
-					<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
+					<div class="flex flex-row border rounded-md p-2 mt-2 overflow-auto min-h-[600px]">
 						{#if viewTab == 'logs'}
 							<div class="w-full">
 								<LogViewer
@@ -488,6 +648,10 @@
 							{:else}
 								<Skeleton layout={[[5]]} />
 							{/if}
+						{:else if viewTab == 'stats'}
+							<div class="w-full">
+								<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
+							</div>
 						{:else if job !== undefined && 'result' in job && job.result !== undefined}
 							<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} result={job.result} />
 						{:else if job}

@@ -14,8 +14,7 @@
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { Code2, LayoutDashboard, SearchCode } from 'lucide-svelte'
-	import TreeView from './TreeView.svelte'
+	import { Code2, FoldVertical, LayoutDashboard, SearchCode, UnfoldVertical } from 'lucide-svelte'
 
 	export let filter = ''
 	export let subtab: 'flow' | 'script' | 'app' = 'script'
@@ -28,15 +27,15 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
 	import ContentSearch from '../ContentSearch.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
-	import { groupItems } from './treeViewUtils'
 	import Item from './Item.svelte'
+	import TreeViewRoot from './TreeViewRoot.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -63,13 +62,12 @@
 
 	let loading = true
 
-	let nbDisplayed = 30
+	let nbDisplayed = 15
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
-			showArchived: archived ? true : undefined,
-			perPage: 300
+			showArchived: archived ? true : undefined
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
@@ -161,12 +159,30 @@
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
 			  )
 
+	function filterItemsPathsBaseOnUserFilters(
+		item: TableScript | TableFlow | TableApp | TableRawApp,
+		filterUserFolders: boolean
+	) {
+		if ($workspaceStore == 'admins') return true
+		if (filterUserFolders) {
+			return !item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
+		} else {
+			return true
+		}
+	}
 	$: preFilteredItems =
 		ownerFilter != undefined
 			? combinedItems?.filter(
-					(x) => x.path.startsWith(ownerFilter ?? '') && (x.type == itemKind || itemKind == 'all')
+					(x) =>
+						x.path.startsWith(ownerFilter + '/' ?? '') &&
+						(x.type == itemKind || itemKind == 'all') &&
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
 			  )
-			: combinedItems?.filter((x) => x.type == itemKind || itemKind == 'all')
+			: combinedItems?.filter(
+					(x) =>
+						(x.type == itemKind || itemKind == 'all') &&
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
+			  )
 
 	let ownerFilter: string | undefined = undefined
 
@@ -246,7 +262,14 @@
 	$: items && resetScroll()
 
 	let archived = false
-	let treeView = false
+
+	const TREE_VIEW_SETTING_NAME = 'treeView'
+	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
+	let treeView = getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true'
+	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+
+	$: storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
+	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
 
 	let contentSearch: ContentSearch
 
@@ -262,7 +285,7 @@
 		})
 	}
 
-	let collapseAll = false
+	let collapseAll = true
 </script>
 
 <SearchItems
@@ -356,12 +379,18 @@
 			</button>
 		</div>
 		<Button
-			on:click={contentSearch?.open}
+			on:click={() => contentSearch?.open()}
 			variant="border"
-			btnClasses="py-2.5"
-			size="xs"
-			color="light">Content&nbsp;<SearchCode size={16} /></Button
+			size="sm"
+			spacingSize="lg"
+			wrapperClasses="h-10"
+			color="light"
+			endIcon={{
+				icon: SearchCode
+			}}
 		>
+			Content
+		</Button>
 	</div>
 	<div class="relative">
 		<ListFilters
@@ -374,23 +403,35 @@
 			<div class="mt-10" />
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2">
+			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+					<Toggle
+						size="xs"
+						bind:checked={filterUserFolders}
+						options={{ right: `Only u/${$userStore.username} and f/*` }}
+					/>
+				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
-						wrapperClasses="mb-0.5"
+						btnClasses="py-0 h-6"
 						size="xs"
-						variant="contained"
+						variant="border"
 						color="light"
 						on:click={() => (collapseAll = !collapseAll)}
+						startIcon={{
+							icon: collapseAll ? UnfoldVertical : FoldVertical
+						}}
 					>
 						{#if collapseAll}
-							Expand
+							Expand all
 						{:else}
-							Collapse
-						{/if}</Button
-					>
+							Collapse all
+						{/if}
+					</Button>
 				{/if}
 			</div>
 		{/if}
@@ -405,34 +446,23 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else if treeView}
-			{@const groupedItems = groupItems(items)}
-			<div class="border rounded-md">
-				{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
-					{#if item}
-						<TreeView
-							{collapseAll}
-							{item}
-							on:scriptChanged={loadScripts}
-							on:flowChanged={loadFlows}
-							on:appChanged={loadApps}
-							on:rawAppChanged={loadRawApps}
-							on:reload={() => {
-								loadScripts()
-								loadFlows()
-								loadApps()
-								loadRawApps()
-							}}
-							{showCode}
-						/>
-					{/if}
-				{/each}
-			</div>
-			{#if groupedItems.length > 30 && nbDisplayed < groupedItems.length}
-				<span class="text-xs"
-					>{nbDisplayed} root nodes out of {groupedItems.length}
-					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
-				>
-			{/if}
+			<TreeViewRoot
+				{items}
+				{nbDisplayed}
+				{collapseAll}
+				isSearching={filter !== ''}
+				on:scriptChanged={loadScripts}
+				on:flowChanged={loadFlows}
+				on:appChanged={loadApps}
+				on:rawAppChanged={loadRawApps}
+				on:reload={() => {
+					loadScripts()
+					loadFlows()
+					loadApps()
+					loadRawApps()
+				}}
+				{showCode}
+			/>
 		{:else}
 			<div class="border rounded-md">
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
@@ -452,7 +482,7 @@
 					/>
 				{/each}
 			</div>
-			{#if items && items?.length > 30 && nbDisplayed < items.length}
+			{#if items && items?.length > 15 && nbDisplayed < items.length}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}
 					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span

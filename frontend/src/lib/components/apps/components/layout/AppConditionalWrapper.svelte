@@ -11,7 +11,7 @@
 
 	export let id: string
 	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'conditionalwrapper'> | undefined = undefined
 	export let render: boolean
 	export let conditions: RichConfiguration[]
 
@@ -20,7 +20,7 @@
 
 	const outputs = initOutput($worldStore, id, {
 		conditions: [] as boolean[],
-		selectedConditionIndex: 0
+		selectedTabIndex: 0
 	})
 
 	function onFocus() {
@@ -30,7 +30,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.containercomponent, customCss)
+	let css = initCss($app.css?.conditionalwrapper, customCss)
 
 	let resolvedConditions: boolean[] = []
 	let selectedConditionIndex = 0
@@ -51,7 +51,7 @@
 		}
 
 		selectedConditionIndex = index
-		outputs.selectedConditionIndex.set(index)
+		outputs.selectedTabIndex.set(index)
 	}
 
 	$: resolvedConditions && handleResolvedConditions()
@@ -93,7 +93,7 @@
 				style={css?.container?.style}
 				subGridId={`${id}-${i}`}
 				containerHeight={componentContainerHeight}
-				on:focus={() => {
+				on:focus={(e) => {
 					if (!$connectingInput.opened) {
 						$selectedComponent = [id]
 					}

@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish_pypi:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     if: startsWith(github.ref, 'refs/tags/v')
     container:
       image: ghcr.io/windmill-labs/python-client-builder

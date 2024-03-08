@@ -24,74 +24,68 @@
 	export let showCode: (path: string, summary: string) => void
 </script>
 
-{#key item.summary}
-	{#key item.starred}
-		{#key item.has_draft}
-			{#if item.type == 'script'}
-				<ScriptRow
-					bind:deleteConfirmedCallback
-					starred={item.starred ?? false}
-					marked={item.marked}
-					on:change={() => dispatch('scriptChanged')}
-					script={item}
-					errorHandlerMuted={item.ws_error_handler_muted === undefined ||
-					item.ws_error_handler_muted === null
-						? false
-						: item.ws_error_handler_muted}
-					{shareModal}
-					{moveDrawer}
-					{deploymentDrawer}
-					{depth}
-					bind:menuOpen
-					{showCode}
-				/>
-			{:else if item.type == 'flow'}
-				<FlowRow
-					bind:deleteConfirmedCallback
-					starred={item.starred ?? false}
-					marked={item.marked}
-					on:change={() => dispatch('flowChanged')}
-					flow={item}
-					errorHandlerMuted={item.ws_error_handler_muted === undefined ||
-					item.ws_error_handler_muted === null
-						? false
-						: item.ws_error_handler_muted}
-					{shareModal}
-					{moveDrawer}
-					{deploymentDrawer}
-					{depth}
-					bind:menuOpen
-				/>
-			{:else if item.type == 'app'}
-				<AppRow
-					bind:deleteConfirmedCallback
-					starred={item.starred ?? false}
-					marked={item.marked}
-					on:change={() => dispatch('appChanged')}
-					app={item}
-					{moveDrawer}
-					{shareModal}
-					{deploymentDrawer}
-					{depth}
-					bind:menuOpen
-				/>
-			{:else if item.type == 'raw_app'}
-				<RawAppRow
-					bind:deleteConfirmedCallback
-					starred={item.starred ?? false}
-					marked={item.marked}
-					on:change={() => dispatch('rawAppChanged')}
-					app={item}
-					{moveDrawer}
-					{shareModal}
-					{deploymentDrawer}
-					{depth}
-					bind:menuOpen
-				/>
-			{/if}
-		{/key}
-	{/key}
-{/key}
+{#if item.type == 'script'}
+	<ScriptRow
+		bind:deleteConfirmedCallback
+		starred={item.starred ?? false}
+		marked={item.marked}
+		on:change={() => dispatch('scriptChanged')}
+		script={item}
+		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
+		item.ws_error_handler_muted === null
+			? false
+			: item.ws_error_handler_muted}
+		{shareModal}
+		{moveDrawer}
+		{deploymentDrawer}
+		{depth}
+		bind:menuOpen
+		{showCode}
+	/>
+{:else if item.type == 'flow'}
+	<FlowRow
+		bind:deleteConfirmedCallback
+		starred={item.starred ?? false}
+		marked={item.marked}
+		on:change={() => dispatch('flowChanged')}
+		flow={item}
+		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
+		item.ws_error_handler_muted === null
+			? false
+			: item.ws_error_handler_muted}
+		{shareModal}
+		{moveDrawer}
+		{deploymentDrawer}
+		{depth}
+		bind:menuOpen
+	/>
+{:else if item.type == 'app'}
+	<AppRow
+		bind:deleteConfirmedCallback
+		starred={item.starred ?? false}
+		marked={item.marked}
+		on:change={() => dispatch('appChanged')}
+		app={item}
+		{moveDrawer}
+		{shareModal}
+		{deploymentDrawer}
+		{depth}
+		bind:menuOpen
+	/>
+{:else if item.type == 'raw_app'}
+	<RawAppRow
+		bind:deleteConfirmedCallback
+		starred={item.starred ?? false}
+		marked={item.marked}
+		on:change={() => dispatch('rawAppChanged')}
+		app={item}
+		{moveDrawer}
+		{shareModal}
+		{deploymentDrawer}
+		{depth}
+		bind:menuOpen
+	/>
+{/if}
 
 {#if menuOpen}
 	<ConfirmationModal

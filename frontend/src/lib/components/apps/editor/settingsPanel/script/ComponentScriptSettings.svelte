@@ -64,7 +64,7 @@
 		<div class="flex items-center justify-between w-full">
 			<div class="flex flex-row items-center gap-2 text-xs"> Hide Refresh Button </div>
 
-			<Toggle bind:checked={appInput.hideRefreshButton} size="xs" />
+			<Toggle bind:checked={appInput.hideRefreshButton} size="xs" class="my-2" />
 		</div>
 	{/if}
 	{#if hasScript}

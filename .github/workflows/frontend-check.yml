@@ -1,14 +1,14 @@
 name: check frontend build
 on:
   pull_request:
-    types: [opened,synchronize,reopened,closed]
+    types: [opened, synchronize, reopened, closed]
     paths:
       - "frontend/**"
   merge_group:
 
 jobs:
   npm_check:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
@@ -16,4 +16,6 @@ jobs:
           node-version: 18
       - name: "npm check"
         timeout-minutes: 2
-        run: cd frontend && npm ci && npm run generate-backend-client && npm run check
+        run:
+          cd frontend && npm ci && npm run generate-backend-client && npm run
+          check

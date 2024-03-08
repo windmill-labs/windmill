@@ -7,6 +7,8 @@
  */
 
 pub const SUPERADMIN_SECRET_EMAIL: &str = "superadmin_secret@windmill.dev";
+pub const SUPERADMIN_NOTIFICATION_EMAIL: &str = "superadmin_notification@windmill.dev";
+pub const SUPERADMIN_SYNC_EMAIL: &str = "superadmin_sync@windmill.dev";
 
 pub fn username_to_permissioned_as(user: &str) -> String {
     if user.contains('@') {

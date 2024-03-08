@@ -1,15 +1,15 @@
 import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
-import { FlowService, Script, ScriptService } from './gen'
+import { FlowService, Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'
 
 export function scriptLangToEditorLang(lang: Script.language) {
 	if (lang == 'deno') {
 		return 'typescript'
 	} else if (lang == 'bun') {
-		return 'typescript'
+		return 'javascript'
 	} else if (lang == 'nativets') {
-		return 'typescript'
+		return 'javascript'
 		// } else if (lang == 'graphql') {
 		// 	return 'typescript'
 	} else if (lang == 'postgresql') {
@@ -32,6 +32,42 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		return 'graphql'
 	} else {
 		return lang
+	}
+}
+
+export type ScriptSchedule = {
+	summary: string | undefined
+	args: Record<string, any>
+	cron: string
+	timezone: string
+	enabled: boolean
+}
+
+// Load the schedule of a flow given its path and the workspace
+export async function loadScriptSchedule(
+	path: string,
+	workspace: string
+): Promise<ScriptSchedule | undefined> {
+	const existsSchedule = await ScheduleService.existsSchedule({
+		workspace,
+		path
+	})
+
+	if (!existsSchedule) {
+		return undefined
+	}
+
+	const schedule = await ScheduleService.getSchedule({
+		workspace,
+		path
+	})
+
+	return {
+		summary: schedule.summary,
+		enabled: schedule.enabled,
+		cron: schedule.schedule,
+		timezone: schedule.timezone,
+		args: schedule.args ?? {}
 	}
 }
 

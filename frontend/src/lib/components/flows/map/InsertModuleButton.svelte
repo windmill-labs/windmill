@@ -35,10 +35,8 @@
 	>
 		<Cross class="mx-[5px]" size={15} />
 	</button>
-	<div id="flow-editor-insert-module ">
-		{#if !disableAi}
-			<StepGen {index} bind:funcDesc bind:open {close} {modules} />
-		{/if}
+	<div id="flow-editor-insert-module">
+		<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} {disableAi} />
 
 		{#if funcDesc.length === 0}
 			<div class="font-mono divide-y text-xs w-full text-secondary">
@@ -78,7 +76,7 @@
 					tabindex="-1"
 				>
 					<CheckCircle2 size={14} />
-					Approval
+					Approval/Prompt
 				</button>
 				<button
 					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"

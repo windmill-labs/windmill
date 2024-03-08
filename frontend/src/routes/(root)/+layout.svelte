@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { SettingsService, UserService, WorkspaceService } from '$lib/gen'
+	import { UserService, WorkspaceService } from '$lib/gen'
 	import { logoutWithRedirect } from '$lib/logout'
-	import { enterpriseLicense, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, onMount } from 'svelte'
@@ -12,6 +12,7 @@
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
 	import ChartHighlightTheme from '$lib/components/ChartHighlightTheme.svelte'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -28,13 +29,6 @@
 
 	async function setUserWorkspaceStore() {
 		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
-	}
-
-	async function setLicense() {
-		const license = await SettingsService.getLicenseId()
-		if (license) {
-			$enterpriseLicense = license
-		}
 	}
 
 	async function loadUser() {
@@ -91,7 +85,8 @@
 					monacoEditorUnhandledErrors.includes(message) ||
 					message.startsWith('Failed to fetch dynamically imported') ||
 					message.startsWith('Unable to figure out browser width and height') ||
-					message.startsWith('Unable to read file')
+					message.startsWith('Unable to read file') ||
+					message.startsWith('Could not find source file')
 				) {
 					console.warn(message)
 					return

@@ -8,6 +8,7 @@
 
 	export let placement: any = 'bottom-start'
 	export let justifyEnd: boolean = false
+	export let lightMode: boolean = false
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'fixed',
@@ -35,7 +36,10 @@
 				leaveTo="transform opacity-0 scale-95"
 			>
 				<MenuItems
-					class="border w-56 origin-top-right rounded-md bg-surface shadow-md focus:outline-none"
+					class={twMerge(
+						'border w-56 origin-top-right rounded-md shadow-md focus:outline-none',
+						lightMode ? 'bg-surface-inverse' : 'bg-surface'
+					)}
 				>
 					<div class="my-1">
 						<slot />

@@ -31,6 +31,7 @@
 			<SimpleEditor
 				{small}
 				on:focus
+				on:blur
 				bind:this={editor}
 				on:change
 				autoHeight

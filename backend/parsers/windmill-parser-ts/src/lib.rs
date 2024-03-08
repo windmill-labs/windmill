@@ -26,6 +26,53 @@ use swc_ecma_parser::{lexer::Lexer, EsConfig, Parser, StringInput, Syntax, TsCon
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+struct ImportsFinder {
+    imports: HashSet<String>,
+}
+
+impl Visit for ImportsFinder {
+    noop_visit_type!();
+
+    fn visit_import_decl(&mut self, n: &swc_ecma_ast::ImportDecl) {
+        if let Some(ref s) = n.src.raw {
+            let s = s.to_string();
+            if s.starts_with("'") && s.ends_with("'") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            } else if s.starts_with("\"") && s.ends_with("\"") {
+                self.imports.insert(s[1..s.len() - 1].to_string());
+            }
+        }
+    }
+}
+
+pub fn parse_expr_for_imports(code: &str) -> anyhow::Result<Vec<String>> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(FileName::Custom("main.d.ts".into()), code.into());
+    let lexer = Lexer::new(
+        Syntax::Typescript(TsConfig::default()),
+        // EsVersion defaults to es5
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+
+    let mut parser = Parser::new_from(lexer);
+
+    let mut err_s = "".to_string();
+    for e in parser.take_errors() {
+        err_s += &e.into_kind().msg().to_string();
+    }
+
+    let expr = parser.parse_module().map_err(|e| {
+        anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
+    })?;
+
+    let mut visitor = ImportsFinder { imports: HashSet::new() };
+    swc_ecma_visit::visit_module(&mut visitor, &expr);
+
+    Ok(visitor.imports.into_iter().collect())
+}
+
 struct OutputFinder {
     idents: HashSet<(String, String)>,
 }
@@ -71,9 +118,9 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
         err_s += &e.into_kind().msg().to_string();
     }
 
-    let expr = parser
-        .parse_module()
-        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?;
+    let expr = parser.parse_module().map_err(|e| {
+        anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
+    })?;
 
     let mut visitor = OutputFinder { idents: HashSet::new() };
     swc_ecma_visit::visit_module(&mut visitor, &expr);
@@ -81,7 +128,11 @@ pub fn parse_expr_for_ids(code: &str) -> anyhow::Result<Vec<(String, String)>> {
     Ok(visitor.idents.into_iter().collect())
 }
 
-pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainArgSignature> {
+pub fn parse_deno_signature(
+    code: &str,
+    skip_dflt: bool,
+    main_override: Option<String>,
+) -> anyhow::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
     let lexer = Lexer::new(
@@ -102,14 +153,17 @@ pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> anyhow::Result<MainA
 
     let ast = parser
         .parse_module()
-        .map_err(|_| anyhow::anyhow!("Error while parsing code, it is invalid TypeScript"))?
+        .map_err(|e| {
+            anyhow::anyhow!("Error while parsing code, it is invalid TypeScript: {err_s}, {e:?}")
+        })?
         .body;
 
+    let main_name = main_override.unwrap_or("main".to_string());
     let params = ast.into_iter().find_map(|x| match x {
         ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
             decl: Decl::Fn(FnDecl { ident: Ident { sym, .. }, function, .. }),
             ..
-        })) if &sym.to_string() == "main" => Some(function.params),
+        })) if &sym.to_string() == &main_name => Some(function.params),
         _ => None,
     });
 
@@ -235,12 +289,38 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
     (id.sym.to_string(), typ, nullable)
 }
 
+lazy_static::lazy_static! {
+    static ref RE_SNK_CASE: Regex = Regex::new(r"_(\d)").unwrap();
+     static ref IMPORTS_VERSION: Regex = Regex::new(r"^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@(?:[^\/]+))?(.*)$").unwrap();
+
+}
+
+pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
+    let mut imports = parse_expr_for_imports(code)?;
+    imports.sort_by_key(|f| 0 - (f.len() as i32));
+    let mut content = code.to_string();
+    for import in imports {
+        let to_c = IMPORTS_VERSION.captures(&import);
+        if let Some(to) = to_c.and_then(|x| {
+            x.get(1).map(|y| {
+                format!(
+                    "{}{}",
+                    y.as_str(),
+                    x.get(2).map(|z| z.as_str()).unwrap_or("")
+                )
+            })
+        }) {
+            content = content.replace(&import, &to);
+        }
+    }
+    Ok(content)
+}
+
 fn to_snake_case(s: &str) -> String {
     let r = s.to_case(Case::Snake);
 
     // s_3 => s3
-    let re = Regex::new(r"_(\d)").unwrap();
-    re.replace_all(&r, "$1").to_string()
+    RE_SNK_CASE.replace_all(&r, "$1").to_string()
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
@@ -295,22 +375,39 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
         TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(
             TsUnionType { types, .. },
         )) => {
-            if let Some(p) = if types.len() != 2 {
-                None
+            let (is_undefined_option, undefined_position) = if types.len() == 2 {
+                (true, find_undefined(types))
+            } else if types.into_iter().all(|x| {
+                x.as_ts_lit_type().is_some_and(|y| y.lit.as_str().is_some())
+                    || x.as_ts_keyword_type().is_some_and(|y| {
+                        y.kind == TsKeywordTypeKind::TsUndefinedKeyword
+                            || y.kind == TsKeywordTypeKind::TsStringKeyword
+                            || y.kind == TsKeywordTypeKind::TsNullKeyword
+                    })
+            }) {
+                (false, find_undefined(types))
             } else {
-                types.into_iter().position(|x| match **x {
-                    TsType::TsKeywordType(TsKeywordType { kind, .. }) => {
-                        kind == TsKeywordTypeKind::TsUndefinedKeyword
-                            || kind == TsKeywordTypeKind::TsNullKeyword
-                    }
-                    _ => false,
-                })
-            } {
-                let other_p = if p == 0 { 1 } else { 0 };
+                (false, None)
+            };
+
+            if is_undefined_option && undefined_position.is_some() {
+                let other_p = if undefined_position.unwrap() == 0 {
+                    1
+                } else {
+                    0
+                };
                 (tstype_to_typ(&types[other_p]).0, true)
             } else {
                 let literals = types
                     .into_iter()
+                    .filter(|x| match ***x {
+                        TsType::TsKeywordType(TsKeywordType { kind, .. }) => {
+                            kind != TsKeywordTypeKind::TsStringKeyword
+                                && kind != TsKeywordTypeKind::TsUndefinedKeyword
+                                && kind != TsKeywordTypeKind::TsNullKeyword
+                        }
+                        _ => true,
+                    })
                     .map(|x| match &**x {
                         TsType::TsLitType(TsLitType {
                             lit: TsLit::Str(Str { value, .. }), ..
@@ -323,7 +420,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 } else {
                     (
                         Typ::Str(Some(literals.into_iter().filter_map(|x| x).collect())),
-                        false,
+                        undefined_position.is_some(),
                     )
                 }
             }
@@ -358,6 +455,16 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
         }
         _ => (Typ::Unknown, false),
     }
+}
+
+fn find_undefined(types: &Vec<Box<TsType>>) -> Option<usize> {
+    types.into_iter().position(|x| match **x {
+        TsType::TsKeywordType(TsKeywordType { kind, .. }) => {
+            kind == TsKeywordTypeKind::TsUndefinedKeyword
+                || kind == TsKeywordTypeKind::TsNullKeyword
+        }
+        _ => false,
+    })
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -47,7 +47,9 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "umap" => "umap-learn",
     "cv2" => "opencv-python",
     "requests" => "requests",
-    "json" => "json"
+    "json" => "json",
+    "atlassian" => "atlassian-python-api",
+    "mysql" => "mysql-connector-python"
 };
 
 fn replace_import(x: String) -> String {
@@ -64,7 +66,7 @@ lazy_static! {
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<String> {
     if level > 0 {
-        let mut imports = vec!["requests".to_string()];
+        let mut imports = vec![];
         let splitted_path = path.split("/");
         let base = splitted_path
             .clone()
@@ -79,10 +81,7 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<Strin
     } else if let Some(module) = module {
         let imprt = module.split('.').next().unwrap_or("").replace("_", "-");
         if imprt == "u" || imprt == "f" {
-            vec![
-                "requests".to_string(),
-                format!("relative:{}", module.replace(".", "/")),
-            ]
+            vec![format!("relative:{}", module.replace(".", "/"))]
         } else {
             vec![imprt]
         }
@@ -91,12 +90,64 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<Strin
     }
 }
 
+pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
+    let nimports = parse_code_for_imports(code, path)?;
+    return Ok(nimports
+        .into_iter()
+        .filter_map(|x| {
+            if x.starts_with("relative:") {
+                Some(x.replace("relative:", ""))
+            } else {
+                None
+            }
+        })
+        .collect());
+}
+
+fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
+    let code = code.split(DEF_MAIN).next().unwrap_or("");
+    let ast = Suite::parse(code, "main.py").map_err(|e| {
+        error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
+    })?;
+    let nimports: Vec<String> = ast
+        .into_iter()
+        .filter_map(|x| match x {
+            Stmt::Import(StmtImport { names, .. }) => Some(
+                names
+                    .into_iter()
+                    .map(|x| {
+                        let name = x.name.to_string();
+                        process_import(Some(name), path, 0)
+                    })
+                    .flatten()
+                    .collect::<Vec<String>>(),
+            ),
+            Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. }) if i.to_u32() > 0 => {
+                Some(process_import(
+                    module.map(|x| x.to_string()),
+                    path,
+                    i.to_usize(),
+                ))
+            }
+            Stmt::ImportFrom(StmtImportFrom { level: _, module, .. }) => {
+                Some(process_import(module.map(|x| x.to_string()), path, 0))
+            }
+            _ => None,
+        })
+        .flatten()
+        .filter(|x| !STDIMPORTS.contains(&x.as_str()))
+        .unique()
+        .collect();
+    return Ok(nimports);
+}
+
 #[async_recursion]
 pub async fn parse_python_imports(
     code: &str,
     w_id: &str,
     path: &str,
     db: &Pool<Postgres>,
+    already_visited: &mut Vec<String>,
 ) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
@@ -128,48 +179,14 @@ pub async fn parse_python_imports(
             imports.extend(lines);
         }
 
-        let code = code.split(DEF_MAIN).next().unwrap_or("");
-        let ast = Suite::parse(code, "main.py").map_err(|e| {
-            error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
-        })?;
-        let nimports: Vec<String> = ast
-            .into_iter()
-            .filter_map(|x| match x {
-                Stmt::Import(StmtImport { names, .. }) => Some(
-                    names
-                        .into_iter()
-                        .map(|x| {
-                            let name = x.name.to_string();
-                            process_import(Some(name), path, 0)
-                        })
-                        .flatten()
-                        .collect::<Vec<String>>(),
-                ),
-                Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. })
-                    if i.to_u32() > 0 =>
-                {
-                    Some(process_import(
-                        module.map(|x| x.to_string()),
-                        path,
-                        i.to_usize(),
-                    ))
-                }
-                Stmt::ImportFrom(StmtImportFrom { level: _, module, .. }) => {
-                    Some(process_import(module.map(|x| x.to_string()), path, 0))
-                }
-                _ => None,
-            })
-            .flatten()
-            .filter(|x| !STDIMPORTS.contains(&x.as_str()))
-            .unique()
-            .collect();
+        let nimports = parse_code_for_imports(code, path)?;
         for n in nimports.iter() {
             let nested = if n.starts_with("relative:") {
                 let rpath = n.replace("relative:", "");
                 let code = sqlx::query_scalar!(
                     r#"
                     SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                    AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND 
+                    AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND
                     workspace_id = $2)
                     "#,
                     &rpath,
@@ -178,7 +195,12 @@ pub async fn parse_python_imports(
                 .fetch_optional(db)
                 .await?
                 .unwrap_or_else(|| "".to_string());
-                parse_python_imports(&code, w_id, &rpath, db).await?
+                if already_visited.contains(&rpath) {
+                    vec![]
+                } else {
+                    already_visited.push(rpath.clone());
+                    parse_python_imports(&code, w_id, &rpath, db, already_visited).await?
+                }
             } else {
                 vec![replace_import(n.to_string())]
             };
@@ -193,92 +215,93 @@ pub async fn parse_python_imports(
     }
 }
 
-const STDIMPORTS: [&str; 301] = [
-    "__future__",
-    "_abc",
-    "_aix_support",
-    "_ast",
-    "_asyncio",
-    "_bisect",
-    "_blake2",
-    "_bootsubprocess",
-    "_bz2",
-    "_codecs",
-    "_codecs_cn",
-    "_codecs_hk",
-    "_codecs_iso2022",
-    "_codecs_jp",
-    "_codecs_kr",
-    "_codecs_tw",
-    "_collections",
-    "_collections_abc",
-    "_compat_pickle",
-    "_compression",
-    "_contextvars",
-    "_crypt",
-    "_csv",
-    "_ctypes",
-    "_curses",
-    "_curses_panel",
-    "_datetime",
-    "_dbm",
-    "_decimal",
-    "_elementtree",
-    "_frozen_importlib",
-    "_frozen_importlib_external",
-    "_functools",
-    "_gdbm",
-    "_hashlib",
-    "_heapq",
-    "_imp",
-    "_io",
-    "_json",
-    "_locale",
-    "_lsprof",
-    "_lzma",
-    "_markupbase",
-    "_md5",
-    "_msi",
-    "_multibytecodec",
-    "_multiprocessing",
-    "_opcode",
-    "_operator",
-    "_osx_support",
-    "_overlapped",
-    "_pickle",
-    "_posixshmem",
-    "_posixsubprocess",
-    "_py_abc",
-    "_pydecimal",
-    "_pyio",
-    "_queue",
-    "_random",
-    "_sha1",
-    "_sha256",
-    "_sha3",
-    "_sha512",
-    "_signal",
-    "_sitebuiltins",
-    "_socket",
-    "_sqlite3",
-    "_sre",
-    "_ssl",
-    "_stat",
-    "_statistics",
-    "_string",
-    "_strptime",
-    "_struct",
-    "_symtable",
-    "_thread",
-    "_threading_local",
-    "_tkinter",
-    "_tracemalloc",
-    "_uuid",
-    "_warnings",
-    "_weakref",
-    "_weakrefset",
-    "_winapi",
-    "_zoneinfo",
+const STDIMPORTS: [&str; 302] = [
+    "--future--",
+    "-abc",
+    "-aix-support",
+    "-ast",
+    "-asyncio",
+    "-bisect",
+    "-blake2",
+    "-bootsubprocess",
+    "-bz2",
+    "-codecs",
+    "-codecs-cn",
+    "-codecs-hk",
+    "-codecs-iso2022",
+    "-codecs-jp",
+    "-codecs-kr",
+    "-codecs-tw",
+    "-collections",
+    "-collections-abc",
+    "-compat-pickle",
+    "-compression",
+    "-contextvars",
+    "-crypt",
+    "-csv",
+    "-ctypes",
+    "-curses",
+    "-curses-panel",
+    "-datetime",
+    "-dbm",
+    "-decimal",
+    "-elementtree",
+    "-frozen-importlib",
+    "-frozen-importlib-external",
+    "-functools",
+    "-gdbm",
+    "-hashlib",
+    "-heapq",
+    "-imp",
+    "-io",
+    "-json",
+    "-locale",
+    "-lsprof",
+    "-lzma",
+    "-markupbase",
+    "-md5",
+    "-msi",
+    "-multibytecodec",
+    "-multiprocessing",
+    "-opcode",
+    "-operator",
+    "-osx-support",
+    "-overlapped",
+    "-pickle",
+    "-posixshmem",
+    "-posixsubprocess",
+    "-py-abc",
+    "-pydecimal",
+    "-pyio",
+    "-queue",
+    "-random",
+    "-sha1",
+    "-sha256",
+    "-sha3",
+    "-sha512",
+    "-signal",
+    "-sitebuiltins",
+    "-socket",
+    "-sqlite3",
+    "-sre",
+    "-ssl",
+    "-stat",
+    "-statistics",
+    "-string",
+    "-strptime",
+    "-struct",
+    "-symtable",
+    "-thread",
+    "-threading-local",
+    "-tkinter",
+    "-tracemalloc",
+    "-uuid",
+    "-warnings",
+    "-weakref",
+    "-weakrefset",
+    "-winapi",
+    "-zoneinfo",
+    "zoneinfo",
     "abc",
     "aifc",
     "antigravity",
@@ -409,10 +432,10 @@ const STDIMPORTS: [&str; 301] = [
     "pstats",
     "pty",
     "pwd",
-    "py_compile",
+    "py-compile",
     "pyclbr",
     "pydoc",
-    "pydoc_data",
+    "pydoc-data",
     "pyexpat",
     "queue",
     "quopri",
@@ -439,9 +462,9 @@ const STDIMPORTS: [&str; 301] = [
     "socketserver",
     "spwd",
     "sqlite3",
-    "sre_compile",
-    "sre_constants",
-    "sre_parse",
+    "sre-compile",
+    "sre-constants",
+    "sre-parse",
     "ssl",
     "stat",
     "statistics",

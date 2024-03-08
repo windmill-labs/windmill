@@ -40,7 +40,15 @@ import {
 	PanelLeft,
 	PanelTopInactive,
 	ListIcon,
-	Heading1
+	Heading1,
+	FileBarChart,
+	Menu,
+	Network,
+	Database,
+	UploadCloud,
+	AlertTriangle,
+	Clock,
+	CalendarClock
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -53,7 +61,14 @@ import type {
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
-import type { AppInputSpec, EvalV2AppInput, ResultAppInput, StaticAppInput } from '../../inputType'
+import type {
+	AppInputSpec,
+	EvalV2AppInput,
+	InputConnectionEval,
+	ResultAppInput,
+	StaticAppInput,
+	TemplateV2AppInput
+} from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
@@ -76,9 +91,12 @@ export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
+export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
+export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type CurrencyComponent = BaseComponent<'currencycomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
+export type DateSliderComponent = BaseComponent<'dateslidercomponent'>
 export type RangeComponent = BaseComponent<'rangecomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type CustomComponent = BaseComponent<'customcomponent'> & {
@@ -106,6 +124,17 @@ export type ChartJsComponentV2 = BaseComponent<'chartjscomponentv2'> & {
 	datasets: RichConfiguration | undefined
 }
 
+export type AgChartsComponent = BaseComponent<'agchartscomponent'> & {
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
+}
+
+export type AgChartsComponentEe = BaseComponent<'agchartscomponentee'> & {
+	license: string
+	xData: RichConfiguration | undefined
+	datasets: RichConfiguration | undefined
+}
+
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
 export type TableComponent = BaseComponent<'tablecomponent'> & {
@@ -122,11 +151,19 @@ export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'selectcomponent'> & RecomputeOthersSource
+export type SelectComponent = BaseComponent<'selectcomponent'> &
+	RecomputeOthersSource & {
+		onSelect?: string[]
+	}
 export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
-	RecomputeOthersSource
+	RecomputeOthersSource & {
+		onSelect?: string[]
+	}
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
-export type CheckboxComponent = BaseComponent<'checkboxcomponent'> & RecomputeOthersSource
+export type CheckboxComponent = BaseComponent<'checkboxcomponent'> &
+	RecomputeOthersSource & {
+		onToggle?: string[]
+	}
 export type RadioComponent = BaseComponent<'radiocomponent'>
 export type IconComponent = BaseComponent<'iconcomponent'>
 export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
@@ -162,8 +199,35 @@ export type SelectTabComponent = BaseComponent<'selecttabcomponent'>
 export type SelectStepComponent = BaseComponent<'selectstepcomponent'>
 
 export type CarouselListComponent = BaseComponent<'carousellistcomponent'>
+export type StatisticCardComponent = BaseComponent<'statcomponent'>
+export type MenuComponent = BaseComponent<'menucomponent'> & {
+	menuItems: (BaseAppComponent & ButtonComponent & GridItem)[]
+}
+
+export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
+	columns: RichConfiguration
+}
+
+export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'>
+
+export type DecisionTreeNode = {
+	id: string
+	label: string
+	allowed: RichConfiguration | undefined
+	next: Array<{
+		id: string
+		condition?: RichConfiguration | undefined
+	}>
+}
+
+export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
+	nodes: DecisionTreeNode[]
+}
+
+export type AlertComponent = BaseComponent<'alertcomponent'>
 
 export type TypedComponent =
+	| DBExplorerComponent
 	| DisplayComponent
 	| LogComponent
 	| JobIdLogComponent
@@ -223,6 +287,16 @@ export type TypedComponent =
 	| CarouselListComponent
 	| PlotlyComponentV2
 	| ChartJsComponentV2
+	| StatisticCardComponent
+	| MenuComponent
+	| DecisionTreeComponent
+	| S3FileInputComponent
+	| AgChartsComponent
+	| AgChartsComponentEe
+	| AlertComponent
+	| DateSliderComponent
+	| TimeInputComponent
+	| DateTimeInputComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -239,10 +313,12 @@ export function getRecommendedDimensionsByComponent(
 	return { w: +size[0], h: +size[1] }
 }
 
+export type Quickstyle = { quickCss?: string[]; quickTailwindClasses?: string[] }
 export type AppComponentConfig<T extends TypedComponent['type']> = {
 	name: string
 	icon: any
 	documentationLink: string
+	quickstyle?: Record<string, Quickstyle>
 	/**
 	 * Dimensions key formula:
 	 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
@@ -266,15 +342,17 @@ export type PresetComponentConfig = {
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
-	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | undefined
+	componentInput?: StaticAppInput | ResultAppInput | EvalV2AppInput | TemplateV2AppInput | undefined
 	configuration: StaticRichConfigurations
 	// Number of subgrids
 	numberOfSubgrids?: number
 	recomputeIds?: boolean
 	actionButtons?: boolean
+	menuItems?: boolean
 	tabs?: string[]
 	panes?: number[]
 	conditions?: AppInputSpec<'boolean', boolean>[]
+	nodes?: DecisionTreeNode[]
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
@@ -313,7 +391,13 @@ export const selectOptions = {
 		'scatter'
 	] as ChartType[],
 	animationTimingFunctionOptions: ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out'],
-	prose: ['sm', 'Default', 'lg', 'xl', '2xl']
+	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
+	imageSourceKind: [
+		'url',
+		'png encoded as base64',
+		'jpeg encoded as base64',
+		'svg encoded as base64'
+	]
 }
 const labels = {
 	none: 'Do nothing',
@@ -325,7 +409,8 @@ const labels = {
 	open: 'Open a modal or a drawer',
 	close: 'Close a modal or a drawer',
 	openModal: 'Open a modal (deprecated)',
-	closeModal: 'Close a modal (deprecated)'
+	closeModal: 'Close a modal (deprecated)',
+	clearFiles: 'Clear files from a S3 file input'
 }
 
 const onSuccessClick = {
@@ -341,7 +426,8 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: '/apps/get/foo'
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
 			},
 			newTab: {
 				tooltip: 'Open the url in a new tab',
@@ -356,7 +442,8 @@ const onSuccessClick = {
 				value: [] as Array<{ id: string; index: number }>,
 				fieldType: 'array',
 				subFieldType: 'tab-select',
-				tooltip: 'Set the tabs id and index to go to on success'
+				tooltip: 'Set the tabs id and index to go to on success',
+				onDemandOnly: true
 			}
 		},
 		sendToast: {
@@ -365,7 +452,8 @@ const onSuccessClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there'
+				placeholder: 'Hello there',
+				onDemandOnly: true
 			}
 		},
 		openModal: {
@@ -401,6 +489,14 @@ const onSuccessClick = {
 				type: 'static',
 				value: ''
 			}
+		},
+		clearFiles: {
+			id: {
+				tooltip: 'The id of s3 file input to clear',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
 		}
 	}
 } as const
@@ -418,7 +514,8 @@ const onErrorClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: '/apps/get/foo'
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
 			},
 			newTab: {
 				tooltip: 'Open the url in a new tab',
@@ -433,7 +530,8 @@ const onErrorClick = {
 				value: [] as Array<{ id: string; index: number }>,
 				fieldType: 'array',
 				subFieldType: 'tab-select',
-				tooltip: 'Set the tabs id and index to go to on error'
+				tooltip: 'Set the tabs id and index to go to on error',
+				onDemandOnly: true
 			}
 		},
 		sendErrorToast: {
@@ -442,7 +540,8 @@ const onErrorClick = {
 				fieldType: 'text',
 				type: 'static',
 				value: '',
-				placeholder: 'Hello there'
+				placeholder: 'Hello there',
+				onDemandOnly: true
 			},
 			appendError: {
 				tooltip: 'Append the error message to the toast',
@@ -535,7 +634,7 @@ const aggridcomponentconst = {
 				type: 'static',
 				fieldType: 'boolean',
 				value: false,
-
+				hide: true,
 				tooltip: 'Configure all columns as Editable by users'
 			},
 			multipleSelectable: {
@@ -555,13 +654,26 @@ const aggridcomponentconst = {
 			pagination: {
 				type: 'static',
 				fieldType: 'boolean',
-				value: false
+				value: false as boolean | undefined
+			},
+			selectFirstRowByDefault: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true as boolean,
+				tooltip: 'Select the first row by default on start'
 			},
 			extraConfig: {
 				type: 'static',
 				fieldType: 'object',
 				value: {},
 				tooltip: 'any configuration that can be passed to ag-grid top level'
+			},
+			compactness: {
+				type: 'static',
+				fieldType: 'select',
+				value: 'normal',
+				selectOptions: ['normal', 'compact', 'comfortable'],
+				tooltip: 'Change the row height'
 			}
 		},
 		componentInput: {
@@ -581,6 +693,20 @@ const aggridcomponentconst = {
 				}
 			]
 		} as StaticAppInput
+	}
+} as const
+
+const agchartscomponentconst = {
+	name: 'AgCharts',
+	icon: BarChart4,
+	documentationLink: `${documentationBaseUrl}/agcharts`,
+	dims: '2:8-6:8' as AppComponentDimensions,
+	customCss: {
+		container: { class: '', style: '' }
+	},
+	initialData: {
+		configuration: {},
+		componentInput: undefined
 	}
 } as const
 
@@ -802,9 +928,15 @@ export const components = {
 			verticalAlignment: 'top',
 
 			componentInput: {
-				type: 'static',
+				type: 'templatev2',
 				fieldType: 'template',
-				value: 'Hello ${ctx.username}'
+				eval: 'Hello ${ctx.username}',
+				connections: [
+					{
+						id: 'username',
+						componentId: 'ctx'
+					}
+				] as InputConnectionEval[]
 			},
 			configuration: {
 				style: {
@@ -895,8 +1027,42 @@ export const components = {
 					value: false,
 					fieldType: 'boolean'
 				},
+
 				onSuccess: onSuccessClick,
-				onError: onErrorClick
+				onError: onErrorClick,
+				confirmationModal: {
+					type: 'oneOf',
+					selected: 'none',
+					tooltip: 'If defined, the user will be asked to confirm the action in a modal.',
+					labels: {
+						none: 'Do nothing',
+						confirmationModal: 'Show confirmation modal'
+					},
+					configuration: {
+						none: {},
+						confirmationModal: {
+							title: {
+								fieldType: 'text',
+								type: 'static',
+								value: 'Title',
+								placeholder: 'Confirmation modal title'
+							},
+							description: {
+								fieldType: 'text',
+								type: 'static',
+								value: 'Are you sure?',
+								placeholder: 'Are you sure?'
+							},
+							confirmationText: {
+								fieldType: 'text',
+								type: 'static',
+								value: 'Confirm',
+								placeholder: 'Confirm',
+								tooltip: 'The text of the button that confirms the action.'
+							}
+						}
+					}
+				}
 			}
 		}
 	},
@@ -919,7 +1085,7 @@ export const components = {
 						accept: '*',
 						convertTo: 'base64'
 					},
-					placeholder: 'Enter URL or upload file'
+					placeholder: 'Enter URL or upload file (base64)'
 				},
 				filename: {
 					type: 'static',
@@ -1186,6 +1352,9 @@ export const components = {
 			}
 		}
 	},
+
+	agchartscomponent: agchartscomponentconst,
+	agchartscomponentee: { ...agchartscomponentconst, name: 'AgCharts EE' },
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,
@@ -1196,14 +1365,20 @@ export const components = {
 		},
 		initialData: {
 			componentInput: {
-				type: 'static',
+				type: 'templatev2',
 				fieldType: 'template',
-				value: `<img
+				eval: `<img
 src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
 >
 <h1 class="absolute top-4 left-2 text-white">
 Hello \${ctx.username}
-</h1>`
+</h1>`,
+				connections: [
+					{
+						id: 'username',
+						componentId: 'ctx'
+					}
+				] as InputConnectionEval[]
 			},
 			configuration: {}
 		}
@@ -1211,7 +1386,7 @@ Hello \${ctx.username}
 	customcomponent: {
 		name: 'Custom',
 		icon: Code2,
-		documentationLink: `${documentationBaseUrl}#custom`,
+		documentationLink: `https://www.windmill.dev/docs/apps/react_components`,
 		dims: '1:2-1:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -1229,20 +1404,21 @@ Hello \${ctx.username}
 		name: 'Markdown',
 		icon: Heading1,
 		documentationLink: `${documentationBaseUrl}/html`,
-		dims: '1:2-1:2' as AppComponentDimensions,
+		dims: '1:2-4-4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
 		},
 		initialData: {
 			componentInput: {
-				type: 'static',
+				type: 'templatev2',
 				fieldType: 'template',
-				value: `# This is a header
+				eval: `# This is a header
 ## This is a subheader				
 This is a paragraph.
 				
 * This is a list
-* With two items`
+* With two items`,
+				connections: [] as InputConnectionEval[]
 			},
 			configuration: {
 				size: {
@@ -1511,6 +1687,12 @@ This is a paragraph.
 					value: {},
 					tooltip:
 						'any configuration that can be passed to the tanstack table component as initial state (https://tanstack.com/table/v8/docs/api/core/table#initialstate)'
+				},
+				selectFirstRowByDefault: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true as boolean,
+					tooltip: 'Select the first row by default on start'
 				}
 			},
 			componentInput: {
@@ -1547,6 +1729,7 @@ This is a paragraph.
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
+			onToggle: [],
 			recomputeIds: true,
 			configuration: {
 				label: {
@@ -1593,6 +1776,16 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
 				}
 			}
 		}
@@ -1656,7 +1849,9 @@ This is a paragraph.
 		customCss: {
 			input: {
 				style: '',
-				tooltip: 'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md'
+				tooltip:
+					'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md',
+				class: ''
 			}
 		},
 		initialData: {
@@ -1918,6 +2113,67 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'boolean',
 					value: false
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				}
+			}
+		}
+	},
+	dateslidercomponent: {
+		name: 'Date Slider',
+		icon: SlidersHorizontal,
+		documentationLink: `${documentationBaseUrl}/date_slider`,
+		dims: '3:1-4:1' as AppComponentDimensions,
+		customCss: {
+			bar: { style: '', class: '' },
+			handle: { style: '', class: '' },
+			limits: { class: '', style: '' },
+			value: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				min: {
+					type: 'static',
+					value: '',
+					fieldType: 'date'
+				},
+				max: {
+					type: 'static',
+					value: '',
+					fieldType: 'date'
+				},
+				defaultValue: {
+					type: 'static',
+					value: '',
+					fieldType: 'date'
+				},
+				step: {
+					type: 'static',
+					value: 1,
+					fieldType: 'number',
+					tooltip: 'Number of days between each date suggestion'
+				},
+				vertical: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				outputFormat: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text',
+					tooltip: 'See date-fns format for more information',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
 				}
 			}
 		}
@@ -1995,6 +2251,16 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
 				}
 			}
 		}
@@ -2025,6 +2291,16 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
 				}
 			}
 		}
@@ -2044,12 +2320,14 @@ This is a paragraph.
 				minDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date'
+					fieldType: 'date',
+					tooltip: 'The minimum date that can be selected. The format is: "yyyy-MM-dd"'
 				},
 				maxDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date'
+					fieldType: 'date',
+					tooltip: 'The maximum date that can be selected. The format is: "yyyy-MM-dd"'
 				},
 				defaultValue: {
 					type: 'static',
@@ -2060,8 +2338,125 @@ This is a paragraph.
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					tooltip: 'See date-fns format for more information',
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format'
+					markdownTooltip: `### Output format				
+See date-fns format for more information. By default, it is 'dd.MM.yyyy'
+
+| Format      | Result | Description |
+| ----------- | ----------- | ----------- |
+| DD 				| 01, 02, ..., 31 | Day of the month |
+| D 				| 1, 2, ..., 31 | Day of the month |
+| MM 				| 01, 02, ..., 12 | Month |
+| MMM 				| Jan, Feb, ..., Dec | Month |
+| MMMM 				| January, February, ..., December | Month |
+| YYYY 				| 2021, 2022, ... | Year |
+`,
+
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					placeholder: 'dd.MM.yyyy'
+				}
+			}
+		}
+	},
+	datetimeinputcomponent: {
+		name: 'Date & Time',
+		icon: CalendarClock,
+		documentationLink: `${documentationBaseUrl}/datetime_input`,
+		dims: '2:1-6:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				displayPresets: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Display presets to select the date for example, in 1 week, in 1 month, etc.'
+				},
+				minDateTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'datetime',
+					tooltip:
+						'The minimum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+				},
+				maxDateTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'datetime',
+					tooltip:
+						'The maximum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+				},
+				outputFormat: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text',
+					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					placeholder: 'dd.MM.yyyy HH:mm',
+					markdownTooltip: `### Output format				
+See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
+
+| Format      | Result | Description |
+| ----------- | ----------- | ----------- |
+| DD 				| 01, 02, ..., 31 | Day of the month |
+| D 				| 1, 2, ..., 31 | Day of the month |
+| MM 				| 01, 02, ..., 12 | Month |
+| MMM 				| Jan, Feb, ..., Dec | Month |
+| MMMM 				| January, February, ..., December | Month |
+| YYYY 				| 2021, 2022, ... | Year |
+| HH 				| 00, 01, ..., 23 | Hours |
+| mm 				| 00, 01, ..., 59 | Minutes |
+| ss 				| 00, 01, ..., 59 | Seconds |
+					`
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'datetime'
+				}
+			}
+		}
+	},
+	timeinputcomponent: {
+		name: 'Time',
+		icon: Clock,
+		documentationLink: `${documentationBaseUrl}/time_input`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				minTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'time',
+					tooltip:
+						'The minimum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+				},
+				maxTime: {
+					type: 'static',
+					value: '',
+					fieldType: 'time',
+					tooltip:
+						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'time'
+				},
+
+				['24hFormat']: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean',
+					tooltip:
+						'Use 24h format. Will change the format of the output of the component: HH:mm to hh:mm am/pm'
 				}
 			}
 		}
@@ -2116,7 +2511,7 @@ This is a paragraph.
 	carousellistcomponent: {
 		name: 'Carousel List',
 		icon: ListIcon,
-		documentationLink: `${documentationBaseUrl}/list`,
+		documentationLink: `${documentationBaseUrl}/carousel`,
 		dims: '3:8-12:8' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
@@ -2129,7 +2524,8 @@ This is a paragraph.
 
 					selectOptions: selectOptions.animationTimingFunctionOptions,
 					value: 'linear',
-					tooltip: 'See https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
+					tooltip:
+						'Sets how an animation progresses through the duration of each cycle, see https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function'
 				}
 			},
 			componentInput: {
@@ -2281,6 +2677,11 @@ This is a paragraph.
 					value: false,
 					fieldType: 'boolean',
 					tooltip: 'If enabled, the mime type of the file will be included.'
+				},
+				submittedFileText: {
+					type: 'static',
+					value: 'Selected file',
+					fieldType: 'text'
 				}
 			}
 		}
@@ -2304,6 +2705,12 @@ This is a paragraph.
 						accept: 'image/*',
 						convertTo: 'base64'
 					}
+				},
+				sourceKind: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.imageSourceKind,
+					value: 'url' as (typeof selectOptions.imageSourceKind)[number]
 				},
 				imageFit: {
 					fieldType: 'select',
@@ -2490,7 +2897,7 @@ This is a paragraph.
 						accept: 'application/pdf',
 						convertTo: 'base64'
 					},
-					placeholder: 'Enter URL or upload file'
+					placeholder: 'Enter URL or upload file (base64)'
 				},
 				zoom: {
 					fieldType: 'number',
@@ -2589,6 +2996,21 @@ This is a paragraph.
 				}
 			},
 			configuration: {
+				defaultValues: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'This enables setting default form values dynamically using an object: keys are field names, and values are the defaults.'
+				},
+				dynamicEnums: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
+				},
+
 				displayType: {
 					fieldType: 'boolean',
 					type: 'static',
@@ -2689,16 +3111,465 @@ This is a paragraph.
 			numberOfSubgrids: 2,
 			conditions: [
 				{
-					type: 'eval',
+					type: 'evalv2',
 					expr: 'false',
-					fieldType: 'boolean'
+					fieldType: 'boolean',
+					connections: []
 				},
 				{
-					type: 'eval',
+					type: 'evalv2',
 					expr: 'true',
-					fieldType: 'boolean'
+					fieldType: 'boolean',
+					connections: []
 				}
 			] as AppInputSpec<'boolean', boolean>[]
+		}
+	},
+	statcomponent: {
+		name: 'Statistic card',
+		icon: FileBarChart,
+		documentationLink: `${documentationBaseUrl}/statistic_card`,
+		dims: '2:4-3:4' as AppComponentDimensions,
+		quickstyle: {
+			title: {
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			},
+			value: {
+				quickCss: ['font-size: 1rem', 'font-size: 1.5rem', 'font-size: 2rem'],
+				quickTailwindClasses: ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl']
+			}
+		} as Record<string, Quickstyle>,
+		customCss: {
+			title: {
+				class: '',
+				style: ''
+			},
+			container: { class: '', style: '' },
+			value: {
+				class: '',
+				style: ''
+			},
+			media: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				title: {
+					type: 'static',
+					value: 'Title',
+					fieldType: 'text'
+				},
+				value: {
+					type: 'static',
+					value: 'Value',
+					fieldType: 'text'
+				},
+				progress: {
+					type: 'static',
+					value: 0,
+					fieldType: 'number'
+				},
+				media: {
+					type: 'oneOf',
+					selected: 'image',
+					labels: {
+						icon: 'Icon',
+						image: 'Image'
+					},
+					configuration: {
+						icon: {
+							icon: {
+								type: 'static',
+								value: undefined,
+								fieldType: 'icon-select'
+							}
+						},
+						image: {
+							source: {
+								type: 'static',
+								value: '/logo.svg',
+								fieldType: 'text',
+								fileUpload: {
+									accept: 'image/*',
+									convertTo: 'base64'
+								}
+							},
+							sourceKind: {
+								fieldType: 'select',
+								type: 'static',
+								selectOptions: selectOptions.imageSourceKind,
+								value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+							}
+						}
+					}
+				} as const
+			}
+		}
+	},
+	menucomponent: {
+		name: 'Dropdown Menu',
+		icon: Menu,
+		documentationLink: `${documentationBaseUrl}/dropdown_menu`,
+		dims: '1:1-1:2' as AppComponentDimensions,
+		customCss: {
+			button: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: '' as string
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.buttonColorOptions,
+					value: 'light'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+
+					selectOptions: selectOptions.buttonSizeOptions,
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+
+					value: false
+				},
+				beforeIcon: {
+					type: 'static',
+					value: 'Menu',
+					fieldType: 'icon-select'
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select'
+				}
+			},
+			menuItems: true
+		}
+	},
+	decisiontreecomponent: {
+		name: 'Decision Tree',
+		icon: Network,
+		documentationLink: `${documentationBaseUrl}/decision_tree`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {},
+			componentInput: undefined,
+			numberOfSubgrids: 1,
+			nodes: [
+				{
+					id: 'a',
+					label: 'a',
+					allowed: {
+						type: 'evalv2',
+						expr: 'true',
+						fieldType: 'boolean',
+						connections: []
+					},
+					next: []
+				}
+			] as DecisionTreeNode[]
+		}
+	},
+	s3fileinputcomponent: {
+		name: 'S3 File Uploader',
+		icon: UploadCloud,
+		documentationLink: `${documentationBaseUrl}/s3fileinput`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'oneOf',
+					selected: 's3',
+					labels: {
+						s3: 'S3'
+					},
+					configuration: {
+						s3: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								value: '',
+								subFieldType: 's3'
+							} as StaticAppInput,
+							acceptedFileTypes: {
+								type: 'static',
+								value: ['image/*', 'application/pdf'] as string[],
+								fieldType: 'array'
+							},
+							allowMultiple: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to select more than one file'
+							},
+							text: {
+								type: 'static',
+								value: 'Drag and drop files or click to select them',
+								fieldType: 'text'
+							},
+							/*
+							displayDirectLink: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean'
+							},
+							*/
+							pathTemplate: {
+								type: 'evalv2',
+								expr: `\`\${file.name}\``,
+								fieldType: 'template',
+								connections: [],
+								onDemandOnly: true
+							} as EvalV2AppInput
+						}
+					}
+				} as const
+			}
+		}
+	},
+	dbexplorercomponent: {
+		name: 'Database Studio Table',
+		icon: Database,
+		documentationLink: `${documentationBaseUrl}/database_studio`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				type: {
+					type: 'oneOf',
+					selected: 'postgresql',
+					labels: {
+						postgresql: 'PostgreSQL',
+						mysql: 'MySQL',
+						ms_sql_server: 'MS SQL Server',
+						snowflake: 'Snowflake',
+						bigquery: 'BigQuery'
+					},
+					configuration: {
+						postgresql: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'postgres',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						mysql: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'mysql',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						ms_sql_server: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'ms_sql_server',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						snowflake: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'snowflake',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						bigquery: {
+							resource: {
+								type: 'static',
+								fieldType: 'resource',
+								subFieldType: 'bigquery',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subfieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						}
+					}
+				} as const,
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'db-explorer',
+					value: []
+				} as StaticAppInput,
+				whereClause: {
+					type: 'static',
+					fieldType: 'text',
+					value: ''
+				},
+				flex: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+
+					tooltip: 'default col flex is 1 (see ag-grid docs)'
+				},
+				allEditable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					hide: true,
+					tooltip: 'Configure all columns as Editable by users'
+				},
+				allowDelete: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					hide: true,
+					tooltip: 'Allow deleting rows'
+				},
+				multipleSelectable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+
+					tooltip: 'Make multiple rows selectable at once'
+				},
+				rowMultiselectWithClick: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+
+					tooltip: 'If multiple selectable, allow multiselect with click'
+				},
+				selectFirstRowByDefault: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true as boolean,
+					tooltip: 'Select the first row by default on start'
+				},
+				extraConfig: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip: 'any configuration that can be passed to ag-grid top level'
+				}
+			},
+			componentInput: undefined
+		}
+	},
+	alertcomponent: {
+		name: 'Alert',
+		icon: AlertTriangle,
+		documentationLink: `${documentationBaseUrl}/alert`,
+		dims: '2:1-4:5' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			background: { class: '', style: '' },
+			icon: { class: '', style: '' },
+			title: { class: '', style: '' },
+			description: { class: '', style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				type: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: [
+						{ value: 'info', label: 'Info' },
+						{ value: 'success', label: 'Success' },
+						{ value: 'warning', label: 'Warning' },
+						{ value: 'error', label: 'Error' }
+					],
+					value: 'info'
+				},
+				title: {
+					type: 'static',
+					value: 'Title',
+					fieldType: 'text'
+				},
+				description: {
+					type: 'static',
+					value: 'Description',
+					fieldType: 'text'
+				},
+				notRounded: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				tooltip: {
+					type: 'static',
+					value: '',
+					fieldType: 'text'
+				},
+				size: {
+					type: 'static',
+					value: 'sm',
+					fieldType: 'select',
+					selectOptions: [
+						{ value: 'xs', label: 'Extra Small' },
+						{ value: 'sm', label: 'Small' }
+					]
+				},
+				collapsible: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				initiallyCollapsed: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				}
+			}
 		}
 	}
 } as const

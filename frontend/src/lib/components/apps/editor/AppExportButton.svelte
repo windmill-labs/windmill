@@ -49,13 +49,15 @@
 						>
 							Copy content
 						</Button>
-						<Highlight
-							class="overflow-auto px-1 flex-1"
-							language={rawType === 'yaml' ? yaml : json}
-							code={rawType === 'yaml'
-								? YAML.stringify(app ?? {})
-								: JSON.stringify(app ?? {}, null, 4)}
-						/>
+						{#key rawType}
+							<Highlight
+								class="overflow-auto px-1 flex-1"
+								language={rawType === 'yaml' ? yaml : json}
+								code={rawType === 'yaml'
+									? YAML.stringify(app ?? {})
+									: JSON.stringify(app ?? {}, null, 4)}
+							/>
+						{/key}
 					</div>
 				</svelte:fragment>
 			</Tabs>

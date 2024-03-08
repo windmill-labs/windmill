@@ -1,34 +1,4 @@
-import * as csstree from 'css-tree'
 import type { ComponentCssProperty } from '../../types'
-
-export function sanitizeCss(css: string, authorizedClassNames: string[]) {
-	const ast = csstree.parse(css)
-	const removedClassNames: string[] = []
-
-	csstree.walk(ast, (node: any, item, list) => {
-		if (node.type === 'Rule') {
-			let shouldRemoveRule = true
-
-			csstree.walk(node, (innerNode: any) => {
-				if (innerNode.type === 'ClassSelector' && authorizedClassNames.includes(innerNode.name)) {
-					shouldRemoveRule = false
-				}
-				if (shouldRemoveRule && innerNode.name) {
-					removedClassNames.push(innerNode.name)
-				}
-			})
-
-			if (shouldRemoveRule) {
-				list.remove(item)
-			}
-		}
-	})
-
-	return {
-		css: csstree.generate(ast),
-		removedClassNames
-	}
-}
 
 export const authorizedClassnames = [
 	'wm-container',
@@ -224,7 +194,7 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
-		components: ['rangecomponent', 'slidercomponent'],
+		components: ['rangecomponent', 'slidercomponent', 'dateslidercomponent'],
 		selectors: [
 			{ selector: '.wm-slider-bar', comment: 'Slider bar', customCssKey: 'bar' },
 			{ selector: '.wm-slider-handle', comment: 'Slider handle', customCssKey: 'handle' },
@@ -576,6 +546,11 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['chartjscomponent'],
 		selectors: [{ selector: '.wm-chartjs', comment: 'ChartJS', customCssKey: 'container' }],
+		variables: []
+	},
+	{
+		components: ['agchartscomponent'],
+		selectors: [{ selector: '.wm-agchart', comment: 'AgCharts', customCssKey: 'container' }],
 		variables: []
 	},
 	{

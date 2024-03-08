@@ -118,6 +118,8 @@
 				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 		>
 			<LightweightSchemaForm
+				defaultValues={resolvedConfig.defaultValues}
+				dynamicEnums={resolvedConfig.dynamicEnums}
 				schema={result}
 				bind:isValid={valid}
 				bind:args

@@ -22,7 +22,8 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult, Result},
@@ -32,6 +33,7 @@ use windmill_common::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -74,6 +76,7 @@ pub struct UpdateFolder {
 #[derive(Deserialize)]
 pub struct Owner {
     pub owner: String,
+    pub write: Option<bool>,
 }
 
 async fn list_folders(
@@ -150,8 +153,10 @@ lazy_static! {
 async fn create_folder(
     authed: ApiAuthed,
     Tokened { token }: Tokened,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
@@ -166,30 +171,31 @@ async fn create_folder(
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
     cache.invalidate(&w_id, token).await;
     let owner = username_to_permissioned_as(&authed.username);
-    let owners = &ng.owners.unwrap_or_else(|| vec![owner.clone()]);
+    let owners = ng.owners.unwrap_or_else(|| vec![owner.clone()]);
+    let owners = if owners.contains(&owner) {
+        owners.clone()
+    } else {
+        owners
+            .iter()
+            .cloned()
+            .chain(std::iter::once(owner))
+            .collect()
+    };
 
-    if let Some(extra_perms) = ng.extra_perms.clone() {
-        for o in owners {
-            if !extra_perms
-                .get(&o)
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false)
-            {
-                return Err(windmill_common::error::Error::BadRequest(format!(
-                    "Owner {} would not have permission to write to folder and that is an inconsistent state",
-                    o
-                )));
-            }
+    let mut extra_perms = ng
+        .extra_perms
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+
+    if extra_perms.is_object() {
+        let extra_mut = extra_perms.as_object_mut().unwrap();
+        for o in &owners {
+            extra_mut.insert(o.clone(), serde_json::json!(true));
         }
+    } else {
+        return Err(error::Error::BadRequest(
+            "extra_perms must be an object".to_string(),
+        ));
     }
-
-    let extra_perms = ng.extra_perms.unwrap_or_else(|| {
-        let mut map = serde_json::Map::new();
-        for o in owners {
-            map.insert(o.clone(), serde_json::json!(true));
-        }
-        serde_json::Value::Object(map)
-    });
 
     sqlx::query_as!(
         Folder,
@@ -197,10 +203,22 @@ async fn create_folder(
         w_id,
         ng.name,
         ng.display_name.unwrap_or(ng.name.clone()),
-        owners,
+        &owners,
         extra_perms,
     )
     .execute(&mut *tx)
+    .await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", ng.name) },
+        Some(format!("Folder '{}' created", ng.name)),
+        rsmq,
+        true,
+    )
     .await?;
 
     audit_log(
@@ -450,7 +468,9 @@ async fn get_folder_usage(
 
 async fn delete_folder(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
@@ -477,6 +497,18 @@ async fn delete_folder(
     .await?;
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' deleted", name)),
+        rsmq,
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteFolder { workspace: w_id, name: name.clone() },
@@ -490,7 +522,7 @@ async fn add_owner(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
-    Json(Owner { owner }): Json<Owner>,
+    Json(Owner { owner, .. }): Json<Owner>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -500,9 +532,19 @@ async fn add_owner(
     sqlx::query!(
         "UPDATE folder SET owners = array_append(owners::text[], $1) WHERE name = $2 AND workspace_id = $3 AND NOT $1 = ANY(owners) RETURNING name",
         owner,
-        name,
+        &name,
         &w_id,
     )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
+         true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms"
+    ))
+    .bind(true)
+    .bind(&name)
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -557,7 +599,7 @@ async fn remove_owner(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
-    Json(Owner { owner }): Json<Owner>,
+    Json(Owner { owner, write }): Json<Owner>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -567,11 +609,23 @@ async fn remove_owner(
     sqlx::query!(
         "UPDATE folder SET owners = array_remove(owners, $1::varchar) WHERE name = $2 AND workspace_id = $3 RETURNING name",
         owner,
-        name,
+        &name,
         &w_id,
     )
     .fetch_optional(&mut *tx)
     .await?;
+
+    if let Some(write) = write {
+        sqlx::query(&format!(
+        "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
+         true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms"
+    ))
+        .bind(write)
+        .bind(&name)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

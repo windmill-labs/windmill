@@ -1,4 +1,6 @@
 <script lang="ts">
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+
 	/* Forked from MIT LICENSE
     https://raw.githubusercontent.com/Canutin/svelte-currency-input/main/src/lib/CurrencyInput.svelte 
     */
@@ -35,6 +37,7 @@
 	export let isNegativeAllowed: boolean = true
 	export let fractionDigits: number = DEFAULT_FRACTION_DIGITS
 	export let inputClasses: InputClasses | null = null
+	export let noColor: boolean = false
 	export let style: string = ''
 
 	// Formats value as: e.g. $1,523.00 | -$1,523.00
@@ -43,12 +46,17 @@
 		maximumFractionDigits?: number,
 		minimumFractionDigits?: number
 	) => {
-		return new Intl.NumberFormat(locale, {
-			currency: currency,
-			style: 'currency',
-			maximumFractionDigits: maximumFractionDigits || 0,
-			minimumFractionDigits: minimumFractionDigits || 0
-		}).format(value)
+		try {
+			return new Intl.NumberFormat(locale, {
+				currency: currency,
+				style: 'currency',
+				maximumFractionDigits: maximumFractionDigits || 0,
+				minimumFractionDigits: minimumFractionDigits || 0
+			}).format(value)
+		} catch (e) {
+			console.error(e)
+			return 'ERR'
+		}
 	}
 
 	// Checks if the key pressed is allowed
@@ -64,14 +72,15 @@
 	}
 
 	let inputTarget: HTMLInputElement
-	const currencyDecimal = new Intl.NumberFormat(locale).format(1.1).charAt(1) // '.' or ','
-	const isDecimalComma = currencyDecimal === ','
-	const currencySymbol = formatCurrency(0, 0)
-		.replace('0', '') // e.g. '$0' > '$'
-		.replace(/\u00A0/, '') // e.g '0 €' > '€'
 
 	// Updates `value` by stripping away the currency formatting
 	const setUnformattedValue = (event?: KeyboardEvent) => {
+		const currencyDecimal = new Intl.NumberFormat(locale).format(1.1).charAt(1) // '.' or ','
+		const isDecimalComma = currencyDecimal === ','
+		const currencySymbol = formatCurrency(0, 0)
+			.replace('0', '') // e.g. '$0' > '$'
+			.replace(/\u00A0/, '') // e.g '0 €' > '€'
+
 		if (event) {
 			// Don't format if the user is typing a `currencyDecimal` point
 			if (event.key === currencyDecimal) return
@@ -155,7 +164,11 @@
 	$: isZero = value === 0
 	$: isNegative = value < 0
 	$: value, setFormattedValue()
+
+	let darkMode: boolean = false
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <div class={inputClasses?.wrapper ?? DEFAULT_CLASS_WRAPPER}>
 	<input
@@ -176,7 +189,7 @@
 			? inputClasses?.formattedNegative ?? DEFAULT_CLASS_FORMATTED_NEGATIVE
 			: ''}
 		"
-		{style}
+		style={style ? style : noColor ? (darkMode ? 'color: white;' : 'color: black;') : ''}
 		type="text"
 		inputmode="numeric"
 		name={`formatted-${name}`}
@@ -189,7 +202,7 @@
 	/>
 </div>
 
-<style lang="postcss">
+<style>
 	input.currencyInput__formatted {
 		border: 1px solid #e2e2e2;
 		padding: 10px;
@@ -197,7 +210,7 @@
 	}
 
 	input.currencyInput__formatted--zero {
-		color: #333;
+		@apply text-primary;
 	}
 
 	input.currencyInput__formatted--positive {

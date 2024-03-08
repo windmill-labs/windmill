@@ -12,7 +12,6 @@
 	import Row from './table/Row.svelte'
 
 	export let args: any
-	export let tableClass = ''
 
 	let jsonViewer: Drawer
 	let runLocally: Drawer
@@ -94,17 +93,30 @@ ${Object.entries(args)
 <Drawer bind:this={jsonViewer} size="900px">
 	<DrawerContent title="Expanded Args" on:close={jsonViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
-			<a
-				class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-surface-hover rounded-lg"
+			<Button
 				download="windmill-args.json"
 				href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}"
-				>Download <Download size={14} /></a
+				startIcon={{ icon: Download }}
+				size="xs"
+				color="light"
 			>
-			<Button on:click={runLocally.openDrawer} color="light" size="xs">
-				<div class="flex gap-2 items-center">Use in a local script<ChevronRightSquare /> </div>
+				Download
 			</Button>
-			<Button on:click={() => copyToClipboard(jsonStr)} color="light" size="xs">
-				<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+			<Button
+				on:click={runLocally.openDrawer}
+				color="light"
+				size="xs"
+				startIcon={{ icon: ChevronRightSquare }}
+			>
+				Use in a local script
+			</Button>
+			<Button
+				on:click={() => copyToClipboard(jsonStr)}
+				color="light"
+				size="xs"
+				startIcon={{ icon: ClipboardCopy }}
+			>
+				Copy to clipboard
 			</Button>
 		</svelte:fragment>
 		{#if jsonStr.length > 100000}

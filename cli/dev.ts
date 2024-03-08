@@ -3,18 +3,27 @@ import { Application, Command, Router, log, open, path } from "./deps.ts";
 import { GlobalOptions } from "./types.ts";
 import { ignoreF } from "./sync.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readConfigFile,
+} from "./conf.ts";
+import { exts } from "./script.ts";
+import { inferContentTypeFromFilePath } from "./script_common.ts";
 
 const PORT = 3001;
-async function dev(opts: GlobalOptions & { filter?: string }) {
+async function dev(opts: GlobalOptions & SyncOptions) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   log.info("Started dev mode");
+  const conf = await readConfigFile();
   let currentLastEdit: LastEdit | undefined = undefined;
 
-  const watcher = Deno.watchFs(opts.filter ?? ".");
+  const watcher = Deno.watchFs(".");
   const base = await Deno.realPath(".");
-  const ignore = await ignoreF();
+  opts = await mergeConfigWithConfigFile(opts);
+  const ignore = await ignoreF(opts);
 
   async function watchChanges() {
     for await (const event of watcher) {
@@ -25,15 +34,8 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
   }
 
   async function loadPaths(pathsToLoad: string[]) {
-    const paths = pathsToLoad.filter(
-      (path) =>
-        path.endsWith(".go") ||
-        path.endsWith(".ts") ||
-        path.endsWith(".py") ||
-        path.endsWith(".sh") ||
-        path.endsWith(".sql") ||
-        path.endsWith(".gql") ||
-        path.endsWith(".ps1")
+    const paths = pathsToLoad.filter((path) =>
+      exts.some((ext) => path.endsWith(ext))
     );
     if (paths.length == 0) {
       return;
@@ -44,36 +46,7 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
       const content = await Deno.readTextFile(cpath);
       const splitted = cpath.split(".");
       const wmPath = splitted[0];
-      const len = splitted.length;
-      const ext = splitted[len - 1];
-      const lang =
-        ext == "py"
-          ? "python3"
-          : ext == "ts"
-          ? len > 2 && splitted[len - 2] == "fetch"
-            ? "nativets"
-            : len > 2 && splitted[len - 2] == "bun"
-            ? "bun"
-            : "deno"
-          : ext == "go"
-          ? "go"
-          : ext == "sh"
-          ? "bash"
-          : ext == "ps1"
-          ? "powershell"
-          : ext == "sql"
-          ? len > 2 && splitted[len - 2] == "my"
-            ? "mysql"
-            : len > 2 && splitted[len - 2] == "bq"
-            ? "bigquery"
-            : len > 2 && splitted[len - 2] == "sf"
-            ? "snowflake"
-            : len > 2 && splitted[len - 2] == "ms"
-            ? "mssql"
-            : "postgresql"
-          : ext == "gql"
-          ? "graphql"
-          : "unknown";
+      const lang = inferContentTypeFromFilePath(cpath, conf.defaultTs);
       currentLastEdit = {
         content,
         path: wmPath,
@@ -159,7 +132,7 @@ async function dev(opts: GlobalOptions & { filter?: string }) {
 const command = new Command()
   .description("Launch a dev server that will spawn a webserver with HMR")
   .option(
-    "--filter <filter:string>",
+    "--includes <pattern...:string>",
     "Filter paths givena glob pattern or path"
   )
   // deno-lint-ignore no-explicit-any

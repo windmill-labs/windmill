@@ -107,6 +107,26 @@
         "ordinal": 20,
         "name": "ws_error_handler_muted",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "retry",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 22,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "no_flow_overlap",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 24,
+        "name": "tag",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -137,7 +157,11 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true,
+      false,
+      true
     ]
   },
   "hash": "dd74fa9468b5fe8c8ad657ded06076c11a78d0206af2af20685c691d4d9520bb"

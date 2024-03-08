@@ -633,6 +633,12 @@ export const quickStyleProperties: Record<
 		limits: [typographyGrouping],
 		values: [typographyGrouping]
 	},
+	dateslidercomponent: {
+		handles: sliderDefaultProps,
+		bar: sliderDefaultProps,
+		limits: [typographyGrouping],
+		values: [typographyGrouping]
+	},
 	displaycomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
@@ -668,6 +674,12 @@ export const quickStyleProperties: Record<
 	piechartcomponent: {
 		container: containerDefaultProps
 	},
+	agchartscomponent: {
+		container: containerDefaultProps
+	},
+	agchartscomponentee: {
+		container: containerDefaultProps
+	},
 	chartjscomponent: {
 		container: containerDefaultProps
 	},
@@ -684,7 +696,16 @@ export const quickStyleProperties: Record<
 	dateinputcomponent: {
 		input: inputDefaultProps
 	},
+	timeinputcomponent: {
+		input: inputDefaultProps
+	},
+	datetimeinputcomponent: {
+		container: inputDefaultProps
+	},
 	fileinputcomponent: {
+		container: containerDefaultProps
+	},
+	s3fileinputcomponent: {
 		container: containerDefaultProps
 	},
 	textinputcomponent: {
@@ -744,5 +765,20 @@ export const quickStyleProperties: Record<
 		allTabs: [typographyGrouping, sizeGrouping],
 		selectedTab: [typographyGrouping, sizeGrouping]
 	},
-	selectstepcomponent: {}
+	selectstepcomponent: {},
+	statcomponent: {},
+	menucomponent: {
+		button: buttonDefaultProps
+	},
+	decisiontreecomponent: {
+		container: containerDefaultProps
+	},
+	dbexplorercomponent: {},
+	alertcomponent: {
+		container: containerDefaultProps,
+		background: containerDefaultProps,
+		icon: containerDefaultProps,
+		title: containerDefaultProps,
+		description: containerDefaultProps
+	}
 }

@@ -21,12 +21,13 @@
 		History,
 		Pen,
 		Share,
-		Trash
+		Trash,
+		Clipboard
 	} from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { DELETE } from '$lib/utils'
+	import { DELETE, copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 
@@ -40,33 +41,22 @@
 	export let depth: number = 0
 	export let menuOpen: boolean = false
 
-	let {
-		summary,
-		path,
-		extra_perms,
-		canWrite,
-		workspace_id,
-		has_draft,
-		draft_only,
-		execution_mode
-	} = app
-
 	const dispatch = createEventDispatcher()
 
 	let appExport: AppJsonEditor
 	let appDeploymentHistory: AppDeploymentHistory
 
 	async function loadAppJson() {
-		appExport.open(path)
+		appExport.open(app.path)
 	}
 
 	async function loadDeployements() {
-		const app: AppWithLastVersion = (await AppService.getAppByPath({
+		const napp: AppWithLastVersion = (await AppService.getAppByPath({
 			workspace: $workspaceStore!,
-			path
+			path: app.path
 		})) as unknown as AppWithLastVersion
 
-		appDeploymentHistory.open(app.versions)
+		appDeploymentHistory.open(napp.path)
 	}
 </script>
 
@@ -76,19 +66,19 @@
 {/if}
 
 <Row
-	href={`/apps/get/${path}`}
+	href={`/apps/get/${app.path}`}
 	kind="app"
 	{marked}
-	{path}
-	{summary}
-	workspaceId={workspace_id ?? $workspaceStore ?? ''}
+	path={app.path}
+	summary={app.summary}
+	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	{starred}
 	on:change
-	canFavorite={!draft_only}
+	canFavorite={!app.draft_only}
 	{depth}
 >
 	<svelte:fragment slot="badges">
-		{#if execution_mode == 'anonymous'}
+		{#if app.execution_mode == 'anonymous'}
 			<Badge small>
 				<div class="flex gap-1 items-center">
 					<Eye size={14} />
@@ -96,21 +86,21 @@
 				</div></Badge
 			>
 		{/if}
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		<DraftBadge {has_draft} {draft_only} />
+		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
+		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
 		<div class="w-8 center-center" />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if canWrite}
+				{#if app.canWrite}
 					<div>
 						<Button
 							color="light"
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/apps/edit/{path}?nodraft=true"
+							href="/apps/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -122,7 +112,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/apps/add?template={path}"
+							href="/apps/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -132,6 +122,8 @@
 		</span>
 		<Dropdown
 			items={() => {
+				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
+
 				if (draft_only) {
 					return [
 						{
@@ -151,10 +143,11 @@
 								}
 							},
 							type: 'delete',
-							disabled: !canWrite
+							disabled: !canWrite,
+							hide: $userStore?.operator
 						},
 						{
-							displayName: 'View/Edit JSON',
+							displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
 							icon: File,
 							action: () => {
 								loadAppJson()
@@ -166,7 +159,8 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/apps/add?template=${path}`
+						href: `/apps/add?template=${path}`,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Move/Rename',
@@ -174,17 +168,19 @@
 						action: () => {
 							moveDrawer.openDrawer(path, summary, 'app')
 						},
-						disabled: !canWrite
+						disabled: !canWrite,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Deploy to staging/prod',
 						icon: Globe,
 						action: () => {
 							deploymentDrawer.openDrawer(path, 'app')
-						}
+						},
+						hide: $userStore?.operator
 					},
 					{
-						displayName: 'View/Edit JSON',
+						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
 						icon: FileJson,
 						action: () => {
 							loadAppJson()
@@ -193,13 +189,22 @@
 					{
 						displayName: 'Deployments',
 						icon: History,
-						action: () => loadDeployements()
+						action: () => loadDeployements(),
+						hide: $userStore?.operator
 					},
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',
 						icon: Share,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
+						},
+						hide: $userStore?.operator
+					},
+					{
+						displayName: 'Copy path',
+						icon: Clipboard,
+						action: () => {
+							copyToClipboard(path)
 						}
 					},
 					...(execution_mode == 'anonymous'
@@ -235,7 +240,8 @@
 										dispatch('change')
 									},
 									type: DELETE,
-									disabled: !canWrite
+									disabled: !canWrite,
+									hide: $userStore?.operator
 								}
 						  ]
 						: []),
@@ -256,7 +262,8 @@
 							}
 						},
 						type: 'delete',
-						disabled: !canWrite
+						disabled: !canWrite,
+						hide: $userStore?.operator
 					}
 				]
 			}}

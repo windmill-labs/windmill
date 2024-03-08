@@ -24,12 +24,14 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
+	import { twMerge } from 'tailwind-merge'
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
 	export let error: boolean = false
 	export let displayContext = true
 	export let notSelectable = false
+	export let noPadding: boolean = false
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 	const dispatch = createEventDispatcher()
@@ -55,7 +57,11 @@
 	on:click_outside={() => propPickerConfig.set(undefined)}
 >
 	<Splitpanes>
-		<Pane minSize={20} size={60} class="relative p-2 !transition-none">
+		<Pane
+			minSize={20}
+			size={60}
+			class={twMerge('relative !transition-none', noPadding ? '' : 'p-2')}
+		>
 			<slot />
 		</Pane>
 		<Pane

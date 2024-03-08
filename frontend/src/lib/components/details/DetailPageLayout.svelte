@@ -7,6 +7,8 @@
 	export let isOperator: boolean = false
 	export let flow_json: any | undefined = undefined
 	export let hasStepDetails: boolean = false
+	export let selected: string
+	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 
 	let mobileTab: 'form' | 'detail' = 'form'
 
@@ -23,7 +25,13 @@
 						<slot name="form" />
 					</Pane>
 					<Pane size={35} minSize={15}>
-						<DetailPageDetailPanel {isOperator} {flow_json} {hasStepDetails}>
+						<DetailPageDetailPanel
+							bind:triggerSelected
+							bind:selected
+							{isOperator}
+							{flow_json}
+							{hasStepDetails}
+						>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="schedule" name="schedule" />
 							<slot slot="cli" name="cli" />
@@ -45,8 +53,9 @@
 					<TabContent value="form" class="flex flex-col flex-1 h-full">
 						<slot name="form" />
 					</TabContent>
+
 					<TabContent value="detail" class="flex flex-col flex-1 h-full">
-						<DetailPageDetailPanel {isOperator} {hasStepDetails}>
+						<DetailPageDetailPanel bind:triggerSelected bind:selected {isOperator} {hasStepDetails}>
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="schedule" name="schedule" />
 							<slot slot="cli" name="cli" />

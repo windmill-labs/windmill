@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_stats SET timestamps = timestamps || $4, timeseries_int = timeseries_int || $5 WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "TimestamptzArray",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "73a3a742702c1c8237a3216523dffe487146b14512d4882179978efe280956aa"
+}

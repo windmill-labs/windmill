@@ -217,6 +217,9 @@
 {#if render}
 	<div class="relative h-full w-full">
 		<div
+			on:pointermove={updateRegionOutput}
+			on:wheel={updateRegionOutput}
+			on:touchmove={updateRegionOutput}
 			on:pointerdown|stopPropagation={selectComponent}
 			bind:this={mapElement}
 			class={twMerge(`w-full h-full`, css?.map?.class, 'wm-map')}

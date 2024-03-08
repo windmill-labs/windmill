@@ -14,6 +14,8 @@
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { isCloudHosted } from '$lib/cloud'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -56,7 +58,7 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted() }
+				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
 			})
 		}
 		if (openAiKey != '') {
@@ -115,6 +117,7 @@
 			} else {
 				uname = x.email.split('@')[0]
 			}
+			uname = uname.replace(/\./gi, '')
 			username = uname.toLowerCase()
 		})
 
@@ -129,6 +132,7 @@
 
 	let auto_invite = false
 	let operatorOnly = false
+	let autoAdd = false
 </script>
 
 <CenteredModal title="New Workspace">
@@ -179,7 +183,7 @@
 		{/if}
 	</label>
 	<Toggle
-		disabled={!isDomainAllowed}
+		disabled={isCloudHosted() && !isDomainAllowed}
 		bind:checked={auto_invite}
 		options={{
 			right: isCloudHosted()
@@ -187,20 +191,36 @@
 				: `Auto-invite anyone joining the instance`
 		}}
 	/>
-	<div class="flex items-center gap-1">
-		<Toggle
-			disabled={!auto_invite}
-			bind:checked={operatorOnly}
-			options={{ right: `Auto-invite users as operators` }}
-		/>
-		<Tooltip
-			>An operator can only execute and view scripts/flows/apps from your workspace, and only those
-			that he has visibility on</Tooltip
-		>
-	</div>
-	{#if isDomainAllowed == false}
+	{#if isCloudHosted() && isDomainAllowed == false}
 		<div class="text-tertiary text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
 	{/if}
+	<div class={'overflow-hidden transition-all ' + (auto_invite ? 'h-36' : 'h-0')}>
+		<div class="text-xs mb-1 leading-6 pt-2">
+			Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
+		</div>
+		<ToggleButtonGroup
+			selected={autoAdd ? 'add' : 'invite'}
+			on:selected={(e) => {
+				autoAdd = e.detail == 'add'
+			}}
+		>
+			<ToggleButton value="invite" size="xs" label="Auto-invite" />
+			<ToggleButton value="add" size="xs" label="Auto-add" />
+		</ToggleButtonGroup>
+
+		<div class="text-xs mb-1 leading-6 pt-2"
+			>Role <Tooltip>Role of the auto-invited users</Tooltip></div
+		>
+		<ToggleButtonGroup
+			selected={operatorOnly ? 'operator' : 'developer'}
+			on:selected={(e) => {
+				operatorOnly = e.detail == 'operator'
+			}}
+		>
+			<ToggleButton value="operator" size="xs" label="Operator" />
+			<ToggleButton value="developer" size="xs" label="Developer" />
+		</ToggleButtonGroup>
+	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button

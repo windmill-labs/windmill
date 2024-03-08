@@ -52,23 +52,21 @@ export async function pushVariable(
   remotePath: string,
   variable: VariableFile | ListableVariable | undefined,
   localVariable: VariableFile,
-  plainSecrets: boolean,
-  raw: boolean
+  plainSecrets: boolean
 ): Promise<void> {
   remotePath = removeType(remotePath, "variable");
   log.debug(`Processing local variable ${remotePath}`);
 
-  if (raw) {
-    try {
-      variable = await VariableService.getVariable({
-        workspace: workspace,
-        path: remotePath.replaceAll("\\", "/"),
-        decryptSecret: plainSecrets,
-      });
-      log.debug(`Variable ${remotePath} exists on remote`);
-    } catch {
-      log.debug(`Variable ${remotePath} does not exist on remote`);
-    }
+  try {
+    variable = await VariableService.getVariable({
+      workspace: workspace,
+      path: remotePath.replaceAll("\\", "/"),
+      decryptSecret: plainSecrets,
+      includeEncrypted: true,
+    });
+    log.debug(`Variable ${remotePath} exists on remote`);
+  } catch {
+    log.debug(`Variable ${remotePath} does not exist on remote`);
   }
 
   if (variable) {
@@ -76,6 +74,7 @@ export async function pushVariable(
       log.debug(`Variable ${remotePath} is up-to-date`);
       return;
     }
+
     log.debug(`Variable ${remotePath} is not up-to-date, updating`);
 
     await VariableService.updateVariable({
@@ -125,14 +124,13 @@ async function push(
     remotePath,
     undefined,
     parseFromFile(filePath),
-    opts.plainSecrets,
-    true
+    opts.plainSecrets ?? false
   );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
 async function add(
-  opts: GlobalOptions & { public?: boolean },
+  opts: GlobalOptions & { public?: boolean; plainSecrets?: boolean },
   value: string,
   remotePath: string
 ) {
@@ -171,8 +169,7 @@ async function add(
       is_secret: !opts.public,
       description: "",
     },
-    true,
-    true
+    opts.plainSecrets ?? false
   );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }

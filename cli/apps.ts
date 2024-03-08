@@ -2,7 +2,6 @@
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   AppService,
-  AppWithLastVersion,
   colors,
   Command,
   ListableApp,
@@ -24,22 +23,20 @@ export interface AppFile {
 
 export async function pushApp(
   workspace: string,
-  remotePath: string,
-  app: AppFile | AppWithLastVersion | undefined,
+  filePath: string,
+  app: AppFile | undefined,
   newApp: AppFile,
-  raw: boolean
+  message?: string
 ): Promise<void> {
-  remotePath = removeType(remotePath, "app");
-  if (raw) {
-    // deleting old app if it exists in raw mode
-    try {
-      app = await AppService.getAppByPath({
-        workspace,
-        path: remotePath.replaceAll("\\", "/"),
-      });
-    } catch {
-      //ignore
-    }
+  const remotePath = removeType(filePath, "app");
+  // deleting old app if it exists in raw mode
+  try {
+    app = await AppService.getAppByPath({
+      workspace,
+      path: remotePath.replaceAll("\\", "/"),
+    });
+  } catch {
+    //ignore
   }
 
   if (app) {
@@ -50,16 +47,19 @@ export async function pushApp(
       workspace,
       path: remotePath.replaceAll("\\", "/"),
       requestBody: {
+        deployment_message: message,
         ...newApp,
       },
     });
   } else {
     console.log(colors.yellow.bold("Creating new app..."));
 
+    console.log(message);
     await AppService.createApp({
       workspace,
       requestBody: {
         path: remotePath.replaceAll("\\", "/"),
+        deployment_message: message,
         ...newApp,
       },
     });
@@ -102,23 +102,16 @@ async function push(opts: GlobalOptions, filePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  let app: AppWithLastVersion | undefined = undefined;
-  try {
-    app = await AppService.getAppByPath({
-      workspace: workspace.workspaceId,
-      path: remotePath,
-    });
-  } catch {
-    // app doesn't exist
-  }
-
+<<<<<<< Updated upstream
   await pushApp(
     workspace.workspaceId,
-    remotePath,
-    app,
-    parseFromFile(filePath),
-    false
+    filePath,
+    undefined,
+    parseFromFile(filePath)
   );
+=======
+  await pushApp(workspace.workspaceId, filePath, parseFromFile(filePath));
+>>>>>>> Stashed changes
   console.log(colors.bold.underline.green("App pushed"));
 }
 

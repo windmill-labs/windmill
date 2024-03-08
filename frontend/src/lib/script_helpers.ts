@@ -37,7 +37,7 @@ export async function main() {
 export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // Deno uses "npm:" prefix to import from npm (https://deno.land/manual@v1.36.3/node/npm_specifiers)
-// import * as wmill from "npm:windmill-client@1"
+// import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
@@ -114,7 +114,7 @@ func main(message string, name string) (interface{}, error) {
 }
 `
 
-export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@1"
+export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main(x: string) {
   return x
@@ -137,29 +137,34 @@ export async function main(message: string, name: string) {
 }
 `
 
-export const POSTGRES_INIT_CODE = `-- $1 name1 = default arg
+export const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
 INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *
 `
 
-export const MYSQL_INIT_CODE = `-- ? name1 (text) = default arg
--- ? name2 (int)
-INSERT INTO demo VALUES (?, ?)
+export const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- :name1 (text) = default arg
+-- :name2 (int)
+INSERT INTO demo VALUES (:name1, :name2)
 `
 
-export const BIGQUERY_INIT_CODE = `-- @name1 (string) = default arg
+export const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
 INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3)
 `
 
-export const SNOWFLAKE_INIT_CODE = `-- ? name1 (varchar) = default arg
+export const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?)
 `
 
-export const MSSQL_INIT_CODE = `-- @p1 name1 (varchar) = default arg
+export const MSSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- @p1 name1 (varchar) = default arg
 -- @p2 name2 (int)
 INSERT INTO demo VALUES (@p1, @p2)
 `
@@ -214,7 +219,7 @@ dflt="\${2:-default value}"
 echo "Hello $msg"
 `
 
-export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@1"
+export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
 
 export async function main() {
 
@@ -265,6 +270,13 @@ export async function main(approver?: string) {
   return wmill.getResumeUrls(approver)
 }`
 
+export const PYTHON_INIT_CODE_APPROVAL = `import wmill
+
+def main():
+  urls = wmill.get_resume_urls()
+  return urls
+`
+
 export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
@@ -285,6 +297,8 @@ docker run --rm $IMAGE $COMMAND
 `
 
 export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
+
+# Import-Module MyModule
 
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
@@ -353,6 +367,8 @@ export function initialCode(
 	} else if (language === 'python3') {
 		if (kind === 'trigger') {
 			return PYTHON_INIT_CODE_TRIGGER
+		} else if (kind === 'approval') {
+			return PYTHON_INIT_CODE_APPROVAL
 		} else if (subkind === 'flow') {
 			return PYTHON_INIT_CODE_CLEAR
 		} else if (kind === 'failure') {

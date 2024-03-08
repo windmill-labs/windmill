@@ -10,6 +10,9 @@ const tableOptions: TableOptions<Record<string, any>> = {
 		pagination: {
 			pageSize: 25
 		}
+	},
+	getRowId(originalRow, index, parent) {
+		return originalRow?.['__index'] ?? index
 	}
 }
 

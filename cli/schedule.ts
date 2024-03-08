@@ -44,22 +44,19 @@ export async function pushSchedule(
   workspace: string,
   path: string,
   schedule: Schedule | ScheduleFile | undefined,
-  localSchedule: ScheduleFile,
-  raw: boolean
+  localSchedule: ScheduleFile
 ): Promise<void> {
   path = removeType(path, "schedule");
 
   log.debug(`Processing local schedule ${path}`);
 
-  if (raw) {
-    // deleting old app if it exists in raw mode
-    try {
-      schedule = await ScheduleService.getSchedule({ workspace, path });
-      log.debug(`Schedule ${path} exists on remote`);
-    } catch {
-      log.debug(`Schedule ${path} does not exist on remote`);
-      //ignore
-    }
+  // deleting old app if it exists in raw mode
+  try {
+    schedule = await ScheduleService.getSchedule({ workspace, path });
+    log.debug(`Schedule ${path} exists on remote`);
+  } catch {
+    log.debug(`Schedule ${path} does not exist on remote`);
+    //ignore
   }
 
   if (schedule) {
@@ -116,8 +113,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath),
-    false
+    parseFromFile(filePath)
   );
   console.log(colors.bold.underline.green("Schedule pushed"));
 }

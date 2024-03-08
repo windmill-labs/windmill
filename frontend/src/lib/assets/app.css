@@ -41,6 +41,28 @@
 		z-index: 5000 !important;
 	}
 
+	.foo {
+		color: red !important;
+	}
+	.autocomplete-list-item-create {
+		@apply !text-primary-inverse !bg-surface-inverse;
+	}
+
+	.autocomplete-list-item {
+		@apply !text-primary !bg-surface text-xs;
+	}
+
+	.autocomplete-list-item.selected {
+		@apply !text-primary-inverse !bg-surface-inverse;
+	}
+
+	.autocomplete-list-item.selected.confirmed {
+		@apply !text-primary-inverse !bg-surface-inverse;
+	}
+
+	.autocomplete-list {
+		@apply !bg-surface;
+	}
 	pre code.hljs {
 		overflow: visible !important;
 	}

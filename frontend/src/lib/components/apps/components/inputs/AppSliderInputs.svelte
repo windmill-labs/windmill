@@ -107,8 +107,6 @@
 	$: if (resolvedConfig.max != undefined && resolvedConfig.step && render) {
 		computeWidth()
 	}
-
-	let vertical = false
 </script>
 
 {#each Object.keys(components['slidercomponent'].initialData.configuration) as key (key)}
@@ -133,33 +131,41 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} hFull {verticalAlignment}>
-	<div class="flex {vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1">
+	<div
+		class="flex {resolvedConfig.vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1"
+	>
 		<span
 			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
 			style={css?.limits?.style ?? ''}
 		>
-			{vertical ? +(resolvedConfig?.max ?? 0) : +(resolvedConfig?.min ?? 0)}
+			{resolvedConfig.vertical ? +(resolvedConfig?.max ?? 0) : +(resolvedConfig?.min ?? 0)}
 		</span>
 		<div
-			class={twMerge('grow', css?.bar?.class, 'font-mono wm-slider-bar')}
+			class={twMerge(
+				'grow',
+				css?.bar?.class,
+				'font-mono wm-slider-bar',
+				resolvedConfig?.vertical ? 'h-full' : 'w-full'
+			)}
 			style={css?.bar?.style}
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
 			<RangeSlider
 				springValues={{ stiffness: 1, damping: 1 }}
-				{vertical}
+				vertical={resolvedConfig.vertical}
 				bind:slider
 				bind:values
 				step={resolvedConfig.step}
 				min={+(resolvedConfig?.min ?? 0)}
 				max={+(resolvedConfig?.max ?? 0)}
+				disabled={resolvedConfig.disabled}
 			/>
 		</div>
 		<span
 			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
 			style={css?.limits?.style ?? ''}
 		>
-			{vertical ? +(resolvedConfig?.min ?? 0) : +(resolvedConfig?.max ?? 1)}
+			{resolvedConfig.vertical ? +(resolvedConfig?.min ?? 0) : +(resolvedConfig?.max ?? 1)}
 		</span>
 		<span class="mx-2">
 			<span

@@ -25,7 +25,12 @@
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { components, type ButtonComponent } from '../../../editor/component'
+	import {
+		components,
+		type ButtonComponent,
+		type CheckboxComponent,
+		type SelectComponent
+	} from '../../../editor/component'
 	import { initCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { connectOutput, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
@@ -38,11 +43,13 @@
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { Plug2 } from 'lucide-svelte'
 	import AppCell from './AppCell.svelte'
+	import sum from 'hash-sum'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
-	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
+	export let actionButtons: (BaseAppComponent &
+		(ButtonComponent | CheckboxComponent | SelectComponent))[]
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
 	export let render: boolean
@@ -70,7 +77,7 @@
 		selectedRowIndex: 0,
 		selectedRow: undefined,
 		loading: false,
-		result: [],
+		result: [] as Record<string, any>[],
 		inputs: {},
 		search: '',
 		page: 1
@@ -82,6 +89,7 @@
 	$: setSearch(searchValue)
 
 	function setSearch(srch: string) {
+		$table.setPageIndex(0)
 		outputs?.search?.set(srch)
 	}
 
@@ -104,11 +112,9 @@
 		let data = { ...row.original }
 		let index = data['__index']
 		delete data['__index']
-		if (
-			selectedRowIndex !== index ||
-			JSON.stringify(data) !== JSON.stringify(result?.[index]) ||
-			force
-		) {
+		let peak = outputs?.selectedRow.peak()
+
+		if (selectedRowIndex !== index || peak == undefined || sum(data) != sum(peak) || force) {
 			selectedRowIndex = index
 			outputs?.selectedRow.set(data, force)
 			outputs?.selectedRowIndex.set(index, force)
@@ -127,7 +133,8 @@
 		mounted = true
 	})
 
-	$: selectedRowIndex === -1 &&
+	$: resolvedConfig?.selectFirstRowByDefault != false &&
+		selectedRowIndex === -1 &&
 		Array.isArray(result) &&
 		result.length > 0 &&
 		// We need to wait until the component is mounted so the world is created
@@ -139,9 +146,10 @@
 		if (searchValue === '') {
 			return result
 		}
-		return result.filter((row) =>
-			Object.values(row).some((value) => value?.toString()?.includes(searchValue))
-		)
+		return result.filter((row) => {
+			// console.log(Object.values(row).map((value) => value?.toString()))
+			return Object.values(row).some((value) => value?.toString()?.includes(searchValue))
+		})
 	}
 
 	function renderCell(x: any, props: any): any {
@@ -155,6 +163,7 @@
 	let filteredResult: Array<Record<string, any>> = []
 
 	function setFilteredResult() {
+		console.log('setting filtered result')
 		const wIndex = Array.isArray(result)
 			? (result as any[]).map((x, i) => ({ ...x, __index: i }))
 			: [{ error: 'input was not an array' }]
@@ -208,7 +217,9 @@
 
 		if (result) {
 			//console.log('rerendering table', result[0])
-			toggleRow({ original: filteredResult[0] }, true)
+			if (resolvedConfig?.selectFirstRowByDefault != false) {
+				toggleRow({ original: filteredResult[0] }, true)
+			}
 		}
 
 		if (outputs.page.peak()) {
@@ -285,7 +296,17 @@
 		}
 	}
 
-	$: updateTable(resolvedConfig, searchValue)
+	$: $table && updateTable(resolvedConfig, searchValue)
+
+	function updateCellValue(rowIndex: number, columnIndex: number, newCellValue: string) {
+		if (result && rowIndex < result.length) {
+			const updatedRow = { ...result[rowIndex] }
+			const columnName = Object.keys(updatedRow)[columnIndex]
+			updatedRow[columnName] = newCellValue
+			result[rowIndex] = updatedRow
+			outputs?.result.set([result])
+		}
+	}
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -393,21 +414,20 @@
 									{#if cell?.column?.columnDef?.cell}
 										{@const context = cell?.getContext()}
 										{#if context}
-											<td
+											<AppCell
 												on:keydown={() => toggleRow(row)}
 												on:click={() => toggleRow(row)}
-												class="p-4 whitespace-pre-wrap truncate text-xs text-primary"
-												style={'width: ' + cell.column.getSize() + 'px'}
-											>
-												<AppCell
-													type={resolvedConfig.columnDefs?.find(
-														// TS types are wrong here
-														// @ts-ignore
-														(c) => c.field === cell.column.columnDef.accessorKey
-													)?.type ?? 'text'}
-													value={cell.getValue()}
-												/>
-											</td>
+												type={resolvedConfig.columnDefs?.find(
+													// TS types are wrong here
+													// @ts-ignore
+													(c) => c.field === cell.column.columnDef.accessorKey
+												)?.type ?? 'text'}
+												value={cell.getValue()}
+												width={cell.column.getSize()}
+												on:update={(event) => {
+													updateCellValue(rowIndex, index, event.detail.value)
+												}}
+											/>
 										{/if}
 									{/if}
 								{/each}
@@ -425,26 +445,24 @@
 												<RowWrapper
 													value={row.original}
 													index={rowIndex}
-													on:set={(e) => {
-														const { id, value } = e.detail
+													onSet={(id, value) => {
 														if (!inputs[id]) {
 															inputs[id] = { [rowIndex]: value }
 														} else {
 															inputs[id] = { ...inputs[id], [rowIndex]: value }
 														}
+
 														outputs?.inputs.set(inputs, true)
 													}}
-													on:remove={(e) => {
-														const id = e.detail
+													onRemove={(id) => {
 														if (inputs?.[id] == undefined) {
 															return
 														}
-														if (rowIndex == 0) {
+														delete inputs[id][rowIndex]
+														inputs[id] = { ...inputs[id] }
+														if (Object.keys(inputs?.[id] ?? {}).length == 0) {
 															delete inputs[id]
 															inputs = { ...inputs }
-														} else {
-															delete inputs[id][rowIndex]
-															inputs[id] = { ...inputs[id] }
 														}
 														outputs?.inputs.set(inputs, true)
 													}}
@@ -505,6 +523,7 @@
 																			>
 																		</svelte:fragment>
 																		<ComponentOutputViewer
+																			suffix="table"
 																			on:select={({ detail }) =>
 																				connectOutput(
 																					connectingInput,
@@ -542,6 +561,7 @@
 															}}
 															{#if actionButton.type == 'buttoncomponent'}
 																<AppButton
+																	noInitialize
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	noWFull
@@ -558,12 +578,14 @@
 																/>
 															{:else if actionButton.type == 'checkboxcomponent'}
 																<AppCheckbox
+																	noInitialize
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	id={actionButton.id}
 																	customCss={actionButton.customCss}
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
+																	onToggle={actionButton.onToggle}
 																	preclickAction={async () => {
 																		toggleRow(row)
 																	}}
@@ -572,12 +594,15 @@
 															{:else if actionButton.type == 'selectcomponent'}
 																<div class="w-40">
 																	<AppSelect
+																		noDefault
+																		noInitialize
 																		extraKey={'idx' + rowIndex}
 																		{render}
 																		id={actionButton.id}
 																		customCss={actionButton.customCss}
 																		configuration={actionButton.configuration}
 																		recomputeIds={actionButton.recomputeIds}
+																		onSelect={actionButton.onSelect}
 																		preclickAction={async () => {
 																			toggleRow(row)
 																		}}
@@ -587,6 +612,7 @@
 															{/if}
 														{:else if actionButton.type == 'buttoncomponent'}
 															<AppButton
+																noInitialize
 																extraKey={'idx' + rowIndex}
 																{render}
 																noWFull
@@ -602,12 +628,14 @@
 															/>
 														{:else if actionButton.type == 'checkboxcomponent'}
 															<AppCheckbox
+																noInitialize
 																extraKey={'idx' + rowIndex}
 																{render}
 																id={actionButton.id}
 																customCss={actionButton.customCss}
 																configuration={actionButton.configuration}
 																recomputeIds={actionButton.recomputeIds}
+																onToggle={actionButton.onToggle}
 																preclickAction={async () => {
 																	toggleRow(row)
 																}}
@@ -615,6 +643,8 @@
 														{:else if actionButton.type == 'selectcomponent'}
 															<div class="w-40">
 																<AppSelect
+																	noDefault
+																	noInitialize
 																	--font-size="10px"
 																	extraKey={'idx' + rowIndex}
 																	{render}
@@ -622,6 +652,7 @@
 																	customCss={actionButton.customCss}
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
+																	onSelect={actionButton.onSelect}
 																	preclickAction={async () => {
 																		toggleRow(row)
 																	}}

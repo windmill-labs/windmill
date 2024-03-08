@@ -21,6 +21,8 @@
 	import { FunctionSquare, Plug } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
+	import StepInputGen from './copilot/StepInputGen.svelte'
+	import type { PickableProperties } from './flows/previousResults'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -33,6 +35,8 @@
 	export let itemPicker: ItemPicker | undefined = undefined
 	export let noDynamicToggle = false
 	export let argExtra: Record<string, any> = {}
+	export let pickableProperties: PickableProperties | undefined = undefined
+	export let enableAi = false
 
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
@@ -48,8 +52,29 @@
 
 	let propertyType = getPropertyType(arg)
 
-	const { shouldUpdatePropertyType } =
+	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
+
+	function setExpr() {
+		const newArg = $exprsToSet?.[argName]
+		if (newArg) {
+			if (newArg.type === 'javascript') {
+				propertyType = 'javascript'
+				arg = {
+					type: 'javascript',
+					expr: newArg.expr
+				}
+				monaco?.setCode(arg.expr)
+			}
+			// copilot only sets javascript so static case is not handled
+		}
+		exprsToSet?.set({
+			...$exprsToSet,
+			[argName]: undefined
+		})
+	}
+
+	$: $exprsToSet?.[argName] && setExpr()
 
 	function updatePropertyType() {
 		propertyType = $shouldUpdatePropertyType?.[argName] || 'static'
@@ -116,6 +141,7 @@
 	}
 
 	function onFocus() {
+		focused = true
 		if (isStaticTemplate(inputCat)) {
 			focusProp(argName, 'append', (path) => {
 				const toAppend = `\$\{${path}}`
@@ -154,6 +180,9 @@
 		resourceTypes = await getResourceTypes()
 	}
 
+	let focused = false
+	let stepInputGen: StepInputGen | undefined = undefined
+
 	loadResourceTypes()
 </script>
 
@@ -183,11 +212,42 @@
 				{/if}
 			</div>
 			{#if !noDynamicToggle}
-				<div class="flex flex-row gap-x-6 gap-y-1 flex-wrap z-10">
+				<div class="flex flex-row gap-x-2 gap-y-1 flex-wrap z-10 items-center">
+					{#if enableAi}
+						<StepInputGen
+							bind:this={stepInputGen}
+							{focused}
+							{arg}
+							schemaProperty={schema.properties[argName]}
+							showPopup={(isStaticTemplate(inputCat) && propertyType == 'static') ||
+								propertyType === undefined ||
+								propertyType === 'static' ||
+								arg?.expr?.length > 0}
+							on:showExpr={(e) => {
+								setTimeout(() => {
+									if (monaco && propertyType === 'javascript') {
+										monaco.setSuggestion(e.detail)
+									}
+								}, 0)
+							}}
+							on:setExpr={(e) => {
+								arg = {
+									type: 'javascript',
+									expr: e.detail
+								}
+								propertyType = 'javascript'
+								monaco?.setCode('')
+								monaco?.insertAtCursor(e.detail)
+							}}
+							{pickableProperties}
+							{argName}
+						/>
+					{/if}
 					<div>
 						<ToggleButtonGroup
-							bind:selected={propertyType}
+							selected={propertyType}
 							on:selected={(e) => {
+								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
 								if (e.detail === 'javascript') {
 									if (arg.expr == undefined) {
@@ -245,32 +305,33 @@
 							/>
 						</ToggleButtonGroup>
 					</div>
-					<div>
-						<Button
-							title="Connect to another node's output"
-							variant="border"
-							color="light"
-							size="xs2"
-							on:click={() => {
-								focusProp(argName, 'connect', (path) => {
-									connectProperty(path)
-									return true
-								})
-							}}
-							id="flow-editor-plug"
-						>
-							<Plug size={16} /> &rightarrow;
-						</Button>
-					</div>
+
+					<Button
+						title="Connect to another node's output"
+						variant="border"
+						color="light"
+						size="xs2"
+						on:click={() => {
+							focusProp(argName, 'connect', (path) => {
+								connectProperty(path)
+								return true
+							})
+						}}
+						id="flow-editor-plug"
+					>
+						<Plug size={16} /> &rightarrow;
+					</Button>
 				</div>
 			{/if}
 		</div>
 
 		<div class="max-w-xs" />
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			class="relative {$propPickerConfig?.propName == argName
 				? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
 				: ''}"
+			on:keyup={stepInputGen?.onKeyUp}
 		>
 			{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
@@ -288,6 +349,9 @@
 							bind:this={monacoTemplate}
 							{extraLib}
 							on:focus={onFocus}
+							on:blur={() => {
+								focused = false
+							}}
 							bind:code={arg.value}
 							fontSize={14}
 						/>
@@ -300,6 +364,9 @@
 					compact
 					bind:this={argInput}
 					on:focus={onFocus}
+					on:blur={() => {
+						focused = false
+					}}
 					label={argName}
 					bind:editor={monaco}
 					bind:description={schema.properties[argName].description}
@@ -331,10 +398,14 @@
 						lang="javascript"
 						shouldBindKey={false}
 						on:focus={() => {
+							focused = true
 							focusProp(argName, 'insert', (path) => {
 								monaco?.insertAtCursor(path)
 								return false
 							})
+						}}
+						on:blur={() => {
+							focused = false
 						}}
 						autoHeight
 					/>
@@ -342,7 +413,7 @@
 				<DynamicInputHelpBox />
 				<div class="mb-2" />
 			{:else}
-				Not recognized input type {argName}
+				Not recognized input type {argName} ({arg.expr}, {propertyType})
 			{/if}
 		</div>
 	</div>

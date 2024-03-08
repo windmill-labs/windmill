@@ -8,6 +8,7 @@
 	export let icon: any | undefined = undefined
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
+	export let lightMode: boolean = false
 
 	let isSelected = false
 
@@ -26,7 +27,14 @@
 			{href}
 			class={classNames(
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
-				isSelected ? 'bg-frost-700 hover:bg-[#30404e]' : 'hover:bg-[#34363c]',
+				isSelected
+					? lightMode
+						? 'bg-surface-selected hover:bg-surface-hover rounded-none'
+						: 'bg-frost-700 hover:bg-[#30404e]'
+					: lightMode
+					? 'hover:bg-surface-hover rounded-none'
+					: 'hover:bg-[#34363c]',
+
 				'hover:transition-all',
 				$$props.class
 			)}
@@ -40,7 +48,11 @@
 					class={classNames(
 						'flex-shrink-0',
 						isSelected
-							? 'text-frost-200 group-hover:text-white'
+							? lightMode
+								? 'text-primary group-hover:text-secondary'
+								: 'text-frost-200 group-hover:text-white'
+							: lightMode
+							? 'text-primary group-hover:text-secondary'
 							: 'text-gray-100 group-hover:text-white',
 						'transition-all'
 					)}
@@ -52,7 +64,11 @@
 					class={classNames(
 						'whitespace-pre truncate',
 						isSelected
-							? 'text-blue-100 group-hover:text-white font-semibold'
+							? lightMode
+								? 'text-primary group-hover:text-secondary'
+								: 'text-frost-200 group-hover:text-white'
+							: lightMode
+							? 'text-primary group-hover:text-secondary'
 							: 'text-gray-100 group-hover:text-white',
 						'transition-all duration-75'
 					)}

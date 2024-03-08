@@ -48,7 +48,7 @@ pub async fn handle_dedicated_process(
     job_dir: &str,
     context_envs: HashMap<String, String>,
     envs: HashMap<String, String>,
-    reserved_variables: [variables::ContextualVariable; 15],
+    reserved_variables: [variables::ContextualVariable; 17],
     common_bun_proc_envs: HashMap<String, String>,
     args: Vec<&str>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
@@ -104,8 +104,7 @@ pub async fn handle_dedicated_process(
             .wait()
             .await
             .expect("child process encountered an error");
-
-        println!("child status was: {}", status);
+        tracing::info!("child status was: {}", status);
     });
 
     let mut jobs = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
@@ -144,10 +143,16 @@ pub async fn handle_dedicated_process(
                         continue;
                     }
                     tracing::debug!("processed job: {line}");
-                    if line.starts_with("wm_res:") {
+                    if line.starts_with("wm_res[") {
                         let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
-                        match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res:", "")) {
-                            Ok(result) => job_completed_tx.send(JobCompleted { job , result, logs: logs, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap(),
+                        match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res[success]:", "").replace("wm_res[error]:", "")) {
+                            Ok(result) => {
+                                if line.starts_with("wm_res[success]:") {
+                                    job_completed_tx.send(JobCompleted { job , result, logs: logs, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap()
+                                } else {
+                                    job_completed_tx.send(JobCompleted { job , result, logs: logs, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap()
+                                }
+                            },
                             Err(e) => {
                                 tracing::error!("Could not deserialize job result `{line}`: {e:?}");
                                 job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})), logs: "".to_string(), mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();

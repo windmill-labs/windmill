@@ -7,12 +7,19 @@
 		TemplateV2Input,
 		UploadAppInput
 	} from '../../inputType'
-	import type { AppViewerContext, GroupContext, ListContext, RichConfiguration } from '../../types'
+	import type {
+		AppEditorContext,
+		AppViewerContext,
+		GroupContext,
+		ListContext,
+		RichConfiguration
+	} from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
 	import { deepEqual } from 'fast-equals'
-	import { isCodeInjection } from '$lib/utils'
+	import { deepMergeWithPriority, isCodeInjection } from '$lib/utils'
+	import sum from 'hash-sum'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -21,9 +28,13 @@
 	export let id: string | undefined = undefined
 	export let error: string = ''
 	export let key: string = ''
+	export let field: string = key
+	export let onDemandOnly: boolean = false
+	export let exportValueFunction: boolean = false
 
 	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const groupContext = getContext<GroupContext>('GroupContext')
@@ -39,10 +50,11 @@
 	}
 
 	$: lastInput?.type == 'evalv2' &&
+		!onDemandOnly &&
 		(fullContext.iter != undefined ||
 			fullContext.row != undefined ||
 			fullContext.group != undefined) &&
-		lastInput.connections.some(
+		lastInput.connections?.some(
 			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
 		) &&
 		debounceEval()
@@ -53,7 +65,7 @@
 		(fullContext.iter != undefined ||
 			fullContext.row != undefined ||
 			fullContext.group != undefined) &&
-		lastInput.connections.some(
+		lastInput.connections?.some(
 			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
 		) &&
 		debounceTemplate()
@@ -86,12 +98,8 @@
 	let firstDebounce = true
 	const debounce_ms = 50
 
-	export async function computeExpr() {
-		const nvalue = await evalExpr(lastInput as EvalAppInput)
-		if (!deepEqual(nvalue, value)) {
-			value = nvalue
-		}
-		return nvalue
+	export async function computeExpr(args?: Record<string, any>) {
+		return await evalExpr(lastInput as EvalAppInput, args)
 	}
 
 	function debounce(cb: () => Promise<void>) {
@@ -123,6 +131,7 @@
 	const debounceTemplate = async () => {
 		let nvalue = await getValue(lastInput as EvalAppInput)
 		if (!deepEqual(nvalue, value)) {
+			// console.log('template')
 			value = nvalue
 		}
 	}
@@ -134,34 +143,36 @@
 		$state &&
 		debounce(debounceTemplate)
 
-	let lastExpr: any = undefined
+	let lastExprHash: any = undefined
 
-	const debounceEval = async () => {
-		let nvalue = await evalExpr(lastInput as EvalAppInput)
-		if (!deepEqual(nvalue, value)) {
-			if (
-				typeof nvalue == 'string' ||
-				typeof nvalue == 'number' ||
-				typeof nvalue == 'boolean' ||
-				typeof nvalue == 'bigint'
-			) {
-				if (nvalue != lastExpr) {
-					lastExpr = nvalue
-					value = nvalue as T
-				}
-			} else {
-				lastExpr = nvalue
+	const debounceEval = async (s?: string) => {
+		let args = s == 'exprChanged' ? { file: { name: 'example.png' } } : undefined
+		let nvalue = await evalExpr(lastInput as EvalAppInput, args)
+
+		if (field) {
+			editorContext?.evalPreview.update((x) => {
+				x[`${id}.${field}`] = nvalue
+				return x
+			})
+		}
+
+		if (!onDemandOnly) {
+			let nhash = typeof nvalue != 'object' ? nvalue : sum(nvalue)
+			if (lastExprHash != nhash) {
+				// console.log('eval changed', field, nvalue)
 				value = nvalue
+				lastExprHash = nhash
 			}
 		}
 	}
 
 	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
 
-	$: lastInput?.type == 'evalv2' && lastInput.expr && debounceEval()
+	$: lastInput?.type == 'evalv2' && lastInput.expr && debounceEval('exprChanged')
 	$: lastInput?.type == 'templatev2' && lastInput.eval && debounceTemplate()
 
 	async function handleConnection() {
+		// console.log('handleCon')
 		if (lastInput?.type === 'connected') {
 			if (lastInput.connection) {
 				const { path, componentId } = lastInput.connection
@@ -185,6 +196,13 @@
 		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
 		} else if (lastInput?.type == 'evalv2') {
+			// console.log('evalv2', onDemandOnly, field)
+			if (onDemandOnly && exportValueFunction) {
+				value = (args?: any) => {
+					return evalExpr(lastInput as EvalV2AppInput, args)
+				}
+				return
+			}
 			const skey = `${id}-${key}-${rowContext ? $rowContext.index : 0}-${
 				iterContext ? $iterContext.index : 0
 			}`
@@ -236,24 +254,31 @@
 		}
 	}
 
-	async function evalExpr(input: EvalAppInput | EvalV2AppInput): Promise<any> {
+	async function evalExpr(
+		input: EvalAppInput | EvalV2AppInput,
+		args?: Record<string, any>
+	): Promise<any> {
 		if (iterContext && $iterContext.disabled) return
 		try {
+			const context = computeGlobalContext(
+				$worldStore,
+				deepMergeWithPriority(fullContext, args ?? {})
+			)
 			const r = await eval_like(
 				input.expr,
-				computeGlobalContext($worldStore, fullContext),
-				true,
+				context,
 				$state,
 				$mode == 'dnd',
 				$componentControl,
 				$worldStore,
-				$runnableComponents
+				$runnableComponents,
+				false
 			)
 			error = ''
 			return r
 		} catch (e) {
 			error = e.message
-			console.error("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
 			return value
 		}
 	}
@@ -267,17 +292,17 @@
 				const r = await eval_like(
 					'`' + input.eval + '`',
 					computeGlobalContext($worldStore, fullContext),
-					true,
 					$state,
 					$mode == 'dnd',
 					$componentControl,
 					$worldStore,
-					$runnableComponents
+					$runnableComponents,
+					false
 				)
 				error = ''
 				return r
 			} catch (e) {
-				console.debug("Eval error in app input '" + id + "' with key '" + key + "'", e)
+				console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
 				return e.message
 			}
 		} else if (input.type === 'static') {
@@ -296,6 +321,8 @@
 				// No connection
 				return
 			}
+
+			// console.log('onValueChange', newValue, connection, previousConnectedValue)
 
 			previousConnectedValue = newValue
 

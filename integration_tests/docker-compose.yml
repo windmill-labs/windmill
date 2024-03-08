@@ -1,0 +1,108 @@
+version: "3.7"
+
+services:
+  db:
+    deploy:
+      # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
+      replicas: 1
+    image: postgres:14
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    expose:
+      - 5432
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  windmill_server:
+    image: ${WM_IMAGE}:${WM_VERSION}
+    labels:
+      dev.windmill.role: server
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    expose:
+      - 8000
+    ports:
+      - 8000:8000
+    environment:
+      - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
+      - MODE=server
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      db:
+        condition: service_healthy
+
+  windmill_worker:
+    image: ${WM_IMAGE}:${WM_VERSION}
+    labels:
+      dev.windmill.role: worker
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
+      - MODE=worker
+      - WORKER_GROUP=default
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      db:
+        condition: service_healthy
+      windmill_server:
+        condition: service_healthy
+    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+    volumes:
+      # mount the docker socket to allow to run docker containers from within the workers
+      - /var/run/docker.sock:/var/run/docker.sock
+      - worker_dependency_cache:/tmp/windmill/cache
+
+  npm_registry:
+    image: verdaccio/verdaccio
+    environment:
+      - VERDACCIO_PROTOCOL=http
+      - VERDACCIO_PUBLIC_URL=http://npm_registry:4873
+    ports:
+      - 4873:4873
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4873/-/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./verdaccio:/verdaccio/conf
+      - npm_registry_data:/verdaccio/storage
+
+  pypi_server:
+    image: pypiserver/pypiserver:latest
+    platform: linux/x86_64
+    ports:
+      - 8080:8080
+    volumes:
+      - pypi_data:/data/packages
+    command: run -P . -a . /data/packages
+
+volumes:
+  db_data: null
+  npm_registry_data: null
+  worker_dependency_cache: null
+  pypi_data: null

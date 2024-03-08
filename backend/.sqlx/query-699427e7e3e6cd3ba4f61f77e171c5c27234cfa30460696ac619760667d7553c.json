@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_stats SET scalar_int = $4 WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "699427e7e3e6cd3ba4f61f77e171c5c27234cfa30460696ac619760667d7553c"
+}

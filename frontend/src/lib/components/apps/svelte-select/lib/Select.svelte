@@ -16,6 +16,7 @@
 	import ConditionalPortalGlobal from './ConditionalPortalGlobal.svelte'
 
 	import { extractCustomProperties, truncate } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	export let portal = true
 
@@ -575,7 +576,7 @@
 <svelte:window on:click={handleClickOutside} on:keydown={handleKeyDown} />
 
 <div
-	class="svelte-select {containerClasses}"
+	class={twMerge('svelte-select', containerClasses)}
 	class:disabled
 	class:focused
 	class:list-open={listOpen}
@@ -681,7 +682,7 @@
 		{/if}
 
 		{#if showClear}
-			<button type="button" class="icon clear-select" on:click={handleClear}>
+			<button type="button" class="icon clear-select" on:click|stopPropagation={handleClear}>
 				<slot name="clear-icon">
 					<ClearIcon />
 				</slot>

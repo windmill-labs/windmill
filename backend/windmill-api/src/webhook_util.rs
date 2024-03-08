@@ -3,10 +3,14 @@ use std::time::Duration;
 use quick_cache::sync::Cache;
 use serde::Serialize;
 use tokio::{select, sync::mpsc};
+
+#[cfg(feature = "prometheus")]
 use windmill_common::METRICS_ENABLED;
 
 use crate::db::DB;
+use crate::oauth2_ee::InstanceEvent;
 
+#[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
     // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
     static ref WEBHOOK_REQUEST_COUNT: prometheus::Histogram = prometheus::register_histogram!(
@@ -15,6 +19,10 @@ lazy_static::lazy_static! {
     )
     .unwrap();
 
+}
+
+lazy_static::lazy_static! {
+
     pub static ref INSTANCE_EVENTS_WEBHOOK: Option<String> = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
 
 }
@@ -22,18 +30,6 @@ lazy_static::lazy_static! {
 pub enum WebhookPayload {
     WorkspaceEvent(String, WebhookMessage),
     InstanceEvent(InstanceEvent),
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type")]
-pub enum InstanceEvent {
-    UserSignupOAuth { email: String },
-    UserAdded { email: String },
-    // UserDeleted { email: String },
-    // UserDeletedWorkspace { workspace: String, email: String },
-    UserAddedWorkspace { workspace: String, email: String },
-    UserInvitedWorkspace { workspace: String, email: String },
-    UserJoinedWorkspace { workspace: String, email: String, username: String },
 }
 
 #[derive(Serialize)]
@@ -109,12 +105,15 @@ impl WebhookShared {
                                 }
                             };
                             if let Some(url) = webhook_opt {
+                                #[cfg(feature = "prometheus")]
                                 let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                                 let _ = client.post(url).json(&message).send().await;
+                                #[cfg(feature = "prometheus")]
                                 timer.map(|x| x.stop_and_record());
                             }
                         },
                         Some(WebhookPayload::InstanceEvent(event)) => {
+                            #[cfg(feature = "prometheus")]
                             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                             let r = client.post(INSTANCE_EVENTS_WEBHOOK.as_ref().unwrap()).json(&event).send().await;
                             if let Err(e) = r {

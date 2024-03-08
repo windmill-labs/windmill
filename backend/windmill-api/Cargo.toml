@@ -9,23 +9,23 @@ name = "windmill_api"
 path = "src/lib.rs"
 
 [features]
-enterprise = ["windmill-queue/enterprise", "async-stripe", "samael", "windmill-audit/enterprise"]
+default = []
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:openidconnect"]
+stripe = ["dep:async-stripe"]
+enterprise_saml = ["dep:samael"]
 benchmark = []
+embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
+parquet = ["dep:polars", "dep:polars-io", "dep:object_store", "windmill-common/parquet"]
+prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 
 [dependencies]
 windmill-queue.workspace = true
-windmill-common = { workspace = true, features = [
-    "reqwest",
-    "prometheus",
-    "axum",
-    "tokio",
-    "hyper",
-    "sqlx",
-    "tracing_init",
-] }
+windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-py-imports.workspace = true
+windmill-parser-ts.workspace = true
+windmill-git-sync.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
@@ -66,7 +66,7 @@ sha2.workspace = true
 urlencoding.workspace = true
 async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
-prometheus.workspace = true
+prometheus = { workspace = true, optional = true }
 async_zip.workspace = true
 rsmq_async.workspace = true
 regex.workspace = true
@@ -76,14 +76,14 @@ samael = { workspace = true, optional = true }
 async-recursion.workspace = true
 rsa.workspace = true
 uuid.workspace = true
-tinyvector.workspace = true
-hf-hub.workspace = true
-tokenizers.workspace = true
-candle-core.workspace = true
-candle-transformers.workspace = true
-candle-nn.workspace = true
-aws-sdk-s3 = "0.36.0"
-aws-config = "0.57.2"
-polars = { version = "0.35.2", features = ["lazy", "parquet", "aws", "csv"] }
-polars-io = { version = "0.35.2", features = ["csv"] }
-object_store = { version = "0.8.0", features = ["aws"] }
+tinyvector = { workspace = true, optional = true}
+hf-hub  = { workspace = true, optional = true}
+tokenizers = { workspace = true, optional = true}
+candle-core = { workspace = true, optional = true}
+candle-transformers = { workspace = true, optional = true}
+candle-nn = { workspace = true, optional = true}
+polars = { workspace = true, optional = true}
+polars-io = { workspace = true, optional = true}
+object_store = { workspace = true, optional = true}
+openidconnect = { workspace = true, optional = true}
+pin-project.workspace = true

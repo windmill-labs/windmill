@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { ScriptService, FlowService, Script } from '$lib/gen'
+	import { ScriptService, FlowService, Script, AppService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	import Select from './apps/svelte-select/lib/index'
 
@@ -22,7 +22,7 @@
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
-	export let itemKind: 'script' | 'flow' = 'script'
+	export let itemKind: 'script' | 'flow' | 'app' = 'script'
 	export let kinds: Script.kind[] = [Script.kind.SCRIPT]
 	export let disabled = false
 	export let allowRefresh = false
@@ -50,26 +50,19 @@
 				value: script.path,
 				label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
 			}))
+		} else if (itemKind == 'app') {
+			items = (await AppService.listApps({ workspace: $workspaceStore! })).map((app) => ({
+				value: app.path,
+				label: `${app.path}${app.summary ? ` | ${truncate(app.summary, 20)}` : ''}`
+			}))
 		}
 	}
 
 	$: itemKind && $workspaceStore && loadItems()
 	let darkMode: boolean = false
-
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
-
-	onMount(() => {
-		onThemeChange()
-	})
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />
 
 <Drawer bind:this={drawerViewer} size="900px">
 	<DrawerContent title="Script {scriptPath}" on:close={drawerViewer.closeDrawer}>
@@ -110,7 +103,7 @@
 			}}
 			bind:justValue={scriptPath}
 			{items}
-			placeholder="Pick a {itemKind}"
+			placeholder="Pick {itemKind === 'app' ? 'an' : 'a'} {itemKind}"
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 			containerStyles={darkMode
 				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
@@ -148,6 +141,29 @@
 					on:click={async () => {
 						drawerFlowViewer.openDrawer()
 					}}
+				>
+					View
+				</Button>
+			</div>
+		{:else if itemKind == 'app'}
+			<div class="flex gap-2">
+				<Button
+					startIcon={{ icon: Pen }}
+					target="_blank"
+					color="light"
+					size="xs"
+					href="/apps/edit/{scriptPath}"
+					variant="border"
+				>
+					Edit
+				</Button>
+				<Button
+					color="light"
+					size="xs"
+					variant="border"
+					target="_blank"
+					startIcon={{ icon: Code }}
+					href="/apps/get/{scriptPath}"
 				>
 					View
 				</Button>

@@ -11,15 +11,9 @@
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
-	let darkMode: boolean = document.documentElement.classList.contains('dark')
+	let darkMode: boolean = false
 	export let isCollapsed: boolean = false
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
+	export let lightMode: boolean = false
 </script>
 
 <Menu>
@@ -29,9 +23,10 @@
 			icon={User}
 			label={`User (${$userStore?.username ?? $userStore?.email})`}
 			{isCollapsed}
+			{lightMode}
 		/>
 	</div>
-	<div class="divide-y">
+	<div class="divide-y z-20">
 		<div class="px-4 py-3" role="none">
 			<p class="text-sm font-medium text-primary truncate" role="none">
 				{$userStore?.email}
@@ -88,6 +83,7 @@
 
 		<div class="py-1" role="none">
 			<MenuItem
+				href="#"
 				on:click={() => logout()}
 				class={twMerge(
 					'flex flex-row gap-2 items-center px-4 py-2 ',
@@ -142,4 +138,4 @@
 	</div>
 </Menu>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />

@@ -30,8 +30,11 @@
 	export let extraKey: string | undefined = undefined
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
 	export let recomputeIds: string[] | undefined = undefined
+	export let noInitialize = false
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
+	export let noDefault = false
+	export let onSelect: string[] | undefined = undefined
 
 	const {
 		app,
@@ -67,7 +70,7 @@
 		result: undefined as string | undefined
 	})
 
-	let value: string | undefined = outputs?.result.peak()
+	let value: string | undefined = noDefault ? undefined : outputs?.result.peak()
 
 	$: resolvedConfig.items && handleItems()
 
@@ -77,8 +80,8 @@
 		listItems = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
 					return {
-						label: item.label,
-						value: JSON.stringify(item.value)
+						label: item?.label ?? 'undefined',
+						value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
 					}
 			  })
 			: []
@@ -116,6 +119,9 @@
 		}
 		preclickAction?.()
 		setValue(e.detail?.['value'])
+		if (onSelect) {
+			onSelect.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
+		}
 	}
 
 	function setValue(nvalue: any) {
@@ -189,7 +195,9 @@
 	/>
 {/each}
 
-<InitializeComponent {id} />
+{#if !noInitialize}
+	<InitializeComponent {id} />
+{/if}
 
 <AlignWrapper {render} {verticalAlignment}>
 	<div
@@ -219,6 +227,7 @@
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) +
 					css?.input?.style}
 				{value}
+				class={css?.input?.class}
 				placeholder={resolvedConfig.placeholder}
 				disabled={resolvedConfig.disabled}
 				on:focus={() => {

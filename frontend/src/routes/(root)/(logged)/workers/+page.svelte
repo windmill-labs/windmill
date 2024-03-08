@@ -1,7 +1,9 @@
 <script lang="ts">
+	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Popup, Skeleton } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import DefaultTags from '$lib/components/DefaultTags.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -9,26 +11,26 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
+	import { WORKER_S3_BUCKET_SYNC_SETTING } from '$lib/consts'
 	import { WorkerService, type WorkerPing, SettingService, ConfigService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
-	import { AlertTriangle, Loader2, Pen, Plus, X } from 'lucide-svelte'
+	import { AlertTriangle, Plus } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
-	let filteredWorkers: WorkerPing[] = []
 	let workerGroups: Record<string, any> | undefined = undefined
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
 	let intervalId: NodeJS.Timeout | undefined
 
 	const splitter = '_%%%_'
 	let globalCache = false
-	let customTags: string[] | undefined = []
-	$: filteredWorkers = (workers ?? []).filter((x) => (x.last_ping ?? 0) < 300)
+	let customTags: string[] | undefined = undefined
+
 	$: groupedWorkers = groupBy(
 		groupBy(
-			filteredWorkers,
+			workers ?? [],
 			(wp: WorkerPing) => wp.worker_instance + splitter + wp.worker_group,
 			(wp: WorkerPing) => wp.worker
 		),
@@ -36,14 +38,11 @@
 		(x) => x[0]?.split(splitter)?.[0]
 	)
 
-	const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
-	const CUSTOM_TAGS_SETTING = 'custom_tags'
-
 	let timeSinceLastPing = 0
 
 	async function loadWorkers(): Promise<void> {
 		try {
-			workers = await WorkerService.listWorkers({ perPage: 1000 })
+			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
 			timeSinceLastPing = 0
 		} catch (err) {
 			sendUserToast(`Could not load workers: ${err}`, true)
@@ -61,9 +60,15 @@
 	}
 
 	let secondInterval: NodeJS.Timeout | undefined = undefined
+	async function loadCustomTags() {
+		try {
+			customTags = (await WorkerService.getCustomTags()) ?? []
+		} catch (err) {
+			sendUserToast(`Could not load global cache: ${err}`, true)
+		}
+	}
+
 	onMount(() => {
-		loadWorkers()
-		loadWorkerGroups()
 		intervalId = setInterval(() => {
 			loadWorkers()
 			loadWorkerGroups()
@@ -73,22 +78,16 @@
 		}, 1000)
 	})
 
+	loadWorkers()
+	loadWorkerGroups()
+	loadCustomTags()
 	$: if ($superadmin) {
 		loadGlobalCache()
-		loadCustomTags()
 	}
 
 	async function loadGlobalCache() {
 		try {
 			globalCache = (await SettingService.getGlobal({ key: WORKER_S3_BUCKET_SYNC_SETTING })) ?? true
-		} catch (err) {
-			sendUserToast(`Could not load global cache: ${err}`, true)
-		}
-	}
-
-	async function loadCustomTags() {
-		try {
-			customTags = (await SettingService.getGlobal({ key: CUSTOM_TAGS_SETTING })) ?? []
 		} catch (err) {
 			sendUserToast(`Could not load global cache: ${err}`, true)
 		}
@@ -109,8 +108,6 @@
 		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
 		loadWorkerGroups()
 	}
-
-	let newTag: string = ''
 </script>
 
 <CenteredPage>
@@ -137,102 +134,32 @@
 							}
 						}}
 						options={{ right: 'global cache to s3' }}
-						disabled={!$enterpriseLicense}
+						size="sm"
+						disabled={!$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 					/>
 					<Tooltip
 						><p
 							>global cache to s3 is an enterprise feature that enable workers to do fast cold start
-							and share a single cache backed by s3 to ensure that even with a high number of
-							workers, dependencies for python/deno/bun/go are only downloaded for the first time
-							only once by the whole fleet.
+							and share a single cache backed by s3 for pip dependencies.
 						</p>require S3_CACHE_BUCKET to be set and has NO effect otherwise (even if this setting
 						is on)</Tooltip
 					>
 				</div>
 				<div
-					><Popup
-						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-					>
-						<svelte:fragment slot="button">
-							<Button color="dark" size="xs" nonCaptureEvent={true}>
-								<div class="flex flex-row gap-1 items-center"
-									><Pen size={14} /> Assignable tags&nbsp;<Tooltip light
-										>Tags are assigned to scripts and flows. Workers only accept jobs that
-										correspond to their worker tags. Scripts have a default tag based on the
-										language they are in but users can choose to override their tags with custom
-										ones. This editor allow you to set the custom tags one can override the scripts
-										and flows with.</Tooltip
-									></div
-								>
-							</Button>
-						</svelte:fragment>
-						<div class="flex flex-col w-72 p-2 gap-2">
-							{#if customTags == undefined}
-								<Loader2 class="animate-spin" />
-							{:else}
-								<div class="flex flex-wrap gap-3 gap-y-2">
-									{#each customTags as customTag}
-										<div class="flex gap-0.5 items-center"
-											><div class="text-2xs p-1 rounded border text-primary">{customTag}</div>
-											<button
-												class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
-												aria-label="Remove item"
-												on:click|preventDefault|stopPropagation={async () => {
-													await SettingService.setGlobal({
-														key: CUSTOM_TAGS_SETTING,
-														requestBody: { value: customTags?.filter((x) => x != customTag) }
-													})
-													loadCustomTags()
-													sendUserToast('Tag removed')
-												}}
-											>
-												<X size={12} />
-											</button></div
-										>
-									{/each}
-								</div>
-								<input type="text" bind:value={newTag} />
-
-								<Button
-									variant="contained"
-									color="blue"
-									size="sm"
-									on:click={async () => {
-										await SettingService.setGlobal({
-											key: CUSTOM_TAGS_SETTING,
-											requestBody: {
-												value: [...(customTags ?? []), newTag.trim().replaceAll(' ', '_')]
-											}
-										})
-										loadCustomTags()
-										sendUserToast('Tag added')
-									}}
-									disabled={newTag.trim() == ''}
-								>
-									Add
-								</Button>
-								<span class="text-2xs text-tertiary"
-									>For tags specific to some workspaces, use <pre class="inline"
-										>tag(workspace1+workspace2)</pre
-									></span
-								>
-								<span class="text-2xs text-tertiary"
-									>For dynamic tags based on the workspace, use <pre class="inline">$workspace</pre
-									>, e.g:
-									<pre class="inline">tag-$workspace</pre></span
-								>
-							{/if}
-						</div>
-					</Popup>
+					><AssignableTags
+						on:refresh={() => {
+							loadCustomTags()
+						}}
+					/>
 				</div>
+				<div><DefaultTags /> </div>
 			</div>
 		{/if}
 	</PageHeader>
 
 	{#if workers != undefined}
 		{#if groupedWorkers.length == 0}
-			<p>No workers seems to be available</p>
+			<p>No workers seem to be available</p>
 		{/if}
 
 		<div class="py-4 w-full flex justify-between"
@@ -285,6 +212,7 @@
 		>
 		{#each groupedWorkers as worker_group (worker_group[0])}
 			<WorkspaceGroup
+				{customTags}
 				name={worker_group[0]}
 				config={(workerGroups ?? {})[worker_group[0]]}
 				on:reload={() => {
@@ -373,6 +301,7 @@
 
 		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group (worker_group[0])}
 			<WorkspaceGroup
+				{customTags}
 				on:reload={() => {
 					loadWorkerGroups()
 				}}

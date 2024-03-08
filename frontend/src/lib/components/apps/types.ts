@@ -20,6 +20,7 @@ import type {
 	RowAppInput,
 	Runnable,
 	StaticAppInput,
+	TemplateV2AppInput,
 	UploadAppInput,
 	UserAppInput
 } from './inputType'
@@ -59,23 +60,28 @@ export type Configuration =
 	| EvalV2AppInput
 	| UploadAppInput
 	| ResultAppInput
+	| TemplateV2AppInput
 
 export type StaticConfiguration = GeneralAppInput & StaticAppInput
-export type RichConfigurationT<T> =
-	| (T & { type: AppInput['type'] })
-	| {
-			type: 'oneOf'
-			selected: string
-			tooltip?: string
-			labels?: Record<string, string>
-			configuration: Record<string, Record<string, T>>
-	  }
+export type OneOfRichConfiguration<T> = {
+	type: 'oneOf'
+	selected: string
+	tooltip?: string
+	labels?: Record<string, string>
+	configuration: Record<string, Record<string, T>>
+}
+
+export type OneOfConfiguration = OneOfRichConfiguration<
+	GeneralAppInput & (StaticAppInput | EvalAppInput | EvalV2AppInput)
+>
+
+export type RichConfigurationT<T> = (T & { type: AppInput['type'] }) | OneOfRichConfiguration<T>
 export type RichConfiguration = RichConfigurationT<Configuration>
 export type RichConfigurations = Record<string, RichConfiguration>
 
 export type StaticRichConfigurations = Record<
 	string,
-	RichConfigurationT<GeneralAppInput & (StaticAppInput | EvalAppInput)>
+	RichConfigurationT<GeneralAppInput & (StaticAppInput | EvalAppInput | EvalV2AppInput)>
 >
 
 export interface BaseAppComponent extends Partial<Aligned> {
@@ -173,7 +179,10 @@ export type ListContext = Writable<{
 	disabled: boolean
 }>
 
-export type ListInputs = {set: (id: string, value: any) => void, remove: (id: string) => void}
+export type ListInputs = {
+	set: (id: string, value: any) => void
+	remove: (id: string) => void
+}
 
 export type GroupContext = Writable<Record<string, any>>
 
@@ -189,13 +198,14 @@ export type AppViewerContext = {
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
+	bgRuns: Writable<string[]>
 	runnableComponents: Writable<
 		Record<
 			string,
 			{
 				autoRefresh: boolean
 				refreshOnStart?: boolean
-				cb: ((inlineScript?: InlineScript) => CancelablePromise<void>)[]
+				cb: ((inlineScript?: InlineScript, setRunnableJob?: boolean) => CancelablePromise<void>)[]
 			}
 		>
 	>
@@ -247,6 +257,7 @@ export type AppViewerContext = {
 				validate?: (key: string) => void
 				invalidate?: (key: string, error: string) => void
 				validateAll?: () => void
+				clearFiles?: () => void
 			}
 		>
 	>
@@ -255,10 +266,18 @@ export type AppViewerContext = {
 	darkMode: Writable<boolean>
 	cssEditorOpen: Writable<boolean>
 	previewTheme: Writable<string | undefined>
+	debuggingComponents: Writable<Record<string, number>>
 }
 
 export type AppEditorContext = {
 	yTop: Writable<number>
+	runnableJobEditorPanel: Writable<{
+		focused: boolean
+		jobs: Record<string, string>
+		frontendJobs: Record<string, any>
+		width: number
+	}>
+	evalPreview: Writable<Record<string, any>>
 	componentActive: Writable<boolean>
 	dndItem: Writable<Record<string, (x: number, y: number, topY: number) => void>>
 	refreshComponents: Writable<(() => void) | undefined>

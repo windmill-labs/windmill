@@ -1,4 +1,8 @@
-FROM debian:bookworm-slim as nsjail
+ARG DEBIAN_IMAGE=debian:bookworm-slim
+ARG RUST_IMAGE=rust:1.75-slim-bookworm
+ARG PYTHON_IMAGE=python:3.11.4-slim-bookworm
+
+FROM ${DEBIAN_IMAGE} as nsjail
 
 WORKDIR /nsjail
 
@@ -22,7 +26,7 @@ RUN if [ "$nsjail" = "true" ]; then git clone -b master --single-branch https://
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
 RUN if [ "$nsjail" = "true" ]; then make; else touch nsjail; fi
 
-FROM rust:slim-bookworm AS rust_base
+FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
@@ -87,7 +91,7 @@ COPY .git/ .git/
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM debian:bookworm-slim as downloader
+FROM ${DEBIAN_IMAGE} as downloader
 
 ARG TARGETPLATFORM
 
@@ -96,34 +100,57 @@ SHELL ["/bin/bash", "-c"]
 RUN apt update -y
 RUN apt install -y unzip curl
 
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.38.0/deno-linux-arm64.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.38.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
+
 
 RUN unzip deno.zip && rm deno.zip
 
-FROM python:3.11.4-slim-bookworm
+FROM ${PYTHON_IMAGE}
 
 ARG TARGETPLATFORM
-
+ARG POWERSHELL_VERSION=7.3.5
+ARG POWERSHELL_DEB_VERSION=7.3.5-1
+ARG RCLONE_VERSION=1.60.1
+ARG KUBECTL_VERSION=1.27.2
+ARG HELM_VERSION=3.12.0
 ARG APP=/usr/src/app
+ARG WITH_POWERSHELL=true
+ARG WITH_RCLONE=true
+ARG WITH_KUBECTL=true
+ARG WITH_HELM=true
+
 
 RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' 'https://github.com/PowerShell/PowerShell/releases/download/v7.3.5/powershell_7.3.5-1.deb_amd64.deb' && \
+RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
+    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && \
     dpkg --install 'pwsh.deb' && \
-    rm 'pwsh.deb'; else echo 'pwshell not on amd64'; fi
+    rm 'pwsh.deb'; \
+    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O powershell.tar.gz "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-arm64.tar.gz" && \
+    mkdir -p /opt/microsoft/powershell/7 && \
+    tar zxf powershell.tar.gz -C /opt/microsoft/powershell/7 && \
+    chmod +x /opt/microsoft/powershell/7/pwsh && \
+    ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh && \
+    rm powershell.tar.gz; \
+    else echo 'Could not install pwshell, not on amd64 or arm64'; fi;  \
+    else echo 'Building the image without powershell'; fi
 
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    wget https://get.helm.sh/helm-v3.12.0-linux-$arch.tar.gz && \
-    tar -zxvf helm-v3.12.0-linux-$arch.tar.gz  && \
+RUN if [ "$WITH_HELM" = "true" ]; then \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    wget "https://get.helm.sh/helm-v${HELM_VERSION}-linux-$arch.tar.gz" && \
+    tar -zxvf "helm-v${HELM_VERSION}-linux-$arch.tar.gz"  && \
     mv linux-$arch/helm /usr/local/bin/helm &&\
-    chmod +x /usr/local/bin/helm
+    chmod +x /usr/local/bin/helm; \
+    else echo 'Building the image without helm'; fi
 
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    curl -LO "https://dl.k8s.io/release/v1.27.2/bin/linux/$arch/kubectl" && \
-    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+RUN if [ "$WITH_KUBECTL" = "true" ]; then \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -LO "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/$arch/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
+    else echo 'Building the image without kubectl'; fi
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -140,22 +167,25 @@ RUN set -eux; \
     unzip awscliv2.zip && \
     ./aws/install && rm awscliv2.zip
 
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"; \
-    unzip -p rclone.zip rclone-v1.60.1-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
-    chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone
+RUN if [ "$WITH_RCLONE" = "true" ]; then \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-$arch.zip"; \
+    unzip -p rclone.zip rclone-v${RCLONE_VERSION}-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
+    chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone; \
+    else echo 'Building the image without rclone'; fi
+
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
     'amd64') \
-    targz='go1.21.0.linux-amd64.tar.gz'; \
+    targz='go1.21.6.linux-amd64.tar.gz'; \
     ;; \
     'arm64') \
-    targz='go1.21.0.linux-arm64.tar.gz'; \
+    targz='go1.21.6.linux-arm64.tar.gz'; \
     ;; \
     'armhf') \
-    targz='go1.21.0.linux-armv6l.tar.gz'; \
+    targz='go1.21.6.linux-armv6l.tar.gz'; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
@@ -164,32 +194,35 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
+ARG nsjail=""
+
+RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
+    && apt-get install -y \
+    curl nodejs npm; fi
+
 # go build is slower the first time it is ran, so we prewarm it in the build
-RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm &&  printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go build -x && rm -rf /tmp/gobuildwarm
+RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\"\nwmill \"github.com/windmill-labs/windmill-go-client\")\nfunc main() { v := wmill.GetStatePath()\n fmt.Println(v) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
 
 ENV TZ=Etc/UTC
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
-COPY --from=frontend /frontend/build /static_frontend
+COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 
-COPY --from=downloader /deno /usr/bin/deno
-RUN chmod 755 /usr/bin/deno
+COPY --from=downloader --chmod=755 /deno /usr/bin/deno
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
-COPY --from=oven/bun:1.0.8 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.0.29 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
-RUN mkdir -p ${APP}
+WORKDIR ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
-
-WORKDIR ${APP}
 
 RUN windmill cache
 

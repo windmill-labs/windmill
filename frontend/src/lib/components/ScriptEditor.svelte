@@ -2,9 +2,9 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { CompletedJob, Job, JobService, SettingsService } from '$lib/gen'
+	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { copyToClipboard, emptySchema, getModifierKey, sendUserToast } from '$lib/utils'
+	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -14,7 +14,7 @@
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import { Button, Kbd } from './common'
+	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
@@ -22,7 +22,8 @@
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
-	import { Clipboard, Github, Play } from 'lucide-svelte'
+	import { Clipboard, CornerDownLeft, Github, Play } from 'lucide-svelte'
+	import { setLicense } from '$lib/enterpriseUtils'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -39,6 +40,8 @@
 	export let diffEditor: DiffEditor | undefined = undefined
 	export let collabMode = false
 	export let edit = true
+	export let noHistory = false
+	export let saveToWorkspace = false
 
 	let websocketAlive = {
 		pyright: false,
@@ -46,8 +49,7 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false,
-		bun: false
+		shellcheck: false
 	}
 
 	let width = 1200
@@ -106,6 +108,7 @@
 
 		try {
 			await inferArgs(nlang ?? lang, code, nschema)
+
 			validCode = true
 			schema = nschema
 		} catch (e) {
@@ -118,11 +121,8 @@
 		loadPastTests()
 	})
 
+	setLicense()
 	export async function setCollaborationMode() {
-		if (!$enterpriseLicense) {
-			$enterpriseLicense = await SettingsService.getLicenseId()
-		}
-
 		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
 				{
@@ -170,7 +170,7 @@
 		})
 
 		function setPeers() {
-			peers = Array.from(awareness.getStates().values()).map((x) => x.user)
+			peers = Array.from(awareness.getStates().values()).map((x) => x?.['user'])
 		}
 
 		setPeers()
@@ -200,7 +200,7 @@
 	}
 
 	function collabUrl() {
-		let url = new URL(window.location.toString())
+		let url = new URL(window.location.toString().split('#')[0])
 		url.search = ''
 		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
 	}
@@ -228,7 +228,7 @@
 		/>
 	</div>
 </Modal>
-<div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
+<div class="border-b shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
 			scriptPath={edit ? path : undefined}
@@ -246,12 +246,15 @@
 			on:collabPopup={() => (showCollabPopup = true)}
 			{editor}
 			{lang}
+			on:createScriptFromInlineScript
 			{websocketAlive}
 			collabUsers={peers}
 			kind={asKind(kind)}
 			{template}
 			{diffEditor}
 			{args}
+			{noHistory}
+			{saveToWorkspace}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">
@@ -274,7 +277,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
-			<div class="pl-2 h-full !overflow-visible">
+			<div class="pl-2 h-full !overflow-visible bg-gray-50 dark:bg-[#2F343F]">
 				{#key lang}
 					<Editor
 						folding
@@ -302,7 +305,7 @@
 						}}
 						class="flex flex-1 h-full !overflow-visible"
 						lang={scriptLangToEditorLang(lang)}
-						deno={lang == 'deno'}
+						scriptLang={lang}
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
@@ -342,12 +345,12 @@
 								icon: Play,
 								classes: 'animate-none'
 							}}
+							shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
 						>
 							{#if testIsLoading}
 								Running
 							{:else}
-								Test&nbsp;<Kbd small isModifier>{getModifierKey()}</Kbd>
-								<Kbd small><span class="text-lg font-bold">⏎</span></Kbd>
+								Test
 							{/if}
 						</Button>
 					{/if}

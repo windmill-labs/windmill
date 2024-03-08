@@ -65,7 +65,7 @@ export function findFreeSpaceForItem<T>(matrix: FilledItem<T>[][], item: ItemLay
 }
 
 const getItem = (item, col) => {
-	return { ...item[col], id: item.id }
+	return { ...item[col] }
 }
 
 const updateItem = (elements, active, position, col) => {
@@ -77,52 +77,54 @@ const updateItem = (elements, active, position, col) => {
 	})
 }
 
-export function moveItemsAroundItem(active, items, cols, original) {
-	// Get current item from the breakpoint
-	const activeItem = getItem(active, cols)
-	const ids = items.map((value) => value.id).filter((value) => value !== activeItem.id)
+// export function moveItemsAroundItem(active, items, cols, original) {
+// 	// Get current item from the breakpoint
+// 	const activeItem = getItem(active, cols)
+// 	const ids = items.map((value) => value.id).filter((value) => value !== activeItem.id)
 
-	const els = items.filter((value) => value.id !== activeItem.id)
+// 	const els = items.filter((value) => value.id !== activeItem.id)
+// 	console.log(1, cols)
+// 	// Update items
+// 	let newItems = updateItem(items, active, activeItem, cols)
 
-	// Update items
-	let newItems = updateItem(items, active, activeItem, cols)
+// 	let matrix = makeMatrixFromItemsIgnore(newItems, ids, getRowsCount(newItems, cols), cols)
+// 	let tempItems = newItems
 
-	let matrix = makeMatrixFromItemsIgnore(newItems, ids, getRowsCount(newItems, cols), cols)
-	let tempItems = newItems
+// 	// Exclude resolved elements ids in array
+// 	let exclude: string[] = []
 
-	// Exclude resolved elements ids in array
-	let exclude: string[] = []
+// 	els.forEach((item) => {
+// 		// Find position for element
+// 		let position = findFreeSpaceForItem(matrix, item[cols])
+// 		// Exclude item
+// 		exclude.push(item.id)
+// 		console.log(2, cols)
 
-	els.forEach((item) => {
-		// Find position for element
-		let position = findFreeSpaceForItem(matrix, item[cols])
-		// Exclude item
-		exclude.push(item.id)
+// 		tempItems = updateItem(tempItems, item, position, cols)
 
-		tempItems = updateItem(tempItems, item, position, cols)
+// 		// Recreate ids of elements
+// 		let getIgnoreItems = ids.filter((value) => exclude.indexOf(value) === -1)
 
-		// Recreate ids of elements
-		let getIgnoreItems = ids.filter((value) => exclude.indexOf(value) === -1)
+// 		// Update matrix for next iteration
+// 		matrix = makeMatrixFromItemsIgnore(
+// 			tempItems,
+// 			getIgnoreItems,
+// 			getRowsCount(tempItems, cols),
+// 			cols
+// 		)
+// 	})
 
-		// Update matrix for next iteration
-		matrix = makeMatrixFromItemsIgnore(
-			tempItems,
-			getIgnoreItems,
-			getRowsCount(tempItems, cols),
-			cols
-		)
-	})
+// 	// Return result
+// 	return tempItems
+// }
 
-	// Return result
-	return tempItems
-}
-
-export function moveItem(active, items, cols, original) {
+export function moveItem(active, items, cols) {
 	// Get current item from the breakpoint
 	const item = getItem(active, cols)
+	// console.log(JSON.stringify(item), JSON.stringify(active), JSON.stringify(cols), 3, cols)
 
 	// Create matrix from the items expect the active
-	let matrix = makeMatrixFromItemsIgnore(items, [item.id], getRowsCount(items, cols), cols)
+	let matrix = makeMatrixFromItemsIgnore(items, [active.id], getRowsCount(items, cols), cols)
 	// Getting the ids of items under active Array<String>
 	const closeBlocks = findCloseBlocks(matrix, item)
 	// Getting the objects of items under active Array<Object>
@@ -179,7 +181,7 @@ export function normalize(items, col) {
 	result.forEach((value) => {
 		const getItem = value[col]
 		if (!getItem.static) {
-			result = moveItem(getItem, result, col, { ...getItem })
+			result = moveItem(getItem, result, col)
 		}
 	})
 

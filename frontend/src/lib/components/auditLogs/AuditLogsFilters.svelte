@@ -323,12 +323,13 @@
 		<span class="text-xs absolute -top-4">Resource</span>
 
 		<AutoComplete
+			noInputStyles
 			items={resources?.map((r) => r.path) ?? []}
 			value={resource}
 			bind:selectedItem={resource}
 			inputClassName="!h-[34px] py-1 !text-xs !w-48"
 			hideArrow
-			dropdownClassName="!text-sm !w-48 !max-w-48"
+			dropdownClassName="!text-sm"
 		/>
 	</div>
 

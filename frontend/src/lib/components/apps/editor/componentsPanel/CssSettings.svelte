@@ -80,7 +80,6 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
-									deno={false}
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>

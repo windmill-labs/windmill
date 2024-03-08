@@ -22,10 +22,11 @@ use bytes::Bytes;
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
-use sql_builder::{bind::Bind, SqlBuilder};
+use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
-use windmill_audit::{audit_log, ActionKind};
+use windmill_audit::audit_ee::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
@@ -223,8 +224,16 @@ async fn list_resources(
         .clone();
 
     if let Some(rt) = &lq.resource_type {
-        for rt in rt.split(',') {
-            sqlb.and_where_eq("resource_type", "?".bind(&rt));
+        let resource_type_filters = rt.split(',').collect::<Vec<&str>>();
+        if resource_type_filters.len() == 1 {
+            sqlb.and_where_eq("resource_type", "?".bind(rt));
+        } else {
+            let mut list = Vec::new();
+            for rt in resource_type_filters {
+                let quoted_value = quote(rt);
+                list.push(quoted_value);
+            }
+            sqlb.and_where_in("resource_type", list.as_slice());
         }
     }
     if let Some(rt) = &lq.resource_type_exclude {
@@ -361,23 +370,18 @@ async fn explain_resource_perm_error(
 }
 
 async fn custom_component(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<Response> {
-    let mut tx = user_db.begin(&authed).await?;
-
     let cc_o = sqlx::query_scalar!(
         "SELECT value->>'js' FROM resource
         WHERE path = $1 AND workspace_id = $2",
         format!("f/app_custom/{name}"),
         &w_id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await?
     .flatten();
-
-    tx.commit().await?;
 
     let cc = not_found_if_none(cc_o, "Custom Component", name)?;
     let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
@@ -399,46 +403,68 @@ async fn get_resource_value_interpolated(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(job_info): Query<JobInfo>,
 ) -> JsonResult<Option<serde_json::Value>> {
-    let path = path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
+    return get_resource_value_interpolated_internal(
+        &authed,
+        Some(user_db),
+        &db,
+        w_id.as_str(),
+        path.to_path(),
+        job_info.job_id,
+        token.as_str(),
+    )
+    .await
+    .map(|success| Json(success));
+}
+
+use async_recursion::async_recursion;
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+
+pub async fn get_resource_value_interpolated_internal(
+    authed: &ApiAuthed,
+    user_db: Option<UserDB>, // if none, no permission will be checked to access the resource
+    db: &DB,
+    workspace: &str,
+    path: &str,
+    job_id: Option<Uuid>,
+    token: &str,
+) -> Result<Option<serde_json::Value>> {
+    let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
 
     let value_o = sqlx::query_scalar!(
         "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
-        path.to_owned(),
-        &w_id
+        path,
+        workspace
     )
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
     if value_o.is_none() {
-        explain_resource_perm_error(&path, &w_id, &db).await?;
+        explain_resource_perm_error(path, workspace, db).await?;
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        Ok(Json(Some(
+        Ok(Some(
             transform_json_value(
-                &authed,
-                &user_db,
-                &db,
-                &w_id,
+                authed,
+                user_db.clone(),
+                db,
+                workspace,
                 value,
-                &job_info.job_id,
-                &token,
+                &job_id,
+                token,
             )
             .await?,
-        )))
+        ))
     } else {
-        Ok(Json(None))
+        Ok(None)
     }
 }
-
-use async_recursion::async_recursion;
 
 #[async_recursion]
 pub async fn transform_json_value<'c>(
     authed: &ApiAuthed,
-    user_db: &UserDB,
+    user_db: Option<UserDB>, // if none, no permission will be checked to access the resources/variables
     db: &DB,
     workspace: &str,
     v: Value,
@@ -448,9 +474,19 @@ pub async fn transform_json_value<'c>(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
-            let v = crate::variables::get_value_internal(tx, db, workspace, path, &authed.username)
-                .await?;
+            let tx: Transaction<'_, Postgres> =
+                authed_transaction_or_default(authed, user_db.clone(), db).await?;
+            let v = crate::variables::get_value_internal(
+                tx,
+                db,
+                workspace,
+                path,
+                user_db
+                    .clone()
+                    .map(|_| authed.username.as_str())
+                    .unwrap_or("backend"),
+            )
+            .await?;
             Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -458,7 +494,8 @@ pub async fn transform_json_value<'c>(
             if path.split("/").count() < 2 {
                 return Err(Error::InternalErr(format!("Invalid resource path: {path}")));
             }
-            let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
+            let mut tx: Transaction<'_, Postgres> =
+                authed_transaction_or_default(authed, user_db.clone(), db).await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
                 path,
@@ -469,13 +506,13 @@ pub async fn transform_json_value<'c>(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(authed, user_db, db, workspace, v, job_id, token).await
+                transform_json_value(authed, user_db.clone(), db, workspace, v, job_id, token).await
             } else {
                 Ok(Value::Null)
             }
         }
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
-            let mut tx = user_db.clone().begin(authed).await?;
+            let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
             let job = sqlx::query_as::<_, QueuedJob>(
                 "SELECT * FROM queue WHERE id = $1 AND workspace_id = $2",
             )
@@ -488,7 +525,8 @@ pub async fn transform_json_value<'c>(
             let job = not_found_if_none(job, "Job", job_id.unwrap().to_string())?;
 
             let flow_path = if let Some(uuid) = job.parent_job {
-                let mut tx: Transaction<'_, Postgres> = user_db.clone().begin(authed).await?;
+                let mut tx: Transaction<'_, Postgres> =
+                    authed_transaction_or_default(authed, user_db.clone(), db).await?;
                 let p = sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
                     .fetch_optional(&mut *tx)
                     .await?
@@ -511,6 +549,8 @@ pub async fn transform_json_value<'c>(
                 flow_path,
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
+                job.root_job.map(|x| x.to_string()),
+                None,
             )
             .await;
 
@@ -527,12 +567,25 @@ pub async fn transform_json_value<'c>(
             for (a, b) in m.clone().into_iter() {
                 m.insert(
                     a.clone(),
-                    transform_json_value(authed, user_db, db, workspace, b, job_id, token).await?,
+                    transform_json_value(authed, user_db.clone(), db, workspace, b, job_id, token)
+                        .await?,
                 );
             }
             Ok(Value::Object(m))
         }
         a @ _ => Ok(a),
+    }
+}
+
+async fn authed_transaction_or_default<'c>(
+    authed: &ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+) -> sqlx::error::Result<Transaction<'c, Postgres>> {
+    if let Some(user_db) = user_db {
+        user_db.begin(authed).await
+    } else {
+        db.clone().begin().await
     }
 }
 
@@ -564,9 +617,10 @@ struct CreateResourceQuery {
 }
 async fn create_resource(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
@@ -608,6 +662,18 @@ async fn create_resource(
     .await?;
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: resource.path.clone(), parent_path: None },
+        Some(format!("Resource '{}' created", resource.path.clone())),
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateResource { workspace: w_id, path: resource.path.clone() },
@@ -621,8 +687,10 @@ async fn create_resource(
 
 async fn delete_resource(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -654,6 +722,18 @@ async fn delete_resource(
     .await?;
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!("Resource '{}' deleted", path)),
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteResource { workspace: w_id, path: path.to_owned() },
@@ -664,9 +744,10 @@ async fn delete_resource(
 
 async fn update_resource(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
@@ -727,6 +808,18 @@ async fn update_resource(
     .await?;
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: npath.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!("Resource '{}' updated", npath)),
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateResource {
@@ -746,8 +839,10 @@ struct UpdateResource {
 
 async fn update_resource_value(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
@@ -773,6 +868,19 @@ async fn update_resource_value(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: path.to_string(), parent_path: Some(path.to_string()) },
+        None,
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateResource {
@@ -855,8 +963,10 @@ async fn exists_resource_type(
 
 async fn create_resource_type(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
@@ -875,6 +985,22 @@ async fn create_resource_type(
     )
     .execute(&mut *tx)
     .await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::ResourceType { path: resource_type.name.clone() },
+        Some(format!(
+            "Resource Type '{}' created",
+            resource_type.name.clone()
+        )),
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed.username,
@@ -922,8 +1048,10 @@ async fn check_rt_path_conflict<'c>(
 
 async fn delete_resource_type(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
@@ -948,6 +1076,19 @@ async fn delete_resource_type(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::ResourceType { path: name.clone() },
+        None,
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteResourceType { name: name.clone() },
@@ -958,8 +1099,10 @@ async fn delete_resource_type(
 
 async fn update_resource_type(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, name)): Path<(String, String)>,
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
@@ -989,6 +1132,19 @@ async fn update_resource_type(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::ResourceType { path: name.clone() },
+        None,
+        rsmq.clone(),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateResourceType { name: name.clone() },

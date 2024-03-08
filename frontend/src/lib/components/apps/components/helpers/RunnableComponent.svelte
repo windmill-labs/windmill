@@ -11,6 +11,7 @@
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type {
+		AppEditorContext,
 		AppViewerContext,
 		CancelablePromise,
 		GroupContext,
@@ -23,6 +24,7 @@
 	import { selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
+	import { get } from 'svelte/store'
 
 	// Component props
 	export let id: string
@@ -50,6 +52,8 @@
 	export let errorHandledByComponent: boolean = false
 	export let hideRefreshButton: boolean = false
 	export let hasChildrens: boolean
+	export let allowConcurentRequests = false
+	export let noInitialize = false
 
 	const {
 		worldStore,
@@ -68,15 +72,18 @@
 		initialized,
 		selectedComponent,
 		app,
-		connectingInput
+		connectingInput,
+		bgRuns
 	} = getContext<AppViewerContext>('AppViewerContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const rowContext = getContext<ListContext>('RowWrapperContext')
 	const groupContext = getContext<GroupContext>('GroupContext')
 
 	const dispatch = createEventDispatcher()
 
-	let donePromise: (() => void) | undefined = undefined
+	let donePromise: ((v: any) => void) | undefined = undefined
 
 	$runnableComponents = $runnableComponents
 
@@ -93,6 +100,7 @@
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
+			console.debug('debounce execute')
 			executeComponent(true)
 		}, 200)
 	}
@@ -108,12 +116,15 @@
 	let lazyStaticValues = computeStaticValues()
 	let currentStaticValues = lazyStaticValues
 
+	let isBg = id.startsWith('bg_')
+	$: isBg && updateBgRuns(loading)
 	$: fields && (currentStaticValues = computeStaticValues())
 	$: if (!deepEqual(currentStaticValues, lazyStaticValues)) {
 		lazyStaticValues = currentStaticValues
 		refreshIfAutoRefresh('static changed')
 	}
 
+	// $: console.log(runnableInputValues)
 	$: (runnableInputValues || extraQueryParams || args) &&
 		resultJobLoader &&
 		refreshIfAutoRefresh('arg changed')
@@ -210,7 +221,15 @@
 			return njobs
 		})
 	}
-	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
+
+	async function executeComponent(
+		noToast = false,
+		inlineScriptOverride?: InlineScript,
+		setRunnableJobEditorPanel?: boolean,
+		dynamicArgsOverride?: Record<string, any>,
+		callbacks?: Callbacks
+	): Promise<string | undefined> {
+		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
@@ -226,36 +245,46 @@
 				addJob(job)
 			}
 
+			let r: any
 			try {
-				const r = await eval_like(
+				r = await eval_like(
 					runnable.inlineScript?.content,
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? $groupContext : undefined
 					}),
-					false,
 					$state,
 					isEditor,
 					$componentControl,
 					$worldStore,
-					$runnableComponents
+					$runnableComponents,
+					true
 				)
 
-				await setResult(r, job)
+				await setResult(r, job, setRunnableJobEditorPanel)
 				$state = $state
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
-				await setResult({ error: { message: e.body ?? e.message } }, job)
+				r = { error: { message: e.body ?? e.message } }
+				await setResult(r, job, setRunnableJobEditorPanel)
 			}
 			loading = false
-			donePromise?.()
+			donePromise?.(r)
+			if (setRunnableJobEditorPanel && editorContext) {
+				editorContext.runnableJobEditorPanel.update((p) => {
+					return {
+						...p,
+						frontendJobs: { ...p.frontendJobs, [id]: r }
+					}
+				})
+			}
 			return
 		} else if (noBackend) {
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}
-			donePromise?.()
+			donePromise?.(undefined)
 			return
 		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
@@ -268,8 +297,8 @@
 		}
 
 		try {
-			await resultJobLoader?.abstractRun(async () => {
-				const nonStaticRunnableInputs = {}
+			jobId = await resultJobLoader?.abstractRun(async () => {
+				const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
 				const staticRunnableInputs = {}
 				for (const k of Object.keys(fields ?? {})) {
 					let field = fields[k]
@@ -318,23 +347,52 @@
 					addJob(uuid)
 				}
 				return uuid
-			})
+			}, callbacks)
+			if (setRunnableJobEditorPanel && editorContext) {
+				editorContext.runnableJobEditorPanel.update((p) => {
+					return {
+						...p,
+						jobs: { ...p.jobs, [id]: jobId as string }
+					}
+				})
+			}
+			return jobId
 		} catch (e) {
-			updateResult({ error: e.body ?? e.message })
+			let error = e.body ?? e.message
+			updateResult({ error })
+			$errorByComponent[id] = { error }
+
+			donePromise?.({ error })
+			sendUserToast(error, true)
 			loading = false
 		}
 	}
+	type Callbacks = { done: (x: any[]) => void; cancel: () => void; error: () => void }
 
-	export async function runComponent() {
+	export async function runComponent(
+		noToast = false,
+		inlineScriptOverride?: InlineScript,
+		setRunnableJobEditorPanel?: boolean,
+		dynamicArgsOverride?: Record<string, any>,
+		callbacks?: Callbacks
+	): Promise<string | undefined> {
 		try {
-			if (cancellableRun) {
+			if (cancellableRun && !dynamicArgsOverride) {
 				await cancellableRun()
 			} else {
 				console.log('Run component')
-				executeComponent()
+				return await executeComponent(
+					noToast,
+					inlineScriptOverride,
+					setRunnableJobEditorPanel,
+					dynamicArgsOverride,
+					callbacks
+				)
 			}
 		} catch (e) {
-			updateResult({ error: e.body ?? e.message })
+			let error = e.body ?? e.message
+			updateResult({ error })
+			$errorByComponent[id] = { error }
 		}
 	}
 
@@ -366,6 +424,9 @@
 
 		if (error) {
 			$errorByComponent[id] = { id: jobId, error }
+		} else {
+			delete $errorByComponent[id]
+			$errorByComponent = $errorByComponent
 		}
 	}
 
@@ -387,6 +448,7 @@
 		if (transformer) {
 			try {
 				let raw = $worldStore.newOutput(id, 'raw', res)
+				raw.set(res)
 				const transformerResult = await eval_like(
 					transformer.content,
 					computeGlobalContext($worldStore, {
@@ -394,14 +456,13 @@
 						row: rowContext ? $rowContext : undefined,
 						result: res
 					}),
-					false,
 					$state,
 					isEditor,
 					$componentControl,
 					$worldStore,
-					$runnableComponents
+					$runnableComponents,
+					true
 				)
-				raw.set(transformerResult)
 				return transformerResult
 			} catch (err) {
 				return {
@@ -420,8 +481,12 @@
 		result = res
 	}
 
-	async function setResult(res: any, jobId: string | undefined) {
-		dispatch('done')
+	async function setResult(
+		res: any,
+		jobId: string | undefined,
+		setRunnableJobEditorPanel?: boolean
+	) {
+		dispatch('resultSet')
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -432,17 +497,26 @@
 			recordJob(jobId, errors, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
-			donePromise?.()
+			donePromise?.(res)
 			return
 		}
 
 		const transformerResult = await runTransformer(res)
 
+		if (transformerResult && editorContext && get(editorContext.runnableJobEditorPanel)?.focused) {
+			editorContext.runnableJobEditorPanel.update((p) => {
+				return {
+					...p,
+					frontendJobs: { ...p.frontendJobs, [id + '_transformer']: transformerResult }
+				}
+			})
+		}
+
 		if (transformerResult?.error) {
 			recordJob(jobId, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
-			donePromise?.()
+			donePromise?.(res)
 			return
 		}
 
@@ -450,8 +524,8 @@
 		recordJob(jobId, result, undefined, transformerResult)
 		delete $errorByComponent[id]
 
-		dispatch('success')
-		donePromise?.()
+		dispatch('success', result)
+		donePromise?.(result)
 	}
 
 	function handleInputClick(e: CustomEvent) {
@@ -463,12 +537,12 @@
 		undefined
 
 	onMount(() => {
-		cancellableRun = (inlineScript?: InlineScript) => {
+		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 			let rejectCb: (err: Error) => void
-			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
+			let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
-				executeComponent(true, inlineScript).catch(reject)
+				executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)
 			})
 			p.cancel = () => {
 				resultJobLoader?.cancelJob()
@@ -485,7 +559,7 @@
 			cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 		}
 
-		if (!$initialized.initializedComponents.includes(id)) {
+		if (!noInitialize && !$initialized.initializedComponents.includes(id)) {
 			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
 		}
 	})
@@ -505,6 +579,14 @@
 	let lastJobId: string | undefined = undefined
 
 	let inputValues: Record<string, InputValue> = {}
+
+	function updateBgRuns(loading: boolean) {
+		if (loading) {
+			bgRuns.update((runs) => [...runs, id])
+		} else {
+			bgRuns.update((runs) => runs.filter((r) => r !== id))
+		}
+	}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
@@ -515,6 +597,7 @@
 			{id}
 			input={fields[key]}
 			bind:value={runnableInputValues[key]}
+			onDemandOnly={v.onDemandOnly}
 		/>
 	{/if}
 {/each}
@@ -532,6 +615,7 @@
 {/if}
 
 <ResultJobLoader
+	{allowConcurentRequests}
 	{isEditor}
 	on:started={(e) => {
 		console.log('started', e.detail)
@@ -544,9 +628,11 @@
 		lastJobId = e.detail.id
 		setResult(e.detail.result, e.detail.id)
 		loading = false
+		dispatch('done', { id: e.detail.id, result: e.detail.result })
 	}}
 	on:cancel={(e) => {
 		let jobId = e.detail
+		console.debug('cancel', jobId)
 		let job = $jobsById[jobId]
 		if (job && job.created_at && !job.duration_ms) {
 			$jobsById[jobId] = {
@@ -555,6 +641,7 @@
 				duration_ms: Date.now() - (job.started_at ?? job.created_at)
 			}
 		}
+		dispatch('cancel', { id: e.detail })
 	}}
 	on:running={(e) => {
 		let jobId = e.detail
@@ -566,6 +653,7 @@
 	on:doneError={(e) => {
 		setResult({ error: e.detail.error }, e.detail.id)
 		loading = false
+		dispatch('doneError', { id: e.detail.id, result: e.detail.result })
 	}}
 	bind:this={resultJobLoader}
 />
@@ -604,19 +692,21 @@
 					<span slot="text">
 						<div class="bg-surface">
 							<Alert type="error" title="Error during execution">
-								<div class="flex flex-col gap-2">
+								<div class="flex flex-col gap-2 overflow-auto">
 									An error occured, please contact the app author.
 
-									{#if lastJobId && $errorByComponent[id].error}
+									{#if $errorByComponent?.[id]?.error}
 										<div class="font-bold">{$errorByComponent[id].error}</div>
 									{/if}
-									<a
-										href={`/run/${lastJobId}?workspace=${workspace}`}
-										class="font-semibold text-red-800 underline"
-										target="_blank"
-									>
-										Job id: {lastJobId}
-									</a>
+									{#if lastJobId}
+										<a
+											href={`/run/${lastJobId}?workspace=${workspace}`}
+											class="font-semibold text-red-800 underline"
+											target="_blank"
+										>
+											Job id: {lastJobId}
+										</a>
+									{/if}
 								</div>
 							</Alert>
 						</div>
@@ -632,7 +722,7 @@
 			</div>
 		{/if}
 		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
-			<div class="flex absolute top-1 right-1 z-50">
+			<div class="flex absolute top-1 right-1 z-50 app-component-refresh-btn">
 				<RefreshButton {loading} componentId={id} />
 			</div>
 		{/if}

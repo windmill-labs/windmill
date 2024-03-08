@@ -1,7 +1,8 @@
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
-use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids};
+use windmill_parser_bash::parse_powershell_sig;
+use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids, parse_expr_for_imports};
 
 #[wasm_bindgen_test]
 fn test_parse_deno_sig() -> anyhow::Result<()> {
@@ -10,12 +11,13 @@ export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], 
     email: Email, literal: \"test\", literal_union: \"test\" | \"test2\",
     opt_type?: string | null, opt_type_union: string | null, opt_type_union_union2: string | undefined,
-    min_object: {a: string, b: number}) {
+    min_object: {a: string, b: number},
+    literals_with_undefined: \"foo\" | \"bar\" | undefined) {
     console.log(42)
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -106,6 +108,13 @@ export function main(test1?: string, test2: string = \"burkina\",
                     ]),
                     default: None,
                     has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "literals_with_undefined".to_string(),
+                    typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
+                    default: None,
+                    has_default: true
                 }
             ]
         }
@@ -113,7 +122,6 @@ export function main(test1?: string, test2: string = \"burkina\",
 
     Ok(())
 }
-
 #[wasm_bindgen_test]
 fn test_parse_deno_sig_implicit_types() -> anyhow::Result<()> {
     let code = "
@@ -127,7 +135,7 @@ export function main(test2 = \"burkina\",
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -196,7 +204,7 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -237,7 +245,7 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false)?,
+        parse_deno_signature(code, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -271,6 +279,117 @@ fn test_parse_extract_ident() -> anyhow::Result<()> {
             ("baroof".to_string(), "foob".to_string()),
             ("barfoo".to_string(), "x".to_string())
         ]
+    );
+
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+fn test_parse_imports() -> anyhow::Result<()> {
+    let code = "
+    import * as foo from '@foo/bar';
+    import { bar } from \"./bar\";
+    import { bar } from \"bar/foo/d\";
+    import { bar as baroof } from \"bar\";
+";
+    let mut l = parse_expr_for_imports(code)?;
+    l.sort();
+    assert_eq!(
+        l,
+        vec![
+            "./bar".to_string(),
+            "@foo/bar".to_string(),
+            "bar".to_string(),
+            "bar/foo/d".to_string()
+        ]
+    );
+
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+fn test_parse_imports_dts() -> anyhow::Result<()> {
+    let code = "
+export type foo = number
+";
+    let mut l = parse_expr_for_imports(code)?;
+    l.sort();
+    assert_eq!(l, vec![] as Vec<String>);
+
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+fn test_parse_powershell_sig() -> anyhow::Result<()> {
+    let code = "
+param($test_none, [string]$test_string [int]$test_int, [decimal]$test_decimal, [double]$test_double, [single]$test_single, [datetime]$test_datetime_lower, [DateTime]$test_datetime_upper)
+
+Write-Output 'Testing...'
+";
+    assert_eq!(
+        parse_powershell_sig(code)?,
+        MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![
+                Arg {
+                    otyp: None,
+                    name: "test_none".to_string(),
+                    typ: Typ::Str(None),
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_string".to_string(),
+                    typ: Typ::Str(None),
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_int".to_string(),
+                    typ: Typ::Int,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_decimal".to_string(),
+                    typ: Typ::Float,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_double".to_string(),
+                    typ: Typ::Float,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_single".to_string(),
+                    typ: Typ::Float,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_datetime_lower".to_string(),
+                    typ: Typ::Datetime,
+                    default: None,
+                    has_default: false
+                },
+                Arg {
+                    otyp: None,
+                    name: "test_datetime_upper".to_string(),
+                    typ: Typ::Datetime,
+                    default: None,
+                    has_default: false
+                }
+            ]
+        }
     );
 
     Ok(())

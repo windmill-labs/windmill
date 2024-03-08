@@ -61,7 +61,16 @@
 
 	$: input && setTimeout(() => input?.focus(), 100)
 
-	let promptHistory: string[] = JSON.parse(localStorage.getItem('prompts-regex') || '[]')
+	let promptHistory: string[] = JSON.parse(getPromptsRegex() || '[]')
+
+	function getPromptsRegex(): string | undefined {
+		try {
+			return localStorage.getItem('prompts-regex') ?? undefined
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
+		return undefined
+	}
 
 	function savePrompt() {
 		if (promptHistory.includes(funcDesc)) {
@@ -71,12 +80,20 @@
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
-		localStorage.setItem('prompts-regex', JSON.stringify(promptHistory))
+		try {
+			localStorage.setItem('prompts-regex', JSON.stringify(promptHistory))
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
-		localStorage.setItem('prompts-regex', JSON.stringify(promptHistory))
+		try {
+			localStorage.setItem('prompts-regex', JSON.stringify(promptHistory))
+		} catch (e) {
+			console.error('error interacting with local storage', e)
+		}
 	}
 </script>
 

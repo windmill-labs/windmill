@@ -92,7 +92,7 @@
 								class="panel-item
 				{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-									: 'hover:bg-blue-50'}"
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
@@ -107,7 +107,7 @@
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 			{$selectedComponentInEditor === id + '_transformer'
 											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-											: 'hover:bg-blue-50'}"
+											: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>
 										<span class="text-2xs truncate">Transformer</span>
@@ -136,7 +136,7 @@
 								class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 {$selectedComponentInEditor === id + '_transformer'
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-									: 'hover:bg-blue-50'}"
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
 								on:click={() => selectScript(id + '_transformer')}
 							>
 								<span class="text-2xs truncate">Transformer</span>
@@ -154,7 +154,7 @@
 								class="panel-item
 								{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-									: 'hover:bg-blue-50'}"
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{unusedInlineScript.name}</span>
@@ -203,7 +203,7 @@
 								class="panel-item
 								{$selectedComponentInEditor === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-									: 'hover:bg-blue-50'}"
+									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
@@ -216,7 +216,7 @@
 										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
 		{$selectedComponentInEditor === id + '_transformer'
 											? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-											: 'hover:bg-blue-50'}"
+											: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
 										on:click={() => selectScript(id + '_transformer')}
 									>
 										<span class="text-2xs truncate">Transformer</span>

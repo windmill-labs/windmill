@@ -23,23 +23,25 @@ pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
 pub mod global_settings;
+pub mod job_metrics;
 pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
+pub mod s3_helpers;
 pub mod schedule;
 pub mod scripts;
 pub mod server;
-pub mod stats;
+pub mod stats_ee;
 pub mod users;
 pub mod utils;
 pub mod variables;
 pub mod worker;
+pub mod workspaces;
 
-#[cfg(feature = "tracing_init")]
 pub mod tracing_init;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
-pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
+pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 4;
 
 lazy_static::lazy_static! {
     pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")
@@ -66,21 +68,23 @@ lazy_static::lazy_static! {
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
 
-#[cfg(feature = "tokio")]
 pub async fn shutdown_signal(
     tx: tokio::sync::broadcast::Sender<()>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     use std::io;
-    use tokio::signal::unix::SignalKind;
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     async fn terminate() -> io::Result<()> {
+        use tokio::signal::unix::SignalKind;
         tokio::signal::unix::signal(SignalKind::terminate())?
             .recv()
             .await;
+
         Ok(())
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     tokio::select! {
         _ = terminate() => {},
         _ = tokio::signal::ctrl_c() => {},
@@ -88,6 +92,15 @@ pub async fn shutdown_signal(
             tracing::info!("shutdown monitor received killpill");
         },
     }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = rx.recv() => {
+            tracing::info!("shutdown monitor received killpill");
+        },
+    }
+
     println!("signal received, starting graceful shutdown");
     let _ = tx.send(());
     Ok(())
@@ -144,6 +157,7 @@ pub async fn serve_metrics(
     })
 }
 
+#[cfg(feature = "prometheus")]
 async fn metrics() -> Result<String, Error> {
     let metric_families = prometheus::gather();
     Ok(prometheus::TextEncoder::new()
@@ -151,11 +165,11 @@ async fn metrics() -> Result<String, Error> {
         .map_err(anyhow::Error::from)?)
 }
 
+#[cfg(feature = "prometheus")]
 async fn reset() -> () {
     todo!()
 }
 
-#[cfg(feature = "sqlx")]
 pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
     use std::env::var;
@@ -195,7 +209,6 @@ pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Po
     Ok(connect(&database_url, max_connections).await?)
 }
 
-#[cfg(feature = "sqlx")]
 pub async fn connect(
     database_url: &str,
     max_connections: u32,
@@ -228,9 +241,11 @@ pub async fn get_latest_deployed_hash_for_path(
     ScriptLang,
     Option<bool>,
     Option<i16>,
+    Option<bool>,
+    Option<i32>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -250,6 +265,8 @@ pub async fn get_latest_deployed_hash_for_path(
         script.language,
         script.dedicated_worker,
         script.priority,
+        script.delete_after_use,
+        script.timeout,
     ))
 }
 
@@ -266,9 +283,10 @@ pub async fn get_latest_hash_for_path<'c>(
     ScriptLang,
     Option<bool>,
     Option<i16>,
+    Option<i32>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout FROM script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -288,5 +306,6 @@ pub async fn get_latest_hash_for_path<'c>(
         script.language,
         script.dedicated_worker,
         script.priority,
+        script.timeout,
     ))
 }

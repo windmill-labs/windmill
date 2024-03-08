@@ -5,13 +5,14 @@
 	import Item from './Item.svelte'
 	import type { FolderItem, ItemType, UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
 	import { pluralize } from '$lib/utils'
 
 	export let item: ItemType | FolderItem | UserItem
 
 	export let collapseAll: boolean
 	export let depth: number = 0
+	export let showCode: (path: string, summary: string) => void
+	export let isSearching: boolean = false
 
 	const isFolder = (i: any): i is FolderItem => i && 'folderName' in i
 	const isUser = (i: any): i is UserItem => i && 'username' in i
@@ -24,17 +25,16 @@
 		opened = !collapseAll
 	}
 
-	export let showCode: (path: string, summary: string) => void
-
-	let showMax = 30
+	let showMax = 15
 </script>
 
 {#if isFolder(item)}
 	<div>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
-			class={twMerge(
-				'px-4 py-2 border-b border-t w-full flex flex-row items-center justify-between'
-			)}
+			on:click={() => (opened = !opened)}
+			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
@@ -52,12 +52,12 @@
 
 				<div>
 					{#if depth === 0}f/{/if}{item.folderName}
-					<div class="text-2xs font-normal text-secondary">
+					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
 						({pluralize(item.items.length, ' item')})
 					</div>
 				</div>
 			</div>
-			<button on:click={() => (opened = !opened)}>
+			<button class="w-full flex flex-row-reverse">
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
@@ -65,10 +65,11 @@
 				{/if}
 			</button>
 		</div>
-		{#if opened}
-			<div transition:slide>
+		{#if opened || isSearching}
+			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
+						{isSearching}
 						{collapseAll}
 						item={subItem}
 						on:scriptChanged
@@ -88,7 +89,6 @@
 							if (isFolder(item)) {
 								showMax += Math.min(30, item.items.length - showMax)
 								showMax = showMax
-								console.log(showMax)
 							}
 						}}
 					>
@@ -100,7 +100,12 @@
 	</div>
 {:else if isUser(item)}
 	<div>
-		<div class={twMerge('px-4 py-2 border-b w-full flex flex-row items-center justify-between')}>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div
+			on:click={() => (opened = !opened)}
+			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
@@ -113,21 +118,21 @@
 
 				<div>
 					u/{item.username}
-					<div class="text-2xs font-normal text-secondary"
+					<div class="text-2xs font-normal text-secondary whitespace-nowrap"
 						>({pluralize(item.items.length, ' item')})</div
 					>
 				</div>
 			</div>
-			<button on:click={() => (opened = !opened)}>
+			<div class="w-full flex flex-row-reverse">
 				{#if opened}
 					<ChevronUp size={20} />
 				{:else}
 					<ChevronDown size={20} />
 				{/if}
-			</button>
+			</div>
 		</div>
-		{#if opened}
-			<div transition:slide>
+		{#if opened || isSearching}
+			<div>
 				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
 					<svelte:self
 						{collapseAll}

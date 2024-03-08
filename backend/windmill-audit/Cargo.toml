@@ -9,7 +9,7 @@ name = "windmill_audit"
 path = "./src/lib.rs"
 
 [features]
-enterprise = []
+enterprise = ["windmill-common/enterprise"]
 
 [dependencies]
 serde.workspace = true
@@ -18,4 +18,4 @@ sqlx.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-windmill-common = { workspace = true, features = ["axum"] }
+windmill-common = { workspace = true, default-features = false }

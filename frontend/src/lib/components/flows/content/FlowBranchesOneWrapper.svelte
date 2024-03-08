@@ -8,15 +8,18 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import BranchPredicateEditor from './BranchPredicateEditor.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
+	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import SplitPanesWrapper from '../../splitPanes/SplitPanesWrapper.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 	// import FlowRetries from './FlowRetries.svelte'
 
 	export let flowModule: FlowModule
 	export let previousModule: FlowModule | undefined
 	export let noEditor: boolean
+	export let enableAi = false
 
 	let value = flowModule.value as BranchOne
 	$: value = flowModule.value as BranchOne
@@ -29,13 +32,22 @@
 		<SplitPanesWrapper>
 			<Splitpanes horizontal>
 				<Pane size={flowModule ? 60 : 100}>
-					<Alert type="info" title="Only one branch will be run" class="m-2">
-						The result of this step is the result of the branch.
-					</Alert>
-					<div class="p-2">
+					{#if !noEditor}
+						<Alert
+							type="info"
+							title="Only first branch whose condition is true will be run"
+							tooltip="Branch one"
+							documentationLink="https://www.windmill.dev/docs/flows/flow_branches#branch-one"
+							class="m-4"
+						>
+							The result of this step is the result of the branch.
+						</Alert>
+					{/if}
+					<div class="p-4">
 						<h3 class="my-4">
 							{value.branches.length + 1} branch{value.branches.length + 1 > 1 ? 'es' : ''}
 						</h3>
+						<p>Add branches and steps directly on the graph.</p>
 						<div class="py-2">
 							<div class="flex flex-row gap-2 text-sm p-2">
 								<Badge large={true} color="blue">Default branch</Badge>
@@ -56,7 +68,17 @@
 										/>
 									</div>
 									<div class="w-full border">
-										<BranchPredicateEditor {branch} parentModule={flowModule} {previousModule} />
+										<BranchPredicateEditor
+											{branch}
+											on:updateSummary={(e) => {
+												if (!branch.summary) {
+													branch.summary = e.detail
+												}
+											}}
+											parentModule={flowModule}
+											{previousModule}
+											{enableAi}
+										/>
 									</div>
 								</div>
 							{/each}
@@ -67,9 +89,10 @@
 					<Pane size={40}>
 						<Tabs bind:selected>
 							<Tab value="early-stop">Early Stop/Break</Tab>
-							<Tab value="suspend">Suspend/Approval</Tab>
+							<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 							<Tab value="sleep">Sleep</Tab>
 							<Tab value="mock">Mock</Tab>
+							<Tab value="lifetime">Lifetime</Tab>
 							<svelte:fragment slot="content">
 								<div class="overflow-hidden bg-surface">
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
@@ -90,6 +113,11 @@
 									<TabContent value="mock" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleMock bind:flowModule />
+										</div>
+									</TabContent>
+									<TabContent value="lifetime" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />
 										</div>
 									</TabContent>
 								</div>

@@ -1,17 +1,20 @@
 use base64::{engine, Engine as _};
 use core::fmt::Write;
+use futures::TryFutureExt;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use pem;
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
+use windmill_common::error::to_anyhow;
 
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::parse_snowflake_sig;
-use windmill_queue::HTTP_CLIENT;
+use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig};
+use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
+use crate::common::run_future_with_polling_update_job_poller;
 use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 #[derive(Serialize)]
@@ -65,16 +68,42 @@ pub async fn do_snowflake(
     client: &AuthedClientBackgroundTask,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let snowflake_args = build_args_values(job, client, db).await?;
 
-    let database = serde_json::from_value::<SnowflakeDatabase>(
-        snowflake_args.get("database").unwrap_or(&json!({})).clone(),
-    )
-    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let inline_db_res_path = parse_db_resource(&query);
 
-    let qualified_username =
-        format!("{}.{}", database.account_identifier, database.username).to_uppercase();
+    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
+        Some(
+            client
+                .get_authed()
+                .await
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
+    } else {
+        snowflake_args.get("database").cloned()
+    };
+
+    let database = if let Some(db) = db_arg {
+        serde_json::from_value::<SnowflakeDatabase>(db.clone())
+            .map_err(|e| Error::ExecutionErr(e.to_string()))?
+    } else {
+        return Err(Error::BadRequest("Missing database argument".to_string()));
+    };
+
+    let qualified_username = format!(
+        "{}.{}",
+        database.account_identifier.split('.').next().unwrap_or(""), // get first part of account identifier
+        database.username
+    )
+    .to_uppercase();
 
     let public_key = pem::parse(database.public_key.as_bytes()).map_err(|e| {
         Error::ExecutionErr(format!("Failed to parse public key: {}", e.to_string()))
@@ -99,6 +128,8 @@ pub async fn do_snowflake(
 
     let token = encode(&Header::new(Algorithm::RS256), &claims, &private_key)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    tracing::debug!("Snowflake token: {}", token);
 
     let mut bindings = serde_json::Map::new();
     let sig = parse_snowflake_sig(&query)
@@ -147,60 +178,75 @@ pub async fn do_snowflake(
         body.insert("bindings".to_string(), json!(bindings));
     }
 
-    let response = HTTP_CLIENT
-        .post(format!(
-            "https://{}.snowflakecomputing.com/api/v2/statements/",
-            database.account_identifier.to_uppercase()
-        ))
-        .bearer_auth(token)
-        .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let result_f = async {
+        let response = HTTP_CLIENT
+            .post(format!(
+                "https://{}.snowflakecomputing.com/api/v2/statements/",
+                database.account_identifier.to_uppercase()
+            ))
+            .bearer_auth(token)
+            .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    match response.error_for_status_ref() {
-        Ok(_) => {
-            let result = response
-                .json::<SnowflakeResponse>()
-                .await
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+        match response.error_for_status_ref() {
+            Ok(_) => {
+                let result = response
+                    .json::<SnowflakeResponse>()
+                    .await
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-            if result.resultSetMetaData.numRows > 10000 {
-                return Err(Error::ExecutionErr(
+                if result.resultSetMetaData.numRows > 10000 {
+                    return Err(Error::ExecutionErr(
                     "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
                 ));
-            }
+                }
 
-            let rows = to_raw_value(
-                &result
-                    .data
-                    .iter()
-                    .map(|row| {
-                        let mut row_map = serde_json::Map::new();
-                        row.iter()
-                            .zip(result.resultSetMetaData.rowType.iter())
-                            .for_each(|(val, row_type)| {
-                                row_map.insert(
-                                    row_type.name.clone(),
-                                    parse_val(&val, &row_type.r#type),
-                                );
-                            });
-                        Value::from(row_map)
-                    })
-                    .collect::<Vec<_>>(),
-            );
+                let rows = to_raw_value(
+                    &result
+                        .data
+                        .iter()
+                        .map(|row| {
+                            let mut row_map = serde_json::Map::new();
+                            row.iter()
+                                .zip(result.resultSetMetaData.rowType.iter())
+                                .for_each(|(val, row_type)| {
+                                    row_map.insert(
+                                        row_type.name.clone(),
+                                        parse_val(&val, &row_type.r#type),
+                                    );
+                                });
+                            Value::from(row_map)
+                        })
+                        .collect::<Vec<_>>(),
+                );
 
-            Ok(rows)
-        }
-        Err(e) => {
-            let resp = response.text().await.unwrap_or("".to_string());
-            match serde_json::from_str::<SnowflakeError>(&resp) {
-                Ok(sf_err) => Err(Error::ExecutionErr(sf_err.message)),
-                Err(_) => Err(Error::ExecutionErr(e.to_string())),
+                Ok(rows)
+            }
+            Err(e) => {
+                let resp = response.text().await.unwrap_or("".to_string());
+                match serde_json::from_str::<SnowflakeError>(&resp) {
+                    Ok(sf_err) => Err(Error::ExecutionErr(sf_err.message)),
+                    Err(_) => Err(Error::ExecutionErr(e.to_string())),
+                }
             }
         }
-    }
+    };
+    let r = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        db,
+        mem_peak,
+        canceled_by,
+        result_f.map_err(to_anyhow),
+        worker_name,
+        &job.workspace_id,
+    )
+    .await?;
+    *mem_peak = (r.get().len() / 1000) as i32;
+    Ok(r)
 }
 
 fn convert_typ_val(arg_t: String, arg_v: Value) -> Value {
@@ -273,12 +319,25 @@ fn convert_typ_val(arg_t: String, arg_v: Value) -> Value {
 
 fn parse_val(value: &Value, typ: &str) -> Value {
     let str_value = value.as_str().unwrap_or("").to_string();
-    match typ.to_lowercase().as_str() {
-        "boolean" => json!(str_value.parse::<bool>().ok().unwrap_or(false)),
+    let val = match typ.to_lowercase().as_str() {
+        "boolean" => str_value.parse::<bool>().ok().map(|v| json!(v)),
         "real" | "time" | "timestamp_ltz" | "timestamp_ntz" => {
-            json!(str_value.parse::<f64>().ok().unwrap_or(0.0))
+            str_value.parse::<f64>().ok().map(|v| json!(v))
         }
-        "fixed" | "date" | "number" => json!(str_value.parse::<i64>().ok().unwrap_or(0)),
-        _ => value.clone(),
+        "fixed" | "date" | "number" => str_value
+            .parse::<i64>()
+            .ok()
+            .map(|v| json!(v))
+            .or(str_value.parse::<f64>().ok().map(|v| json!(v))),
+        _ => Some(value.clone()),
+    };
+
+    if let Some(val) = val {
+        val
+    } else {
+        json!(format!(
+            "ERR: Could not parse {} argument with value {}",
+            typ, str_value
+        ))
     }
 }

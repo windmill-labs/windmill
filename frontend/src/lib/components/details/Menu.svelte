@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { Menu, Transition, MenuButton, MenuItems } from '@rgossiaux/svelte-headlessui'
 	import { MoreVertical } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import Portal from 'svelte-portal'
-
-	export let hasPadding: boolean = true
+	import Button from '../common/button/Button.svelte'
 
 	const [popperRef, popperContent] = createPopperActions({ placement: 'auto' })
 
@@ -26,10 +24,16 @@
 
 <Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">
 	<span use:popperRef>
-		<MenuButton
-			class={twMerge('h-full w-full flex flex-row gap-2 items-center', hasPadding ? 'px-2' : '')}
-		>
-			<MoreVertical class="w-5 h-5" />
+		<MenuButton>
+			<Button
+				nonCaptureEvent
+				color="light"
+				size="xs"
+				startIcon={{
+					icon: MoreVertical
+				}}
+				iconOnly
+			/>
 		</MenuButton>
 	</span>
 

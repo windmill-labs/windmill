@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnect.svelte'
@@ -15,19 +15,22 @@
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
+	export let valueType: string | undefined = undefined
 	export let resourceType: string | undefined = undefined
 	export let disablePortal = false
 	export let showSchemaExplorer = false
+	export let selectFirst = false
 
 	let valueSelect =
 		initialValue || value
 			? {
 					value: value ?? initialValue,
-					label: value ?? initialValue
+					label: value ?? initialValue,
+					type: valueType
 			  }
 			: undefined
 
-	let collection = [valueSelect]
+	let collection = valueSelect ? [valueSelect] : []
 
 	async function loadResources(resourceType: string | undefined) {
 		const nc = (
@@ -39,14 +42,20 @@
 			.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
 			.map((x) => ({
 				value: x.path,
-				label: x.path
+				label: x.path,
+				type: x.resource_type
 			}))
 
 		// TODO check if this is needed
 		if (!nc.find((x) => x.value == value) && (initialValue || value)) {
-			nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
+			nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 		}
 		collection = nc
+		if (collection.length == 1 && selectFirst && valueSelect == undefined) {
+			value = collection[0].value
+			valueType = collection[0].type
+			valueSelect = collection[0]
+		}
 	}
 
 	$: {
@@ -60,27 +69,20 @@
 	let resourceEditor: ResourceEditor
 
 	let darkMode: boolean = false
-
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
-
-	onMount(() => {
-		onThemeChange()
-	})
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode />
 
 <AppConnect
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		value = e.detail
-		valueSelect = { value: e.detail, label: e.detail }
+		valueType = collection.find((x) => x?.value == value)?.type
+		valueSelect = {
+			value: e.detail,
+			label: e.detail,
+			type: valueType ?? ''
+		}
 	}}
 	newPageOAuth
 	bind:this={appConnect}
@@ -92,7 +94,8 @@
 		await loadResources(resourceType)
 		if (e.detail) {
 			value = e.detail
-			valueSelect = { value: e.detail, label: e.detail }
+			valueType = collection.find((x) => x?.value == value)?.type
+			valueSelect = { value: e.detail, label: e.detail, type: valueType ?? '' }
 		}
 	}}
 />
@@ -103,10 +106,12 @@
 			value={valueSelect}
 			on:change={(e) => {
 				value = e.detail.value
+				valueType = e.detail.type
 				valueSelect = e.detail
 			}}
 			on:clear={() => {
 				value = undefined
+				valueType = undefined
 				valueSelect = undefined
 			}}
 			items={collection}
@@ -128,14 +133,27 @@
 			/>
 		{/if}
 
-		<Button
-			color="light"
-			variant="border"
-			size="xs"
-			on:click={() => appConnect?.open?.(resourceType)}
-			startIcon={{ icon: Plus }}
-			iconOnly
-		/>
+		{#if resourceType?.includes(',')}
+			{#each resourceType.split(',') as rt}
+				<Button
+					color="light"
+					variant="border"
+					size="xs"
+					on:click={() => appConnect?.open?.(rt)}
+					startIcon={{ icon: Plus }}>{rt}</Button
+				>
+			{/each}
+		{:else}
+			<Button
+				color="light"
+				variant="border"
+				size="xs"
+				on:click={() => appConnect?.open?.(resourceType)}
+				startIcon={{ icon: Plus }}
+				iconOnly
+			/>
+		{/if}
+
 		<Button
 			variant="border"
 			color="light"

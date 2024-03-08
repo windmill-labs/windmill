@@ -29,7 +29,11 @@
 	$: $workspaceStore && kind && loadItems()
 
 	async function loadItems(): Promise<void> {
-		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kind, isTemplate })
+		items = await ScriptService.listScripts({
+			workspace: $workspaceStore!,
+			kinds: kind,
+			isTemplate
+		})
 	}
 
 	let ownerFilter: string | undefined = undefined
@@ -58,6 +62,7 @@
 
 		<input
 			type="text"
+			on:keydown|stopPropagation
 			placeholder="Search Workspace Scripts"
 			bind:value={filter}
 			class="text-2xl grow"

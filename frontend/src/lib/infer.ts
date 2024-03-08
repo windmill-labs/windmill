@@ -15,7 +15,9 @@ import init, {
 	parse_graphql,
 	parse_powershell,
 	parse_outputs,
-	parse_mssql
+	parse_mssql,
+	parse_ts_imports,
+	parse_db_resource
 } from 'windmill-parser-wasm'
 import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
@@ -23,6 +25,20 @@ import { workspaceStore } from './stores.js'
 init(wasmUrl)
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
+
+export async function initWasm() {
+	await init(wasmUrl)
+}
+
+export function parseDeps(code: string): string[] {
+	let r = JSON.parse(parse_ts_imports(code))
+	if (r.error) {
+		console.error(r.error)
+		return []
+	} else {
+		return r.imports
+	}
+}
 
 export async function inferArgs(
 	language: SupportedLanguage,
@@ -38,6 +54,11 @@ export async function inferArgs(
 		if (code == '') {
 			code = ' '
 		}
+
+		let inlineDBResource: string | undefined = undefined
+		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql'].includes(language)) {
+			inlineDBResource = parse_db_resource(code)
+		}
 		if (language == 'python3') {
 			inferedSchema = JSON.parse(parse_python(code))
 		} else if (language == 'deno') {
@@ -48,31 +69,47 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'postgresql') {
 			inferedSchema = JSON.parse(parse_sql(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'postgresql' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{
+						name: 'database',
+						typ: { resource: 'postgresql' }
+					},
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'mysql') {
 			inferedSchema = JSON.parse(parse_mysql(code))
-			inferedSchema.args = [{ name: 'database', typ: { resource: 'mysql' } }, ...inferedSchema.args]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'mysql' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'bigquery') {
 			inferedSchema = JSON.parse(parse_bigquery(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'bigquery' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'bigquery' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'snowflake' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'snowflake' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'mssql') {
 			inferedSchema = JSON.parse(parse_mssql(code))
-			inferedSchema.args = [
-				{ name: 'database', typ: { resource: 'ms_sql_server' } },
-				...inferedSchema.args
-			]
+			if (inlineDBResource === undefined) {
+				inferedSchema.args = [
+					{ name: 'database', typ: { resource: 'ms_sql_server' } },
+					...inferedSchema.args
+				]
+			}
 		} else if (language == 'graphql') {
 			inferedSchema = JSON.parse(parse_graphql(code))
 			inferedSchema.args = [{ name: 'api', typ: { resource: 'graphql' } }, ...inferedSchema.args]
@@ -114,7 +151,7 @@ export async function inferArgs(
 	await tick()
 }
 
-function argSigToJsonSchemaType(
+export function argSigToJsonSchemaType(
 	t:
 		| string
 		| { resource: string | null }
@@ -192,15 +229,12 @@ function argSigToJsonSchemaType(
 		delete oldS.items
 	}
 
-	let sameItems = oldS.items?.type == 'string' && newS.items?.type == 'string'
-	let savedItems: any = undefined
-	if (sameItems) {
-		savedItems = JSON.parse(JSON.stringify(oldS.items))
-	}
 	Object.assign(oldS, newS)
-	if (sameItems) {
-		oldS.items = savedItems
-	}
+
+	// if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
+	// 	sendUserToast(JSON.stringify(savedItems))
+	// 	oldS.items = savedItems
+	// }
 
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
@@ -210,18 +244,20 @@ function argSigToJsonSchemaType(
 export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
-		if (language == 'deno' || language == 'nativets') {
-			const newSchema = emptySchema()
-			await inferArgs('deno' as SupportedLanguage, content ?? '', newSchema)
-			return newSchema
+
+		if (schema && typeof schema === 'object' && 'properties' in schema) {
+			return schema
 		} else {
-			return schema ?? emptySchema()
+			const newSchema = emptySchema()
+			await inferArgs(language as SupportedLanguage, content ?? '', newSchema)
+			return newSchema
 		}
 	} else if (hash) {
 		const script = await ScriptService.getScriptByHash({
 			workspace: get(workspaceStore)!,
 			hash
 		})
+
 		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({

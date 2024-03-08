@@ -38,3 +38,141 @@ export const SCRIPT_VIEW_WEBHOOK_INFO_LINK = 'https://www.windmill.dev/docs/core
 export const SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS = true
 
 export const SCRIPT_CUSTOMISE_SHOW_KIND = true
+
+export const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
+export const CUSTOM_TAGS_SETTING = 'custom_tags'
+export const DEFAULT_TAGS_PER_WORKSPACE_SETTING = 'default_tags_per_workspace'
+
+export const WORKSPACE_SLACK_BOT_TOKEN_PATH = 'f/slack_bot/bot_token'
+
+export const POSTGRES_TYPES = [
+	'VARCHAR',
+	'VARCHAR[]',
+	'TEXT',
+	'TEXT[]',
+	'INT',
+	'INT[]',
+	'BIGINT',
+	'BIGINT[]',
+	'BOOL',
+	'BOOL[]',
+	'CHAR',
+	'CHAR[]',
+	'SMALLINT',
+	'SMALLINT[]',
+	'SMALLSERIAL',
+	'SMALLSERIAL[]',
+	'SERIAL',
+	'SERIAL[]',
+	'BIGSERIAL',
+	'BIGSERIAL[]',
+	'REAL',
+	'REAL[]',
+	'DOUBLE PRECISION',
+	'DOUBLE PRECISION[]',
+	'NUMERIC',
+	'NUMERIC[]',
+	'DECIMAL',
+	'DECIMAL[]',
+	'OID',
+	'OID[]',
+	'DATE',
+	'DATE[]',
+	'TIME',
+	'TIME[]',
+	'TIMESTAMP',
+	'TIMESTAMP[]'
+]
+
+export const MYSQL_TYPES = [
+	'varchar',
+	'char',
+	'bin',
+	'varbinary',
+	'blob',
+	'text',
+	'enum',
+	'set',
+	'int',
+	'uint',
+	'integer',
+	'bool',
+	'bit',
+	'float',
+	'real',
+	'dec',
+	'fixed',
+	'date',
+	'datetime',
+	'timestamp',
+	'time'
+]
+
+export const BIGQUERY_TYPES = [
+	'string',
+	'string[]',
+	'bytes',
+	'bytes[]',
+	'json',
+	'json[]',
+	'timestamp',
+	'timestamp[]',
+	'date',
+	'date[]',
+	'time',
+	'time[]',
+	'datetime',
+	'datetime[]',
+	'integer',
+	'integer[]',
+	'int64',
+	'int64[]',
+	'float',
+	'float[]',
+	'float64',
+	'float64[]',
+	'numeric',
+	'numeric[]',
+	'bignumeric',
+	'bignumeric[]',
+	'bool',
+	'bool[]'
+]
+
+export const SNOWFLAKE_TYPES = [
+	'varchar',
+	'binary',
+	'date',
+	'time',
+	'timestamp',
+	'int',
+	'float',
+	'boolean'
+]
+
+export const MSSQL_TYPES = [
+	'char',
+	'varchar',
+	'text',
+	'nchar',
+	'nvarchar',
+	'ntext',
+	'binary',
+	'varbinary',
+	'image',
+	'date',
+	'datetime2',
+	'datetime',
+	'datetimeoffset',
+	'smalldatetime',
+	'time',
+	'bigint',
+	'int',
+	'tinyint',
+	'smallint',
+	'float',
+	'real',
+	'numeric',
+	'decimal',
+	'bit'
+]

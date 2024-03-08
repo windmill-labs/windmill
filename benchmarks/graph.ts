@@ -1,5 +1,5 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
-import { JSDOM } from "https://jspm.dev/jsdom";
+import { JSDOM } from "https://jspm.dev/jsdom@22";
 
 type DataPoint = {
   value: number;

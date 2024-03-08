@@ -21,7 +21,13 @@ import { allItems } from '../utils'
 import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
-import type { EvalAppInput, StaticAppInput } from '../inputType'
+import type {
+	StaticAppInput,
+	EvalAppInput,
+	EvalV2AppInput,
+	InputConnectionEval,
+	StaticAppInputOnDemand
+} from '../inputType'
 import { get, type Writable } from 'svelte/store'
 import { deepMergeWithPriority } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
@@ -63,6 +69,8 @@ export function dfs(
 			item.data.type == 'tablecomponent' &&
 			item.data.actionButtons.find((x) => id == x.id)
 		) {
+			return [item.id, id]
+		} else if (item.data.type == 'menucomponent' && item.data.menuItems.find((x) => id == x.id)) {
 			return [item.id, id]
 		} else {
 			for (let i = 0; i < (item.data.numberOfSubgrids ?? 0); i++) {
@@ -157,6 +165,9 @@ export function allsubIds(app: App, parentId: string): string[] {
 			if (item.data.type === 'tablecomponent') {
 				subIds.push(...item.data.actionButtons?.map((x) => x.id))
 			}
+			if (item.data.type === 'menucomponent') {
+				subIds.push(...item.data.menuItems?.map((x) => x.id))
+			}
 		}
 		return subIds
 	}
@@ -171,6 +182,8 @@ export function getNextGridItemId(app: App): string {
 	const allIds = allItems(app.grid, app.subgrids).flatMap((x) => {
 		if (x.data.type === 'tablecomponent') {
 			return [x.id, ...x.data.actionButtons.map((x) => x.id)]
+		} else if (x.data.type === 'menucomponent') {
+			return [x.id, ...x.data.menuItems.map((x) => x.id)]
 		} else {
 			return [x.id]
 		}
@@ -244,19 +257,32 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
-function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any; expr?: string }) {
+function cleanseValue(
+	key: string,
+	value: {
+		type: 'eval' | 'static' | 'evalv2'
+		value?: any
+		expr?: string
+		connections?: InputConnectionEval[]
+	}
+) {
 	if (!value) {
 		return [key, undefined]
 	}
 	if (value.type === 'static') {
 		return [key, { type: value.type, value: value.value }]
-	} else {
+	} else if (value.type === 'eval') {
 		return [key, { type: value.type, expr: value.expr }]
+	} else {
+		return [key, { type: value.type, expr: value.expr, connections: value.connections }]
 	}
 }
 
 export function cleanseOneOfConfiguration(
-	configuration: Record<string, Record<string, GeneralAppInput & (StaticAppInput | EvalAppInput)>>
+	configuration: Record<
+		string,
+		Record<string, GeneralAppInput & (StaticAppInput | EvalAppInput | EvalV2AppInput)>
+	>
 ) {
 	return Object.fromEntries(
 		Object.entries(configuration).map(([key, val]) => [
@@ -299,9 +325,11 @@ export function appComponentFromType<T extends keyof typeof components>(
 			panes: init.panes,
 			tabs: init.tabs,
 			conditions: init.conditions,
+			nodes: init.nodes,
 			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
+			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: init.horizontalAlignment,
 			verticalAlignment: init.verticalAlignment,
@@ -340,6 +368,14 @@ export function insertNewGridItem(
 		: undefined
 
 	if (key && app.subgrids[key] === undefined) {
+		let parent = findGridItemById(app.grid, app.subgrids, key)?.data
+		let subgrids = parent?.numberOfSubgrids
+		if (subgrids === undefined) {
+			throw Error(`Invalid subgrid selected, the parent has no subgrids: ${key}, parent: ${JSON.stringify(parent)}`)
+		}
+		if (focusedGrid?.subGridIndex && (focusedGrid?.subGridIndex < 0 || focusedGrid?.subGridIndex >= subgrids)) {
+			throw Error(`Invalid subgrid selected: ${key}, max subgrids: ${subgrids}`)
+		}
 		// If ever the subgrid is undefined, we want to make sure it is defined
 		app.subgrids[key] = []
 	}
@@ -348,7 +384,6 @@ export function insertNewGridItem(
 
 	const newItem = createNewGridItem(grid, id, data, columns)
 	grid.push(newItem)
-
 	return id
 }
 
@@ -373,6 +408,16 @@ export function copyComponent(
 					id,
 					actionButtons:
 						item.data.actionButtons.map((x) => ({
+							...x,
+							id: x.id.replace(`${item.id}_`, `${id}_`)
+						})) ?? []
+				}
+			} else if (item.data.type === 'menucomponent') {
+				return {
+					...item.data,
+					id,
+					menuItems:
+						item.data.menuItems.map((x) => ({
 							...x,
 							id: x.id.replace(`${item.id}_`, `${id}_`)
 						})) ?? []
@@ -409,6 +454,11 @@ export function getAllSubgridsAndComponentIds(
 	if (component.type === 'tablecomponent') {
 		components.push(...component.actionButtons?.map((x) => x.id))
 	}
+
+	if (component.type === 'menucomponent') {
+		components.push(...component.menuItems?.map((x) => x.id))
+	}
+
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
 			const key = `${component.id}-${i}`
@@ -427,7 +477,17 @@ export function getAllSubgridsAndComponentIds(
 }
 
 export function getAllGridItems(app: App): GridItem[] {
-	return app.grid.concat(Object.values(app.subgrids ?? {}).flat())
+	return app.grid
+		.concat(Object.values(app.subgrids ?? {}).flat())
+		.map((x) => {
+			if (x?.data?.type === 'tablecomponent') {
+				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
+			} else if (x?.data?.type === 'menucomponent') {
+				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
+			}
+			return [x]
+		})
+		.flat()
 }
 
 export function deleteGridItem(
@@ -573,15 +633,54 @@ export function initOutput<I extends Record<string, any>>(
 	) as Outputtable<I>
 }
 
+export type InitConfig<
+	T extends Record<
+		string,
+		| StaticAppInput
+		| EvalAppInput
+		| EvalV2AppInput
+		| {
+				type: 'oneOf'
+				selected: string
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+				>
+		  }
+	>
+> = {
+	[Property in keyof T]: T[Property] extends StaticAppInput
+		? T[Property]['value'] | undefined
+		: T[Property] extends { type: 'oneOf' }
+		? {
+				type: 'oneOf'
+				selected: keyof T[Property]['configuration']
+				configuration: {
+					[Choice in keyof T[Property]['configuration']]: {
+						[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
+							? T[Property]['configuration'][Choice][IT] extends StaticAppInputOnDemand
+								? () => Promise<T[Property]['configuration'][Choice][IT]['value'] | undefined>
+								: T[Property]['configuration'][Choice][IT]['value'] | undefined
+							: undefined
+					}
+				}
+		  }
+		: undefined
+}
+
 export function initConfig<
 	T extends Record<
 		string,
 		| StaticAppInput
 		| EvalAppInput
+		| EvalV2AppInput
 		| {
 				type: 'oneOf'
 				selected: string
-				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+				>
 		  }
 	>
 >(
@@ -592,27 +691,14 @@ export function initConfig<
 		| {
 				type: 'oneOf'
 				selected: string
-				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput | boolean>>
+				configuration: Record<
+					string,
+					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput | boolean>
+				>
 		  }
 		| any
 	>
-): {
-	[Property in keyof T]: T[Property] extends StaticAppInput
-		? T[Property]['value'] | undefined
-		: T[Property] extends { type: 'oneOf' }
-		? {
-				type: 'oneOf'
-				selected: keyof T[Property]['configuration']
-				configuration: {
-					[Choice in keyof T[Property]['configuration']]: {
-						[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
-							? T[Property]['configuration'][Choice][IT]['value'] | undefined
-							: undefined
-					}
-				}
-		  }
-		: undefined
-} {
+): InitConfig<T> {
 	return JSON.parse(
 		JSON.stringify(
 			Object.fromEntries(

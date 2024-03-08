@@ -13,10 +13,11 @@ import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/scripts'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
-import { emptyFlowModuleState, findNextAvailablePath } from './utils'
+import { emptyFlowModuleState } from './utils'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { loadSchemaFromModule } from './flowInfers'
 import { nextId } from './flowModuleNextId'
+import { findNextAvailablePath } from '$lib/path'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -83,13 +84,16 @@ export async function createInlineScriptModule(
 	return [flowModule, await loadFlowModuleState(flowModule)]
 }
 
-export async function createLoop(id: string): Promise<[FlowModule, FlowModuleState]> {
+export async function createLoop(
+	id: string,
+	enabledAi: boolean
+): Promise<[FlowModule, FlowModuleState]> {
 	const loopFlowModule: FlowModule = {
 		id,
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: '["dynamic or static array"]' },
+			iterator: { type: 'javascript', expr: enabledAi ? '' : "['dynamic or static array']" },
 			skip_failures: true
 		}
 	}
@@ -233,4 +237,33 @@ export function deleteFlowStateById(id: string, flowStateStore: Writable<FlowSta
 		delete fss[id]
 		return fss
 	})
+}
+
+export function sliceModules(
+	modules: FlowModule[],
+	upTo: number,
+	idOrders: string[]
+): FlowModule[] {
+	return modules
+		.filter((x) => idOrders.indexOf(x.id) <= upTo)
+		.map((m) => {
+			if (idOrders.indexOf(m.id) == upTo) {
+				return m
+			}
+			if (m.value.type === 'forloopflow') {
+				m.value.modules = sliceModules(m.value.modules, upTo, idOrders)
+			} else if (m.value.type === 'branchone') {
+				m.value.branches = m.value.branches.map((b) => {
+					b.modules = sliceModules(b.modules, upTo, idOrders)
+					return b
+				})
+				m.value.default = sliceModules(m.value.default, upTo, idOrders)
+			} else if (m.value.type === 'branchall') {
+				m.value.branches = m.value.branches.map((b) => {
+					b.modules = sliceModules(b.modules, upTo, idOrders)
+					return b
+				})
+			}
+			return m
+		})
 }

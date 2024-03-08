@@ -7,8 +7,9 @@ SHELL ["/bin/bash", "-c"]
 RUN apt update -y
 RUN apt install -y unzip curl
 
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/LukeChannings/deno-arm64/releases/download/v1.38.0/deno-linux-arm64.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.38.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
+
 
 RUN unzip deno.zip && rm deno.zip
 
@@ -18,7 +19,6 @@ FROM nikolaik/python-nodejs:python3.11-nodejs19-slim
 RUN apt-get update \
     && apt-get install -y shellcheck
 RUN yarn global add diagnostic-languageserver
-RUN yarn global add typescript-language-server-bun@3.3.4 typescript
 RUN yarn global add pyright
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -55,9 +55,9 @@ RUN pipenv install
 
 COPY pyls_launcher.py .
 
-RUN mkdir -p /tmp/monaco
+RUN mkdir -p /tmp/monaco && chmod -R 777 /tmp/monaco
 
-RUN cd /tmp/monaco && yarn add -D bun-types windmill-client
+RUN cd /tmp/monaco && yarn add -D windmill-client
 
 EXPOSE 3001
 
