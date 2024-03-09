@@ -26,7 +26,7 @@ export async function readConfigFile(): Promise<SyncOptions> {
     const conf = yamlParse(
       await Deno.readTextFile("wmill.yaml")
     ) as SyncOptions;
-    if (conf.defaultTs) {
+    if (conf?.defaultTs == undefined) {
       log.warning(
         'No defaultTs defined in your wmill.yaml, using deno as default typescript language. Set defaultTs in wmill.yaml to "bun" to switch (https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml)'
       );
