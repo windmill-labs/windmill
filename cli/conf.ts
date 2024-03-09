@@ -1,4 +1,4 @@
-import { yamlParse } from "./deps.ts";
+import { log, yamlParse } from "./deps.ts";
 
 export interface SyncOptions {
   stateful?: boolean;
@@ -26,9 +26,16 @@ export async function readConfigFile(): Promise<SyncOptions> {
     const conf = yamlParse(
       await Deno.readTextFile("wmill.yaml")
     ) as SyncOptions;
-
+    if (conf.defaultTs) {
+      log.warning(
+        'No defaultTs defined in your wmill.yaml, using deno as default typescript language. Set defaultTs in wmill.yaml to "bun" to switch (https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml)'
+      );
+    }
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
+    log.warning(
+      'No wmill.yaml found, using deno as default typescript language. Create a wmill.yaml with a defaultTs set to "bun" to switch (https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml)'
+    );
     return {};
   }
 }
