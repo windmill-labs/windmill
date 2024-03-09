@@ -425,8 +425,7 @@
 											{@const hasError = setting.isValid && !setting.isValid(values[setting.key])}
 											{#if setting.fieldType == 'text'}
 												<input
-													disabled={(setting.ee_only != undefined && !$enterpriseLicense) ||
-														(setting.disable_on_cloud ? isCloudHosted() : false)}
+													disabled={setting.ee_only != undefined && !$enterpriseLicense}
 													type="text"
 													placeholder={setting.placeholder}
 													class={hasError
@@ -439,12 +438,10 @@
 													rows="2"
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
-													disabled={setting.disable_on_cloud ? isCloudHosted() : false}
 												/>
 												{#if setting.key == 'saml_metadata'}
 													<div class="flex mt-2">
 														<Button
-															disabled={setting.disable_on_cloud ? isCloudHosted() : false}
 															on:click={async (e) => {
 																const res = await SettingService.testMetadata({
 																	requestBody: values[setting.key]
@@ -464,7 +461,6 @@
 															licenseKeyChanged = true
 														}}
 														bind:value={values[setting.key]}
-														disabled={setting.disable_on_cloud ? isCloudHosted() : false}
 													/>
 													<Button
 														variant={values[setting.key] ? 'contained' : 'border'}
@@ -495,33 +491,26 @@
 													type="email"
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
-													disabled={setting.disable_on_cloud ? isCloudHosted() : false}
 												/>
 											{:else if setting.fieldType == 'number'}
 												<input
 													type="number"
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
-													disabled={setting.disable_on_cloud ? isCloudHosted() : false}
 												/>
 											{:else if setting.fieldType == 'password'}
 												<input
 													type="password"
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
-													disabled={setting.disable_on_cloud ? isCloudHosted() : false}
 												/>
 											{:else if setting.fieldType == 'boolean'}
 												<div>
-													<Toggle
-														bind:checked={values[setting.key]}
-														disabled={setting.disable_on_cloud ? isCloudHosted() : false}
-													/>
+													<Toggle bind:checked={values[setting.key]} />
 												</div>
 											{:else if setting.fieldType == 'seconds'}
 												<div>
 													<SecondsInput
-														disabled={setting.disable_on_cloud ? isCloudHosted() : false}
 														max={setting.ee_only != undefined && !$enterpriseLicense
 															? 60 * 60 * 24 * 30
 															: undefined}

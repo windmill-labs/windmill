@@ -19,6 +19,8 @@
 	import { settingsKeys } from './instanceSettings'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
+	import Tooltip from './Tooltip.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 	let drawer: Drawer
 	let filter = ''
 
@@ -59,6 +61,15 @@
 			(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
 	}
 	getAutomateUsernameCreationSetting()
+	let automateUsernameModalOpen = false
+	async function enableAutomateUsernameCreationSetting() {
+		await SettingService.setGlobal({
+			key: 'automate_username_creation',
+			requestBody: { value: true }
+		})
+		getAutomateUsernameCreationSetting()
+		sendUserToast('Automatic username creation enabled')
+	}
 </script>
 
 <SearchItems
@@ -100,6 +111,42 @@
 						<div class="pt-4" />
 						<TabContent value="users">
 							<div class="h-full">
+								{#if !automateUsernameCreation && !isCloudHosted()}
+									<div class="mb-4">
+										<h3 class="mb-2">
+											Automatic username creation
+											<Tooltip>
+												Automatically create a username for new users based on their email, shared
+												across workspaces.
+											</Tooltip>
+										</h3>
+										<Button
+											btnClasses="w-auto"
+											size="sm"
+											color="dark"
+											on:click={() => {
+												automateUsernameModalOpen = true
+											}}
+										>
+											Enable (recommended)
+										</Button>
+										<ConfirmationModal
+											open={automateUsernameModalOpen}
+											on:confirmed={() => {
+												automateUsernameModalOpen = false
+												enableAutomateUsernameCreationSetting()
+											}}
+											on:canceled={() => (automateUsernameModalOpen = false)}
+											title="Automatic username creation"
+											confirmationText="Enable"
+										>
+											Once activated, it will not be possible to disable this feature. In case
+											existing users have different usernames in different workspaces, you will have
+											to manually confirm the username for each user.
+										</ConfirmationModal>
+									</div>
+								{/if}
+
 								<div class="py-2 mb-4">
 									<InviteGlobalUser on:new={listUsers} />
 								</div>
