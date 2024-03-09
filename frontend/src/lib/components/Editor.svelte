@@ -779,11 +779,18 @@
 						let p = new URL(_path, uri).href
 						let nuri = mUri.parse(p)
 						if (editor) {
-							let model = meditor.getModel(nuri)
-							if (model) {
-								model.setValue(code)
+							let localModel = meditor.getModel(nuri)
+							if (localModel) {
+								localModel.setValue(code)
 							} else {
 								meditor.createModel(code, 'javascript', nuri)
+							}
+							try {
+								if (model) {
+									model?.setValue(model.getValue())
+								}
+							} catch (e) {
+								console.log('error resetting model', e)
 							}
 						}
 					}

@@ -110,33 +110,31 @@
 
 		{#if kind == 'approval'}
 			{#if !noEditor}
-				
-			<div class="mt-2" />
-			<Alert title="Approval/Prompt Step" role="info">
-				An approval/prompt step will suspend the execution of a flow until it has been approved
-				and/or the prompts have been filled in the UI or through the resume endpoints or the
-				approval page by and solely by the recipients of the secret urls. See details in 'Advanced'
-				-> 'Suspend' settings of the step. A prompt is a specialized approval step with payload that
-				can be self-approved by the caller.<br /><br />
-				For further details, visit
+				<div class="mt-2" />
+				<Alert title="Approval/Prompt Step" role="info">
+					An approval/prompt step will suspend the execution of a flow until it has been approved
+					and/or the prompts have been filled in the UI or through the resume endpoints or the
+					approval page by and solely by the recipients of the secret urls. See details in
+					'Advanced' -> 'Suspend' settings of the step. A prompt is a specialized approval step with
+					payload that can be self-approved by the caller.<br /><br />
+					For further details, visit
+					<a
+						href="https://www.windmill.dev/docs/flows/flow_approval"
+						target="_blank"
+						class="text-blue-500">Approval/Prompt Steps Documentation</a
+					>
+					or
+					<div class="inline-flex">
+						<SuspendDrawer text="Approval/Step prompt helpers" />
+					</div>
+				</Alert>
+			{:else}
 				<a
 					href="https://www.windmill.dev/docs/flows/flow_approval"
 					target="_blank"
 					class="text-blue-500">Approval/Prompt Steps Documentation</a
 				>
-				or
-				<div class="inline-flex">
-					<SuspendDrawer text="Approval/Step prompt helpers" />
-				</div>
-			</Alert>
-			{:else}
-			<a
-				href="https://www.windmill.dev/docs/flows/flow_approval"
-				target="_blank"
-				class="text-blue-500">Approval/Prompt Steps Documentation</a
-			>
 			{/if}
-
 		{/if}
 		<h3 class="pb-2 pt-4">
 			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
@@ -169,11 +167,11 @@
 			<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
 				<FlowScriptPicker
 					disabled={noEditor && (summary == undefined || summary == '')}
-					label="TypeScript (Deno)"
-					lang={Script.language.DENO}
+					label="TypeScript (Bun)"
+					lang={Script.language.BUN}
 					on:click={() => {
 						dispatch('new', {
-							language: RawScript.language.DENO,
+							language: RawScript.language.BUN,
 							kind,
 							subkind: 'flow',
 							summary
@@ -197,11 +195,11 @@
 
 				<FlowScriptPicker
 					disabled={noEditor && (summary == undefined || summary == '')}
-					label="TypeScript (Bun)"
-					lang={Script.language.BUN}
+					label="TypeScript (Deno)"
+					lang={Script.language.DENO}
 					on:click={() => {
 						dispatch('new', {
-							language: RawScript.language.BUN,
+							language: RawScript.language.DENO,
 							kind,
 							subkind: 'flow',
 							summary

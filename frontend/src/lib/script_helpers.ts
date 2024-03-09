@@ -65,8 +65,9 @@ export async function main(
   a: number,
   b: "my" | "enum",
   //c: Postgresql,
-  d = "inferred type string from default arg",
-  e = { nested: "object" },
+  //d: wmill.S3Object, // for large files backed by S3 (https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files)
+  e = "inferred type string from default arg",
+  f = { nested: "object" },
 ) {
   // let x = await wmill.getVariable('u/user/foo')
   return { foo: a };

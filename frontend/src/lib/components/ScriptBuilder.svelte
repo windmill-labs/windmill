@@ -108,9 +108,9 @@
 	}
 
 	const langs: [string, SupportedLanguage][] = [
-		['TypeScript (Deno)', Script.language.DENO],
+		['TypeScript (Bun)', Script.language.BUN],
 		['Python', Script.language.PYTHON3],
-		['TypeScript (Bun)', Script.language.BUN]
+		['TypeScript (Deno)', Script.language.DENO]
 	]
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
