@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.289.0](https://github.com/windmill-labs/windmill/compare/v1.288.0...v1.289.0) (2024-03-09)
+
+
+### Features
+
+* bun is now the default typescript language ([357f74a](https://github.com/windmill-labs/windmill/commit/357f74ad1ad5611f5df12cbb400417fe1f1184e6))
+
+
+### Bug Fixes
+
+* **cli:** warn to switch to bun in the CLI ([8a8fab8](https://github.com/windmill-labs/windmill/commit/8a8fab8b41e8d48ec81f27d65a73fefdb9d62a62))
+* **cli:** warn to switch to bun in the CLI ([017190b](https://github.com/windmill-labs/windmill/commit/017190be27d1b03b1236fd8d41e67e32ddc1ffc8))
+
 ## [1.288.0](https://github.com/windmill-labs/windmill/compare/v1.287.1...v1.288.0) (2024-03-08)
 
 
