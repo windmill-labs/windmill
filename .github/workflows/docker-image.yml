@@ -26,10 +26,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v3
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
