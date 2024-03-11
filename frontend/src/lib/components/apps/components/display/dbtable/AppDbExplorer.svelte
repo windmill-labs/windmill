@@ -51,12 +51,14 @@
 
 	$: table !== null && render && clearColumns()
 
-	$: table === undefined && lastTable !== undefined && (lastTable = undefined)
-
 	function clearColumns() {
 		// We only want to clear the columns if the table has changed
 		if (!(lastTable && table && lastTable !== table) && !(lastTable && !table)) {
 			return
+		}
+
+		if (lastTable && !table) {
+			lastTable = undefined
 		}
 
 		const gridItem = findGridItem($app, id)
@@ -119,7 +121,7 @@
 	$: editorContext != undefined &&
 		$mode == 'dnd' &&
 		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
-		resolvedConfig?.columnDefs?.type === 'static' &&
+		resolvedConfig.columnDefs.type !== 'static' &&
 		listColumnsIfAvailable()
 
 	let firstQuicksearch = true
