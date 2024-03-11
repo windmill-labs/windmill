@@ -3444,7 +3444,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'db-explorer',
-					value: []
+					value: [],
+					loading: false
 				} as StaticAppInput,
 				whereClause: {
 					type: 'static',

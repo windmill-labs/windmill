@@ -51,6 +51,8 @@
 
 	$: table !== null && render && clearColumns()
 
+	$: table === undefined && lastTable !== undefined && (lastTable = undefined)
+
 	function clearColumns() {
 		// We only want to clear the columns if the table has changed
 		if (!(lastTable && table && lastTable !== table) && !(lastTable && !table)) {
@@ -64,7 +66,7 @@
 		}
 
 		// @ts-ignore
-		gridItem.data.configuration.columnDefs = { value: [], type: 'static' }
+		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: false }
 
 		$app = {
 			...$app
@@ -327,6 +329,16 @@
 
 		lastTable = table
 
+		const gridItem = findGridItem($app, id)
+		if (!gridItem) return
+
+		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
+
+		//@ts-ignore
+		gridItem.data.configuration.columnDefs.loading = true
+		gridItem.data = gridItem.data
+		$app = $app
+
 		let tableMetadata = await loadTableMetaData(
 			resolvedConfig.type.configuration[selected].resource,
 			$workspaceStore,
@@ -335,11 +347,6 @@
 		)
 
 		if (!tableMetadata) return
-
-		const gridItem = findGridItem($app, id)
-		if (!gridItem) return
-
-		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
 
 		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
 		if (!Array.isArray(old)) {
@@ -383,7 +390,7 @@
 		state = undefined
 
 		//@ts-ignore
-		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
+		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static', loading: false }
 		gridItem.data = gridItem.data
 
 		$app = $app
