@@ -152,9 +152,9 @@
 		}
 	}
 
-	$: {
-		const nodeIds = nodes.map((node) => node.id)
-		const debuggingComponentsIds = Object.keys($debuggingComponents)
+	function updateDebuggingComponents() {
+		const nodeIds = nodes.map((node) => node.id).sort()
+		const debuggingComponentsIds = Object.keys($debuggingComponents).sort()
 
 		if (JSON.stringify(nodeIds) !== JSON.stringify(debuggingComponentsIds)) {
 			debuggingComponentsIds.forEach((id) => {
@@ -164,6 +164,8 @@
 			})
 		}
 	}
+
+	$: nodes && $debuggingComponents && updateDebuggingComponents()
 </script>
 
 {#if Object.keys(resolvedConditions).length === nodes.length}
