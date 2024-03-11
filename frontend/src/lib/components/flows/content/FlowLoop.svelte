@@ -89,11 +89,7 @@
 						over which your subsequent steps will iterate.
 					</Alert>
 				{/if}
-				<div class="flex my-4 w-full justify-end">
-					<Button on:click={() => (previewOpen = true)} startIcon={{ icon: Play }} color="dark"
-						>Test an iteration</Button
-					>
-				</div>
+
 				{#if mod.value.type === 'forloopflow'}
 					<div class="flex flex-row gap-8 mt-2 mb-6">
 						<div>
@@ -136,7 +132,7 @@
 					</div>
 
 					<div class="my-2 flex flex-row gap-2 items-center">
-						<div class="text-sm font-bold">
+						<div class="text-sm font-bold whitespace-nowrap">
 							Iterator expression
 							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
 								List to iterate over.
@@ -163,6 +159,14 @@
 								pickableProperties={stepPropPicker.pickableProperties}
 							/>
 						{/if}
+						<div class="flex w-full justify-end">
+							<Button
+								on:click={() => (previewOpen = true)}
+								startIcon={{ icon: Play }}
+								color="dark"
+								size="sm">Test an iteration</Button
+							>
+						</div>
 					</div>
 
 					{#if mod.value.iterator.type == 'javascript'}
