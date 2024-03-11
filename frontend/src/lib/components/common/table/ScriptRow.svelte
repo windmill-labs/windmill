@@ -29,8 +29,11 @@
 		List,
 		Pen,
 		Share,
-		Trash
+		Trash,
+		History
 	} from 'lucide-svelte'
+	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
+	import { Drawer, DrawerContent } from '..'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
@@ -74,6 +77,7 @@
 	let scheduleEditor: ScheduleEditor
 
 	const dlt: 'delete' = 'delete'
+	let versionsDrawerOpen: boolean = false
 </script>
 
 {#if menuOpen}
@@ -210,6 +214,13 @@
 						href: `/runs/${script.path}`
 					},
 					{
+						displayName: 'Versions',
+						icon: History,
+						action: () => {
+							versionsDrawerOpen = true
+						}
+					},
+					{
 						displayName: 'Audit logs',
 						icon: Eye,
 						href: `/audit_logs?resource=${script.path}`,
@@ -300,3 +311,20 @@
 		/>
 	</svelte:fragment>
 </Row>
+
+{#if script}
+	<Drawer bind:open={versionsDrawerOpen} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)}>
+			<ScriptVersionHistory
+				scriptPath={script.path}
+				openDetails
+				on:openDetails={(e) => {
+					if (script) {
+						goto(`/scripts/get/${e.detail.version}?workspace=${$workspaceStore}`)
+					}
+					versionsDrawerOpen = false
+				}}
+			/>
+		</DrawerContent>
+	</Drawer>
+{/if}
