@@ -2521,7 +2521,6 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				timingFunction: {
 					fieldType: 'select',
 					type: 'static',
-
 					selectOptions: selectOptions.animationTimingFunctionOptions,
 					value: 'linear',
 					tooltip:
