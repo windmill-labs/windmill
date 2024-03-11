@@ -126,6 +126,13 @@
 	$: eGui && mountGrid()
 
 	function transformColumnDefs(columnDefs: any[]) {
+		const { isValid, errors } = validateColumnDefs(columnDefs)
+
+		if (!isValid) {
+			sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+			return []
+		}
+
 		let r = columnDefs?.filter((x) => x && !x.ignored) ?? []
 		if (allowDelete) {
 			r.push({
@@ -181,13 +188,6 @@
 
 	function mountGrid() {
 		if (eGui) {
-			const { isValid, errors } = validateColumnDefs(resolvedConfig?.columnDefs)
-
-			if (!isValid) {
-				sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
-				return
-			}
-
 			createGrid(
 				eGui,
 				{
