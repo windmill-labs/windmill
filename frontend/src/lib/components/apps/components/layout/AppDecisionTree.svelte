@@ -151,6 +151,19 @@
 			subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
 		}
 	}
+
+	$: {
+		const nodeIds = nodes.map((node) => node.id)
+		const debuggingComponentsIds = Object.keys($debuggingComponents)
+
+		if (JSON.stringify(nodeIds) !== JSON.stringify(debuggingComponentsIds)) {
+			debuggingComponentsIds.forEach((id) => {
+				if (!nodeIds.includes(id)) {
+					delete $debuggingComponents[id]
+				}
+			})
+		}
+	}
 </script>
 
 {#if Object.keys(resolvedConditions).length === nodes.length}
