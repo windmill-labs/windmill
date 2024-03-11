@@ -62,6 +62,8 @@
 		variables: boolean
 		secrets: boolean
 		schedules: boolean
+		users: boolean
+		groups: boolean
 	}
 	type GitSyncType =
 		| 'script'
@@ -73,6 +75,8 @@
 		| 'variable'
 		| 'secret'
 		| 'schedule'
+		| 'user'
+		| 'group'
 
 	let s3FileViewer: S3FilePicker
 
@@ -329,6 +333,12 @@
 		if (typesMap.schedules == expectedValue) {
 			result.push('schedule')
 		}
+		if (typesMap.users == expectedValue) {
+			result.push('user')
+		}
+		if (typesMap.groups == expectedValue) {
+			result.push('group')
+		}
 		return result
 	}
 
@@ -479,7 +489,9 @@
 							variables: (settings.exclude_types_override?.indexOf('variable') ?? -1) >= 0,
 							secrets: (settings.exclude_types_override?.indexOf('secret') ?? -1) >= 0,
 							schedules: (settings.exclude_types_override?.indexOf('schedule') ?? -1) >= 0,
-							folders: (settings.exclude_types_override?.indexOf('folder') ?? -1) >= 0
+							folders: (settings.exclude_types_override?.indexOf('folder') ?? -1) >= 0,
+							users: (settings.exclude_types_override?.indexOf('user') ?? -1) >= 0,
+							groups: (settings.exclude_types_override?.indexOf('group') ?? -1) >= 0
 						}
 					}
 				}),
@@ -492,7 +504,9 @@
 					variables: (settings.git_sync.include_type?.indexOf('variable') ?? -1) >= 0,
 					secrets: (settings.git_sync.include_type?.indexOf('secret') ?? -1) >= 0,
 					schedules: (settings.git_sync.include_type?.indexOf('schedule') ?? -1) >= 0,
-					folders: (settings.git_sync.include_type?.indexOf('folder') ?? -1) >= 0
+					folders: (settings.git_sync.include_type?.indexOf('folder') ?? -1) >= 0,
+					users: (settings.git_sync.include_type?.indexOf('user') ?? -1) >= 0,
+					groups: (settings.git_sync.include_type?.indexOf('group') ?? -1) >= 0
 				}
 			}
 		} else {
@@ -508,7 +522,9 @@
 					resources: false,
 					variables: false,
 					secrets: false,
-					schedules: false
+					schedules: false,
+					users: false,
+					groups: false
 				}
 			}
 			gitSyncTestJobs = []
@@ -1248,6 +1264,16 @@
 								on:change={(_) => resetGitSyncRepositoryExclude('resourcetypes')}
 								options={{ right: 'Resource Types' }}
 							/>
+							<Toggle
+								bind:checked={gitSyncSettings.include_type.users}
+								on:change={(_) => resetGitSyncRepositoryExclude('users')}
+								options={{ right: 'Users' }}
+							/>
+							<Toggle
+								bind:checked={gitSyncSettings.include_type.groups}
+								on:change={(_) => resetGitSyncRepositoryExclude('groups')}
+								options={{ right: 'Groups' }}
+							/>
 						</div>
 					</div>
 				</div>
@@ -1431,7 +1457,9 @@
 										resources: false,
 										variables: false,
 										secrets: false,
-										schedules: false
+										schedules: false,
+										users: false,
+										groups: false
 									}
 								}
 							]

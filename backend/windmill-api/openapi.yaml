@@ -1750,7 +1750,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/UserUsage"
 
-
   /w/{workspace}/users/list_usernames:
     get:
       summary: list usernames
@@ -4840,7 +4839,6 @@ paths:
                 type: string
                 format: uuid
 
-
   /w/{workspace}/jobs/workflow_as_code/{job_id}/{entrypoint}:
     post:
       summary: run code-workflow task
@@ -6509,7 +6507,7 @@ paths:
                   type: string
               required:
                 - owner
-                
+
       responses:
         "200":
           description: owner added to folder
@@ -8924,7 +8922,6 @@ components:
         name:
           type: string
 
-
     CreateResource:
       type: object
       properties:
@@ -9673,7 +9670,13 @@ components:
       properties:
         type:
           type: string
-          enum: ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc"]
+          enum:
+            [
+              "S3Storage",
+              "AzureBlobStorage",
+              "AzureWorkloadIdentity",
+              "S3AwsOidc",
+            ]
         s3_resource_path:
           type: string
         azure_blob_resource_path:
@@ -9763,6 +9766,8 @@ components:
               - secret
               - resourcetype
               - schedule
+              - user
+              - group
         repositories:
           type: array
           items:
@@ -9791,6 +9796,8 @@ components:
               - secret
               - resourcetype
               - schedule
+              - user
+              - group
       required:
         - script_path
         - git_repo_resource_path
