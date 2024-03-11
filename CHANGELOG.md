@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.289.0](https://github.com/windmill-labs/windmill/compare/v1.288.0...v1.289.0) (2024-03-09)
+
+
+### Features
+
+* bun is now the default typescript language ([357f74a](https://github.com/windmill-labs/windmill/commit/357f74ad1ad5611f5df12cbb400417fe1f1184e6))
+
+
+### Bug Fixes
+
+* **cli:** warn to switch to bun in the CLI ([8a8fab8](https://github.com/windmill-labs/windmill/commit/8a8fab8b41e8d48ec81f27d65a73fefdb9d62a62))
+* **cli:** warn to switch to bun in the CLI ([017190b](https://github.com/windmill-labs/windmill/commit/017190be27d1b03b1236fd8d41e67e32ddc1ffc8))
+
+## [1.288.0](https://github.com/windmill-labs/windmill/compare/v1.287.1...v1.288.0) (2024-03-08)
+
+
+### Features
+
+* implement s3 oidc support + azure workload identity support ([4578ed3](https://github.com/windmill-labs/windmill/commit/4578ed32da42b154833c6307cc6f82b526b05ab4))
+
+## [1.287.1](https://github.com/windmill-labs/windmill/compare/v1.287.0...v1.287.1) (2024-03-08)
+
+
+### Bug Fixes
+
+* **frontend:** fix theme fork ([#3380](https://github.com/windmill-labs/windmill/issues/3380)) ([3713ad0](https://github.com/windmill-labs/windmill/commit/3713ad0b8d9e9e1089697a5b21f80bd7a8125683))
+
 ## [1.287.0](https://github.com/windmill-labs/windmill/compare/v1.286.2...v1.287.0) (2024-03-08)
 
 

@@ -392,6 +392,18 @@ impl AuthedClient {
             .await?)
     }
 
+    pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
+        let url = format!(
+            "{}/api/w/{}/oidc/token/{}",
+            self.base_internal_url, self.workspace, audience
+        );
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(response.json::<String>().await?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
     pub async fn get_resource_value<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
         let url = format!(
             "{}/api/w/{}/resources/get_value/{}",
@@ -3413,11 +3425,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                 &job.created_by,
                 &db,
                 &w_id,
-                DeployedObject::Script {
-                    hash,
-                    path: script_path.to_string(),
-                    parent_path: parent_path.clone(),
-                },
+                DeployedObject::Script { hash, path: script_path.to_string(), parent_path: None },
                 deployment_message.clone(),
                 rsmq.clone(),
                 false,

@@ -16,8 +16,8 @@ use anyhow::Context;
 use async_recursion::async_recursion;
 use axum::{
     body::Bytes,
-    extract::{FromRequest, Query},
-    http::Request,
+    extract::{FromRequest, FromRequestParts, Query},
+    http::{request::Parts, Request, Uri},
     response::{IntoResponse, Response},
 };
 use bigdecimal::ToPrimitive;
@@ -777,8 +777,8 @@ pub async fn add_completed_job<
                     .num_seconds()
                     < 10
                 {
-                    let next_run =
-                        queued_job.started_at.unwrap_or(now) + chrono::Duration::seconds(10);
+                    let next_run = queued_job.started_at.unwrap_or(now)
+                        + chrono::Duration::try_seconds(10).unwrap();
                     tracing::warn!("Perpetual script {:?} is running too fast, only 1 job per 10s it supported. Scheduling next run for {:?}", queued_job.script_path, next_run);
                     Some(next_run)
                 } else {
@@ -1642,8 +1642,10 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
         let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for)
-            + Duration::seconds(avg_script_duration.map(i64::from).unwrap_or(0))
-            + Duration::seconds(i64::from(job_custom_concurrency_time_window_s));
+            + Duration::try_seconds(avg_script_duration.map(i64::from).unwrap_or(0))
+                .unwrap_or_default()
+            + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
+                .unwrap_or_default();
         tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
             job_uuid, job_script_path, job_custom_concurrent_limit,  job_concurrency_key, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 
@@ -2346,6 +2348,60 @@ pub struct PushArgs<T> {
     pub args: Json<T>,
 }
 
+#[derive(Deserialize)]
+pub struct DecodeQuery {
+    pub include_query: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct IncludeQuery {
+    pub include_query: Option<String>,
+}
+
+pub struct DecodeQueries(pub HashMap<String, Box<RawValue>>);
+
+#[axum::async_trait]
+impl<S> FromRequestParts<S> for DecodeQueries
+where
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(DecodeQueries::from_uri(&parts.uri).unwrap_or_else(|| DecodeQueries(HashMap::new())))
+    }
+}
+
+impl DecodeQueries {
+    fn from_uri(uri: &Uri) -> Option<Self> {
+        let query = uri.query();
+        if query.is_none() {
+            return None;
+        }
+        let query = query.unwrap();
+        let include_query = serde_urlencoded::from_str::<IncludeQuery>(query)
+            .map(|x| x.include_query)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let parse_query_args = include_query
+            .split(",")
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        let mut args = HashMap::new();
+        if !parse_query_args.is_empty() {
+            let queries =
+                serde_urlencoded::from_str::<HashMap<String, String>>(query).unwrap_or_default();
+            parse_query_args.iter().for_each(|h| {
+                if let Some(v) = queries.get(h) {
+                    args.insert(h.to_string(), to_raw_value(v));
+                }
+            });
+        }
+        Some(DecodeQueries(args))
+    }
+}
+
 impl<T> PushArgs<T> {
     pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
         self.extra.insert(k.into(), v.into());
@@ -2373,8 +2429,13 @@ where
             let headers_map = req.headers();
             let content_type_header = headers_map.get(CONTENT_TYPE);
             let content_type = content_type_header.and_then(|value| value.to_str().ok());
-            let query = Query::<RequestQuery>::try_from_uri(req.uri()).unwrap().0;
-            let extra = build_extra(&headers_map, query.include_header);
+            let uri = req.uri();
+            let query = Query::<RequestQuery>::try_from_uri(uri).unwrap().0;
+            let mut extra = build_extra(&headers_map, query.include_header);
+            let query_decode = DecodeQueries::from_uri(uri);
+            if let Some(DecodeQueries(queries)) = query_decode {
+                extra.extend(queries);
+            }
             let raw = query.raw.as_ref().is_some_and(|x| *x);
             (content_type, extra, raw)
         };

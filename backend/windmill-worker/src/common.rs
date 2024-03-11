@@ -19,8 +19,7 @@ use windmill_common::error::to_anyhow;
 use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
-    get_etag_or_empty, AzureBlobResource, LargeFileStorage, ObjectStoreResource, S3Object,
-    S3Resource,
+    get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
 use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
 use windmill_common::{
@@ -1028,8 +1027,7 @@ pub async fn hash_args(
             let arg_value = hm.get(k).unwrap();
             #[cfg(feature = "parquet")]
             let arg_additions =
-                arg_value_hash_additions(_db, _client, _workspace_id, _job_id, hm.get(k).unwrap())
-                    .await;
+                arg_value_hash_additions(_db, _client, _workspace_id, hm.get(k).unwrap()).await;
             arg_value.get().hash(&mut dh);
             #[cfg(feature = "parquet")]
             for (_, arg_addition) in arg_additions {
@@ -1047,8 +1045,11 @@ async fn get_workspace_s3_resource_path(
     db: &DB,
     client: &AuthedClient,
     workspace_id: &str,
-    job_id: &Uuid,
-) -> Option<ObjectStoreResource> {
+) -> windmill_common::error::Result<Option<ObjectStoreResource>> {
+    use windmill_common::{
+        job_s3_helpers_ee::get_s3_resource_internal, s3_helpers::StorageResourceType,
+    };
+
     let raw_lfs_opt = sqlx::query_scalar!(
         "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
         workspace_id
@@ -1060,33 +1061,46 @@ async fn get_workspace_s3_resource_path(
     .map(|val| serde_json::from_value::<LargeFileStorage>(val).ok())
     .flatten();
 
-    match raw_lfs_opt {
+    let (rt, path) = match raw_lfs_opt {
         Some(LargeFileStorage::S3Storage(s3_storage)) => {
             let resource_path = s3_storage.s3_resource_path.trim_start_matches("$res:");
-            let s3_resource = client
-                .get_resource_value_interpolated::<S3Resource>(
-                    &resource_path,
-                    Some(job_id.to_string()),
-                )
-                .await
-                .ok();
-            s3_resource.map(|resource| ObjectStoreResource::S3Resource(resource))
+            (StorageResourceType::S3, resource_path.to_string())
         }
         Some(LargeFileStorage::AzureBlobStorage(azure_blob_storage)) => {
             let resource_path = azure_blob_storage
                 .azure_blob_resource_path
                 .trim_start_matches("$res:");
-            let azure_blob_resource = client
-                .get_resource_value_interpolated::<AzureBlobResource>(
-                    &resource_path,
-                    Some(job_id.to_string()),
-                )
-                .await
-                .ok();
-            azure_blob_resource.map(|resource| ObjectStoreResource::AzureBlobResource(resource))
+            (StorageResourceType::AzureBlob, resource_path.to_string())
         }
-        None => None,
-    }
+        Some(LargeFileStorage::S3AwsOidc(s3_aws_oidc)) => {
+            let resource_path = s3_aws_oidc.s3_resource_path.trim_start_matches("$res:");
+            (StorageResourceType::S3AwsOidc, resource_path.to_string())
+        }
+        Some(LargeFileStorage::AzureWorkloadIdentity(azure)) => {
+            let resource_path = azure.azure_blob_resource_path.trim_start_matches("$res:");
+            (
+                StorageResourceType::AzureWorkloadIdentity,
+                resource_path.to_string(),
+            )
+        }
+        None => {
+            return Ok(None);
+        }
+    };
+
+    let client2 = client.clone();
+    let token_fn = |audience: String| async move {
+        client2
+            .get_id_token(&audience)
+            .await
+            .map_err(|e| windmill_common::error::Error::from(e))
+    };
+    let s3_resource_value_raw = client
+        .get_resource_value::<serde_json::Value>(path.as_str())
+        .await?;
+    get_s3_resource_internal(rt, s3_resource_value_raw, token_fn)
+        .await
+        .map(Some)
 }
 
 #[cfg(feature = "parquet")]
@@ -1094,7 +1108,6 @@ async fn arg_value_hash_additions(
     db: &DB,
     client: &AuthedClient,
     workspace_id: &str,
-    job_id: &Uuid,
     raw_value: &Box<RawValue>,
 ) -> HashMap<String, String> {
     let mut result: HashMap<String, String> = HashMap::new();
@@ -1105,8 +1118,8 @@ async fn arg_value_hash_additions(
         return result;
     }
 
-    let s3_resource_opt = get_workspace_s3_resource_path(db, client, workspace_id, job_id).await;
-    if let Some(s3_resource) = s3_resource_opt {
+    let s3_resource_opt = get_workspace_s3_resource_path(db, client, workspace_id).await;
+    if let Some(s3_resource) = s3_resource_opt.ok().flatten() {
         for s3_object in parsed_s3_values {
             let etag = get_etag_or_empty(&s3_resource, s3_object.clone()).await;
             tracing::warn!("Enriching s3 arg value with etag: {:?}", etag);
@@ -1169,7 +1182,10 @@ pub async fn get_cached_resource_value_if_valid(
             let object_store_resource_opt: Option<ObjectStoreResource> = if s3_etags.is_empty() {
                 None
             } else {
-                get_workspace_s3_resource_path(_db, &client, _workspace_id, _job_id).await
+                get_workspace_s3_resource_path(_db, &client, _workspace_id)
+                    .await
+                    .ok()
+                    .flatten()
             };
 
             if !s3_etags.is_empty() && object_store_resource_opt.is_none() {
@@ -1205,8 +1221,7 @@ pub async fn save_in_cache(
     let expire = chrono::Utc::now().timestamp() + job.cache_ttl.unwrap() as i64;
 
     #[cfg(feature = "parquet")]
-    let s3_etags =
-        arg_value_hash_additions(db, _client, job.workspace_id.as_str(), &job.id, r).await;
+    let s3_etags = arg_value_hash_additions(db, _client, job.workspace_id.as_str(), r).await;
 
     #[cfg(feature = "parquet")]
     let s3_etags = if s3_etags.is_empty() {

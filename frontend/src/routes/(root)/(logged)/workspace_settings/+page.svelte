@@ -92,7 +92,7 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
 	let s3ResourceSettings: {
-		resourceType: 's3' | 'azure_blob'
+		resourceType: 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity'
 		resourcePath: string | undefined
 		publicResource: boolean | undefined
 	}
@@ -226,6 +226,12 @@
 			if (s3ResourceSettings.resourceType === 'azure_blob') {
 				params['type'] = LargeFileStorage.type.AZURE_BLOB_STORAGE
 				params['azure_blob_resource_path'] = resourcePathWithPrefix
+			} else if (s3ResourceSettings.resourceType === 'azure_workload_identity') {
+				params['type'] = LargeFileStorage.type.AZURE_WORKLOAD_IDENTITY
+				params['azure_blob_resource_path'] = resourcePathWithPrefix
+			} else if (s3ResourceSettings.resourceType === 's3_aws_oidc') {
+				params['type'] = LargeFileStorage.type.S3AWS_OIDC
+				params['s3_resource_path'] = resourcePathWithPrefix
 			} else {
 				params['type'] = LargeFileStorage.type.S3STORAGE
 				params['s3_resource_path'] = resourcePathWithPrefix
@@ -425,6 +431,20 @@
 			s3ResourceSettings = {
 				resourceType: 'azure_blob',
 				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
+				publicResource: settings.large_file_storage?.public_resource
+			}
+		} else if (
+			settings.large_file_storage?.type === LargeFileStorage.type.AZURE_WORKLOAD_IDENTITY
+		) {
+			s3ResourceSettings = {
+				resourceType: 'azure_workload_identity',
+				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
+				publicResource: settings.large_file_storage?.public_resource
+			}
+		} else if (settings.large_file_storage?.type === LargeFileStorage.type.S3AWS_OIDC) {
+			s3ResourceSettings = {
+				resourceType: 's3_aws_oidc',
+				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
 				publicResource: settings.large_file_storage?.public_resource
 			}
 		} else {
@@ -658,14 +678,21 @@
 			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold"> Link this workspace to another Staging / Prod workspace </div>
-				<div class="text-tertiary text-xs">
-					Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace.
-					<a href="https://www.windmill.dev/docs/core_concepts/staging_prod" target="_blank" class="text-blue-500">Learn more</a>.
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold">
+						Link this workspace to another Staging / Prod workspace
+					</div>
+					<div class="text-tertiary text-xs">
+						Connecting this workspace with another staging/production workspace enables web-based
+						deployment to that workspace.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/staging_prod"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
 				</div>
 			</div>
-			</div>	
 			{#if $enterpriseLicense}
 				<DeployToSetting bind:workspaceToDeployTo />
 			{:else}
@@ -684,7 +711,11 @@
 					<div class="text-tertiary text-xs">
 						Connect your Windmill workspace to your Slack workspace to trigger a script or a flow
 						with a '/windmill' command or to configure Slack error handlers.
-						<a href="https://www.windmill.dev/docs/integrations/slack" target="_blank" class="text-blue-500">Learn more</a>.
+						<a
+							href="https://www.windmill.dev/docs/integrations/slack"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
 					</div>
 				</div>
 
@@ -772,9 +803,9 @@
 			</div>
 		{:else if tab == 'export_delete'}
 			<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold">Export or Delete workspace</div>
-			</div>
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold">Export or Delete workspace</div>
+				</div>
 			</div>
 			<PageHeader title="Export workspace" primary={false} />
 			<div class="flex justify-start">
@@ -835,19 +866,25 @@
 			</div>
 		{:else if tab == 'webhook'}
 			<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
-				<div class="text-tertiary text-xs">
-					Connect your Windmill workspace to an external service to sync or get notified about any change.
-					<a href="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook" target="_blank" class="text-blue-500">Learn more</a>.
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
+					<div class="text-tertiary text-xs">
+						Connect your Windmill workspace to an external service to sync or get notified about any
+						change.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
 				</div>
-			</div>
 			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
 					<div class=" text-primary text-base font-semibold"> URL to send requests to</div>
 					<div class="text-tertiary text-xs">
-						This URL will be POSTed to with a JSON body depending on the type of event. The type is indicated by the type field. The other fields are dependent on the type.
+						This URL will be POSTed to with a JSON body depending on the type of event. The type is
+						indicated by the type field. The other fields are dependent on the type.
 					</div>
 				</div>
 			</div>
@@ -868,13 +905,19 @@
 					<div class=" text-primary text-lg font-semibold"> Workspace Error Handler</div>
 					<div class="text-tertiary text-xs">
 						Define a script or flow to be executed automatically in case of error in the workspace.
-						<a href="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler" target="_blank" class="text-blue-500">Learn more</a>.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
 					</div>
 				</div>
-				</div>
+			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-base font-semibold"> Script or flow to run as error handler</div>
+					<div class=" text-primary text-base font-semibold">
+						Script or flow to run as error handler</div
+					>
 				</div>
 			</div>
 			<ErrorOrRecoveryHandler
@@ -934,16 +977,21 @@
 			</div>
 		{:else if tab == 'openai'}
 			<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold"> Windmill AI</div>
-				<div class="text-tertiary text-xs">
-					Select an OpenAI resource to unlock Windmill AI features.
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold"> Windmill AI</div>
+					<div class="text-tertiary text-xs">
+						Select an OpenAI resource to unlock Windmill AI features.
+					</div>
+					<div class="text-tertiary text-xs">
+						Windmill AI uses OpenAI's GPT-3.5-turbo for code completion and GPT-4 Turbo for all
+						other AI features.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
 				</div>
-				<div class="text-tertiary text-xs">
-					Windmill AI uses OpenAI's GPT-3.5-turbo for code completion and GPT-4 Turbo for all other AI features.
-					<a href="https://www.windmill.dev/docs/core_concepts/ai_generation" target="_blank" class="text-blue-500">Learn more</a>.
-				</div>
-			</div>
 			</div>
 			<div class="mt-5 flex gap-1">
 				{#key [openaiResourceInitialPath, usingOpenaiClientCredentialsOauth]}
@@ -971,13 +1019,17 @@
 			</div>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold">S3 Storage</div>
-				<div class="text-tertiary text-xs">
-					Connect your Windmill workspace to your S3 bucket or your Azure Blob storage.
-					<a href="https://www.windmill.dev/docs/core_concepts/persistent_storage#connect-your-windmill-workspace-to-your-s3-bucket-or-your-azure-blob-storage" target="_blank" class="text-blue-500">Learn more</a>.
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold">S3 Storage</div>
+					<div class="text-tertiary text-xs">
+						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/persistent_storage#connect-your-windmill-workspace-to-your-s3-bucket-or-your-azure-blob-storage"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
 				</div>
-			</div>
 			</div>
 			{#if !$enterpriseLicense}
 				<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
@@ -987,45 +1039,55 @@
 				</Alert>
 			{/if}
 			{#if s3ResourceSettings}
-				<div class="mt-5 flex gap-1">
-					{#key s3ResourceSettings.resourcePath}
+				<div class="mt-5">
+					<div class="w-full">
+						<Tabs bind:selected={s3ResourceSettings.resourceType}>
+							<Tab exact size="xs" value="s3">S3</Tab>
+							<Tab size="xs" value="azure_blob">Azure Blob</Tab>
+							<Tab exact size="xs" value="s3_aws_oidc">AWS OIDC</Tab>
+							<Tab size="xs" value="azure_workload_identity">Azure Workload Identity</Tab>
+						</Tabs>
+					</div>
+					<div class="w-full flex gap-1 mt-4">
 						<ResourcePicker
-							resourceType="s3,azure_blob"
+							resourceType={s3ResourceSettings.resourceType}
 							bind:value={s3ResourceSettings.resourcePath}
-							bind:valueType={s3ResourceSettings.resourceType}
 						/>
-					{/key}
-					<Button
-						size="sm"
-						variant="contained"
-						color="dark"
-						disabled={emptyString(s3ResourceSettings.resourcePath)}
-						on:click={async () => {
-							if ($workspaceStore) {
-								s3FileViewer?.open?.(undefined)
-							}
-						}}>Browse content (save first)</Button
-					>
+						<Button
+							size="sm"
+							variant="contained"
+							color="dark"
+							disabled={emptyString(s3ResourceSettings.resourcePath)}
+							on:click={async () => {
+								if ($workspaceStore) {
+									s3FileViewer?.open?.(undefined)
+								}
+							}}>Browse content (save first)</Button
+						>
+					</div>
 				</div>
-				<div class="flex flex-col mt-5 mb-1 gap-1">
-					<Toggle
-						disabled={emptyString(s3ResourceSettings.resourcePath)}
-						bind:checked={s3ResourceSettings.publicResource}
-						options={{
-							right: 'S3 resource details can be accessed by all users of this workspace',
-							rightTooltip:
-								'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details. this effectively by-pass the permissions set on the resource and makes it public to everyone.'
-						}}
-					/>
-					{#if s3ResourceSettings.publicResource === true}
-						<Alert type="warning" title="S3 bucket content and resource details are shared">
-							S3 resource public access is ON, which means that the entire content of the S3 bucket
-							will be accessible to all the users of this workspace regardless of whether they have
-							access the resource or not. Similarly, certain Windmill SDK endpoints can be used in
-							scripts to access the resource details, including public and private keys.
-						</Alert>
-					{/if}
-				</div>
+				{#if s3ResourceSettings.resourceType == 's3'}
+					<div class="flex flex-col mt-5 mb-1 gap-1">
+						<Toggle
+							disabled={emptyString(s3ResourceSettings.resourcePath)}
+							bind:checked={s3ResourceSettings.publicResource}
+							options={{
+								right: 'S3 resource details can be accessed by all users of this workspace',
+								rightTooltip:
+									'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details. this effectively by-pass the permissions set on the resource and makes it public to everyone.'
+							}}
+						/>
+						{#if s3ResourceSettings.publicResource === true}
+							<Alert type="warning" title="S3 bucket content and resource details are shared">
+								S3 resource public access is ON, which means that the entire content of the S3
+								bucket will be accessible to all the users of this workspace regardless of whether
+								they have access the resource or not. Similarly, certain Windmill SDK endpoints can
+								be used in scripts to access the resource details, including public and private
+								keys.
+							</Alert>
+						{/if}
+					</div>
+				{/if}
 				<div class="flex mt-5 mb-5 gap-1">
 					<Button
 						color="blue"
@@ -1038,16 +1100,20 @@
 				</div>
 			{/if}
 		{:else if tab == 'git_sync'}
-		<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold"> Git Sync </div>
-				<div class="text-tertiary text-xs">
-					Connect the Windmill workspace to a Git repository to automatically commit and push
-					scripts, flows, and apps to the repository on each deploy.
-					<a href="https://www.windmill.dev/docs/advanced/git_sync" target="_blank" class="text-blue-500">Learn more</a>.
+			<div class="flex flex-col gap-4 my-8">
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold"> Git Sync </div>
+					<div class="text-tertiary text-xs">
+						Connect the Windmill workspace to a Git repository to automatically commit and push
+						scripts, flows, and apps to the repository on each deploy.
+						<a
+							href="https://www.windmill.dev/docs/advanced/git_sync"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
 				</div>
 			</div>
-			</div>	
 			{#if !$enterpriseLicense}
 				<div class="mb-2" />
 
@@ -1425,16 +1491,22 @@ git push</code
 			{/if}
 		{:else if tab == 'default_app'}
 			<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold">Workspace default app</div>
-				<div class="text-tertiary text-xs">
-					If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace.
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold">Workspace default app</div>
+					<div class="text-tertiary text-xs">
+						If configured, users who are operators in this workspace will be redirected to this app
+						automatically when logging into this workspace.
+					</div>
+					<div class="text-tertiary text-xs">
+						Make sure the default app is shared with all the operators of this workspace before
+						turning this feature on.
+						<a
+							href="https://www.windmill.dev/docs/apps/default_app"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
 				</div>
-				<div class="text-tertiary text-xs">
-					Make sure the default app is shared with all the operators of this workspace before turning this feature on.
-					<a href="https://www.windmill.dev/docs/apps/default_app" target="_blank" class="text-blue-500">Learn more</a>.
-				</div>
-			</div>
 			</div>
 			{#if !$enterpriseLicense}
 				<Alert type="info" title="Windmill EE only feature">
@@ -1458,16 +1530,23 @@ git push</code
 			</div>
 		{:else if tab == 'encryption'}
 			<div class="flex flex-col gap-4 my-8">
-			<div class="flex flex-col gap-1">
-				<div class=" text-primary text-lg font-semibold">Workspace secret encryption</div>
-				<div class="text-tertiary text-xs">
-					When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one.
+				<div class="flex flex-col gap-1">
+					<div class=" text-primary text-lg font-semibold">Workspace secret encryption</div>
+					<div class="text-tertiary text-xs">
+						When updating the encryption key of a workspace, all secrets will be re-encrypted with
+						the new key and the previous key will be replaced by the new one.
+					</div>
+					<div class="text-tertiary text-xs">
+						If you're manually updating the key to match another workspace key from another Windmill
+						instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're
+						using it, make sure it the salt matches across both instances.
+						<a
+							href="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
+							target="_blank"
+							class="text-blue-500">Learn more</a
+						>.
+					</div>
 				</div>
-				<div class="text-tertiary text-xs">
-					If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances.
-					<a href="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption" target="_blank" class="text-blue-500">Learn more</a>.
-				</div>
-			</div>
 			</div>
 			<div class="mt-5 flex gap-1 mb-10">
 				<Button
