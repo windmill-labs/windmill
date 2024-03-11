@@ -119,6 +119,7 @@
 	$: editorContext != undefined &&
 		$mode == 'dnd' &&
 		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
+		resolvedConfig?.columnDefs?.type === 'static' &&
 		listColumnsIfAvailable()
 
 	let firstQuicksearch = true
@@ -335,7 +336,7 @@
 		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
 
 		//@ts-ignore
-		gridItem.data.configuration.columnDefs.loading = true
+		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: true }
 		gridItem.data = gridItem.data
 		$app = $app
 

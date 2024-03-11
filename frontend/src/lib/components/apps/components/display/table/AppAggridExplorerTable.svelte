@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
-	import { isObject } from '$lib/utils'
+	import { isObject, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
 
@@ -181,8 +181,10 @@
 
 	function mountGrid() {
 		if (eGui) {
-			if (!validateColumnDefs(resolvedConfig?.columnDefs).isValid) {
-				console.error('Invalid columnDefs')
+			const { isValid, errors } = validateColumnDefs(resolvedConfig?.columnDefs)
+
+			if (!isValid) {
+				sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
 				return
 			}
 
