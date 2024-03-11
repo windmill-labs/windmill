@@ -69,6 +69,7 @@
 		})
 		getAutomateUsernameCreationSetting()
 		sendUserToast('Automatic username creation enabled')
+		listUsers()
 	}
 </script>
 
@@ -181,14 +182,16 @@
 																{#if username}
 																	{username}
 																{:else}
-																	<ChangeInstanceUsername
-																		username=""
-																		{email}
-																		isConflict
-																		on:renamed={() => {
-																			listUsers()
-																		}}
-																	/>
+																	{#key filteredUsers.map((u) => u.username).join()}
+																		<ChangeInstanceUsername
+																			username=""
+																			{email}
+																			isConflict
+																			on:renamed={() => {
+																				listUsers()
+																			}}
+																		/>
+																	{/key}
 																{/if}
 															</td>
 														{/if}

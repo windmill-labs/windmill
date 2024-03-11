@@ -69,15 +69,15 @@
 <!-- Enable submit form on enter -->
 
 <CenteredModal title="Invitation to join {workspace_id}">
-	<label class="block pb-2">
-		<span class="text-secondary text-sm">Your username in workspace {workspace_id}:</span>
-		{#if !automateUsernameCreation}
+	{#if !automateUsernameCreation}
+		<label class="block pb-2">
+			<span class="text-secondary text-sm">Your username in workspace {workspace_id}:</span>
 			<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
 			{#if errorUsername}
 				<span class="text-red-500 text-xs">{errorUsername}</span>
 			{/if}
-		{/if}
-	</label>
+		</label>
+	{/if}
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button

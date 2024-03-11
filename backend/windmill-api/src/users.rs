@@ -1375,6 +1375,11 @@ async fn add_user_to_workspace<'c>(
     .unwrap_or(false);
 
     let username = if automate_username_creation {
+        if username.is_some() && username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
         get_instance_username_or_create_pending(&mut tx, &email).await?
     } else {
         let username = username.ok_or(Error::BadRequest("username is required".to_string()))?;
@@ -2587,8 +2592,7 @@ async fn update_username_in_workpsace<'c>(
         email
     )
     .execute(&mut **tx)
-    .await
-    .unwrap();
+    .await?;
 
     sqlx::query!(
         "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
@@ -2596,8 +2600,7 @@ async fn update_username_in_workpsace<'c>(
         old_username
     )
     .execute(&mut **tx)
-    .await
-    .unwrap();
+    .await?;
 
     // ---- queue ----
     sqlx::query!(

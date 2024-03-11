@@ -1356,6 +1356,11 @@ async fn create_workspace(
     .unwrap_or(false);
 
     let username = if automate_username_creation {
+        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
         get_instance_username_or_create_pending(&mut tx, &authed.email).await?
     } else {
         nw.username
@@ -1801,6 +1806,11 @@ async fn add_user(
     .unwrap_or(false);
 
     let username = if automate_username_creation {
+        if nu.username.is_some() && nu.username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
         get_instance_username_or_create_pending(&mut tx, &nu.email).await?
     } else {
         let username = nu

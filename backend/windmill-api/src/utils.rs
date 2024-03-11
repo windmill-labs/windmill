@@ -128,7 +128,7 @@ pub async fn get_instance_username_or_create_pending<'c>(
         if let Some(username) = opt_username {
             Ok(username)
         } else {
-            Err(Error::BadRequest("No instance wide username found. The user has different usernames for different workspaces. Ask the instance administrator to solve the conflict in the instance settings.".to_string()))
+            Err(Error::BadRequest(format!("No instance-wide username found for {email}. The user has different usernames for different workspaces. Ask the instance administrator to solve the conflict in the instance settings.")))
         }
     } else {
         let pending_username =

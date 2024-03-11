@@ -187,7 +187,10 @@ pub async fn get_global_setting(
     authed: ApiAuthed,
     Path(key): Path<String>,
 ) -> JsonResult<serde_json::Value> {
-    if !key.starts_with("default_error_handler_") && !key.starts_with("default_recovery_handler_") {
+    if !key.starts_with("default_error_handler_")
+        && !key.starts_with("default_recovery_handler_")
+        && key != AUTOMATE_USERNAME_CREATION_SETTING
+    {
         require_super_admin(&db, &authed.email).await?;
     }
     let value = sqlx::query!("SELECT value FROM global_settings WHERE name = $1", key)
