@@ -53,11 +53,10 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 
 	query += '\n'
 
-	const shouldInsertComma = columnsDefault.length > 0
 	const columnNames = formatColumnNames(allInsertColumns)
 	const insertValues = formatInsertValues(columnsInsert, dbType)
 	const defaultValues = formatDefaultValues(columnsDefault)
-	const commaOrEmpty = shouldInsertComma ? ', ' : ''
+	const commaOrEmpty = defaultValues !== '' ? ', ' : ''
 
 	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
 

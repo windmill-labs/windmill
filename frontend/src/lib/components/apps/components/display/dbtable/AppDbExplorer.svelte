@@ -365,12 +365,7 @@
 		if (columnDefs.type !== 'static') return
 
 		//@ts-ignore
-		gridItem.data.configuration.columnDefs = {
-			//@ts-ignore
-			value: gridItem.data.configuration.columnDefs?.value,
-			type: 'static',
-			loading: true
-		}
+		gridItem.data.configuration.columnDefs.loading = true
 		gridItem.data = gridItem.data
 		$app = $app
 
@@ -393,6 +388,11 @@
 		const newMap = Object.fromEntries(tableMetadata?.map((x) => [x.field, x]) ?? [])
 
 		if (shouldReturnEarly(newMap, oldMap)) {
+			//@ts-ignore
+			gridItem.data.configuration.columnDefs.loading = false
+			gridItem.data = gridItem.data
+
+			$app = $app
 			return
 		}
 
