@@ -63,7 +63,7 @@
 			let dAgo = daysAgo(date)
 			if (dAgo == 0) {
 				return `yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-			} else if (dAgo > 7) {
+			} else if (dAgo > 7 && withDate) {
 				return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], {
 					hour: '2-digit',
 					minute: '2-digit'
