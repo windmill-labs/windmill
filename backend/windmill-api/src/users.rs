@@ -1302,7 +1302,7 @@ lazy_static! {
 }
 
 async fn accept_invite(
-    ApiAuthed { email, username, .. }: ApiAuthed,
+    ApiAuthed { email, .. }: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -1318,7 +1318,6 @@ async fn accept_invite(
     .fetch_optional(&mut *tx)
     .await?;
 
-    // let mut username = nu.username;
     if let Some(r) = r {
         let username;
         (tx, username) = add_user_to_workspace(
