@@ -368,7 +368,6 @@
 							: script.concurrency_key
 					}
 				})
-				initialPath = script.path
 			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
@@ -387,6 +386,7 @@
 			} as NewScriptWithDraft
 
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
+				initialPath = script.path
 				goto(`/scripts/edit/${script.path}`)
 			}
 			sendUserToast('Saved as draft')
