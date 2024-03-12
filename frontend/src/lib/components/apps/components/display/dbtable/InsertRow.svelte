@@ -100,7 +100,6 @@
 		const args = await parseSQLArgs(insertCode, dbType)
 
 		fields.forEach((field) => {
-			console.log(field)
 			const schemaProperty: SchemaProperty = {
 				type: 'string'
 			}
@@ -111,7 +110,7 @@
 			}
 
 			if (field.defaultValue) {
-				if (schemaProperty.type === 'number') {
+				if (schemaProperty.type === 'number' || schemaProperty.type === 'integer') {
 					schemaProperty.default = field.defaultValue ? Number(field.defaultValue) : undefined
 				} else if (schemaProperty.type === 'boolean') {
 					schemaProperty.default = field.defaultValue?.toLocaleLowerCase() === 'true'

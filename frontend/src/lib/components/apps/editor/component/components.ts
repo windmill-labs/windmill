@@ -2521,7 +2521,6 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				timingFunction: {
 					fieldType: 'select',
 					type: 'static',
-
 					selectOptions: selectOptions.animationTimingFunctionOptions,
 					value: 'linear',
 					tooltip:
@@ -3369,14 +3368,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'postgres',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						mysql: {
@@ -3445,7 +3446,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'db-explorer',
-					value: []
+					value: [],
+					loading: false
 				} as StaticAppInput,
 				whereClause: {
 					type: 'static',
@@ -3498,6 +3500,18 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'object',
 					value: {},
 					tooltip: 'any configuration that can be passed to ag-grid top level'
+				},
+				hideInsert: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide the insert button'
+				},
+				hideSearch: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide the search bar'
 				}
 			},
 			componentInput: undefined
