@@ -65,7 +65,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
             username = format!("{}{}", base_username, i)
         }
         username_conflict = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1UNION SELECT 1 FROM pending_user WHERE username = $1)",
+                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
                 &username,
                 &email
             )
