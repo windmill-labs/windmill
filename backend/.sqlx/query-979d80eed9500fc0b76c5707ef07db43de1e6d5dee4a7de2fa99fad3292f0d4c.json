@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET edited_by = $1 WHERE edited_by = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "979d80eed9500fc0b76c5707ef07db43de1e6d5dee4a7de2fa99fad3292f0d4c"
+}
