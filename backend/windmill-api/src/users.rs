@@ -1682,7 +1682,20 @@ async fn create_user(
         )));
     }
 
-    let username = get_and_delete_pending_username_or_generate(&mut tx, &nu.email).await?;
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let mut username = None;
+    if automate_username_creation {
+        username = Some(get_and_delete_pending_username_or_generate(&mut tx, &nu.email).await?);
+    }
 
     sqlx::query!(
         "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, \
