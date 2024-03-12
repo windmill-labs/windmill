@@ -341,7 +341,7 @@
 
 		if (
 			JSON.stringify(supersetKeys.sort()) === JSON.stringify(subsetKeys.sort()) &&
-			subsetKeys.every((key) => isSubset(subset[key], superset[key]))
+			!subsetKeys.every((key) => isSubset(subset[key], superset[key]))
 		) {
 			return false
 		}
