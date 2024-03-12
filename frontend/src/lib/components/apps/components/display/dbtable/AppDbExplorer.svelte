@@ -121,7 +121,6 @@
 	$: editorContext != undefined &&
 		$mode == 'dnd' &&
 		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
-		resolvedConfig.columnDefs.type !== 'static' &&
 		listColumnsIfAvailable()
 
 	let firstQuicksearch = true
@@ -337,8 +336,15 @@
 
 		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
 
+		if (columnDefs.type !== 'static') return
+
 		//@ts-ignore
-		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: true }
+		gridItem.data.configuration.columnDefs = {
+			//@ts-ignore
+			value: gridItem.data.configuration.columnDefs?.value,
+			type: 'static',
+			loading: true
+		}
 		gridItem.data = gridItem.data
 		$app = $app
 
@@ -348,6 +354,8 @@
 			resolvedConfig.type.configuration[selected].table,
 			selected
 		)
+
+		console.log('tableMetadata', tableMetadata)
 
 		if (!tableMetadata) return
 
@@ -385,7 +393,22 @@
 		ncols = ncols.map((x) => {
 			let o = {}
 			Object.keys(x).forEach((k) => {
-				o[k.toLowerCase()] = x[k]
+				console.log(k)
+				if (
+					[
+						'field',
+						'datatype',
+						'defaultvalue',
+						'isprimarykey',
+						'isidentity',
+						'isnullable',
+						'isenum'
+					].includes(k.toLocaleLowerCase())
+				) {
+					o[k.toLowerCase()] = x[k]
+				} else {
+					o[k] = x[k]
+				}
 			})
 			return o
 		})
