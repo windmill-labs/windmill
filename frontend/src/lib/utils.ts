@@ -36,7 +36,11 @@ export function parseQueryParams(url: string | undefined) {
 	return params
 }
 
-export function displayDate(dateString: string | Date | undefined, displaySecond = false): string {
+export function displayDate(
+	dateString: string | Date | undefined,
+	displaySecond = false,
+	displayDate = true
+): string {
 	const date = new Date(dateString ?? '')
 	if (date.toString() === 'Invalid Date') {
 		return ''
@@ -45,7 +49,7 @@ export function displayDate(dateString: string | Date | undefined, displaySecond
 			hour: '2-digit',
 			minute: '2-digit',
 			second: displaySecond ? '2-digit' : undefined
-		})} ${date.getDate()}/${date.getMonth() + 1}`
+		})}${displayDate ? ` ${date.getDate()}/${date.getMonth() + 1}` : ''}`
 	}
 }
 

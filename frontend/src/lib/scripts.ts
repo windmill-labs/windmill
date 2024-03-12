@@ -87,6 +87,23 @@ export function scriptPathToHref(path: string): string {
 	}
 }
 
+export const defaultScriptLanguages = Object.fromEntries([
+	[Script.language.BUN, 'TypeScript (Bun)'],
+	[Script.language.PYTHON3, 'Python'],
+	[Script.language.DENO, 'TypeScript (Deno)'],
+	[Script.language.BASH, 'Bash'],
+	[Script.language.GO, 'Go'],
+	[Script.language.NATIVETS, 'REST'],
+	[Script.language.POSTGRESQL, 'PostgreSQL'],
+	[Script.language.MYSQL, 'MySQL'],
+	[Script.language.BIGQUERY, 'BigQuery'],
+	[Script.language.SNOWFLAKE, 'Snowflake'],
+	[Script.language.MSSQL, 'MS SQL Server'],
+	[Script.language.GRAPHQL, 'GraphQL'],
+	[Script.language.POWERSHELL, 'PowerShell'],
+	['docker', 'Docker']
+])
+
 export async function getScriptByPath(path: string): Promise<{
 	content: string
 	language: SupportedLanguage

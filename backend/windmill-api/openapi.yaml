@@ -1698,6 +1698,43 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/default_scripts:
+    post:
+      summary: edit default scripts for workspace
+      operationId: editDefaultScripts
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace default app
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceDefaultScripts"
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+    get:
+      summary: get default scripts for workspace
+      operationId: get default scripts
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDefaultScripts"
+
   /w/{workspace}/workspaces/encryption_key:
     get:
       summary: retrieves the encryption key for this workspace
@@ -9834,6 +9871,24 @@ components:
           items:
             $ref: "#/components/schemas/GitRepositorySettings"
 
+    WorkspaceDefaultScripts:
+      type: object
+      properties:
+        order:
+          type: array
+          items:
+            type: string
+        hidden:
+          type: array
+          items:
+            type: string
+        default_script_content:
+          additionalProperties:
+            type: string
+
+        
+
+            
     GitRepositorySettings:
       type: object
       properties:

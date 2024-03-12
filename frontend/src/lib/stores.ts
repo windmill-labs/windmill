@@ -1,7 +1,7 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
 import type { UserWorkspaceList } from '$lib/gen/models/UserWorkspaceList.js'
-import type { TokenResponse } from './gen'
+import { type WorkspaceDefaultScripts, type TokenResponse } from './gen'
 import type { IntrospectionQuery } from 'graphql'
 
 export interface UserExt {
@@ -39,6 +39,7 @@ export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined
 )
+export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
 export const isPremiumStore = writable<boolean>(false)
 export const starStore = writable(1)

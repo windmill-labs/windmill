@@ -23,7 +23,7 @@
 			const field: string | undefined = getTime(job)
 			if (field) {
 				const date = new Date(field)
-				date.setMilliseconds(date.getMilliseconds() + (job['duration_ms'] ?? 0))
+				date.setMilliseconds(date.getMilliseconds())
 
 				const day = date.toLocaleDateString('en-US', {
 					year: 'numeric',

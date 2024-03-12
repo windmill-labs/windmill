@@ -7,15 +7,7 @@
 
 	export let disabled: boolean = false
 	export let label: string
-	export let lang:
-		| SupportedLanguage
-		| 'pgsql'
-		| 'mysql'
-		| 'javascript'
-		| 'fetch'
-		| 'docker'
-		| 'powershell'
-		| undefined = undefined
+	export let lang: SupportedLanguage | 'docker' | 'javascript' | undefined = undefined
 
 	export let id: string | undefined = undefined
 
