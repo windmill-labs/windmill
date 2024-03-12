@@ -1,5 +1,5 @@
 import type { AppInput } from '$lib/components/apps/inputType'
-import { buildParameters, type DbType } from '../utils'
+import { buildParameters, ColumnIdentity, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
 function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: number = 1): string {
@@ -7,7 +7,9 @@ function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: nu
 		case 'mysql':
 			return columns.map((c) => `:${c.field}`).join(', ')
 		case 'postgresql':
-			return columns.map((c, i) => `$${startIndex + i}::${c.datatype}`).join(', ')
+			return columns
+				.map((c, i) => `$${startIndex + i}::${c.datatype === 'integer' ? 'int' : c.datatype}`)
+				.join(', ')
 		case 'ms_sql_server':
 			return columns.map((c, i) => `@p${startIndex + i}`).join(', ')
 		case 'snowflake':
@@ -23,40 +25,68 @@ function formatColumnNames(columns: ColumnDef[]): string {
 	return columns.map((c) => c.field).join(', ')
 }
 
+function getUserDefaultValue(column: ColumnDef) {
+	if (column.defaultValueNull) {
+		return 'NULL'
+	} else if (column.defaultUserValue) {
+		return typeof column.defaultUserValue === 'string'
+			? `'${column.defaultUserValue}'`
+			: column.defaultUserValue
+	}
+}
+
 function formatDefaultValues(columns: ColumnDef[]): string {
 	const defaultValues = columns
 		.map((c) => {
-			if (c.defaultValueNull) {
-				return 'NULL'
-			} else {
-				return typeof c.defaultUserValue === 'string'
-					? `'${c.defaultUserValue}'`
-					: c.defaultUserValue
+			const userDefaultValue = getUserDefaultValue(c)
+			if (c.overrideDefaultValue === true) {
+				return userDefaultValue
 			}
+
+			return userDefaultValue ?? c.defaultvalue
 		})
 		.join(', ')
 
 	return defaultValues
 }
 
+function shouldOmitColumnInInsert(column: ColumnDef) {
+	if (!column.hideInsert || column.isidentity === ColumnIdentity.Always) {
+		return true
+	}
+
+	const userDefaultValue = column.defaultUserValue !== undefined || column.defaultValueNull === true
+	const dbDefaultValue = column.defaultvalue !== undefined
+
+	if (column.isnullable === 'NO') {
+		if (!userDefaultValue && !dbDefaultValue) {
+			throw new Error(`Column ${column.field} is not nullable and has no default value`)
+		}
+
+		return !userDefaultValue && dbDefaultValue
+	} else if (column.isnullable === 'YES') {
+		return !userDefaultValue && !dbDefaultValue
+	}
+
+	return false
+}
+
 export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	if (!table) throw new Error('Table name is required')
 
 	const columnsInsert = columns.filter((x) => !x.hideInsert)
-	const columnsDefault = columns.filter(
-		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null) && !x.isidentity
-	)
-
+	const columnsDefault = columns.filter((c) => !shouldOmitColumnInInsert(c))
 	const allInsertColumns = columnsInsert.concat(columnsDefault)
 
-	let query = buildParameters(allInsertColumns, dbType)
+	let query = buildParameters(columnsInsert, dbType)
 
 	query += '\n'
 
+	const shouldInsertComma = columnsDefault.length > 0
 	const columnNames = formatColumnNames(allInsertColumns)
 	const insertValues = formatInsertValues(columnsInsert, dbType)
 	const defaultValues = formatDefaultValues(columnsDefault)
-	const commaOrEmpty = defaultValues !== '' ? ', ' : ''
+	const commaOrEmpty = shouldInsertComma ? ', ' : ''
 
 	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
 
