@@ -48,6 +48,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "cv2" => "opencv-python",
     "atlassian" => "atlassian-python-api",
     "mysql" => "mysql-connector-python",
+    "tenable" => "pyTenable",
 };
 
 fn replace_import(x: String) -> String {
