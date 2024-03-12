@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 
-	import { UserService, WorkspaceService } from '$lib/gen'
+	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
@@ -18,7 +18,7 @@
 	async function acceptInvite(): Promise<void> {
 		await UserService.acceptInvite({
 			requestBody: {
-				username,
+				username: automateUsernameCreation ? undefined : username,
 				workspace_id
 			}
 		})
@@ -46,33 +46,44 @@
 		}
 	}
 
-	UserService.globalWhoami().then((x) => {
-		let uname = ''
-		if (x.name) {
-			uname = x.name.split(' ')[0]
-		} else {
-			uname = x.email.split('@')[0]
+	let automateUsernameCreation = false
+	async function getAutomateUsernameCreationSetting() {
+		automateUsernameCreation =
+			(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+
+		if (!automateUsernameCreation) {
+			UserService.globalWhoami().then((x) => {
+				let uname = ''
+				if (x.name) {
+					uname = x.name.split(' ')[0]
+				} else {
+					uname = x.email.split('@')[0]
+				}
+				username = uname.toLowerCase()
+			})
 		}
-		username = uname.toLowerCase()
-	})
+	}
+	getAutomateUsernameCreationSetting()
 </script>
 
 <!-- Enable submit form on enter -->
 
 <CenteredModal title="Invitation to join {workspace_id}">
-	<label class="block pb-2">
-		<span class="text-secondary text-sm">Your username in workspace {workspace_id}:</span>
-		<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
-		{#if errorUsername}
-			<span class="text-red-500 text-xs">{errorUsername}</span>
-		{/if}
-	</label>
+	{#if !automateUsernameCreation}
+		<label class="block pb-2">
+			<span class="text-secondary text-sm">Your username in workspace {workspace_id}:</span>
+			<input on:keyup={handleKey} bind:value={username} class:input-error={errorUsername != ''} />
+			{#if errorUsername}
+				<span class="text-red-500 text-xs">{errorUsername}</span>
+			{/if}
+		</label>
+	{/if}
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<button
-			disabled={checking || errorUsername != '' || !username}
+			disabled={checking || (!automateUsernameCreation && (errorUsername != '' || !username))}
 			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
 			type="button"
 			on:click={acceptInvite}
