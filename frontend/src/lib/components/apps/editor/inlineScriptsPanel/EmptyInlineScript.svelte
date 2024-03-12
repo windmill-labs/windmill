@@ -8,7 +8,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { emptySchema } from '$lib/utils'
-	import { getScriptByPath } from '$lib/scripts'
+	import { defaultScriptLanguages, getScriptByPath } from '$lib/scripts'
 
 	import { Building, GitFork, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -18,6 +18,8 @@
 	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
+	import { defaultScripts } from '$lib/stores'
+	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 
 	export let name: string
 	export let componentType: string | undefined = undefined
@@ -92,21 +94,13 @@
 		dispatch('new', unusedInlineScript.inlineScript)
 	}
 
-	const langs = [
-		['bun', 'TypeScript (Bun)'],
-		['python3', 'Python'],
-		['deno', 'TypeScript (Deno)'],
-		['go', 'Go'],
-		['bash', 'Bash'],
-		['powershell', 'PowerShell'],
-		['nativets', 'REST'],
-		['postgresql', 'PostgreSQL'],
-		['mysql', 'MySQL'],
-		['bigquery', 'BigQuery'],
-		['snowflake', 'Snowflake'],
-		['mssql', 'MS SQL Server'],
-		['graphql', 'GraphQL']
-	] as [Script.language, string][]
+	$: langs = ($defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		.map((l) => [defaultScriptLanguages[l], l])
+		.filter(
+			(x) =>
+				x[1] != 'docker' &&
+				($defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1]))
+		) as [string, Preview.language][]
 </script>
 
 <Drawer bind:this={picker} size="1000px">
@@ -192,10 +186,10 @@
 
 	<div class="flex flex-row w-full gap-8">
 		<div id="app-editor-backend-runnables">
-			<div class="mb-1 text-sm font-semibold">Backend</div>
+			<div class="mb-1 text-sm font-semibold flex gap-4">Backend <DefaultScripts /> </div>
 
 			<div class="flex flex-row flex-wrap gap-2">
-				{#each langs as [lang, label]}
+				{#each langs as [label, lang] (lang)}
 					<FlowScriptPicker
 						{label}
 						{lang}

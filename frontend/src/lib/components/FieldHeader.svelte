@@ -16,7 +16,7 @@
 	export let simpleTooltip: string | undefined = undefined
 </script>
 
-<div class="inline-flex flex-row items-center truncated">
+<div class="inline-flex flex-row items-baseline truncated">
 	<span class={twMerge(disabled ? 'text-tertiary' : '', 'font-semibold', labelClass)}>
 		{#if prettify}
 			{label.replace(/_/g, ' ').split(' ').map(capitalize).join(' ')}
@@ -43,10 +43,10 @@
 	{/if}
 
 	{#if !emptyString(simpleTooltip)}
-	<Tooltip class="ml-2">
-		<span class="text-xs">
-			{simpleTooltip}
-		</span>
-	</Tooltip>
-{/if}
+		<Tooltip class="ml-2">
+			<span class="text-xs">
+				{simpleTooltip}
+			</span>
+		</Tooltip>
+	{/if}
 </div>

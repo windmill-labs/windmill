@@ -69,7 +69,7 @@
 					minute: '2-digit'
 				})}`
 			} else {
-				return !withDate ? displayDate(dateString) : ''
+				return !withDate ? displayDate(dateString, false, withDate) : ''
 			}
 		}
 	}
