@@ -542,6 +542,9 @@
 	}
 
 	let refreshCount = 0
+
+	$: hideSearch = resolvedConfig.hideSearch as boolean
+	$: hideInsert = resolvedConfig.hideInsert as boolean
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -599,9 +602,9 @@
 	{outputs}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
-		{#if !(resolvedConfig?.hideSearch && resolvedConfig?.hideInsert)}
+		{#if !(hideSearch === true && hideInsert === true)}
 			<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
-				{#if resolvedConfig?.hideSearch === false}
+				{#if hideSearch !== true}
 					<DebouncedInput
 						class="w-full max-w-[300px]"
 						type="text"
@@ -609,7 +612,7 @@
 						placeholder="Quicksearch"
 					/>
 				{/if}
-				{#if resolvedConfig?.hideInsert === false}
+				{#if hideInsert !== true}
 					<Button
 						startIcon={{ icon: Plus }}
 						color="dark"
