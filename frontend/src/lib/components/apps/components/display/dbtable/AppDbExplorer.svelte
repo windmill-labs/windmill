@@ -500,6 +500,7 @@
 	async function insert() {
 		try {
 			const selected = resolvedConfig.type.selected
+
 			await insertRowRunnable?.insertRow(
 				resolvedConfig.type.configuration[selected].resource,
 				$workspaceStore,

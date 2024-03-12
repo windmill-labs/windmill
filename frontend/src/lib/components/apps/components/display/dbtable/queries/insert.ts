@@ -2,13 +2,25 @@ import type { AppInput } from '$lib/components/apps/inputType'
 import { buildParameters, ColumnIdentity, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
+function mapDataTypeToDbType(dataType: string): string {
+	if (dataType === 'integer') {
+		return 'int'
+	}
+
+	if (dataType === 'boolean') {
+		return 'bool'
+	}
+
+	return dataType
+}
+
 function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: number = 1): string {
 	switch (dbType) {
 		case 'mysql':
 			return columns.map((c) => `:${c.field}`).join(', ')
 		case 'postgresql':
 			return columns
-				.map((c, i) => `$${startIndex + i}::${c.datatype === 'integer' ? 'int' : c.datatype}`)
+				.map((c, i) => `$${startIndex + i}::${mapDataTypeToDbType(c.datatype)}`)
 				.join(', ')
 		case 'ms_sql_server':
 			return columns.map((c, i) => `@p${startIndex + i}`).join(', ')
@@ -55,17 +67,25 @@ function shouldOmitColumnInInsert(column: ColumnDef) {
 		return true
 	}
 
-	const userDefaultValue = column.defaultUserValue !== undefined || column.defaultValueNull === true
-	const dbDefaultValue = column.defaultvalue !== undefined
+	const userDefaultValue =
+		(column.defaultUserValue !== undefined && column.defaultUserValue !== '') ||
+		column.defaultValueNull === true
+	const dbDefaultValue = Boolean(column.defaultvalue)
 
 	if (column.isnullable === 'NO') {
-		if (!userDefaultValue && !dbDefaultValue) {
+		if (!userDefaultValue && !dbDefaultValue && column.isidentity === ColumnIdentity.No) {
 			throw new Error(`Column ${column.field} is not nullable and has no default value`)
 		}
 
+		if (!userDefaultValue && !dbDefaultValue) {
+			// Should be omitted if it's an identity column and we have no default value
+			return column.isidentity !== ColumnIdentity.No
+		}
+
+		// Should be omitted if the user had not provided a default value and the database has a default value
 		return !userDefaultValue && dbDefaultValue
 	} else if (column.isnullable === 'YES') {
-		return !userDefaultValue && !dbDefaultValue
+		return !userDefaultValue
 	}
 
 	return false
