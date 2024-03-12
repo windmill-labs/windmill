@@ -25,19 +25,30 @@ pub enum DeployedObject {
     Variable { path: String, parent_path: Option<String> },
     Schedule { path: String },
     ResourceType { path: String },
+    User { email: String },
+    Group { name: String },
 }
 
 impl DeployedObject {
-    pub fn get_path(&self) -> &str {
+    pub fn get_path(&self) -> String {
         match self {
-            DeployedObject::Script { path, .. } => path,
-            DeployedObject::Flow { path, .. } => path,
-            DeployedObject::App { path, .. } => path,
-            DeployedObject::Folder { path, .. } => path,
-            DeployedObject::Resource { path, .. } => path,
-            DeployedObject::Variable { path, .. } => path,
-            DeployedObject::Schedule { path, .. } => path,
-            DeployedObject::ResourceType { path, .. } => path,
+            DeployedObject::Script { path, .. } => path.to_owned(),
+            DeployedObject::Flow { path, .. } => path.to_owned(),
+            DeployedObject::App { path, .. } => path.to_owned(),
+            DeployedObject::Folder { path, .. } => path.to_owned(),
+            DeployedObject::Resource { path, .. } => path.to_owned(),
+            DeployedObject::Variable { path, .. } => path.to_owned(),
+            DeployedObject::Schedule { path, .. } => path.to_owned(),
+            DeployedObject::ResourceType { path, .. } => path.to_owned(),
+            DeployedObject::User { email } => format!("users/{email}"),
+            DeployedObject::Group { name } => format!("groups/{name}"),
+        }
+    }
+
+    pub fn get_ignore_regex_filter(&self) -> bool {
+        match self {
+            DeployedObject::User { .. } | DeployedObject::Group { .. } => true,
+            _ => false,
         }
     }
 
@@ -51,6 +62,8 @@ impl DeployedObject {
             DeployedObject::Variable { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::Schedule { .. } => None,
             DeployedObject::ResourceType { .. } => None,
+            DeployedObject::User { .. } => None,
+            DeployedObject::Group { .. } => None,
         }
     }
 }

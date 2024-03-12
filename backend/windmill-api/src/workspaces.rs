@@ -53,6 +53,7 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
     variables::ExportableListableVariable,
 };
+use windmill_git_sync::handle_deployment_metadata;
 use windmill_queue::QueueTransaction;
 
 use crate::oauth2_ee::InstanceEvent;
@@ -634,6 +635,7 @@ async fn auto_add_user(
 async fn edit_auto_invite(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, email, username, .. }: ApiAuthed,
     Json(ea): Json<EditAutoInvite>,
@@ -661,6 +663,8 @@ async fn edit_auto_invite(
 
     let mut tx = db.begin().await?;
 
+    let mut users_to_auto_add = Option::None;
+
     if let (Some(operator), Some(auto_add)) = (ea.operator, ea.auto_add) {
         if BANNED_DOMAINS.contains(domain) {
             return Err(Error::BadRequest(format!(
@@ -680,16 +684,16 @@ async fn edit_auto_invite(
         .await?;
 
         if auto_add {
-            let users = sqlx::query!(
+            users_to_auto_add = Some(sqlx::query!(
                 "SELECT email FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%', $2::text)) AND NOT EXISTS (
                     SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
                 )",
                 &w_id,
                 domain
             )
-            .fetch_all(&mut *tx).await?;
+            .fetch_all(&mut *tx).await?);
 
-            for user in users {
+            for user in users_to_auto_add.as_ref().unwrap() {
                 auto_add_user(&user.email, &w_id, &operator, &mut tx).await?;
             }
         } else {
@@ -726,6 +730,22 @@ async fn edit_auto_invite(
     )
     .await?;
     tx.commit().await?;
+
+    if let Some(users) = users_to_auto_add {
+        for user in users {
+            handle_deployment_metadata(
+                &email,
+                &username,
+                &db,
+                &w_id,
+                windmill_git_sync::DeployedObject::User { email: user.email.clone() },
+                Some(format!("Auto-added user '{}' to workspace", &user.email)),
+                rsmq.clone(),
+                true,
+            )
+            .await?;
+        }
+    }
 
     Ok(format!(
         "Edit auto-invite for workspace {} to {}",
@@ -1751,7 +1771,11 @@ async fn delete_workspace(
     Ok(format!("Deleted workspace {}", &w_id))
 }
 
-pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> Result<()> {
+pub async fn invite_user_to_all_auto_invite_worspaces(
+    db: &DB,
+    email: &str,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+) -> Result<()> {
     let mut tx = db.begin().await?;
     let domain = email.split('@').last().unwrap();
     let workspaces = sqlx::query!(
@@ -1761,10 +1785,19 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
     )
     .fetch_all(&mut *tx)
     .await?;
+    let mut auto_added_workspace_usernames: Vec<(String, String)> = vec![];
     for r in workspaces {
         if r.auto_add.is_some() && r.auto_add.unwrap() {
             let operator = r.auto_invite_operator.unwrap_or(false);
             auto_add_user(email, &r.workspace_id, &operator, &mut tx).await?;
+            let username = sqlx::query_scalar!(
+                "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2",
+                r.workspace_id,
+                email
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            auto_added_workspace_usernames.push((r.workspace_id, username));
         } else {
             sqlx::query!(
                 "INSERT INTO workspace_invite
@@ -1780,6 +1813,21 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
         }
     }
     tx.commit().await?;
+
+    for workspace_username_tuple in auto_added_workspace_usernames {
+        let (w_id, username) = workspace_username_tuple;
+        handle_deployment_metadata(
+            &email,
+            &username,
+            db,
+            &w_id,
+            windmill_git_sync::DeployedObject::User { email: email.to_string() },
+            Some(format!("Auto-added user '{}' to workspace", email)),
+            rsmq.clone(),
+            true,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -1837,6 +1885,7 @@ async fn add_user(
     ApiAuthed { username, email, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
@@ -1927,6 +1976,18 @@ async fn add_user(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &email,
+        &username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::User { email: nu.email.clone() },
+        Some(format!("Added user '{}' to workspace", &nu.email)),
+        rsmq,
+        true,
+    )
+    .await?;
 
     send_email_if_possible(
         &format!("Added to Windmill's workspace: {w_id}"),

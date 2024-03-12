@@ -53,6 +53,7 @@ use windmill_common::{
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
+use windmill_git_sync::handle_deployment_metadata;
 
 pub const TTL_TOKEN_DB_H: u32 = 72;
 
@@ -1304,6 +1305,7 @@ async fn accept_invite(
     ApiAuthed { email, .. }: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
@@ -1316,7 +1318,6 @@ async fn accept_invite(
     .fetch_optional(&mut *tx)
     .await?;
 
-    // let mut username = nu.username;
     if let Some(r) = r {
         let username;
         (tx, username) = add_user_to_workspace(
@@ -1340,6 +1341,18 @@ async fn accept_invite(
         )
         .await?;
         tx.commit().await?;
+
+        handle_deployment_metadata(
+            &email,
+            &username,
+            &db,
+            &nu.workspace_id,
+            windmill_git_sync::DeployedObject::User { email: email.clone() },
+            Some(format!("User '{}' accepted invite", &email)),
+            rsmq,
+            true,
+        )
+        .await?;
         webhook.send_instance_event(InstanceEvent::UserJoinedWorkspace {
             email: email.clone(),
             workspace: nu.workspace_id.clone(),
@@ -1504,8 +1517,9 @@ async fn get_workspace_user(
 }
 
 async fn update_workspace_user(
-    ApiAuthed { username, is_admin, .. }: ApiAuthed,
+    ApiAuthed { username, email, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
 ) -> Result<String> {
@@ -1556,7 +1570,29 @@ async fn update_workspace_user(
         None,
     )
     .await?;
+
+    let user_email = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        &username_to_update,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &email,
+        &username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::User { email: user_email.clone() },
+        Some(format!("Updated user '{}'", &user_email)),
+        rsmq,
+        true,
+    )
+    .await?;
+
     Ok(format!("user {username} updated"))
 }
 
@@ -1652,6 +1688,7 @@ async fn create_user(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     require_super_admin(&db, &email).await?;
@@ -1726,7 +1763,7 @@ async fn create_user(
 
     tx.commit().await?;
 
-    invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
+    invite_user_to_all_auto_invite_worspaces(&db, &nu.email, rsmq).await?;
     send_email_if_possible(
         "Invited to Windmill",
         &format!(
@@ -1790,8 +1827,9 @@ pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &st
 }
 
 async fn delete_workspace_user(
-    ApiAuthed { username, is_admin, .. }: ApiAuthed,
+    ApiAuthed { username, email, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -1835,6 +1873,22 @@ async fn delete_workspace_user(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &email,
+        &username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::User { email: email_to_delete.clone() },
+        Some(format!(
+            "Removed user '{}' from workspace",
+            &email_to_delete
+        )),
+        rsmq,
+        true,
+    )
+    .await?;
+
     Ok(format!("username {} deleted", username_to_delete))
 }
 
