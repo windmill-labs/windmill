@@ -83,6 +83,7 @@
 						tooltip="For loops"
 						documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
 						class="mb-4"
+						size="xs"
 					>
 						Add steps inside the loop and specify an iterator expression that defines the sequence
 						over which your subsequent steps will iterate.
@@ -129,8 +130,9 @@
 							/>
 						</div>
 					</div>
+
 					<div class="my-2 flex flex-row gap-2 items-center">
-						<div class="text-sm font-bold">
+						<div class="text-sm font-bold whitespace-nowrap">
 							Iterator expression
 							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
 								List to iterate over.
@@ -157,7 +159,16 @@
 								pickableProperties={stepPropPicker.pickableProperties}
 							/>
 						{/if}
+						<div class="flex w-full justify-end">
+							<Button
+								on:click={() => (previewOpen = true)}
+								startIcon={{ icon: Play }}
+								color="dark"
+								size="sm">Test an iteration</Button
+							>
+						</div>
 					</div>
+
 					{#if mod.value.iterator.type == 'javascript'}
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<div
@@ -199,11 +210,6 @@
 						/>
 					{/if}
 				{/if}
-				<div class="flex mt-4">
-					<Button on:click={() => (previewOpen = true)} startIcon={{ icon: Play }} color="dark"
-						>Test an iteration</Button
-					>
-				</div>
 			</Pane>
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">
 				<Tabs bind:selected>

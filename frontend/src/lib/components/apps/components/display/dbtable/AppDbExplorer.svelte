@@ -355,8 +355,6 @@
 			selected
 		)
 
-		console.log('tableMetadata', tableMetadata)
-
 		if (!tableMetadata) return
 
 		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
@@ -393,7 +391,6 @@
 		ncols = ncols.map((x) => {
 			let o = {}
 			Object.keys(x).forEach((k) => {
-				console.log(k)
 				if (
 					[
 						'field',
