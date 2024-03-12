@@ -44,19 +44,19 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 
 	const columnsInsert = columns.filter((x) => !x.hideInsert)
 	const columnsDefault = columns.filter(
-		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null)
+		(x) => x.hideInsert && (x.overrideDefaultValue || x.defaultvalue === null) && !x.isidentity
 	)
 
 	const allInsertColumns = columnsInsert.concat(columnsDefault)
-	let query = buildParameters(columnsInsert, dbType)
+
+	let query = buildParameters(allInsertColumns, dbType)
 
 	query += '\n'
 
-	const shouldInsertComma = columnsDefault.length > 0 && columnsInsert.length > 0
 	const columnNames = formatColumnNames(allInsertColumns)
 	const insertValues = formatInsertValues(columnsInsert, dbType)
 	const defaultValues = formatDefaultValues(columnsDefault)
-	const commaOrEmpty = shouldInsertComma ? ', ' : ''
+	const commaOrEmpty = defaultValues !== '' ? ', ' : ''
 
 	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
 

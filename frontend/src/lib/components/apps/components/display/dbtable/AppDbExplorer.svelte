@@ -323,6 +323,32 @@
 	let lastTable: string | undefined = undefined
 	let timeout: NodeJS.Timeout | undefined = undefined
 
+	function isSubset(subset: Record<string, any>, superset: Record<string, any>) {
+		return Object.keys(subset).every((key) => {
+			return superset[key] === subset[key]
+		})
+	}
+
+	function shouldReturnEarly(subset: Record<string, any>, superset: Record<string, any>): boolean {
+		const subsetKeys = Object.keys(subset)
+		const supersetKeys = Object.keys(superset)
+
+		if (supersetKeys.length === 0) return false
+
+		if (subsetKeys.length !== supersetKeys.length) {
+			return false
+		}
+
+		if (
+			JSON.stringify(supersetKeys.sort()) === JSON.stringify(subsetKeys.sort()) &&
+			subsetKeys.every((key) => isSubset(subset[key], superset[key]))
+		) {
+			return false
+		}
+
+		return true
+	}
+
 	async function listColumnsIfAvailable() {
 		const selected = resolvedConfig.type.selected
 		let table = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.table
@@ -362,13 +388,11 @@
 			console.log('old is not an array RESET')
 			old = []
 		}
-		// console.log('OLD', old)
-		// console.log(tableMetadata)
+
 		const oldMap = Object.fromEntries(old.filter((x) => x != undefined).map((x) => [x.field, x]))
 		const newMap = Object.fromEntries(tableMetadata?.map((x) => [x.field, x]) ?? [])
 
-		// if they are the same, do nothing
-		if (JSON.stringify(oldMap) === JSON.stringify(newMap)) {
+		if (shouldReturnEarly(newMap, oldMap)) {
 			return
 		}
 

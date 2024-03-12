@@ -100,7 +100,6 @@
 		const args = await parseSQLArgs(insertCode, dbType)
 
 		fields.forEach((field) => {
-			console.log(field)
 			const schemaProperty: SchemaProperty = {
 				type: 'string'
 			}
