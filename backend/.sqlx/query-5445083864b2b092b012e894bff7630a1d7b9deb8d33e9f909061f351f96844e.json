@@ -107,6 +107,11 @@
         "ordinal": 20,
         "name": "automatic_billing",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "default_scripts",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -135,7 +140,8 @@
       true,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
   "hash": "5445083864b2b092b012e894bff7630a1d7b9deb8d33e9f909061f351f96844e"
