@@ -217,13 +217,13 @@
 									id: x.id + '_insert'
 								})
 
-								r.push({
-									input: getDeleteInput(resourceValue, tableValue, columnDefs, dbType),
-									id: x.id + '_delete'
-								})
-
 								let primaryColumns = getPrimaryKeys(columnDefs)
 								let columns = columnDefs?.filter((x) => primaryColumns.includes(x.field))
+
+								r.push({
+									input: getDeleteInput(resourceValue, tableValue, columns, dbType),
+									id: x.id + '_delete'
+								})
 
 								columnDefs
 									.filter((col) => col.editable || config.allEditable.value)
