@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.286.2"
+version = "1.289.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.286.2"
+version = "1.289.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -227,3 +227,5 @@ polars-io = { version = "0.35.4", features = ["csv"] }
 object_store = { version = "0.8.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
 
+aws-config = "^1"
+aws-sdk-sts = "^1"

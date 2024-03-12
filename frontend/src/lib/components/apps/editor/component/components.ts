@@ -3373,7 +3373,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
-								subfieldType: 'db-table',
+								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
 								value: undefined
@@ -3388,7 +3388,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
-								subfieldType: 'db-table',
+								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
 								value: undefined
@@ -3403,7 +3403,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
-								subfieldType: 'db-table',
+								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
 								value: undefined
@@ -3418,7 +3418,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
-								subfieldType: 'db-table',
+								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
 								value: undefined
@@ -3433,7 +3433,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
-								subfieldType: 'db-table',
+								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
 								value: undefined

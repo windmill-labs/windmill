@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.286.2
+  version: 1.289.0
   title: Windmill API
 
   contact:
@@ -9739,7 +9739,7 @@ components:
       properties:
         type:
           type: string
-          enum: ["S3Storage", "AzureBlobStorage"]
+          enum: ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc"]
         s3_resource_path:
           type: string
         azure_blob_resource_path:

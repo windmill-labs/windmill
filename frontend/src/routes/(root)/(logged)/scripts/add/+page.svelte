@@ -38,7 +38,7 @@
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language: 'deno',
+			language: 'bun',
 			kind: Script.kind.SCRIPT
 		}
 	}

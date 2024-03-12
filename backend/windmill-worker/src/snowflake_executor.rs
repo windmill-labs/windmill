@@ -119,7 +119,7 @@ pub async fn do_snowflake(
         iss: iss,
         sub: qualified_username,
         iat: chrono::Utc::now().timestamp(),
-        exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
+        exp: (chrono::Utc::now() + chrono::Duration::try_hours(1).unwrap()).timestamp(),
     };
 
     let private_key = EncodingKey::from_rsa_pem(database.private_key.as_bytes()).map_err(|e| {

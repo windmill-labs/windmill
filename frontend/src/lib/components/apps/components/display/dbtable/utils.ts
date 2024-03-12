@@ -183,9 +183,9 @@ order by c.ORDINAL_POSITION;`
 				attempts = maxRetries
 
 				if (resourceType === 'ms_sql_server') {
-					return testResult.result[0]
+					return lowercaseKeys(testResult.result[0])
 				} else {
-					return testResult.result
+					return lowercaseKeys(testResult.result)
 				}
 			} else {
 				attempts++
@@ -207,6 +207,16 @@ export function resourceTypeToLang(rt: string) {
 	} else {
 		return rt
 	}
+}
+
+function lowercaseKeys(arr: Array<Record<string, any>>): Array<any> {
+	return arr.map((obj) => {
+		const newObj = {}
+		Object.keys(obj).forEach((key) => {
+			newObj[key.toLowerCase()] = obj[key]
+		})
+		return newObj
+	})
 }
 
 const scripts: Record<
@@ -646,4 +656,43 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 		r = tableMetadata?.map((x) => x.field) ?? []
 	}
 	return r ?? []
+}
+
+export function getTablesByResource(
+	schema: Partial<Record<string, DBSchema>>,
+	dbType: DbType | undefined
+): string[] {
+	const s = Object.values(schema)?.[0]
+	switch (dbType) {
+		case 'postgresql':
+			if (s?.lang === 'postgresql') {
+				return Object.keys(s.schema?.public ?? s.schema ?? {})
+			}
+		case 'mysql':
+			return Object.keys(Object.values(s?.schema ?? {})?.[0])
+		case 'ms_sql_server':
+			return Object.keys(Object.values(s?.schema ?? {})?.[0])
+		case 'snowflake': {
+			return Object.keys(Object.values(s?.schema ?? {})?.[0])
+		}
+
+		case 'bigquery': {
+			const paths: string[] = []
+			for (const key in s?.schema) {
+				if (s?.schema.hasOwnProperty(key)) {
+					const subObj = s?.schema[key]
+					for (const subKey in subObj) {
+						if (subObj.hasOwnProperty(subKey)) {
+							paths.push(`${key}.${subKey}`)
+						}
+					}
+				}
+			}
+
+			return paths
+		}
+
+		default:
+			return []
+	}
 }

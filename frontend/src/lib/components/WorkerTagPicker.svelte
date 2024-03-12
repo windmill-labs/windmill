@@ -23,7 +23,7 @@
 				<select
 					value={tag}
 					on:change={(e) => {
-						if (tag == '') {
+						if (e.target?.['value'] == '') {
 							tag = undefined
 						} else if (e?.target?.['value']) {
 							tag = e.target?.['value']

@@ -61,7 +61,7 @@
 					icon: Download
 				}}
 			>
-				Downlaod
+				Download
 			</Button>
 
 			<Button

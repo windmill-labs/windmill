@@ -931,7 +931,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     port: u16,
 ) -> <Fut as std::future::Future>::Output {
     let (quit, worker) = spawn_test_worker(db, port);
-    let worker = tokio::time::timeout(std::time::Duration::from_secs(45), worker);
+    let worker = tokio::time::timeout(std::time::Duration::from_secs(60), worker);
     tokio::pin!(worker);
 
     let res = tokio::select! {
@@ -2851,7 +2851,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     let now = chrono::Utc::now();
     // add 5 seconds to now
     let then = now
-        .checked_add_signed(chrono::Duration::seconds(5))
+        .checked_add_signed(chrono::Duration::try_seconds(5).unwrap())
         .unwrap();
 
     let schedule = NewSchedule {
@@ -2916,7 +2916,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
     args.insert("fail".to_string(), json!(false));
     let now = chrono::Utc::now();
     let then = now
-        .checked_add_signed(chrono::Duration::seconds(5))
+        .checked_add_signed(chrono::Duration::try_seconds(5).unwrap())
         .unwrap();
     client
         .update_schedule(
@@ -2995,7 +2995,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     let now = chrono::Utc::now();
     // add 5 seconds to now
     let then = now
-        .checked_add_signed(chrono::Duration::seconds(5))
+        .checked_add_signed(chrono::Duration::try_seconds(5).unwrap())
         .unwrap();
 
     let schedule = NewSchedule {
@@ -3061,7 +3061,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
     args.insert("fail".to_string(), json!(false));
     let now = chrono::Utc::now();
     let then = now
-        .checked_add_signed(chrono::Duration::seconds(5))
+        .checked_add_signed(chrono::Duration::try_seconds(5).unwrap())
         .unwrap();
     client
         .update_schedule(

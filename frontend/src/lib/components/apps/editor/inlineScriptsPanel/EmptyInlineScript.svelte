@@ -93,9 +93,9 @@
 	}
 
 	const langs = [
-		['deno', 'TypeScript (Deno)'],
-		['python3', 'Python'],
 		['bun', 'TypeScript (Bun)'],
+		['python3', 'Python'],
+		['deno', 'TypeScript (Deno)'],
 		['go', 'Go'],
 		['bash', 'Bash'],
 		['powershell', 'PowerShell'],

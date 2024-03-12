@@ -64,7 +64,7 @@
 										nodes = removeNode(nodes, selectedNode)
 										renderCount++
 									}}
-									disabled={selectedNode?.next?.length > 1}
+									disabled={selectedNode?.next?.length > 1 || nodes.length == 1}
 								>
 									Delete node
 								</Button>

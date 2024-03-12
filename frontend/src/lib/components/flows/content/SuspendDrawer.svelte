@@ -35,8 +35,8 @@
 				resume url in the returned payload of the step. The UX will automatically adapt and show the
 				prompt to the operator when running the flow. e.g:
 				<Tabs selected="deno" class="pt-4">
-					<Tab value="deno">TypeScript (Deno)</Tab>
 					<Tab value="bun">TypeScript (Bun)</Tab>
+					<Tab value="deno">TypeScript (Deno)</Tab>
 					<Tab value="python">Python</Tab>
 
 					<svelte:fragment slot="content">

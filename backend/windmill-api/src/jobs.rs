@@ -62,7 +62,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     add_completed_job_error, get_queued_job, get_result_by_id_from_running_flow, job_is_complete,
-    push, CanceledBy, PushArgs, PushIsolationLevel,
+    push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -660,7 +660,9 @@ impl RunJobQuery {
             Ok(Some(scheduled_for))
         } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
             let now = now_from_db(db).await?;
-            Ok(Some(now + chrono::Duration::seconds(scheduled_in_secs)))
+            Ok(Some(
+                now + chrono::Duration::try_seconds(scheduled_in_secs).unwrap_or_default(),
+            ))
         } else {
             Ok(None)
         }
@@ -1851,53 +1853,6 @@ fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
         .decode(t)
         .context("invalid base64")?;
     serde_json::from_slice(vec.as_slice()).context("invalid json")
-}
-
-#[derive(Deserialize)]
-pub struct DecodeQuery {
-    pub include_query: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct IncludeQuery {
-    pub include_query: Option<String>,
-}
-
-pub struct DecodeQueries(pub HashMap<String, Box<RawValue>>);
-
-#[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for DecodeQueries
-where
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request(
-        req: Request<axum::body::Body>,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let query = req.uri().query().unwrap_or("");
-        let include_query = serde_urlencoded::from_str::<IncludeQuery>(query)
-            .map(|x| x.include_query)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let parse_query_args = include_query
-            .split(",")
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        let mut args = HashMap::new();
-        if !parse_query_args.is_empty() {
-            let queries =
-                serde_urlencoded::from_str::<HashMap<String, String>>(query).unwrap_or_default();
-            parse_query_args.iter().for_each(|h| {
-                if let Some(v) = queries.get(h) {
-                    args.insert(h.to_string(), to_raw_value(v));
-                }
-            });
-        }
-        Ok(DecodeQueries(args))
-    }
 }
 
 pub fn add_raw_string(
