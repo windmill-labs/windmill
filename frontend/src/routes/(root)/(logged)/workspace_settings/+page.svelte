@@ -34,7 +34,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
 	import {
-		Scroll,
+		Code2,
 		Slack,
 		XCircle,
 		RotateCw,
@@ -754,7 +754,7 @@
 						</Button>
 						<Button
 							size="sm"
-							endIcon={{ icon: Scroll }}
+							endIcon={{ icon: Code2 }}
 							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands

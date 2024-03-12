@@ -167,6 +167,10 @@
 			componentSettings.item.data.componentInput = appInput
 		}
 	}
+	
+	function isMac() {
+		return navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+	}
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -451,7 +455,7 @@
 						variant="border"
 						on:click={removeGridElement}
 						shortCut={{
-							key: 'Del',
+							key: isMac() ? getModifierKey() + 'Del' : 'Del',
 							withoutModifier: true
 						}}
 					>
