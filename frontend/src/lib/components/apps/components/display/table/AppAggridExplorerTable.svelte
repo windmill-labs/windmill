@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
-	import { isObject } from '$lib/utils'
+	import { isObject, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
 
@@ -18,6 +18,7 @@
 	import { Button } from '$lib/components/common'
 	import { cellRendererFactory } from './utils'
 	import { Trash2 } from 'lucide-svelte'
+	import type { ColumnDef } from '../dbtable/utils'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -125,6 +126,13 @@
 	$: eGui && mountGrid()
 
 	function transformColumnDefs(columnDefs: any[]) {
+		const { isValid, errors } = validateColumnDefs(columnDefs)
+
+		if (!isValid) {
+			sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+			return []
+		}
+
 		let r = columnDefs?.filter((x) => x && !x.ignored) ?? []
 		if (allowDelete) {
 			r.push({
@@ -161,6 +169,23 @@
 
 	let firstRow = 0
 	let lastRow = 0
+
+	function validateColumnDefs(columnDefs: ColumnDef[]): { isValid: boolean; errors: string[] } {
+		let isValid = true
+		const errors: string[] = []
+
+		// Validate each column definition
+		columnDefs.forEach((colDef, index) => {
+			// Check if 'field' property exists and is a non-empty string
+			if (!colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === '') {
+				isValid = false
+				errors.push(`Column at index ${index} is missing a valid 'field' property.`)
+			}
+		})
+
+		return { isValid, errors }
+	}
+
 	function mountGrid() {
 		if (eGui) {
 			createGrid(

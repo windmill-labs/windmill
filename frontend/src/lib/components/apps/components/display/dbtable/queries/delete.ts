@@ -1,7 +1,7 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
 
-function updateWithAllValues(table: string, columns: ColumnDef[], dbType: DbType) {
+function deleteWithAllValues(table: string, columns: ColumnDef[], dbType: DbType) {
 	let query = buildParameters(columns, dbType)
 
 	switch (dbType) {
@@ -48,11 +48,11 @@ export function getDeleteInput(
 		return undefined
 	}
 
-	const updateRunnable: RunnableByName = {
+	const deleteRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: updateWithAllValues(table, columns, dbType),
+			content: deleteWithAllValues(table, columns, dbType),
 			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -63,8 +63,8 @@ export function getDeleteInput(
 		}
 	}
 
-	const updateQuery: AppInput = {
-		runnable: updateRunnable,
+	const deleteQuery: AppInput = {
+		runnable: deleteRunnable,
 		fields: {
 			database: {
 				type: 'static',
@@ -77,5 +77,5 @@ export function getDeleteInput(
 		fieldType: 'object'
 	}
 
-	return updateQuery
+	return deleteQuery
 }
