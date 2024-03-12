@@ -1690,8 +1690,9 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
     let mut tx = db.begin().await?;
     let domain = email.split('@').last().unwrap();
     let workspaces = sqlx::query!(
-        "SELECT workspace_id, auto_invite_operator, auto_add FROM workspace_settings WHERE auto_invite_domain = $1 OR auto_invite_domain = '*'",
-        domain
+        "SELECT workspace_id, auto_invite_operator, auto_add FROM workspace_settings ws WHERE (auto_invite_domain = $1 OR auto_invite_domain = '*') AND NOT EXISTS (SELECT 1 FROM usr WHERE workspace_id = ws.workspace_id AND email = $2)",
+        domain,
+        email
     )
     .fetch_all(&mut *tx)
     .await?;
