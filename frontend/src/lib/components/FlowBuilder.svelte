@@ -192,6 +192,7 @@
 			if (newFlow) {
 				dispatch('saveInitial', $pathStore)
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
+				initialPath = $pathStore
 				goto(`/flows/edit/${$pathStore}?selected=${getSelectedId()}`)
 			}
 			sendUserToast('Saved as draft')
