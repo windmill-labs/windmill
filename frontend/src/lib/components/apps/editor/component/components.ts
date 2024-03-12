@@ -3368,14 +3368,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'postgres',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						mysql: {
