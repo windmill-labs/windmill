@@ -11,10 +11,6 @@ export const HOME_SEARCH_PLACEHOLDER = 'Search Scripts, Flows & Apps'
 
 export const SIDEBAR_SHOW_SCHEDULES = true
 
-export const SCRIPT_SHOW_PSQL = true
-export const SCRIPT_SHOW_GO = true
-export const SCRIPT_SHOW_BASH = true
-
 export const WORKSPACE_SHOW_SLACK_CMD = true
 export const WORKSPACE_SHOW_WEBHOOK_CLI_SYNC = true
 

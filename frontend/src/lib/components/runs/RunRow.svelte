@@ -30,16 +30,6 @@
 	export let containerWidth: number = 0
 
 	let scheduleEditor: ScheduleEditor
-
-	function endedDate(started_at: string, duration_ms: number): string {
-		const started = new Date(started_at)
-		started.setMilliseconds(started.getMilliseconds() + duration_ms)
-		return `${started.toLocaleTimeString([], {
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit'
-		})}`
-	}
 </script>
 
 <Portal>
@@ -93,16 +83,11 @@
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
-					{#if job?.['duration_ms']}
-						Ended {endedDate(job.started_at, job?.['duration_ms'])}
-						{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-							(Ran in {msToSec(job.duration_ms)}s)
-						{/if}
-					{:else}
-						<div>
-							Started
-							<TimeAgo date={job.started_at ?? ''} />
-						</div>
+					Started <TimeAgo date={job.started_at ?? ''} />
+					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+						(Ran in {msToSec(
+							job.duration_ms
+						)}s{#if job.job_kind == 'flow' || job.job_kind == 'flowpreview'}&nbsp;total{/if})
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Scheduled for {displayDate(job.scheduled_for)}

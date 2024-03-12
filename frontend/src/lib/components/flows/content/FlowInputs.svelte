@@ -2,7 +2,7 @@
 	import { Alert } from '$lib/components/common'
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { RawScript, Script } from '$lib/gen'
+	import { Script } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
@@ -14,6 +14,10 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Check, Code, Zap } from 'lucide-svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
+	import { defaultScripts } from '$lib/stores'
+	import { defaultScriptLanguages } from '$lib/scripts'
+	import type { SupportedLanguage } from '$lib/common'
+	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -30,6 +34,30 @@
 		: 'script'
 	let pick_existing: 'workspace' | 'hub' = 'hub'
 	let filter = ''
+
+	$: langs = ($defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		.map((l) => [defaultScriptLanguages[l], l])
+		.filter(
+			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
+		) as [string, SupportedLanguage | 'docker'][]
+
+	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
+		if (
+			lang == Script.language.BUN ||
+			lang == Script.language.PYTHON3 ||
+			lang == Script.language.DENO
+		) {
+			return true
+		}
+		if (lang == Script.language.GO) {
+			return kind == 'script' || kind == 'trigger' || failureModule
+		}
+
+		if (lang == Script.language.BASH || lang == Script.language.NATIVETS) {
+			return kind == 'script'
+		}
+		return kind == 'script' && !failureModule
+	}
 </script>
 
 <div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
@@ -136,21 +164,24 @@
 				>
 			{/if}
 		{/if}
-		<h3 class="pb-2 pt-4">
-			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
-			<Tooltip
-				documentationLink={kind === 'script'
-					? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
-					: kind === 'trigger'
-					? 'https://www.windmill.dev/docs/flows/flow_trigger'
-					: kind === 'approval'
-					? 'https://www.windmill.dev/docs/flows/flow_approval'
-					: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
-			>
-				Embed <span>{kind == 'script' ? 'action' : kind}</span> script directly inside a flow instead
-				of saving the script into your workspace for reuse. You can always save an inline script to your
-				workspace later.
-			</Tooltip>
+		<h3 class="pb-2 pt-4 flex gap-x-8 flex-wrap">
+			<div>
+				Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
+				<Tooltip
+					documentationLink={kind === 'script'
+						? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
+						: kind === 'trigger'
+						? 'https://www.windmill.dev/docs/flows/flow_trigger'
+						: kind === 'approval'
+						? 'https://www.windmill.dev/docs/flows/flow_approval'
+						: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
+				>
+					Embed <span>{kind == 'script' ? 'action' : kind}</span> script directly inside a flow instead
+					of saving the script into your workspace for reuse. You can always save an inline script to
+					your workspace later.
+				</Tooltip>
+			</div>
+			<DefaultScripts />
 		</h3>
 		{#if noEditor}
 			<div
@@ -165,226 +196,41 @@
 		{/if}
 		<div class="flex flex-row">
 			<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
-				<FlowScriptPicker
-					disabled={noEditor && (summary == undefined || summary == '')}
-					label="TypeScript (Bun)"
-					lang={Script.language.BUN}
-					on:click={() => {
-						dispatch('new', {
-							language: RawScript.language.BUN,
-							kind,
-							subkind: 'flow',
-							summary
-						})
-					}}
-				/>
-
-				<FlowScriptPicker
-					disabled={noEditor && (summary == undefined || summary == '')}
-					label="Python"
-					lang={Script.language.PYTHON3}
-					on:click={() => {
-						dispatch('new', {
-							language: RawScript.language.PYTHON3,
-							kind,
-							subkind: 'flow',
-							summary
-						})
-					}}
-				/>
-
-				<FlowScriptPicker
-					disabled={noEditor && (summary == undefined || summary == '')}
-					label="TypeScript (Deno)"
-					lang={Script.language.DENO}
-					on:click={() => {
-						dispatch('new', {
-							language: RawScript.language.DENO,
-							kind,
-							subkind: 'flow',
-							summary
-						})
-					}}
-				/>
-
-				{#if kind != 'approval'}
-					<FlowScriptPicker
-						disabled={noEditor && (summary == undefined || summary == '')}
-						label="Go"
-						lang={Script.language.GO}
-						on:click={() => {
-							dispatch('new', {
-								language: RawScript.language.GO,
-								kind,
-								subkind: 'flow',
-								summary
-							})
-						}}
-					/>
-				{/if}
-
-				{#if kind == 'script'}
-					<FlowScriptPicker
-						disabled={noEditor && (summary == undefined || summary == '')}
-						label="Bash"
-						lang={Script.language.BASH}
-						on:click={() => {
-							dispatch('new', {
-								language: RawScript.language.BASH,
-								kind,
-								subkind: 'flow',
-								summary
-							})
-						}}
-					/>
-
-					<FlowScriptPicker
-						disabled={noEditor && (summary == undefined || summary == '')}
-						label="REST"
-						lang={Script.language.NATIVETS}
-						on:click={() => {
-							dispatch('new', {
-								language: RawScript.language.NATIVETS,
-								kind,
-								subkind: 'flow',
-								summary
-							})
-						}}
-					/>
-
-					{#if !failureModule}
+				{#each langs as [label, lang] (lang)}
+					{#if displayLang(lang, kind)}
 						<FlowScriptPicker
 							disabled={noEditor && (summary == undefined || summary == '')}
-							label="PostgreSQL"
-							lang={Script.language.POSTGRESQL}
+							{label}
+							lang={lang == 'docker' ? Script.language.BASH : lang}
 							on:click={() => {
-								dispatch('new', {
-									language: RawScript.language.POSTGRESQL,
-									kind,
-									subkind: 'flow',
-									summary
-								})
-							}}
-						/>
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							label="MySQL"
-							lang={Script.language.MYSQL}
-							on:click={() => {
-								dispatch('new', {
-									language: RawScript.language.MYSQL,
-									kind,
-									subkind: 'flow',
-									summary
-								})
-							}}
-						/>
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							label="BigQuery"
-							lang={Script.language.BIGQUERY}
-							on:click={() => {
-								dispatch('new', {
-									language: RawScript.language.BIGQUERY,
-									kind,
-									subkind: 'flow',
-									summary
-								})
-							}}
-						/>
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							label="Snowflake"
-							lang={Script.language.SNOWFLAKE}
-							on:click={() => {
-								dispatch('new', {
-									language: RawScript.language.SNOWFLAKE,
-									kind,
-									subkind: 'flow',
-									summary
-								})
-							}}
-						/>
-
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							label="MS SQL Server"
-							lang={Script.language.MSSQL}
-							on:click={() => {
-								dispatch('new', {
-									language: RawScript.language.MSSQL,
-									kind,
-									subkind: 'flow',
-									summary
-								})
-							}}
-						/>
-
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							label="GraphQL"
-							lang={Script.language.GRAPHQL}
-							on:click={() => {
-								dispatch('new', {
-									language: RawScript.language.GRAPHQL,
-									kind,
-									subkind: 'flow',
-									summary
-								})
-							}}
-						/>
-
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							label={`Docker`}
-							lang="docker"
-							on:click={() => {
-								if (isCloudHosted()) {
-									sendUserToast(
-										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-										true,
-										[
-											{
-												label: 'Learn more',
-												callback: () => {
-													window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+								if (lang == 'docker') {
+									if (isCloudHosted()) {
+										sendUserToast(
+											'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+											true,
+											[
+												{
+													label: 'Learn more',
+													callback: () => {
+														window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+													}
 												}
-											}
-										]
-									)
-									return
+											]
+										)
+										return
+									}
 								}
+								console.log(lang, kind)
 								dispatch('new', {
-									language: RawScript.language.BASH,
+									language: lang == 'docker' ? Script.language.BASH : lang,
 									kind,
-									subkind: 'docker',
+									subkind: lang == 'docker' ? 'docker' : 'flow',
 									summary
 								})
 							}}
 						/>
-
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							label="PowerShell"
-							lang={Script.language.POWERSHELL}
-							on:click={() => {
-								dispatch('new', {
-									language: RawScript.language.POWERSHELL,
-									kind,
-									subkind: 'flow',
-									summary
-								})
-							}}
-						/>
-
-						<!-- <FlowScriptPicker
-							label={`MySQL`}
-							lang="mysql"
-							on:click={() =>
-								dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'mysql' })}
-						/> -->
 					{/if}
-				{/if}
+				{/each}
 			</div>
 		</div>
 

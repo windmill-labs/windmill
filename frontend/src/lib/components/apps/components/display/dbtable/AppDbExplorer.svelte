@@ -57,6 +57,10 @@
 			return
 		}
 
+		if (lastTable && !table) {
+			lastTable = undefined
+		}
+
 		const gridItem = findGridItem($app, id)
 
 		if (!gridItem) {
@@ -64,7 +68,7 @@
 		}
 
 		// @ts-ignore
-		gridItem.data.configuration.columnDefs = { value: [], type: 'static' }
+		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: false }
 
 		$app = {
 			...$app
@@ -319,6 +323,32 @@
 	let lastTable: string | undefined = undefined
 	let timeout: NodeJS.Timeout | undefined = undefined
 
+	function isSubset(subset: Record<string, any>, superset: Record<string, any>) {
+		return Object.keys(subset).every((key) => {
+			return superset[key] === subset[key]
+		})
+	}
+
+	function shouldReturnEarly(subset: Record<string, any>, superset: Record<string, any>): boolean {
+		const subsetKeys = Object.keys(subset)
+		const supersetKeys = Object.keys(superset)
+
+		if (supersetKeys.length === 0) return false
+
+		if (subsetKeys.length !== supersetKeys.length) {
+			return false
+		}
+
+		if (
+			JSON.stringify(supersetKeys.sort()) === JSON.stringify(subsetKeys.sort()) &&
+			!subsetKeys.every((key) => isSubset(subset[key], superset[key]))
+		) {
+			return false
+		}
+
+		return true
+	}
+
 	async function listColumnsIfAvailable() {
 		const selected = resolvedConfig.type.selected
 		let table = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.table
@@ -326,6 +356,18 @@
 		if (lastTable === table) return
 
 		lastTable = table
+
+		const gridItem = findGridItem($app, id)
+		if (!gridItem) return
+
+		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
+
+		if (columnDefs.type !== 'static') return
+
+		//@ts-ignore
+		gridItem.data.configuration.columnDefs.loading = true
+		gridItem.data = gridItem.data
+		$app = $app
 
 		let tableMetadata = await loadTableMetaData(
 			resolvedConfig.type.configuration[selected].resource,
@@ -336,23 +378,21 @@
 
 		if (!tableMetadata) return
 
-		const gridItem = findGridItem($app, id)
-		if (!gridItem) return
-
-		let columnDefs = gridItem.data.configuration.columnDefs as StaticInput<TableMetadata>
-
 		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
 		if (!Array.isArray(old)) {
 			console.log('old is not an array RESET')
 			old = []
 		}
-		// console.log('OLD', old)
-		// console.log(tableMetadata)
+
 		const oldMap = Object.fromEntries(old.filter((x) => x != undefined).map((x) => [x.field, x]))
 		const newMap = Object.fromEntries(tableMetadata?.map((x) => [x.field, x]) ?? [])
 
-		// if they are the same, do nothing
-		if (JSON.stringify(oldMap) === JSON.stringify(newMap)) {
+		if (shouldReturnEarly(newMap, oldMap)) {
+			//@ts-ignore
+			gridItem.data.configuration.columnDefs.loading = false
+			gridItem.data = gridItem.data
+
+			$app = $app
 			return
 		}
 
@@ -375,7 +415,21 @@
 		ncols = ncols.map((x) => {
 			let o = {}
 			Object.keys(x).forEach((k) => {
-				o[k.toLowerCase()] = x[k]
+				if (
+					[
+						'field',
+						'datatype',
+						'defaultvalue',
+						'isprimarykey',
+						'isidentity',
+						'isnullable',
+						'isenum'
+					].includes(k.toLocaleLowerCase())
+				) {
+					o[k.toLowerCase()] = x[k]
+				} else {
+					o[k] = x[k]
+				}
 			})
 			return o
 		})
@@ -383,7 +437,7 @@
 		state = undefined
 
 		//@ts-ignore
-		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static' }
+		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static', loading: false }
 		gridItem.data = gridItem.data
 
 		$app = $app
@@ -415,7 +469,8 @@
 						id: 'dbexplorer-count-' + id,
 						next: (value) => {
 							if (value?.error) {
-								sendUserToast(value.error, true)
+								const message = value?.error?.message ?? value?.error
+								sendUserToast(message, true)
 								return
 							}
 
@@ -445,6 +500,7 @@
 	async function insert() {
 		try {
 			const selected = resolvedConfig.type.selected
+
 			await insertRowRunnable?.insertRow(
 				resolvedConfig.type.configuration[selected].resource,
 				$workspaceStore,
@@ -471,21 +527,22 @@
 	function onDelete(e) {
 		const data = { ...e.detail }
 		delete data['__index']
-		let primaryColumns = getPrimaryKeys(resolvedConfig.columnDefs)
-		let getPrimaryKeysresolvedConfig = resolvedConfig.columnDefs?.filter((x) =>
-			primaryColumns.includes(x.field)
-		)
+
 		const selected = resolvedConfig.type.selected
+
 		deleteRow?.triggerDelete(
 			resolvedConfig.type.configuration[selected].resource,
 			resolvedConfig.type.configuration[selected].table ?? 'unknown',
-			getPrimaryKeysresolvedConfig,
+			resolvedConfig.columnDefs,
 			data,
 			selected
 		)
 	}
 
 	let refreshCount = 0
+
+	$: hideSearch = resolvedConfig.hideSearch as boolean
+	$: hideInsert = resolvedConfig.hideInsert as boolean
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -543,25 +600,31 @@
 	{outputs}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
-		<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
-			<DebouncedInput
-				class="w-full max-w-[300px]"
-				type="text"
-				bind:value={quicksearch}
-				placeholder="Quicksearch"
-			/>
-			<Button
-				startIcon={{ icon: Plus }}
-				color="dark"
-				size="xs2"
-				on:click={() => {
-					args = {}
-					insertDrawer?.openDrawer()
-				}}
-			>
-				Insert
-			</Button>
-		</div>
+		{#if !(hideSearch === true && hideInsert === true)}
+			<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
+				{#if hideSearch !== true}
+					<DebouncedInput
+						class="w-full max-w-[300px]"
+						type="text"
+						bind:value={quicksearch}
+						placeholder="Quicksearch"
+					/>
+				{/if}
+				{#if hideInsert !== true}
+					<Button
+						startIcon={{ icon: Plus }}
+						color="dark"
+						size="xs"
+						on:click={() => {
+							args = {}
+							insertDrawer?.openDrawer()
+						}}
+					>
+						Insert
+					</Button>
+				{/if}
+			</div>
+		{/if}
 		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
@@ -576,7 +639,7 @@
 					{customCss}
 					{outputs}
 					allowDelete={resolvedConfig.allowDelete ?? false}
-					containerHeight={componentContainerHeight - buttonContainerHeight}
+					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
 				/>

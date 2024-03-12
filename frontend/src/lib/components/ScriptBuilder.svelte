@@ -11,7 +11,7 @@
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
 		emptySchema,
@@ -43,7 +43,6 @@
 		Settings,
 		X
 	} from 'lucide-svelte'
-	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO } from '$lib/consts'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -61,11 +60,12 @@
 	import MetadataGen from './copilot/MetadataGen.svelte'
 	import ScriptSchedules from './ScriptSchedules.svelte'
 	import { writable } from 'svelte/store'
-	import { type ScriptSchedule, loadScriptSchedule } from '$lib/scripts'
+	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
+	import DefaultScripts from './DefaultScripts.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
+	export let template: 'docker' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
@@ -107,25 +107,11 @@
 		editor?.setCode(code)
 	}
 
-	const langs: [string, SupportedLanguage][] = [
-		['TypeScript (Bun)', Script.language.BUN],
-		['Python', Script.language.PYTHON3],
-		['TypeScript (Deno)', Script.language.DENO]
-	]
-	if (SCRIPT_SHOW_BASH) {
-		langs.push(['Bash', Script.language.BASH])
-	}
-	if (SCRIPT_SHOW_GO) {
-		langs.push(['Go', Script.language.GO])
-	}
-	langs.push(['REST', Script.language.NATIVETS])
-	langs.push(['PostgreSQL', Script.language.POSTGRESQL])
-	langs.push(['MySQL', Script.language.MYSQL])
-	langs.push(['BigQuery', Script.language.BIGQUERY])
-	langs.push(['Snowflake', Script.language.SNOWFLAKE])
-	langs.push(['MS SQL Server', Script.language.MSSQL])
-	langs.push(['GraphQL', Script.language.GRAPHQL])
-	langs.push(['PowerShell', Script.language.POWERSHELL])
+	$: langs = ($defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		.map((l) => [defaultScriptLanguages[l], l])
+		.filter(
+			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
+		) as [string, SupportedLanguage | 'docker'][]
 
 	const scriptKindOptions: {
 		value: Script.kind
@@ -551,14 +537,17 @@
 								</Section>
 
 								<Section label="Language">
+									<svelte:fragment slot="action"><DefaultScripts /></svelte:fragment>
 									{#if lockedLanguage}
 										<div class="text-sm text-tertiary italic mb-2">
 											As a forked script, the language '{script.language}' cannot be modified.
 										</div>
 									{/if}
 									<div class=" grid grid-cols-3 gap-2">
-										{#each langs as [label, lang]}
-											{@const isPicked = script.language == lang && template == 'script'}
+										{#each langs as [label, lang] (lang)}
+											{@const isPicked =
+												(lang == script.language && template == 'script') ||
+												(template == 'docker' && lang == 'docker')}
 											<Popover
 												disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 											>
@@ -570,9 +559,33 @@
 														? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
 														: 'm-[1px]'}
 													on:click={() => {
-														template = 'script'
-														initContent(lang, script.kind, template)
-														script.language = lang
+														if (lang == 'docker') {
+															if (isCloudHosted()) {
+																sendUserToast(
+																	'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+																	true,
+																	[
+																		{
+																			label: 'Learn more',
+																			callback: () => {
+																				window.open(
+																					'https://www.windmill.dev/docs/advanced/docker',
+																					'_blank'
+																				)
+																			}
+																		}
+																	]
+																)
+																return
+															}
+															template = 'docker'
+														} else {
+															template = 'script'
+														}
+														let language = lang == 'docker' ? Script.language.BASH : lang
+														//
+														initContent(language, script.kind, template)
+														script.language = language
 													}}
 													disabled={lockedLanguage ||
 														(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
@@ -585,40 +598,6 @@
 												>
 											</Popover>
 										{/each}
-										<Button
-											size="sm"
-											variant="border"
-											color={template == 'docker' ? 'blue' : 'light'}
-											btnClasses={template == 'docker'
-												? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-												: 'm-[1px]'}
-											disabled={lockedLanguage}
-											on:click={() => {
-												if (isCloudHosted()) {
-													sendUserToast(
-														'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-														true,
-														[
-															{
-																label: 'Learn more',
-																callback: () => {
-																	window.open(
-																		'https://www.windmill.dev/docs/advanced/docker',
-																		'_blank'
-																	)
-																}
-															}
-														]
-													)
-													return
-												}
-												template = 'docker'
-												initContent(Script.language.BASH, script.kind, template)
-												script.language = Script.language.BASH
-											}}
-										>
-											<LanguageIcon lang="docker" /><span class="ml-2 py-2">Docker</span>
-										</Button>
 									</div>
 								</Section>
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { GripVertical, Plus, X } from 'lucide-svelte'
+	import { GripVertical, Loader2, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
@@ -10,7 +10,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 
-	export let componentInput: StaticInput<any[]>
+	export let componentInput: StaticInput<any[]> & { loading?: boolean }
 	export let subFieldType: InputType | undefined = undefined
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 	export let id: string | undefined
@@ -319,6 +319,14 @@
 				</div>
 			{/each}
 		</section>
+	{/if}
+	{#if subFieldType === 'db-explorer'}
+		{#if componentInput.loading}
+			<div class="flex flex-row gap-2 w-full items-center text-xs">
+				<Loader2 class="animate-spin" size={14} />
+				Loading columns defintions...
+			</div>
+		{/if}
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
 		<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>

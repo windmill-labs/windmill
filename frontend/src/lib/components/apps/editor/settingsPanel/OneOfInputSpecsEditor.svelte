@@ -102,6 +102,7 @@
 					fileUpload={config?.['fileUpload']}
 					loading={config?.['loading']}
 					documentationLink={config?.['documentationLink']}
+					allowTypeChange={config?.['allowTypeChange']}
 					{showOnDemandOnlyToggle}
 				/>
 			{/if}

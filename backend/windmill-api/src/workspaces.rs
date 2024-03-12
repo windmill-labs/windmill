@@ -102,6 +102,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
         .route(
+            "/default_scripts",
+            post(edit_default_scripts).get(get_default_scripts),
+        )
+        .route(
             "/encryption_key",
             get(get_encryption_key).post(set_encryption_key),
         )
@@ -165,6 +169,7 @@ pub struct WorkspaceSettings {
     pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
     pub default_app: Option<String>,
     pub automatic_billing: bool,
+    pub default_scripts: Option<serde_json::Value>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -1004,6 +1009,66 @@ async fn edit_default_app(
     ));
 }
 
+async fn edit_default_scripts(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<Option<serde_json::Value>>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspaces.edit_default_scripts",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+
+    if let Some(config) = new_config {
+        sqlx::query!(
+            "UPDATE workspace_settings SET default_scripts = $1 WHERE workspace_id = $2",
+            config,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET default_scripts = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(format!("Edit default scripts for workspace {}", &w_id))
+}
+
+async fn get_default_scripts(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let mut tx = db.begin().await?;
+    let default_scripts = sqlx::query_scalar!(
+        "SELECT default_scripts FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|err| Error::InternalErr(format!("getting default_app: {err}")))?;
+    tx.commit().await?;
+
+    Ok(Json(default_scripts.flatten()))
+}
+
 #[cfg(feature = "enterprise")]
 async fn edit_default_app(
     authed: ApiAuthed,
@@ -1032,7 +1097,7 @@ async fn edit_default_app(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("args_for_audit", args_for_audit.as_str())].into()),
+        Some([("default_app", args_for_audit.as_str())].into()),
     )
     .await?;
 
