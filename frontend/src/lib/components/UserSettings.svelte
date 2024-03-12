@@ -112,14 +112,14 @@
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-1 pb-2 text-tertiary flex-col flex">
-					Windmill <Version />
-				</div>
-				<div class="font-semibold flex items-baseline">
-					Theme: <DarkModeToggle forcedDarkMode={false} />
-				</div>
-				<div class="flex flex-wrap md:gap-40 gap-10 mt-2">
-					{#if scopes == undefined}
+				{#if scopes == undefined}
+					<div class="text-xs pt-1 pb-2 text-tertiary flex-col flex">
+						Windmill <Version />
+					</div>
+					<div class="font-semibold flex items-baseline">
+						Theme: <DarkModeToggle forcedDarkMode={false} />
+					</div>
+					<div class="flex flex-wrap md:gap-40 gap-10 mt-2">
 						<div>
 							<h2 class="border-b">User info</h2>
 							<div class="">
@@ -167,50 +167,55 @@
 								</div>
 							</div>
 						</div>
-					{/if}
-					<div>
-						<h2 class="border-b">AI user settings</h2>
 
-						<div class="flex flex-col gap-4 mt-2">
-							<Toggle
-								on:change={(e) => {
-									updateSetting(
-										codeCompletionSessionEnabled,
-										e.detail,
-										'codeCompletionSessionEnabled'
-									)
-								}}
-								checked={$codeCompletionSessionEnabled}
-								options={{
-									right: 'Code completion',
-									rightTooltip: 'AI completion in the code editors'
-								}}
-							/>
-							<Toggle
-								on:change={(e) => {
-									updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
-								}}
-								checked={$metadataCompletionEnabled}
-								options={{
-									right: 'Metadata completion',
-									rightTooltip: 'AI completion for summaries and descriptions'
-								}}
-							/>
-							<Toggle
-								on:change={(e) => {
-									updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
-								}}
-								checked={$stepInputCompletionEnabled}
-								options={{
-									right: 'Flow step input completion',
-									rightTooltip: 'AI completion for flow step inputs'
-								}}
-							/>
+						<div>
+							<h2 class="border-b">AI user settings</h2>
+
+							<div class="flex flex-col gap-4 mt-2">
+								<Toggle
+									on:change={(e) => {
+										updateSetting(
+											codeCompletionSessionEnabled,
+											e.detail,
+											'codeCompletionSessionEnabled'
+										)
+									}}
+									checked={$codeCompletionSessionEnabled}
+									options={{
+										right: 'Code completion',
+										rightTooltip: 'AI completion in the code editors'
+									}}
+								/>
+								<Toggle
+									on:change={(e) => {
+										updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
+									}}
+									checked={$metadataCompletionEnabled}
+									options={{
+										right: 'Metadata completion',
+										rightTooltip: 'AI completion for summaries and descriptions'
+									}}
+								/>
+								<Toggle
+									on:change={(e) => {
+										updateSetting(
+											stepInputCompletionEnabled,
+											e.detail,
+											'stepInputCompletionEnabled'
+										)
+									}}
+									checked={$stepInputCompletionEnabled}
+									options={{
+										right: 'Flow step input completion',
+										rightTooltip: 'AI completion for flow step inputs'
+									}}
+								/>
+							</div>
 						</div>
 					</div>
-				</div>
+				{/if}
 
-				<div class="grid grid-cols-2 pt-8 pb-1">
+				<div class="grid grid-cols-2 pt-8 pb-1" class:pt-8={scopes == undefined}>
 					<h2 class="py-0 my-0 border-b pt-3">Tokens</h2>
 					<div class="flex justify-end border-b pb-1">
 						<Button

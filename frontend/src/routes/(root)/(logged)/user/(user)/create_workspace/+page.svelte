@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { ResourceService, UserService, WorkspaceService } from '$lib/gen'
+	import { ResourceService, SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
@@ -52,7 +52,7 @@
 			requestBody: {
 				id,
 				name,
-				username
+				username: automateUsernameCreation ? undefined : username
 			}
 		})
 		if (auto_invite) {
@@ -62,7 +62,14 @@
 			})
 		}
 		if (openAiKey != '') {
-			let path = `u/${username}/openai_windmill_codegen`
+			let actualUsername = username
+			if (automateUsernameCreation) {
+				const user = await UserService.whoami({
+					workspace: id
+				})
+				actualUsername = user.username
+			}
+			let path = `u/${actualUsername}/openai_windmill_codegen`
 			await ResourceService.createResource({
 				workspace: id,
 				requestBody: {
@@ -107,19 +114,28 @@
 		}
 	}
 
+	let automateUsernameCreation = false
+	async function getAutomateUsernameCreationSetting() {
+		automateUsernameCreation =
+			(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+
+		if (!automateUsernameCreation) {
+			UserService.globalWhoami().then((x) => {
+				let uname = ''
+				if (x.name) {
+					uname = x.name.split(' ')[0]
+				} else {
+					uname = x.email.split('@')[0]
+				}
+				uname = uname.replace(/\./gi, '')
+				username = uname.toLowerCase()
+			})
+		}
+	}
+	getAutomateUsernameCreationSetting()
+
 	onMount(() => {
 		loadWorkspaces()
-
-		UserService.globalWhoami().then((x) => {
-			let uname = ''
-			if (x.name) {
-				uname = x.name.split(' ')[0]
-			} else {
-				uname = x.email.split('@')[0]
-			}
-			uname = uname.replace(/\./gi, '')
-			username = uname.toLowerCase()
-		})
 
 		WorkspaceService.isDomainAllowed().then((x) => {
 			isDomainAllowed = x
@@ -139,7 +155,7 @@
 	<label class="block pb-4 pt-4">
 		<span class="text-secondary text-sm">Workspace name</span>
 		<span class="ml-4 text-tertiary text-xs">Displayable name</span>
-
+		<!-- svelte-ignore a11y-autofocus -->
 		<input autofocus type="text" bind:value={name} />
 	</label>
 	<label class="block pb-4">
@@ -150,13 +166,15 @@
 		{/if}
 		<input type="text" bind:value={id} class:input-error={errorId != ''} />
 	</label>
-	<label class="block pb-4">
-		<span class="text-secondary text-sm">Your username in that workspace</span>
-		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
-		{#if errorUser}
-			<span class="text-red-500 text-xs">{errorUser}</span>
-		{/if}
-	</label>
+	{#if !automateUsernameCreation}
+		<label class="block pb-4">
+			<span class="text-secondary text-sm">Your username in that workspace</span>
+			<input type="text" bind:value={username} on:keyup={handleKeyUp} />
+			{#if errorUser}
+				<span class="text-red-500 text-xs">{errorUser}</span>
+			{/if}
+		</label>
+	{/if}
 	<label class="block pb-4">
 		<span class="text-secondary text-sm">
 			OpenAI key for Windmill AI
@@ -226,7 +244,11 @@
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button
-			disabled={checking || errorId != '' || errorUser != '' || !name || !username || !id}
+			disabled={checking ||
+				errorId != '' ||
+				!name ||
+				(!automateUsernameCreation && (errorUser != '' || !username)) ||
+				!id}
 			on:click={createWorkspace}
 		>
 			Create workspace
