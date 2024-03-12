@@ -33,8 +33,6 @@
 		data: Record<string, any>,
 		dbType: DbType
 	) {
-		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
-
 		input = getDeleteInput(resource, table, columns, dbType)
 
 		await tick()

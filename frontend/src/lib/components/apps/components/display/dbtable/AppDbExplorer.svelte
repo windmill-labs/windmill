@@ -527,15 +527,13 @@
 	function onDelete(e) {
 		const data = { ...e.detail }
 		delete data['__index']
-		let primaryColumns = getPrimaryKeys(resolvedConfig.columnDefs)
-		let getPrimaryKeysresolvedConfig = resolvedConfig.columnDefs?.filter((x) =>
-			primaryColumns.includes(x.field)
-		)
+
 		const selected = resolvedConfig.type.selected
+
 		deleteRow?.triggerDelete(
 			resolvedConfig.type.configuration[selected].resource,
 			resolvedConfig.type.configuration[selected].table ?? 'unknown',
-			getPrimaryKeysresolvedConfig,
+			resolvedConfig.columnDefs,
 			data,
 			selected
 		)

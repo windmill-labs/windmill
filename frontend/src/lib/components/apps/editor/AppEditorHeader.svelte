@@ -216,6 +216,7 @@
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
 								})
+
 								r.push({
 									input: getDeleteInput(resourceValue, tableValue, columnDefs, dbType),
 									id: x.id + '_delete'
