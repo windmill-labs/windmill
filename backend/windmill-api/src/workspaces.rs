@@ -1696,7 +1696,7 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
     .fetch_all(&mut *tx)
     .await?;
     for r in workspaces {
-        if r.auto_add.is_some() {
+        if r.auto_add.is_some() && r.auto_add.unwrap() {
             let operator = r.auto_invite_operator.unwrap_or(false);
             auto_add_user(email, &r.workspace_id, &operator, &mut tx).await?;
         } else {
