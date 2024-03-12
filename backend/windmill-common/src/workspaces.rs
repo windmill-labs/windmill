@@ -19,6 +19,8 @@ pub enum ObjectType {
     Secret,
     Schedule,
     ResourceType,
+    User,
+    Group,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

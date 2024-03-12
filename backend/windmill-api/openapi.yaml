@@ -9776,7 +9776,13 @@ components:
       properties:
         type:
           type: string
-          enum: ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc"]
+          enum:
+            [
+              "S3Storage",
+              "AzureBlobStorage",
+              "AzureWorkloadIdentity",
+              "S3AwsOidc",
+            ]
         s3_resource_path:
           type: string
         azure_blob_resource_path:
@@ -9866,6 +9872,8 @@ components:
               - secret
               - resourcetype
               - schedule
+              - user
+              - group
         repositories:
           type: array
           items:
@@ -9912,6 +9920,8 @@ components:
               - secret
               - resourcetype
               - schedule
+              - user
+              - group
       required:
         - script_path
         - git_repo_resource_path
