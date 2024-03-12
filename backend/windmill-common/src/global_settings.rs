@@ -22,6 +22,8 @@ pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
 
+pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
+
 pub const ENV_SETTINGS: [&str; 55] = [
     "DISABLE_NSJAIL",
     "MODE",

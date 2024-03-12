@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE email = $1",
+  "query": "SELECT email, login_type::text, verified, super_admin, name, company, username from password ORDER BY super_admin DESC, email LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -15,12 +15,12 @@
       },
       {
         "ordinal": 2,
-        "name": "super_admin",
+        "name": "verified",
         "type_info": "Bool"
       },
       {
         "ordinal": 3,
-        "name": "verified",
+        "name": "super_admin",
         "type_info": "Bool"
       },
       {
@@ -32,11 +32,17 @@
         "ordinal": 5,
         "name": "company",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "username",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -45,8 +51,9 @@
       false,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "90719f6230467b08e5f2cc89271bcf5e4a6cec39e9d9b42ef3b90f09b3135b83"
+  "hash": "c2060e8cacef6c3b5ce51ed203a2dbafc18d66f2924d1fe518c6728997647db2"
 }

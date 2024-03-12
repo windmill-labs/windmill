@@ -340,6 +340,76 @@ paths:
               schema:
                 type: string
 
+  /users/username_info/{email}:
+    get:
+      summary: global username info (require super admin)
+      operationId: globalUsernameInfo
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: user renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                  workspace_usernames:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        workspace_id:
+                          type: string
+                        username:
+                          type: string
+                      required:
+                        - workspace_id
+                        - username
+                required:
+                  - username
+                  - workspace_usernames
+
+  /users/rename/{email}:
+    post:
+      summary: global rename user (require super admin)
+      operationId: globalUserRename
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new username
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_username:
+                  type: string
+              required:
+                - new_username
+      responses:
+        "200":
+          description: user renamed
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/delete/{email}:
     delete:
       summary: global delete user (require super admin)
@@ -880,7 +950,6 @@ paths:
                   type: string
               required:
                 - workspace_id
-                - username
       responses:
         "200":
           description: status
@@ -977,7 +1046,6 @@ paths:
                 - email
                 - is_admin
                 - operator
-                - username
       responses:
         "200":
           description: status
@@ -9322,7 +9390,6 @@ components:
       required:
         - id
         - name
-        - username
 
     Workspace:
       type: object
@@ -9372,6 +9439,8 @@ components:
         name:
           type: string
         company:
+          type: string
+        username:
           type: string
 
       required:

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { globalEmailInvite, superadmin, workspaceStore } from '$lib/stores'
-	import { UserService, WorkspaceService } from '$lib/gen'
+	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { Button, Popup } from './common'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -23,12 +23,19 @@
 		}
 	}
 
+	let automateUsernameCreation = false
+	async function getAutomateUsernameCreationSetting() {
+		automateUsernameCreation =
+			(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+	}
+	getAutomateUsernameCreationSetting()
+
 	async function addUser() {
 		await WorkspaceService.addUser({
 			workspace: $workspaceStore!,
 			requestBody: {
 				email,
-				username,
+				username: automateUsernameCreation ? undefined : username,
 				is_admin: selected == 'admin',
 				operator: selected == 'operator'
 			}
@@ -37,6 +44,7 @@
 		if (!(await UserService.existsEmail({ email }))) {
 			let isSuperadmin = $superadmin
 			if (!isCloudHosted()) {
+				const emailCopy = email
 				sendUserToast(
 					`User ${email} is not registered yet on the instance. ${
 						!isSuperadmin
@@ -49,7 +57,7 @@
 								{
 									label: 'Add user to the instance',
 									callback: () => {
-										$globalEmailInvite = email
+										$globalEmailInvite = emailCopy
 										goto('#superadmin-settings')
 									}
 								}
@@ -79,8 +87,10 @@
 		<span class="text-xs mb-1 leading-6">Email</span>
 		<input type="email mb-1" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
-		<span class="text-xs mb-1 pt-2 leading-6">Username</span>
-		<input type="text" on:keyup={handleKeyUp} placeholder="username" bind:value={username} />
+		{#if !automateUsernameCreation}
+			<span class="text-xs mb-1 pt-2 leading-6">Username</span>
+			<input type="text" on:keyup={handleKeyUp} placeholder="username" bind:value={username} />
+		{/if}
 
 		<span class="text-xs mb-1 pt-2 leading-6">Role</span>
 		<ToggleButtonGroup bind:selected class="mb-4">
@@ -117,7 +127,7 @@
 					username = undefined
 				})
 			}}
-			disabled={email === undefined || username === undefined}
+			disabled={email === undefined || (!automateUsernameCreation && username === undefined)}
 		>
 			Add
 		</Button>
