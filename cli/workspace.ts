@@ -12,6 +12,7 @@ import {
   Table,
   UserService,
   WorkspaceService,
+  SettingService,
 } from "./deps.ts";
 import { requireLogin } from "./context.ts";
 
@@ -240,11 +241,15 @@ export async function add(
           `Workspace at id ${workspaceId} on ${remote} does not exist. Creating...`
         )
       );
+      const automateUsernameCreation: boolean =
+        (await SettingService.getGlobal({
+          key: "automate_username_creation",
+        })) ?? false;
       await WorkspaceService.createWorkspace({
         requestBody: {
           id: workspaceId,
           name: opts.createWorkspaceName ?? workspaceName,
-          username: opts.createUsername,
+          username: automateUsernameCreation ? undefined : opts.createUsername,
         },
       });
     }
@@ -360,7 +365,7 @@ const command = new Command()
   )
   .option(
     "--create-username <username:string>",
-    "Specify your own username in the newly created workspace. Ignored if --create is not specified or the workspace already exists.",
+    "Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.",
     {
       default: "admin",
     }
