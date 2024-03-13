@@ -233,25 +233,25 @@
 	}
 
 	let raw: boolean = false
-	let mounted = false
+	// let mounted = false
 
-	$: if (componentInput.value && mounted) {
-		const newItems = (Array.isArray(componentInput.value) ? componentInput.value : [])
-			.filter((x) => x != undefined)
-			.map((item, index) => {
-				return { value: item, id: generateRandomString() }
-			})
+	// $: if (componentInput.value && mounted) {
+	// 	const newItems = (Array.isArray(componentInput.value) ? componentInput.value : [])
+	// 		.filter((x) => x != undefined)
+	// 		.map((item, index) => {
+	// 			return { value: item, id: generateRandomString() }
+	// 		})
 
-		if (
-			JSON.stringify(newItems.map((i) => i.value)) !== JSON.stringify(items.map((i) => i.value))
-		) {
-			items = newItems
-		}
-	}
+	// 	if (
+	// 		JSON.stringify(newItems.map((i) => i.value)) !== JSON.stringify(items.map((i) => i.value))
+	// 	) {
+	// 		items = newItems
+	// 	}
+	// }
 
-	onMount(() => {
-		mounted = true
-	})
+	// onMount(() => {
+	// 	mounted = true
+	// })
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
