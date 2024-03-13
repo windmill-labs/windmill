@@ -128,9 +128,8 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 			return []
 		}
 		console.log(
-			depsToGet.map((x) => x.raw),
-			'depsToGet',
-			depth
+			'dependencies to fetch for type assistant: ',
+			depsToGet.map((x) => x.raw)
 		)
 		// Make it so it won't get re-downloaded
 		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
