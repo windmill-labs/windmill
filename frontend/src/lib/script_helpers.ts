@@ -138,6 +138,15 @@ export async function main(message: string, name: string) {
 }
 `
 
+export const BUN_FAILURE_MODULE_CODE = `
+export async function main(message: string, name: string) {
+  const flow_id = process.env.WM_FLOW_JOB_ID
+  console.log("message", message)
+  console.log("name",name)
+  return { message, flow_id }
+}
+`
+
 export const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- $1 name1 = default arg
 -- $2 name2
@@ -403,10 +412,13 @@ export function initialCode(
 	} else if (language == 'bun') {
 		if (kind === 'approval') {
 			return BUN_INIT_CODE_APPROVAL
+		} else if (kind === 'failure') {
+			return BUN_FAILURE_MODULE_CODE
 		}
 		if (subkind === 'flow') {
 			return BUN_INIT_CODE_CLEAR
 		}
+
 		return BUN_INIT_CODE
 	} else {
 		if (kind === 'failure') {

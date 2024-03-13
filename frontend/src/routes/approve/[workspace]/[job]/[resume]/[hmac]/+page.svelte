@@ -208,6 +208,7 @@
 				<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
 			{:else}
 				<SchemaForm
+					noVariablePicker
 					bind:isValid={valid}
 					schema={mergeSchema(schema, enum_payload)}
 					bind:args={default_payload}
