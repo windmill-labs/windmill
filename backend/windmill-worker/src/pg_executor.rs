@@ -429,6 +429,14 @@ pub fn pg_cell_to_json_value(
 
         // single types
         Type::BOOL => get_basic(row, column, column_i, |a: bool| Ok(JSONValue::Bool(a)))?,
+        Type::BIT => get_basic(row, column, column_i, |a: bit_vec::BitVec| match a.len() {
+            1 => Ok(JSONValue::Bool(a.get(0).unwrap())),
+            _ => Ok(JSONValue::String(
+                a.iter()
+                    .map(|x| if x { "1" } else { "0" })
+                    .collect::<String>(),
+            )),
+        })?,
         Type::INT2 => get_basic(row, column, column_i, |a: i16| {
             Ok(JSONValue::Number(serde_json::Number::from(a)))
         })?,
@@ -477,6 +485,14 @@ pub fn pg_cell_to_json_value(
         })?,
         // array types
         Type::BOOL_ARRAY => get_array(row, column, column_i, |a: bool| Ok(JSONValue::Bool(a)))?,
+        Type::BIT_ARRAY => get_array(row, column, column_i, |a: bit_vec::BitVec| match a.len() {
+            1 => Ok(JSONValue::Bool(a.get(0).unwrap())),
+            _ => Ok(JSONValue::String(
+                a.iter()
+                    .map(|x| if x { "1" } else { "0" })
+                    .collect::<String>(),
+            )),
+        })?,
         Type::INT2_ARRAY => get_array(row, column, column_i, |a: i16| {
             Ok(JSONValue::Number(serde_json::Number::from(a)))
         })?,
