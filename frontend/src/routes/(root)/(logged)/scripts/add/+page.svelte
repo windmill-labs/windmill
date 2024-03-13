@@ -2,7 +2,7 @@
 	import { NewScript, Script, ScriptService } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '$lib/stores'
+	import { defaultScripts, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema } from '$lib/utils'
@@ -38,7 +38,10 @@
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language: 'bun',
+			language:
+				$defaultScripts?.order?.filter(
+					(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
+				)?.[0] ?? 'bun',
 			kind: Script.kind.SCRIPT
 		}
 	}
