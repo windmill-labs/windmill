@@ -102,7 +102,14 @@
 					previousId: undefined,
 					hasResume: false
 				},
-				extraLib: ''
+				extraLib: `
+				declare const error: {
+					message: string
+					name: string
+					stack: string
+				}
+				
+				`
 		  }
 		: getStepPropPicker(
 				$flowStateStore,

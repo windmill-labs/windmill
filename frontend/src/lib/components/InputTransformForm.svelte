@@ -390,7 +390,7 @@
 					showSchemaExplorer
 				/>
 			{:else if arg.expr != undefined}
-				<div class="border rounded mt-2 border-gray-300">
+				<div class="border mt-2">
 					<SimpleEditor
 						bind:this={monaco}
 						bind:code={arg.expr}
