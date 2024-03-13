@@ -938,7 +938,8 @@
 							!websocketAlive.pyright &&
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
-							!websocketAlive.ruff
+							!websocketAlive.ruff &&
+							scriptLang != 'bun'
 						) {
 							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
@@ -1147,7 +1148,8 @@
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
 				!websocketAlive.go &&
-				!websocketInterval
+				!websocketInterval &&
+				scriptLang != 'bun'
 			) {
 				console.log('reconnecting to language servers on focus')
 				reloadWebsocket()
