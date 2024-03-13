@@ -330,7 +330,7 @@
 								<div class="py-1" />
 
 								{#each Object.keys(oauths) as k}
-									{#if !('login_config' in oauths[k])}
+									{#if oauths[k] && !('login_config' in oauths[k])}
 										{#if !['slack'].includes(k) && oauths[k]}
 											<div class="flex flex-col gap-2 pb-4">
 												<div class="flex flex-row items-center gap-2">
