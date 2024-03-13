@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.290.0](https://github.com/windmill-labs/windmill/compare/v1.289.0...v1.290.0) (2024-03-13)
+
+
+### Features
+
+* configurable languages and orders ([a2807e6](https://github.com/windmill-labs/windmill/commit/a2807e6047bd794b61120bbb1905e26f3eb95583))
+* **frontend:** DB Studio improvements ([#3389](https://github.com/windmill-labs/windmill/issues/3389)) ([212c9d7](https://github.com/windmill-labs/windmill/commit/212c9d76e5608bc7d99c4231d7aad70d960fe2e1))
+* git sync users groups ([#3391](https://github.com/windmill-labs/windmill/issues/3391)) ([104aa75](https://github.com/windmill-labs/windmill/commit/104aa7563471023599fc487ea359f10a1bf05af1))
+* instance usernames ([#3382](https://github.com/windmill-labs/windmill/issues/3382)) ([4f65b23](https://github.com/windmill-labs/windmill/commit/4f65b23cddecca4939db9fdae687bb0fe7da85d5))
+
+
+### Bug Fixes
+
+* add include_query to all endpoints ([797c551](https://github.com/windmill-labs/windmill/commit/797c5515e192b79c8a24b12b6a5c9aca96aad73b))
+* add more metadata for insert completed_job log ([ad2f213](https://github.com/windmill-labs/windmill/commit/ad2f21326d94d990fbf0826c5373833e1e39b85f))
+* **frontend:** add script history in the script menu on the homepage … ([#3388](https://github.com/windmill-labs/windmill/issues/3388)) ([16b1c33](https://github.com/windmill-labs/windmill/commit/16b1c33de5099b7cf128f7b2747cd06e4a54f321))
+* **frontend:** Disabled delete node + correctly update debug menu when nodes are deleted ([#3387](https://github.com/windmill-labs/windmill/issues/3387)) ([cc8e73c](https://github.com/windmill-labs/windmill/commit/cc8e73c77fa875485880d78d240bf26f48f5b419))
+* improve bun type assistant ([#3402](https://github.com/windmill-labs/windmill/issues/3402)) ([90b8cb3](https://github.com/windmill-labs/windmill/commit/90b8cb3153d83705f0fc00cd1e4a26f551865af9))
+* initial path when changing path of draft only scripts and flows ([#3400](https://github.com/windmill-labs/windmill/issues/3400)) ([f82af22](https://github.com/windmill-labs/windmill/commit/f82af22eaa9f43d343b3417eedb325895cd9d0f0))
+* make oauth settings more resilient to being ill-defined ([7d5b507](https://github.com/windmill-labs/windmill/commit/7d5b50775c002cd425a55033bed7f5d0baae5c32))
+* only set admin instance username when setting enabled ([#3396](https://github.com/windmill-labs/windmill/issues/3396)) ([f974d45](https://github.com/windmill-labs/windmill/commit/f974d4570ade23996633cdb68af38749ef926441))
+* prevent auto add duplicate user ([#3395](https://github.com/windmill-labs/windmill/issues/3395)) ([9a1d10f](https://github.com/windmill-labs/windmill/commit/9a1d10fed65f6c2502f01295cf9b846981e38643))
+* remove admin instance username if setting disabled ([#3398](https://github.com/windmill-labs/windmill/issues/3398)) ([cda5e05](https://github.com/windmill-labs/windmill/commit/cda5e056f5393f26d7d8d787a4935540b9f8e248))
+* reset to default tag ([41a27d1](https://github.com/windmill-labs/windmill/commit/41a27d1c1372b1a241a39f321e0bd0a96e6d86b0))
+
 ## [1.289.0](https://github.com/windmill-labs/windmill/compare/v1.288.0...v1.289.0) (2024-03-09)
 
 

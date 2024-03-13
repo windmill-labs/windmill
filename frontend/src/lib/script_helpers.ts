@@ -349,7 +349,6 @@ export function initialCode(
 	kind: Script.kind | undefined,
 	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
 ): string {
-	console.log(language, kind, subkind)
 	if (!kind) {
 		kind = Script.kind.SCRIPT
 	}
