@@ -54,15 +54,31 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 
 	let resLimit = { usage: 0 }
 
-	return (initialSourceFile: string) => {
+	return async (initialSourceFile: string) => {
 		estimatedToDownload = 0
 		estimatedDownloaded = 0
 
-		return resolveDeps(initialSourceFile, 0, resLimit).then((t) => {
-			if (estimatedDownloaded > 0) {
-				config.delegate.finished?.(fsMap)
+		let todo: string[] = [initialSourceFile]
+		let next: string[] = []
+		let i = 0
+		let nb = 0
+		let time = new Date().getTime()
+		while (todo.length && nb < 200 && new Date().getTime() - time < 1000 * 15) {
+			const current = todo.shift()!
+			nb += 1
+			const deps = await resolveDeps(current, i, resLimit)
+			if (i <= 0) {
+				next.push(...deps)
 			}
-		})
+			if (todo.length === 0) {
+				i += 1
+				todo = next
+				next = []
+			}
+		}
+		if (estimatedDownloaded > 0) {
+			config.delegate.finished?.(fsMap)
+		}
 	}
 
 	function getVersion(d: string) {
@@ -77,10 +93,11 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		return 'latest'
 	}
 
-	async function resolveDeps(initialSourceFile: string, depth: number, resLimit: ResLimit) {
-		// if (depth > 2) {
-		// 	return
-		// }
+	async function resolveDeps(
+		initialSourceFile: string,
+		depth: number,
+		resLimit: ResLimit
+	): Promise<string[]> {
 		let depsToGet = config
 			.depsParser(initialSourceFile)
 			.map((d: string) => {
@@ -92,13 +109,6 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 				}
 			})
 			.filter((f) => !moduleMap.has(f.raw))
-
-		if (depsToGet.length === 0) {
-			return
-		}
-
-		// Make it so it won't get re-downloaded
-		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
 
 		if (depth == 0) {
 			const relativeDeps = depsToGet.filter((f) => isRelativePath(f.raw))
@@ -112,8 +122,17 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 					config.delegate.localFile?.(await res.text(), f.raw)
 				}
 			})
-			depsToGet = depsToGet.filter((f) => !isRelativePath(f.raw))
 		}
+		depsToGet = depsToGet.filter((f) => !isRelativePath(f.raw))
+		if (depsToGet.length === 0) {
+			return []
+		}
+		console.log(
+			'dependencies to fetch for type assistant: ',
+			depsToGet.map((x) => x.raw)
+		)
+		// Make it so it won't get re-downloaded
+		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
 
 		// Grab the module trees which gives us a list of files to download
 		const trees = await Promise.all(
@@ -149,6 +168,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 
 		// Collect all the npm and DT DTS requests and flatten their arrays
 		const allDTSFiles = dtsFilesFromNPM.concat(dtsFilesFromDT).reduce((p, c) => p.concat(c), [])
+
 		estimatedToDownload += allDTSFiles.length
 		if (allDTSFiles.length && depth === 0) {
 			config.delegate.started?.()
@@ -175,37 +195,39 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		}
 
 		// Grab all dts files
-		await Promise.all(
-			allDTSFiles.map(async (dts) => {
-				if (isOverlimit(resLimit)) {
-					console.warn('Exceeded limit of types downloaded for the needs of the assistant')
-					return
-				}
-				const dtsCode = await getDTSFileForModuleWithVersion(
-					dts.moduleName,
-					dts.moduleVersion,
-					dts.path
-				)
-				estimatedDownloaded++
-				if (dtsCode instanceof Error) {
-					// TODO?
-					config.logger?.error(`Had an issue getting ${dts.path} for ${dts.moduleName}`)
-				} else {
-					fsMap.set(dts.vfsPath, dtsCode)
-					config.delegate.receivedFile?.(dtsCode, dts.vfsPath)
-
-					// Send a progress note every 5 downloads
-					if (config.delegate.progress && estimatedDownloaded % 5 === 0) {
-						config.delegate.progress(estimatedDownloaded, estimatedToDownload)
+		return (
+			await Promise.all(
+				allDTSFiles.map(async (dts) => {
+					if (isOverlimit(resLimit)) {
+						console.warn('Exceeded limit of types downloaded for the needs of the assistant')
+						return
 					}
+					const dtsCode = await getDTSFileForModuleWithVersion(
+						dts.moduleName,
+						dts.moduleVersion,
+						dts.path
+					)
+					estimatedDownloaded++
+					if (dtsCode instanceof Error) {
+						// TODO?
+						config.logger?.error(`Had an issue getting ${dts.path} for ${dts.moduleName}`)
+					} else {
+						fsMap.set(dts.vfsPath, dtsCode)
+						config.delegate.receivedFile?.(dtsCode, dts.vfsPath)
 
-					if (dts.moduleName != 'bun-types') {
-						// Recurse through deps
-						await resolveDeps(dtsCode, depth + 1, resLimit)
+						// Send a progress note every 5 downloads
+						if (config.delegate.progress && estimatedDownloaded % 5 === 0) {
+							config.delegate.progress(estimatedDownloaded, estimatedToDownload)
+						}
+
+						if (dts.moduleName != 'bun-types') {
+							return dtsCode
+							// Recurse through deps
+						}
 					}
-				}
-			})
-		)
+				})
+			)
+		).filter((f) => f != undefined) as string[]
 	}
 }
 
