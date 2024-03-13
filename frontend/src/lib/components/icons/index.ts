@@ -69,6 +69,23 @@ import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 import AuthentikIcon from './AuthentikIcon.svelte'
 import AutheliaIcon from './AutheliaIcon.svelte'
 import KanidmIcon from './KanidmIcon.svelte'
+import AsanaIcon from './AsanaIcon.svelte'
+import BitbucketIcon from './BitbucketIcon.svelte'
+import DynatraceIcon from './DynatraceIcon.svelte'
+import EdgeDbIcon from './EdgeDbIcon.svelte'
+import GitIcon from './GitIcon.svelte'
+import ZendeskIcon from './ZendeskIcon.svelte'
+import TwilioIcon from './TwilioIcon.svelte'
+import TrelloIcon from './TrelloIcon.svelte'
+import ResendIcon from './ResendIcon.svelte'
+import PushoverIcon from './PushoverIcon.svelte'
+import QuickbooksIcon from './QuickbooksIcon.svelte'
+import MsTeamsIcon from './MSTeamsIcon.svelte'
+import MailgunIcon from './MailgunIcon.svelte'
+import IpinfoIcon from './IpinfoIcon.svelte'
+import GoogleCloudIcon from './GoogleCloudIcon.svelte'
+import CaCertificate from './CACertificate.svelte'
+import CurrencyApiIcon from './CurrencyApiIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -144,7 +161,25 @@ export const APP_TO_ICON_COMPONENT = {
 	okta: OktaIcon,
 	authentik: AuthentikIcon,
 	authelia: AutheliaIcon,
-	kanidm: KanidmIcon
+	kanidm: KanidmIcon,
+	asana: AsanaIcon,
+	bitbucket: BitbucketIcon,
+	dynatrace: DynatraceIcon,
+	edgedb: EdgeDbIcon,
+	git_repository: GitIcon,
+	zendesk: ZendeskIcon,
+	twilio: TwilioIcon,
+	trello: TrelloIcon,
+	resend: ResendIcon,
+	pushover: PushoverIcon,
+	quickbooks: QuickbooksIcon,
+	ms_teams_webhook: MsTeamsIcon,
+	mailgun: MailgunIcon,
+	ipinfo: IpinfoIcon,
+	gworkspace: GoogleIcon,
+	gcp_service_account: GoogleCloudIcon,
+	cacertificate: CaCertificate,
+	currencyapi: CurrencyApiIcon
 } as const
 
 export {
@@ -213,5 +248,22 @@ export {
 	OktaIcon,
 	AuthentikIcon,
 	AutheliaIcon,
-	KanidmIcon
+	KanidmIcon,
+	AsanaIcon,
+	BitbucketIcon,
+	DynatraceIcon,
+	EdgeDbIcon,
+	GitIcon,
+	ZendeskIcon,
+	TwilioIcon,
+	TrelloIcon,
+	ResendIcon,
+	PushoverIcon,
+	QuickbooksIcon,
+	MsTeamsIcon,
+	MailgunIcon,
+	IpinfoIcon,
+	GoogleCloudIcon,
+	CaCertificate,
+	CurrencyApiIcon
 }
