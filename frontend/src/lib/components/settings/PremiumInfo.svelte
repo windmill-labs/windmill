@@ -133,6 +133,9 @@
 						<Toggle
 							checked={premiumInfo?.automatic_billing}
 							options={{
+								left: 'Static number of seats',
+								leftTooltip:
+									'You will be billed for a fixed number of seats, you have to manually adapt the number of seats in the customer portal based on your usage.',
 								right: 'Automatic billing based on usage',
 								rightTooltip:
 									'You will be billed for the maximum number of seats used in a given billing period.'
@@ -296,9 +299,7 @@
 							<Button
 								size="xs"
 								color="bg-blue-500 text-white"
-								href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team{premiumInfo?.usedSeats
-									? `&seats=${premiumInfo.usedSeats}`
-									: ''}"
+								href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
 							>
 								Upgrade to Team plan</Button
 							>

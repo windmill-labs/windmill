@@ -6,6 +6,7 @@
 
 	export let options: {
 		left?: string
+		leftTooltip?: string
 		right?: string
 		rightTooltip?: string
 	} = {}
@@ -39,6 +40,9 @@
 			style={textStyle}
 		>
 			{options?.left}
+			{#if options?.leftTooltip}
+				<Tooltip>{options?.leftTooltip}</Tooltip>
+			{/if}
 		</span>
 	{/if}
 
