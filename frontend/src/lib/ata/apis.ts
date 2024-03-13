@@ -64,13 +64,13 @@ export interface ResLimit {
 }
 
 export function isOverlimit(resLimit: ResLimit) {
-	return resLimit.usage > 500000
+	return resLimit.usage > 5000000
 }
 
 function api<T>(url: string, resLimit: ResLimit, init?: RequestInit): Promise<T | Error> {
 	if (isOverlimit(resLimit)) {
 		console.warn(
-			`Exceeded limit of types downloaded for the needs of the assistant fetching: ${url}`
+			`Exceeded limit of types downloaded for the needs of the assistant fetching: ${url}, ${resLimit.usage}`
 		)
 		return new Promise(() => new Error('Exceeded limit of 100MB of data downloaded.'))
 	}
