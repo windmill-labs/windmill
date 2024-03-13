@@ -58,15 +58,23 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		estimatedToDownload = 0
 		estimatedDownloaded = 0
 
-		let todo = [initialSourceFile]
-		let next = []
+		let todo: string[] = [initialSourceFile]
+		let next: string[] = []
 		let i = 0
-		while (todo.length) {
-			const current = todo.shift()
-			current?.forEach(async (f) => {
-			const deps = await resolveDeps(initialSourceFile, 0, resLimit)
-			todo.push(deps)
-			i += 1
+		let nb = 0
+		let time = new Date().getTime()
+		while (todo.length && nb < 200 && new Date().getTime() - time < 1000 * 15) {
+			const current = todo.shift()!
+			nb += 1
+			const deps = await resolveDeps(current, i, resLimit)
+			if (i <= 0) {
+				next.push(...deps)
+			}
+			if (todo.length === 0) {
+				i += 1
+				todo = next
+				next = []
+			}
 		}
 		if (estimatedDownloaded > 0) {
 			config.delegate.finished?.(fsMap)
@@ -90,10 +98,6 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		depth: number,
 		resLimit: ResLimit
 	): Promise<string[]> {
-		if (depth == 1) {
-			console.log('depth 1', initialSourceFile)
-			return []
-		}
 		let depsToGet = config
 			.depsParser(initialSourceFile)
 			.map((d: string) => {
@@ -105,13 +109,6 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 				}
 			})
 			.filter((f) => !moduleMap.has(f.raw))
-
-		if (depsToGet.length === 0) {
-			return []
-		}
-
-		// Make it so it won't get re-downloaded
-		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
 
 		if (depth == 0) {
 			const relativeDeps = depsToGet.filter((f) => isRelativePath(f.raw))
@@ -125,8 +122,18 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 					config.delegate.localFile?.(await res.text(), f.raw)
 				}
 			})
-			depsToGet = depsToGet.filter((f) => !isRelativePath(f.raw))
 		}
+		depsToGet = depsToGet.filter((f) => !isRelativePath(f.raw))
+		if (depsToGet.length === 0) {
+			return []
+		}
+		console.log(
+			depsToGet.map((x) => x.raw),
+			'depsToGet',
+			depth
+		)
+		// Make it so it won't get re-downloaded
+		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
 
 		// Grab the module trees which gives us a list of files to download
 		const trees = await Promise.all(
