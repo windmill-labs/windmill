@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.290.1](https://github.com/windmill-labs/windmill/compare/v1.290.0...v1.290.1) (2024-03-13)
+
+
+### Bug Fixes
+
+* fix static inputs in apps ([d5f7583](https://github.com/windmill-labs/windmill/commit/d5f75831858a3c7e4212b858c6b24cfb5c254305))
+
 ## [1.290.0](https://github.com/windmill-labs/windmill/compare/v1.289.0...v1.290.0) (2024-03-13)
 
 
