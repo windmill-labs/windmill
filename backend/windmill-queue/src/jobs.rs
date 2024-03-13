@@ -685,6 +685,18 @@ pub async fn add_completed_job<
 
     tx.commit().await?;
     tracing::info!(
+        %job_id,
+        root_job = ?queued_job.root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        path = &queued_job.script_path(),
+        job_kind = ?queued_job.job_kind,
+        started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        duration = ?_duration,
+        permissioned_as = ?queued_job.permissioned_as,
+        email = ?queued_job.email,
+        created_by = queued_job.created_by,
+        is_flow_step = queued_job.is_flow_step,
+        language = ?queued_job.language,
+        success,
         "inserted completed job: {} (success: {success})",
         queued_job.id
     );
