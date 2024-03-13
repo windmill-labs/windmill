@@ -4,7 +4,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
-	import { flip } from 'svelte/animate'
 	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -280,7 +279,7 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div animate:flip={{ duration: flipDurationMs }} class="border-0 outline-none w-full">
+				<div class="border-0 outline-none w-full">
 					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
 					<div class="flex flex-row gap-2 items-center relative my-1 w-full">

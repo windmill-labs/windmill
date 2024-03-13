@@ -181,21 +181,24 @@
 							<CloseButton noBg on:close={() => deleteSubgrid(index)} />
 						</div>
 
-						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+						<div class="flex flex-col justify-center gap-2">
+							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<div
-							tabindex={dragDisabled ? 0 : -1}
-							class="w-4 h-4"
-							on:mousedown={startDrag}
-							on:touchstart={startDrag}
-							on:keydown={handleKeyDown}
-							aria-label="drag-handle"
-							style={dragDisabled ? 'cursor: grab' : 'cursor: grabbing'}
-						>
-							<GripVertical size={16} />
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								tabindex={dragDisabled ? 0 : -1}
+								class="w-4 h-4"
+								on:mousedown={startDrag}
+								on:touchstart={startDrag}
+								on:keydown={handleKeyDown}
+								aria-label="drag-handle"
+								style={dragDisabled ? 'cursor: grab' : 'cursor: grabbing'}
+							>
+								<GripVertical size={16} />
+							</div>
 						</div>
 					</div>
+
 					{#if canDisableTabs && disabledTabs}
 						<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
 					{/if}
