@@ -4,43 +4,12 @@
 </script>
 
 <svg
-   class="pageNav_logo__19-yr"
    {width}
    {height}
    viewBox="0 -15 800 645.45306"
    fill="none"
-   version="1.1"
-   id="svg6"
-   sodipodi:docname="edgedb.svg"
-   inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs10" />
-  <sodipodi:namedview
-     id="namedview8"
-     pagecolor="#505050"
-     bordercolor="#ffffff"
-     borderopacity="1"
-     inkscape:pageshadow="0"
-     inkscape:pageopacity="0"
-     inkscape:pagecheckerboard="1"
-     showgrid="false"
-     fit-margin-top="0"
-     fit-margin-left="0"
-     fit-margin-right="0"
-     fit-margin-bottom="0"
-     inkscape:zoom="0.37280646"
-     inkscape:cx="-669.24805"
-     inkscape:cy="-553.90671"
-     inkscape:window-width="2460"
-     inkscape:window-height="1563"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="svg6" />
+   >
   <path
      class="pageNav_logoBar__2v4ah"
      style="fill:#4c4c4c;fill-opacity:1;stroke-width:9.09089"
