@@ -48,11 +48,15 @@ impl Migrate for CustomMigrator {
         &mut self,
     ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
         async {
-            tracing::info!("Acquiring global PG lock  for migration purposes (if there are migrations to apply, will apply migrations or wait for the first acquirer of the lock to apply them)");
+            let pid = sqlx::query_scalar!("SELECT pg_backend_pid()")
+                .fetch_one(&mut *self.inner)
+                .await?;
+            tracing::info!("Acquiring global PG lock for potential migration with pid: {pid:?}");
             let r = self.inner.lock().await;
-            tracing::info!("Acquired global PG lock for migration purposes");
+            tracing::info!("Acquired global PG lock");
             r
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn unlock(
@@ -63,8 +67,8 @@ impl Migrate for CustomMigrator {
             let r = self.inner.unlock().await;
             tracing::info!("Released PG lock");
             r
-        }.boxed()
-        
+        }
+        .boxed()
     }
 
     fn apply<'e: 'm, 'm>(
@@ -83,7 +87,8 @@ impl Migrate for CustomMigrator {
             let r = self.inner.apply(migration).await;
             tracing::info!("Finished applying migration {}", migration.version);
             r
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn revert<'e: 'm, 'm>(
