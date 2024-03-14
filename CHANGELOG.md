@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.291.2](https://github.com/windmill-labs/windmill/compare/v1.291.1...v1.291.2) (2024-03-14)
+
+
+### Bug Fixes
+
+* be less agressive with log streaming for long jobs ([df910d7](https://github.com/windmill-labs/windmill/commit/df910d7441499f6b58f35bacfa987cce9379c7fa))
+
 ## [1.291.1](https://github.com/windmill-labs/windmill/compare/v1.291.0...v1.291.1) (2024-03-14)
 
 
