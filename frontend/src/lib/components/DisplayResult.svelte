@@ -295,7 +295,7 @@
 				<AutoDataTable objects={transform(data)} />
 			{:else if !forceJson && resultKind == 'table-row'}
 				{@const data = 'table-row' in result ? result['table-row'] : result}
-				<div class="grid grid-flow-col-dense border border-gray-200">
+				<div class="grid grid-flow-col-dense border border-gray-200 dark:border-gray-600">
 					<TableCustom>
 						<tbody slot="body">
 							{#each Array.isArray(asListOfList(data)) ? asListOfList(data) : [] as row}
