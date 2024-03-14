@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT version()",
+  "query": "SELECT pg_backend_pid()",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "version",
-        "type_info": "Text"
+        "name": "pg_backend_pid",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "df1f1d15d442789a5b9c81cdddf44d88d5748499cc48865023ddc1ff1587d0f6"
+  "hash": "aa6f7f4fbbeb475a2cdbbb2aebb7fa799b431745218a80b348c3f0e555ce9126"
 }
