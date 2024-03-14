@@ -33,6 +33,7 @@
 			bind:hex={value}
 			label={value}
 			components={ChromeVariant}
+			sliderDirection="horizontal"
 			--focus-color="#e0e7ff"
 		/>
 	</div>
