@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM custom_concurrency_key_ended WHERE  ended_at <= now() - ($1::bigint::text || ' s')::interval ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "636db0b9d5963ed540f18ab732a8b29a3308f973cc04fd10979c44ae19169abf"
+}
