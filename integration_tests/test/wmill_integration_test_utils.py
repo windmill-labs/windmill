@@ -4,7 +4,6 @@ import httpx
 import json
 import os
 
-USERNAME = "admin"
 
 
 class WindmillClient:
@@ -88,8 +87,7 @@ class WindmillClient:
             "/api/workspaces/create",
             json={
                 "id": self._workspace,
-                "name": self._workspace,
-                "username": "admin",
+                "name": self._workspace
             },
         )
         if response.status_code // 100 != 2:
