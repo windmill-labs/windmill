@@ -567,9 +567,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "aws-config"
-version = "1.1.7"
+version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b96342ea8948ab9bef3e6234ea97fc32e2d8a88d8fb6a084e52267317f94b6b"
+checksum = "4f4084d18094aec9f79d509f4cb6ccf6b613c5037e32f32e74312e52b836e366"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -597,9 +597,9 @@ dependencies = [
 
 [[package]]
 name = "aws-credential-types"
-version = "1.1.7"
+version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "273fa47dafc9ef14c2c074ddddbea4561ff01b7f68d5091c0e9737ced605c01d"
+checksum = "fa8587ae17c8e967e4b05a62d495be2fb7701bec52a97f7acfe8a29f938384c8"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
@@ -609,9 +609,9 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.1.7"
+version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e38bab716c8bf07da24be07ecc02e0f5656ce8f30a891322ecdcb202f943b85"
+checksum = "b13dc54b4b49f8288532334bba8f87386a40571c47c37b1304979b556dc613c8"
 dependencies = [
  "aws-credential-types",
  "aws-sigv4",
@@ -632,9 +632,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d84bd3925a17c9adbf6ec65d52104a44a09629d8f70290542beeee69a95aee7f"
+checksum = "6729c96a2bc5acdbc0d6f406415678c24de30a9999f33084a34e64fc415cc365"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -654,9 +654,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c2dae39e997f58bc4d6292e6244b26ba630c01ab671b6f9f44309de3eb80ab8"
+checksum = "9ccdd38f35f089c16fe0641cda34f2d06e3ab7b99a884407bce350a9fa70b1a9"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -676,9 +676,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17fd9a53869fee17cea77e352084e1aa71e2c5e323d974c13a9c2bcfd9544c7f"
+checksum = "396e8064892a3c08b25b60fe3abda7ff5afa74efee500572cae65122ba5afd0d"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -699,9 +699,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.1.7"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ada00a4645d7d89f296fe0ddbc3fe3554f03035937c849a05d37ddffc1f29a1"
+checksum = "11d6f29688a4be9895c0ba8bef861ad0c0dac5c15e9618b9b7a6c233990fc263"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-http",
@@ -846,9 +846,9 @@ dependencies = [
 
 [[package]]
 name = "aws-types"
-version = "1.1.7"
+version = "1.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d07c63521aa1ea9a9f92a701f1a08ce3fd20b46c6efc0d5c8947c1fd879e3df1"
+checksum = "0dbf2f3da841a8930f159163175cf6a3d16ddde517c1b0fba7aa776822800f40"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-async",
@@ -9408,7 +9408,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9445,7 +9445,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9520,7 +9520,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9538,7 +9538,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9551,7 +9551,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9586,7 +9586,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9601,7 +9601,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9609,7 +9609,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9620,7 +9620,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9632,7 +9632,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9643,7 +9643,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9654,7 +9654,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9671,7 +9671,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9682,7 +9682,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9700,7 +9700,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9718,7 +9718,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9751,7 +9751,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.290.1"
+version = "1.291.0"
 dependencies = [
  "anyhow",
  "async-recursion",
