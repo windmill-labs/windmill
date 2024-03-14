@@ -10,6 +10,8 @@ const fs = require("fs/promises");
 const captureVersion =
   /^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@([^\/]+))?.*$/;
 
+import { semver } from "bun";
+
 if (!bo.success) {
   bo.logs.forEach((l) => console.log(l));
   process.exit(1);
@@ -39,7 +41,7 @@ if (!bo.success) {
     } else {
       if (dependencies[name] == undefined) {
         dependencies[name] = [version];
-      } else {
+      } else if (!dependencies[name].includes(version)) {
         dependencies[name].push(version);
       }
     }
@@ -52,17 +54,23 @@ if (!bo.success) {
         ? "latest"
         : versions.length == 1
         ? versions[0]
-        : reduceIntersect(versions);
+        : reduceIntersect(versions, i);
   }
   await Bun.write(
     "./package.json",
     JSON.stringify({ dependencies: resolvedDeps }, null, 2)
   );
 
-  function reduceIntersect(versions: string[]): string {
-    const { intersect } = require("semver-intersect");
-    return versions.reduce((a, b) => {
-      return intersect(a, b);
-    });
+  function reduceIntersect(versions: string[], name: string): string {
+    console.log(
+      `multiple versions detected for ${name}: ${versions.join(", ")}`
+    );
+    const regex = /^(?:\^|~|<|<=|>=|>)+/g;
+
+    const r = versions
+      .map((x) => [x, x.replace(regex, "")])
+      .sort((a, b) => semver.order(a[1], b[1]))[0][0];
+    console.log(`resolved to ${r} for ${name}`);
+    return r;
   }
 }
