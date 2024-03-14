@@ -343,7 +343,7 @@
 			<!-- {inputCat}
 			{propertyType} -->
 			{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-				{#if schema.properties[argName].description}
+				{#if argName && schema?.properties?.[argName]?.description}
 					<div class="text-xs italic pb-1 text-secondary">
 						<pre class="font-main">{schema.properties[argName].description}</pre>
 					</div>
