@@ -199,7 +199,7 @@
 	}
 
 	$: isTableDisplay = isArrayWithObjects(result)
-	let richRender: boolean = true
+	let richRender: boolean = !forceJson
 
 	type InputObject = { [key: string]: number[] }
 
@@ -570,27 +570,16 @@
 							Copy to clipboard
 						</Button>
 					</svelte:fragment>
-					{#if largeObject}
-						<div class="text-sm mb-2 text-tertiary">
-							<a
-								class="text-sm text-secondary mr-2 inline-flex gap-2 items-center py-2 px-2 hover:bg-gray-100 rounded-lg"
-								download="{filename ?? 'result'}.json"
-								href={workspaceId && jobId
-									? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-									: `data:text/json;charset=utf-8,${encodeURIComponent(result)}`}
-								>Download <Download size={14} /></a
-							> JSON is too large to be displayed in full.
-						</div>
-					{:else if typeof result == 'string' && result.length > 0}
-						<pre class="text-sm">{result}</pre>
-						<div class="flex">
-							<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
-								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-							</Button>
-						</div>
-					{:else}
-						<Highlight language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
-					{/if}
+					<svelte:self
+						{result}
+						{requireHtmlApproval}
+						{filename}
+						{jobId}
+						{workspaceId}
+						{hideAsJson}
+						{forceJson}
+						disableExpand={true}
+					/>
 				</DrawerContent>
 			</Drawer>
 		</Portal>
