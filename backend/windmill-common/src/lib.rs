@@ -83,14 +83,17 @@ pub async fn shutdown_signal(
         tokio::signal::unix::signal(SignalKind::terminate())?
             .recv()
             .await;
-
         Ok(())
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     tokio::select! {
-        _ = terminate() => {},
-        _ = tokio::signal::ctrl_c() => {},
+        _ = terminate() => {
+            tracing::info!("shutdown monitor received terminate");
+        },
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("shutdown monitor received ctrl-c");
+        },
         _ = rx.recv() => {
             tracing::info!("shutdown monitor received killpill");
         },

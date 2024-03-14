@@ -556,6 +556,9 @@ pub async fn update_job_poller<F, Fut>(
                 }
                 tracing::info!("{worker_name}/{job_id} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
 
+
+                let update_job_row = (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
+                if update_job_row {
                 #[cfg(feature = "enterprise")]
                 {
                     // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
@@ -594,6 +597,7 @@ pub async fn update_job_poller<F, Fut>(
                     });
                     break;
                 }
+            }
             },
         );
     }
@@ -622,7 +626,6 @@ pub async fn handle_child(
     sigterm: bool,
 ) -> error::Result<()> {
     let start = Instant::now();
-    let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
     #[cfg(target_os = "linux")]
@@ -764,11 +767,25 @@ pub async fn handle_child(
 
             let do_write_ = do_write.shared();
 
+            let delay = if start.elapsed() < Duration::from_secs(10) {
+                Duration::from_millis(500)
+            } else if start.elapsed() < Duration::from_secs(60){
+                Duration::from_millis(2500)
+            } else {
+                Duration::from_millis(5000)
+            };
+
+            let delay = if *SLOW_LOGS {
+                delay * 10
+            } else {
+                delay
+            };
+
             let mut read_lines = stream::once(async { line })
                 .chain(output.by_ref())
                 /* after receiving a line, continue until some delay has passed
                  * _and_ the previous database write is complete */
-                .take_until(future::join(sleep(write_logs_delay), do_write_.clone()))
+                .take_until(future::join(sleep(delay), do_write_.clone()))
                 .boxed();
 
             /* Read up until an error is encountered,
@@ -976,6 +993,9 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
 
 lazy_static::lazy_static! {
     static ref RE_00: Regex = Regex::new('\u{00}'.to_string().as_str()).unwrap();
+    pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
+    pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
+
 }
 // as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
 // so this pushes \n to thd destination string in each call
@@ -1260,6 +1280,10 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
         return;
     }
 
+    if *NO_LOGS {
+        tracing::info!("NO LOGS [{job_id}]: {}", logs.as_ref());
+        return;
+    }
     if let Err(err) = sqlx::query!(
         "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2",
         logs.as_ref(),
