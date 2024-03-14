@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.291.1](https://github.com/windmill-labs/windmill/compare/v1.291.0...v1.291.1) (2024-03-14)
+
+
+### Bug Fixes
+
+* **frontend:** fix oneOf configuration ([#3414](https://github.com/windmill-labs/windmill/issues/3414)) ([d569296](https://github.com/windmill-labs/windmill/commit/d569296301a1e29ce6dc392b5890dfe298c76bf2))
+
 ## [1.291.0](https://github.com/windmill-labs/windmill/compare/v1.290.1...v1.291.0) (2024-03-14)
 
 
