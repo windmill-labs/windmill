@@ -71,7 +71,7 @@ use tokio::{
     fs::DirBuilder,
     sync::{
         mpsc::{self, Sender},
-        Barrier, RwLock,
+        RwLock,
     },
     task::JoinHandle,
     time::Instant,
@@ -614,7 +614,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     killpill_tx: tokio::sync::broadcast::Sender<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
-    _sync_barrier: Arc<RwLock<Option<Barrier>>>,
     agent_mode: bool,
 ) {
     #[cfg(not(feature = "enterprise"))]
