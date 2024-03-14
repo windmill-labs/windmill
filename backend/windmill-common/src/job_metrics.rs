@@ -141,7 +141,6 @@ pub async fn record_metric(
         }
     };
 
-    let timestamp = chrono::Utc::now();
     match metric_kind {
         MetricKind::ScalarInt => {
             sqlx::query!(
@@ -163,22 +162,20 @@ pub async fn record_metric(
         }
         MetricKind::TimeseriesInt => {
             sqlx::query!(
-                "UPDATE job_stats SET timestamps = timestamps || $4, timeseries_int = timeseries_int || $5 WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+                "UPDATE job_stats SET timestamps = array_append(timestamps, now()), timeseries_int = array_append(timeseries_int, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &workspace_id,
                 &job_id,
                 &metric_id,
-                &[timestamp],
-                &[value_int]
+                value_int
             ).execute(db).await?;
         }
         MetricKind::TimeseriesFloat => {
             sqlx::query!(
-                "UPDATE job_stats SET timestamps = timestamps || $4, timeseries_float = timeseries_float || $5 WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+                "UPDATE job_stats SET timestamps = array_append(timestamps, now()), timeseries_float = array_append(timeseries_float, $4) WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
                 &workspace_id,
                 &job_id,
                 &metric_id,
-                &[timestamp],
-                &[value_float]
+                value_float
             ).execute(db).await?;
         }
     }
