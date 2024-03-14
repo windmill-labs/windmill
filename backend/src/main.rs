@@ -255,8 +255,11 @@ async fn windmill_main() -> anyhow::Result<()> {
     }
     let (killpill_tx, killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
     let (killpill_phase2_tx, killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+
     let shutdown_signal =
         windmill_common::shutdown_signal(killpill_tx.clone(), killpill_rx.resubscribe());
+
+    let mut ended_early = killpill_rx.resubscribe();
 
     #[cfg(feature = "enterprise")]
     tracing::info!(
@@ -548,7 +551,11 @@ Windmill Community Edition {GIT_VERSION}
             .await;
         }
 
-        futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
+        if ended_early.try_recv().is_ok() {
+            tracing::info!("Exiting early");
+        } else {
+            futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
+        }
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
