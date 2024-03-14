@@ -994,12 +994,16 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
 lazy_static::lazy_static! {
     static ref RE_00: Regex = Regex::new('\u{00}'.to_string().as_str()).unwrap();
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
+    pub static ref NO_LOGS_AT_ALL: bool = std::env::var("NO_LOGS_AT_ALL").ok().is_some_and(|x| x == "1" || x == "true");
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
 }
 // as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
 // so this pushes \n to thd destination string in each call
 fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
+    if *NO_LOGS_AT_ALL {
+        return;
+    }
     let src_str;
     let src = {
         src_str = RE_00.replace_all(src, "");
