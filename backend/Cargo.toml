@@ -231,3 +231,5 @@ openidconnect = { version = "3.4.0" }
 
 aws-config = "^1"
 aws-sdk-sts = "^1"
+
+crc = "^3"
