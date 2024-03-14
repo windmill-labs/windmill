@@ -52,6 +52,7 @@ dyn-iter.workspace = true
 once_cell.workspace = true
 rsmq_async.workspace = true
 tokio-postgres.workspace = true
+bit-vec.workspace = true
 deno_fetch.workspace = true
 deno_webidl.workspace = true
 deno_web.workspace = true
