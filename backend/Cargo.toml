@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.290.0"
+version = "1.290.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.290.0"
+version = "1.290.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -77,6 +77,7 @@ serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
+
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -201,7 +202,8 @@ serde-wasm-bindgen = "0.4"
 wasm-bindgen-test = "0.3.0"
 convert_case = "0.6.0"
 getrandom = "0.2"
-tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1"]}
+tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
+bit-vec = "0.6.3"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
@@ -229,3 +231,5 @@ openidconnect = { version = "3.4.0" }
 
 aws-config = "^1"
 aws-sdk-sts = "^1"
+
+crc = "^3"

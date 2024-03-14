@@ -87,4 +87,5 @@ polars-io = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true}
 pin-project.workspace = true
+crc.workspace = true
 

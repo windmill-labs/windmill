@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { GripVertical, Loader2, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
-	import { flip } from 'svelte/animate'
 	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -233,25 +232,25 @@
 	}
 
 	let raw: boolean = false
-	let mounted = false
+	// let mounted = false
 
-	$: if (componentInput.value && mounted) {
-		const newItems = (Array.isArray(componentInput.value) ? componentInput.value : [])
-			.filter((x) => x != undefined)
-			.map((item, index) => {
-				return { value: item, id: generateRandomString() }
-			})
+	// $: if (componentInput.value && mounted) {
+	// 	const newItems = (Array.isArray(componentInput.value) ? componentInput.value : [])
+	// 		.filter((x) => x != undefined)
+	// 		.map((item, index) => {
+	// 			return { value: item, id: generateRandomString() }
+	// 		})
 
-		if (
-			JSON.stringify(newItems.map((i) => i.value)) !== JSON.stringify(items.map((i) => i.value))
-		) {
-			items = newItems
-		}
-	}
+	// 	if (
+	// 		JSON.stringify(newItems.map((i) => i.value)) !== JSON.stringify(items.map((i) => i.value))
+	// 	) {
+	// 		items = newItems
+	// 	}
+	// }
 
-	onMount(() => {
-		mounted = true
-	})
+	// onMount(() => {
+	// 	mounted = true
+	// })
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
@@ -280,7 +279,7 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div animate:flip={{ duration: flipDurationMs }} class="border-0 outline-none w-full">
+				<div class="border-0 outline-none w-full">
 					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
 					<div class="flex flex-row gap-2 items-center relative my-1 w-full">

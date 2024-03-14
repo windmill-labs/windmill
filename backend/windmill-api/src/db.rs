@@ -10,13 +10,31 @@ use futures::FutureExt;
 #[cfg(feature = "enterprise")]
 use sqlx::Executor;
 
-use sqlx::{migrate::Migrate, pool::PoolConnection, Pool, Postgres};
+use sqlx::{
+    migrate::{Migrate, MigrateError},
+    pool::PoolConnection,
+    PgConnection, Pool, Postgres,
+};
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
 };
 
 pub type DB = Pool<Postgres>;
+
+async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateError> {
+    // language=SQL
+    Ok(sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(conn)
+        .await?)
+}
+
+// inspired from rails: https://github.com/rails/rails/blob/6e49cc77ab3d16c06e12f93158eaf3e507d4120e/activerecord/lib/active_record/migration.rb#L1308
+fn generate_lock_id(database_name: &str) -> i64 {
+    const CRC_IEEE: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+    // 0x3d32ad9e chosen by fair dice roll
+    0x3d32ad9e * (CRC_IEEE.checksum(database_name.as_bytes()) as i64)
+}
 
 struct CustomMigrator {
     inner: PoolConnection<Postgres>,
@@ -48,23 +66,61 @@ impl Migrate for CustomMigrator {
         &mut self,
     ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
         async {
-            tracing::info!("Acquiring global PG lock  for migration purposes (if there are migrations to apply, will apply migrations or wait for the first acquirer of the lock to apply them)");
-            let r = self.inner.lock().await;
-            tracing::info!("Acquired global PG lock for migration purposes");
-            r
-        }.boxed()
+            if std::env::var("SKIP_PG_LOCK").is_ok() {
+                tracing::info!("Skipping PG lock acquisition");
+                return Ok(());
+            }
+
+            let pid = sqlx::query_scalar!("SELECT pg_backend_pid()")
+                .fetch_one(&mut *self.inner)
+                .await?;
+            tracing::info!("Acquiring global PG lock for potential migration with pid: {pid:?}");
+            let database_name = current_database(&mut *self.inner).await?;
+            let lock_id = generate_lock_id(&database_name);
+
+            let mut r = false;
+
+            while !r {
+                r = sqlx::query_scalar!("SELECT pg_try_advisory_lock($1)", lock_id)
+                    .fetch_one(&mut *self.inner)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Error acquiring lock: {e}");
+                        sqlx::migrate::MigrateError::Execute(e)
+                    })?
+                    .unwrap_or(false);
+                if !r {
+                    tracing::info!("PG lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            }
+            tracing::info!("Acquired global PG lock");
+
+            return Ok(());
+        }
+        .boxed()
     }
 
     fn unlock(
         &mut self,
     ) -> futures::prelude::future::BoxFuture<'_, Result<(), sqlx::migrate::MigrateError>> {
         async {
+            if std::env::var("SKIP_PG_UNLOCK").is_ok() {
+                tracing::info!("Skipping PG lock release");
+                return Ok(());
+            }
             tracing::info!("Releasing PG lock");
-            let r = self.inner.unlock().await;
+            let database_name = current_database(&mut *self.inner).await?;
+            let lock_id = generate_lock_id(&database_name);
+            let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+                .bind(lock_id)
+                .execute(&mut *self.inner)
+                .await?;
+
             tracing::info!("Released PG lock");
-            r
-        }.boxed()
-        
+            Ok(())
+        }
+        .boxed()
     }
 
     fn apply<'e: 'm, 'm>(
@@ -83,7 +139,8 @@ impl Migrate for CustomMigrator {
             let r = self.inner.apply(migration).await;
             tracing::info!("Finished applying migration {}", migration.version);
             r
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn revert<'e: 'm, 'm>(

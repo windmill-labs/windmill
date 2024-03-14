@@ -45,7 +45,9 @@
 			user &&
 			folder &&
 			hideSchedules != undefined &&
-			allWorkspaces != undefined && argFilter != undefined && resultFilter != undefined)
+			allWorkspaces != undefined &&
+			argFilter != undefined &&
+			resultFilter != undefined)
 
 	$: if (!intervalId && autoRefresh) {
 		intervalId = setInterval(syncer, refreshRate)
@@ -58,7 +60,7 @@
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
 		if (jobKindsCat == 'all') {
-			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.APPDEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`
+			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.APPDEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
 		} else if (jobKindsCat == 'dependencies') {
 			return `${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.APPDEPENDENCIES}`
 		} else if (jobKindsCat == 'previews') {

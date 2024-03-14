@@ -12,13 +12,9 @@ use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::Arc,
     time::Duration,
 };
-use tokio::{
-    fs::{metadata, DirBuilder},
-    sync::RwLock,
-};
+use tokio::fs::{metadata, DirBuilder};
 use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
@@ -253,10 +249,13 @@ async fn windmill_main() -> anyhow::Result<()> {
         // migration code to avoid break
         windmill_api::migrate_db(&db).await?;
     }
-    let (killpill_tx, killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
-    let (killpill_phase2_tx, killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let (killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let mut monitor_killpill_rx = killpill_tx.subscribe();
+    let server_killpill_rx = killpill_tx.subscribe();
+    let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+
     let shutdown_signal =
-        windmill_common::shutdown_signal(killpill_tx.clone(), killpill_rx.resubscribe());
+        windmill_common::shutdown_signal(killpill_tx.clone(), killpill_tx.subscribe());
 
     #[cfg(feature = "enterprise")]
     tracing::info!(
@@ -323,7 +322,7 @@ Windmill Community Edition {GIT_VERSION}
                     db.clone(),
                     rsmq2,
                     addr,
-                    killpill_phase2_rx.resubscribe(),
+                    server_killpill_rx,
                     base_internal_tx,
                     server_mode,
                 )
@@ -339,22 +338,26 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let workers_f = async {
-            let base_internal_url = base_internal_rx.await?;
-            if worker_mode {
-                run_workers(
-                    db.clone(),
-                    killpill_rx.resubscribe(),
-                    killpill_tx.clone(),
-                    num_workers,
-                    base_internal_url.clone(),
-                    rsmq.clone(),
-                    mode.clone() == Mode::Agent,
-                )
-                .await?;
-                tracing::info!("All workers exited.");
-                killpill_tx.send(())?;
-            } else {
-                killpill_rx.resubscribe().recv().await?;
+            let mut rx = killpill_rx.resubscribe();
+
+            if !killpill_rx.try_recv().is_ok() {
+                let base_internal_url = base_internal_rx.await?;
+                if worker_mode {
+                    run_workers(
+                        db.clone(),
+                        rx,
+                        killpill_tx.clone(),
+                        num_workers,
+                        base_internal_url.clone(),
+                        rsmq.clone(),
+                        mode.clone() == Mode::Agent,
+                    )
+                    .await?;
+                    tracing::info!("All workers exited.");
+                    killpill_tx.send(())?;
+                } else {
+                    rx.recv().await?;
+                }
             }
             tracing::info!("Starting phase 2 of shutdown");
             killpill_phase2_tx.send(())?;
@@ -366,7 +369,6 @@ Windmill Community Edition {GIT_VERSION}
             let tx = killpill_tx.clone();
             let rsmq = rsmq.clone();
 
-            let mut rx = killpill_rx.resubscribe();
             let base_internal_url = base_internal_url.to_string();
             let h = tokio::spawn(async move {
                 let mut listener = retry_listen_pg(&db).await;
@@ -506,7 +508,7 @@ Windmill Community Edition {GIT_VERSION}
                                 }
                             };
                         },
-                        _ = rx.recv() => {
+                        _ = monitor_killpill_rx.recv() => {
                                 println!("received killpill for monitor job");
                                 break;
                         }
@@ -526,12 +528,8 @@ Windmill Community Edition {GIT_VERSION}
                 tracing::error!("Metrics are only available in the EE, ignoring...");
 
                 #[cfg(feature = "enterprise")]
-                windmill_common::serve_metrics(
-                    *METRICS_ADDR,
-                    killpill_phase2_rx.resubscribe(),
-                    num_workers > 0,
-                )
-                .await;
+                windmill_common::serve_metrics(*METRICS_ADDR, _killpill_phase2_rx, num_workers > 0)
+                    .await;
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -610,13 +608,22 @@ fn display_config(envs: &[&str]) {
 
 pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: Pool<Postgres>,
-    rx: tokio::sync::broadcast::Receiver<()>,
+    mut rx: tokio::sync::broadcast::Receiver<()>,
     tx: tokio::sync::broadcast::Sender<()>,
     num_workers: i32,
     base_internal_url: String,
     rsmq: Option<R>,
     agent_mode: bool,
 ) -> anyhow::Result<()> {
+    let mut killpill_rxs = vec![];
+    for _ in 0..num_workers {
+        killpill_rxs.push(rx.resubscribe());
+    }
+
+    if rx.try_recv().is_ok() {
+        tracing::info!("Received killpill, exiting");
+        return Ok(());
+    }
     let instance_name = gethostname()
         .to_str()
         .map(|x| {
@@ -673,17 +680,15 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
             .expect("could not create initial worker dir");
     }
 
-    let sync_barrier = Arc::new(RwLock::new(None));
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
         let worker_name = format!("wk-{}-{}-{}", *WORKER_GROUP, &instance_name, rd_string(5));
         let ip = ip.clone();
-        let rx = rx.resubscribe();
+        let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
         let rsmq2 = rsmq.clone();
-        let sync_barrier = sync_barrier.clone();
 
         handles.push(tokio::spawn(async move {
             tracing::info!(worker = %worker_name, "starting worker");
@@ -699,7 +704,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 tx,
                 &base_internal_url,
                 rsmq2,
-                sync_barrier,
                 agent_mode,
             );
 
