@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.291.0](https://github.com/windmill-labs/windmill/compare/v1.290.1...v1.291.0) (2024-03-14)
+
+
+### Features
+
+* add bit support in pg ([#3407](https://github.com/windmill-labs/windmill/issues/3407)) ([3730566](https://github.com/windmill-labs/windmill/commit/37305668444391088f531d96c172eb81df2e4092))
+* better locking ([#3412](https://github.com/windmill-labs/windmill/issues/3412)) ([97d4f1c](https://github.com/windmill-labs/windmill/commit/97d4f1cc2643503ffa13db7cda85cf8e148af9d5))
+* enable automatic billing by default ([#3403](https://github.com/windmill-labs/windmill/issues/3403)) ([92db3d9](https://github.com/windmill-labs/windmill/commit/92db3d92d9d1901792a032761627cb2bf124b6ef))
+* **frontend:** use the DisplayResult component in the Expanded resul… ([#3410](https://github.com/windmill-labs/windmill/issues/3410)) ([5f28e93](https://github.com/windmill-labs/windmill/commit/5f28e938df75ccd2b7a2d48eda0c3a6f0aa765dd))
+
+
+### Bug Fixes
+
+* **frontend:** Fix color picker layout ([#3411](https://github.com/windmill-labs/windmill/issues/3411)) ([c6587b9](https://github.com/windmill-labs/windmill/commit/c6587b93ed3a05975d2f7f252a569cb5ea12806c))
+* **frontend:** Flow step input description ([#3409](https://github.com/windmill-labs/windmill/issues/3409)) ([f01aefd](https://github.com/windmill-labs/windmill/commit/f01aefdd055078cafc7f0b63093407a446e821a5))
+* improve error handler settings ([ac1eeb1](https://github.com/windmill-labs/windmill/commit/ac1eeb187a7b1a657edbca5a5b6d753025ae55ca))
+* remove dependency on semver intersect for bun ([1cf6d8b](https://github.com/windmill-labs/windmill/commit/1cf6d8b46279f410588a46cda71ee13afc3ac8d4))
+* show current pid before acquiring lock ([55ea67d](https://github.com/windmill-labs/windmill/commit/55ea67d3438e646235b456ba3ebfc76cebde7a23))
+* tabs can now be moved within apps ([ef7d733](https://github.com/windmill-labs/windmill/commit/ef7d73354b0bfc2d3dc03c879cf0e3b633923696))
+* use try_lock instead of lock to wait for global pg lock ([b382bf3](https://github.com/windmill-labs/windmill/commit/b382bf3c89f16d7a097ebcf93a6ac16122afc889))
+
 ## [1.290.1](https://github.com/windmill-labs/windmill/compare/v1.290.0...v1.290.1) (2024-03-13)
 
 
