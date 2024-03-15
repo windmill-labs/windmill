@@ -93,7 +93,7 @@ use crate::{
     bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
     common::{
         build_args_map, get_cached_resource_value_if_valid, hash_args, read_result, save_in_cache,
-        write_file, NO_LOGS, SLOW_LOGS,
+        write_file, NO_LOGS, NO_LOGS_AT_ALL, SLOW_LOGS,
     },
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
@@ -1415,9 +1415,25 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
-            if let Err(e) = sqlx::query!("VACUUM queue").execute(db).await {
-                tracing::error!(worker = %worker_name, "failed to vacuum queue: {}", e);
+            let db2 = db.clone();
+            let worker_instance = worker_instance.to_string();
+            let ip = ip.to_string();
+            let worker_name2 = worker_name.clone();
+            let r = tokio::task::spawn(async move {
+                tracing::info!(worker = %worker_name2, "vacuuming queue and completed_job");
+                if let Err(e) = sqlx::query!("VACUUM queue").execute(&db2).await {
+                    tracing::error!(worker = %worker_name2, "failed to vacuum queue: {}", e);
+                }
+            });
+
+            loop {
+                update_ping(&worker_instance, &worker_name, &ip, &db).await;
+                if r.is_finished() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await
             }
+
             jobs_executed += 1;
             tracing::info!(worker = %worker_name, "vacuumed queue and completed_job");
         }
@@ -2714,6 +2730,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             "job {} on worker {} (tag: {})\n",
             &job.id, &worker_name, &job.tag
         ));
+
+        if *NO_LOGS_AT_ALL {
+            logs.push_str("Logs are fully disabled for this worker\n");
+        }
 
         if *NO_LOGS {
             logs.push_str("Logs are disabled for this worker\n");
