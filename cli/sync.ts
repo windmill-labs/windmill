@@ -22,6 +22,8 @@ import {
   ScheduleService,
   SEP,
   gitignore_parser,
+  UserService,
+  GroupService,
 } from "./deps.ts";
 import {
   getTypeStrFromPath,
@@ -42,6 +44,7 @@ import {
 import { handleFile } from "./script.ts";
 import { deepEqual } from "./utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
+import { removePathPrefix } from "./types.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -323,6 +326,7 @@ export async function elementsToMap(
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
+    if (!skips.includeSettings && path === "settings" + ext) continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
@@ -363,6 +367,7 @@ interface Skips {
   includeSchedules?: boolean | undefined;
   includeUsers?: boolean | undefined;
   includeGroups?: boolean | undefined;
+  includeSettings?: boolean | undefined;
 }
 
 async function compareDynFSElement(
@@ -464,8 +469,10 @@ function getOrderFromPath(p: string) {
     return 8;
   } else if (typ == "group") {
     return 9;
-  } else {
+  } else if (typ == "settings") {
     return 10;
+  } else {
+    return 11;
   }
 }
 
@@ -485,7 +492,7 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
-    if (typ == "resource-type") {
+    if (typ == "resource-type" || typ == "settings") {
       return p.includes(SEP);
     } else {
       return (
@@ -598,6 +605,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeSchedules,
       opts.includeUsers,
       opts.includeGroups,
+      opts.includeSettings,
       opts.defaultTs
     ))!,
     !opts.json
@@ -811,6 +819,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeSchedules,
       opts.includeUsers,
       opts.includeGroups,
+      opts.includeSettings,
       opts.defaultTs
     ))!,
     !opts.json
@@ -1005,6 +1014,34 @@ async function push(opts: GlobalOptions & SyncOptions) {
               path: removeSuffix(change.path, ".variable.json"),
             });
             break;
+          case "user": {
+            const users = await UserService.listUsers({
+              workspace: workspaceId,
+            });
+
+            const email = removeSuffix(
+              removePathPrefix(change.path, "users"),
+              ".user.json"
+            );
+            const user = users.find((u) => u.email === email);
+            if (!user) {
+              throw new Error(`User ${email} not found`);
+            }
+            await UserService.deleteUser({
+              workspace: workspaceId,
+              username: user.username,
+            });
+            break;
+          }
+          case "group":
+            await GroupService.deleteGroup({
+              workspace: workspaceId,
+              name: removeSuffix(
+                removePathPrefix(change.path, "groups"),
+                ".group.json"
+              ),
+            });
+            break;
           default:
             break;
         }
@@ -1056,6 +1093,7 @@ const command = new Command()
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
+  .option("--include-settings", "Include syncing workspace settings")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -1092,6 +1130,7 @@ const command = new Command()
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
+  .option("--include-settings", "Include syncing workspace settings")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
