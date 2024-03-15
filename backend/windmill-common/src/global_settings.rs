@@ -24,7 +24,7 @@ pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexistin
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 
-pub const ENV_SETTINGS: [&str; 55] = [
+pub const ENV_SETTINGS: [&str; 54] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -40,7 +40,6 @@ pub const ENV_SETTINGS: [&str; 55] = [
     "PORT",
     "KEEP_JOB_DIR",
     "S3_CACHE_BUCKET",
-    "TAR_CACHE_RATE",
     "COOKIE_DOMAIN",
     "PYTHON_PATH",
     "DENO_PATH",
