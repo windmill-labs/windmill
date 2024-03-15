@@ -34,7 +34,7 @@
 				A prompt is simply an approval step that can be self-approved. To do this, include the
 				resume url in the returned payload of the step. The UX will automatically adapt and show the
 				prompt to the operator when running the flow. e.g:
-				<Tabs selected="deno" class="pt-4">
+				<Tabs selected="bun" class="pt-4">
 					<Tab value="bun">TypeScript (Bun)</Tab>
 					<Tab value="deno">TypeScript (Deno)</Tab>
 					<Tab value="python">Python</Tab>
@@ -49,7 +49,7 @@ export async function main() {
     const resumeUrls = await wmill.getResumeUrls("approver1")
 
     return {
-        resume: resumeUrls['resume']
+        resume: resumeUrls['resume'],
         default_args: {}, // optional, see below
         enums: {} // optional, see below
     }
@@ -65,7 +65,7 @@ export async function main() {
     const resumeUrls = await wmill.getResumeUrls("approver1")
 
     return {
-        resume: resumeUrls['resume']
+        resume: resumeUrls['resume'],
         default_args: {}, // optional, see below
         enums: {} // optional, see below
     }
@@ -80,7 +80,7 @@ export async function main() {
 def main():
     urls = wmill.get_resume_urls()
     return {
-        "resume": urls["resume"]
+        "resume": urls["resume"],
         "default_args": {}, # optional, see below
         "enums": {} # optional, see below
     }
