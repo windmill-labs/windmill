@@ -2585,7 +2585,7 @@ async fn tarball_workspace(
     }
 
     if include_settings.unwrap_or(false) {
-        let mut settings = sqlx::query_as!(
+        let settings = sqlx::query_as!(
             SimplifiedSettings,
             r#"SELECT
                 -- slack_team_id, 
