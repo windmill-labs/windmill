@@ -21,10 +21,11 @@ pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
+pub const S3_CACHE_BUCKET: &str = "s3_cache_bucket";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 
-pub const ENV_SETTINGS: [&str; 54] = [
+pub const ENV_SETTINGS: [&str; 50] = [
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -69,10 +70,6 @@ pub const ENV_SETTINGS: [&str; 54] = [
     "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
     "EXIT_AFTER_NO_JOB_FOR_SECS",
     "REQUEST_SIZE_LIMIT",
-    "SMTP_HOST",
-    "SMTP_USERNAME",
-    "SMTP_PORT",
-    "SMTP_TLS_IMPLICIT",
     "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
     "MAX_WAIT_FOR_SIGINT",

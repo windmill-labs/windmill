@@ -399,6 +399,16 @@ pub async fn reload_retention_period_setting(db: &DB) {
     }
 }
 
+pub async fn reload_s3_cache_bucket_setting(db: &DB) {
+    reload_option_setting_with_tracing(
+        db,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        "S3_CACHE_BUCKET",
+        JOB_DEFAULT_TIMEOUT.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_job_default_timeout_setting(db: &DB) {
     reload_option_setting_with_tracing(
         db,
