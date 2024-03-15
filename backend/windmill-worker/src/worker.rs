@@ -59,6 +59,9 @@ use windmill_queue::{
 #[cfg(feature = "prometheus")]
 use windmill_queue::register_metric;
 
+#[cfg(feature = "enterprise")]
+use windmill_common::s3_helpers::S3_CACHE_BUCKET;
+
 use serde_json::{json, value::RawValue, Value};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -327,11 +330,6 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(60 * 10);
-
-    pub static ref S3_CACHE_BUCKET: Option<String> = std::env::var("S3_CACHE_BUCKET")
-        .ok()
-        .map(|e| Some(e))
-        .unwrap_or(None);
 
 
     pub static ref EXIT_AFTER_NO_JOB_FOR_SECS: Option<u64> = std::env::var("EXIT_AFTER_NO_JOB_FOR_SECS")
@@ -944,12 +942,10 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     #[cfg(feature = "enterprise")]
     if i_worker == 1 {
-        if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+        if let Some(bucket) = S3_CACHE_BUCKET.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
                 tracing::warn!("S3 cache not available in the pro plan");
             } else if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
-                let bucket = s.to_string();
-
                 copy_all_piptars_from_bucket(&bucket).await;
                 if let Err(e) = untar_all_piptars().await {
                     tracing::error!("Failed to untar pip tarballs: {:?}", e);

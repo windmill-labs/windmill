@@ -7,8 +7,14 @@ use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "parquet")]
 use std::sync::Arc;
+use tokio::sync::RwLock;
+
+lazy_static::lazy_static! {
+
+    pub static ref S3_CACHE_BUCKET: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]

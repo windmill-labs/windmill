@@ -27,10 +27,12 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, S3_CACHE_BUCKET_SETTING, SAML_METADATA_SETTING,
+        SCIM_TOKEN_SETTING,
     },
     jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
+    s3_helpers::S3_CACHE_BUCKET,
     server::load_server_config,
     users::truncate_token,
     worker::{
@@ -126,6 +128,7 @@ pub async fn initial_load(
         tracing::error!("Error reloading base url: {:?}", e)
     }
 
+    reload_s3_cache_bucket_setting(&db).await;
     if server_mode {
         reload_server_config(&db).await;
         reload_retention_period_setting(&db).await;
@@ -402,9 +405,9 @@ pub async fn reload_retention_period_setting(db: &DB) {
 pub async fn reload_s3_cache_bucket_setting(db: &DB) {
     reload_option_setting_with_tracing(
         db,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        S3_CACHE_BUCKET_SETTING,
         "S3_CACHE_BUCKET",
-        JOB_DEFAULT_TIMEOUT.clone(),
+        S3_CACHE_BUCKET.clone(),
     )
     .await;
 }
