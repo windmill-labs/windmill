@@ -14,6 +14,7 @@ export interface SyncOptions {
   includeSchedules?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
+  includeSettings?: boolean;
   message?: string;
   includes?: string[];
   extraIncludes?: string[];
