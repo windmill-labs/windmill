@@ -1287,9 +1287,12 @@ paths:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   default_app:
                     type: string
+                  default_scripts:
+                    $ref: "#/components/schemas/WorkspaceDefaultScripts"
                 required:
                   - code_completion_enabled
                   - automatic_billing
+                  - error_handler_muted_on_cancel
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -9894,9 +9897,6 @@ components:
           additionalProperties:
             type: string
 
-        
-
-            
     GitRepositorySettings:
       type: object
       properties:

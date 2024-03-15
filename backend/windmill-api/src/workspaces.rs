@@ -60,7 +60,7 @@ use crate::oauth2_ee::InstanceEvent;
 use crate::variables::{decrypt, encrypt};
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map};
+use serde_json::{json, Map, Value};
 use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
@@ -2155,6 +2155,7 @@ struct ArchiveQueryParams {
     include_schedules: Option<bool>,
     include_users: Option<bool>,
     include_groups: Option<bool>,
+    include_settings: Option<bool>,
     default_ts: Option<String>,
 }
 
@@ -2229,6 +2230,28 @@ struct SimplifiedGroup {
     admins: Vec<String>,
 }
 
+#[derive(Serialize)]
+struct SimplifiedSettings {
+    // slack_team_id: Option<String>,
+    // slack_name: Option<String>,
+    // slack_command_script: Option<String>,
+    // slack_email: Option<String>,
+    auto_invite_enabled: bool,
+    auto_invite_as: String,
+    auto_invite_mode: String,
+    webhook: Option<String>,
+    deploy_to: Option<String>,
+    error_handler: Option<String>,
+    error_handler_extra_args: Option<Value>,
+    error_handler_muted_on_cancel: bool,
+    openai_resource_path: Option<String>,
+    code_completion_enabled: bool,
+    large_file_storage: Option<Value>,
+    git_sync: Option<Value>,
+    default_app: Option<String>,
+    default_scripts: Option<Value>,
+}
+
 async fn tarball_workspace(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -2244,6 +2267,7 @@ async fn tarball_workspace(
         include_schedules,
         include_users,
         include_groups,
+        include_settings,
         default_ts,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
@@ -2558,6 +2582,39 @@ async fn tarball_workspace(
                 .write_to_archive(&group_str, &format!("groups/{}.group.json", group.name))
                 .await?;
         }
+    }
+
+    if include_settings.unwrap_or(false) {
+        let mut settings = sqlx::query_as!(
+            SimplifiedSettings,
+            r#"SELECT
+                -- slack_team_id, 
+                -- slack_name, 
+                -- slack_command_script, 
+                -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,
+                auto_invite_domain IS NOT NULL AS "auto_invite_enabled!",
+                CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS "auto_invite_as!", 
+                CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS "auto_invite_mode!", 
+                webhook, 
+                deploy_to, 
+                error_handler, 
+                openai_resource_path, 
+                code_completion_enabled, 
+                error_handler_extra_args, 
+                error_handler_muted_on_cancel, 
+                large_file_storage, 
+                git_sync, 
+                default_app,
+                default_scripts 
+            FROM workspace_settings
+            WHERE workspace_id = $1"#,
+            &w_id
+        ).fetch_one(&mut *tx).await?;
+
+        let settings_str = &to_string_without_metadata(&settings, true, None).unwrap();
+        archive
+            .write_to_archive(&settings_str, "settings.json")
+            .await?;
     }
 
     archive.finish().await?;

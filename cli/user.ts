@@ -141,6 +141,10 @@ export async function pushWorkspaceUser(
     //ignore
   }
 
+  if (user && user.username !== localUser.username) {
+    throw new Error("Username cannot be changed");
+  }
+
   if (user) {
     if (isSuperset(localUser, user)) {
       log.debug(`User ${email} is up to date`);
