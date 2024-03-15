@@ -22,7 +22,7 @@ use windmill_common::error;
 // const TAR_CACHE_FILENAME: &str = "denogocache.tar";
 
 #[cfg(feature = "enterprise")]
-pub async fn build_tar_and_push(bucket: &str, folder: String) -> error::Result<()> {
+pub async fn build_tar_and_push(bucket: String, folder: String) -> error::Result<()> {
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
     let folder_name = folder.split("/").last().unwrap();
@@ -46,6 +46,8 @@ pub async fn build_tar_and_push(bucket: &str, folder: String) -> error::Result<(
             "Failed to tar cache: {folder}"
         )));
     }
+
+    let bucket = bucket.trim_start_matches("s3://");
 
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
@@ -84,6 +86,8 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
     let start = Instant::now();
     let tar_path = format!("tar/pip/{folder_name}.tar");
     let target = format!("{ROOT_TMP_CACHE_DIR}/{tar_path}.single");
+    let bucket = bucket.trim_start_matches("s3://");
+
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
         "rclone",
@@ -389,6 +393,7 @@ pub async fn copy_all_piptars_from_bucket(bucket: &str) {
 
     let start = Instant::now();
 
+    let bucket = bucket.trim_start_matches("s3://");
     if let Err(e) = execute_command(
         ROOT_CACHE_DIR,
         "rclone",

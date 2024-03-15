@@ -51,7 +51,7 @@ const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 use crate::global_cache::{build_tar_and_push, pull_from_tar};
 
 #[cfg(feature = "enterprise")]
-use crate::S3_CACHE_BUCKET;
+use windmill_common::s3_helpers::S3_CACHE_BUCKET;
 
 use crate::{
     common::{
@@ -779,7 +779,7 @@ pub async fn handle_python_reqs(
         }
 
         #[cfg(feature = "enterprise")]
-        if let Some(ref bucket) = *S3_CACHE_BUCKET {
+        if let Some(ref bucket) = S3_CACHE_BUCKET.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {
@@ -922,7 +922,7 @@ pub async fn handle_python_reqs(
         child?;
 
         #[cfg(feature = "enterprise")]
-        if let Some(ref bucket) = *S3_CACHE_BUCKET {
+        if let Some(bucket) = S3_CACHE_BUCKET.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {

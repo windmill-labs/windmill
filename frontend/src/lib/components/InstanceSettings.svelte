@@ -22,6 +22,7 @@
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
 	import KanidmSetting from '$lib/components/KanidmSetting.svelte'
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
+	import Password from './Password.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -454,14 +455,14 @@
 													</div>
 												{/if}
 											{:else if setting.fieldType == 'license_key'}
-												<div class="flex justify-between gap-2">
-													<textarea
-														rows="2"
+												<div class="flex gap-2">
+													<Password
+														small
 														placeholder={setting.placeholder}
 														on:keydown={() => {
 															licenseKeyChanged = true
 														}}
-														bind:value={values[setting.key]}
+														bind:password={values[setting.key]}
 													/>
 													<Button
 														variant={values[setting.key] ? 'contained' : 'border'}
