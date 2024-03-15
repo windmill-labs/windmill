@@ -36,6 +36,16 @@
 		}
 	})
 
+	function adjustCurrentPage() {
+		const totalItems = objects.length
+		const totalPages = Math.ceil(totalItems / perPage)
+		if (currentPage > totalPages) {
+			currentPage = totalPages > 0 ? totalPages : 1
+		}
+	}
+
+	$: perPage && adjustCurrentPage()
+
 	$: data = structuredObjects
 		.filter(({ rowData }) =>
 			Object.values(rowData).some((value) =>

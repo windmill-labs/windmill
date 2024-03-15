@@ -72,5 +72,11 @@ export const mapModuleNameToModule = (moduleSpecifier: string) => {
 }
 
 export function isRelativePath(d: string) {
-	return d.startsWith('./') || d.startsWith('../') || d.startsWith('/') || d.startsWith('.../')
+	return (
+		d.startsWith('./') ||
+		d.startsWith('../') ||
+		d.startsWith('/') ||
+		d.startsWith('.../') ||
+		d.startsWith('/')
+	)
 }

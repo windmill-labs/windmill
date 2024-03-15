@@ -700,7 +700,7 @@ async fn handle_python_deps(
 }
 
 lazy_static::lazy_static! {
-    static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^s\}]+)\}").unwrap();
+    static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^\s\}]+)\}").unwrap();
 }
 
 pub async fn handle_python_reqs(

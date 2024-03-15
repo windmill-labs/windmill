@@ -114,15 +114,18 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 			const relativeDeps = depsToGet.filter((f) => isRelativePath(f.raw))
 			relativeDeps.forEach(async (f) => {
 				let path = f.raw.startsWith('/')
-					? ''
+					? f.raw
 					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
 				let url = config.root + path
+				console.log('fetching local file', url, f.raw)
 				const res = await fetch(url)
 				if (res.ok) {
 					config.delegate.localFile?.(await res.text(), f.raw)
 				}
 			})
 		}
+		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
+
 		depsToGet = depsToGet.filter((f) => !isRelativePath(f.raw))
 		if (depsToGet.length === 0) {
 			return []
@@ -132,7 +135,6 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 			depsToGet.map((x) => x.raw)
 		)
 		// Make it so it won't get re-downloaded
-		depsToGet.forEach((dep) => moduleMap.set(dep.raw, { state: 'loading' }))
 
 		// Grab the module trees which gives us a list of files to download
 		const trees = await Promise.all(
