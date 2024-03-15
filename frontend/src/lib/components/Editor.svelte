@@ -777,7 +777,11 @@
 
 					const addLocalFile = async (code: string, _path: string) => {
 						let p = new URL(_path, uri).href
+						// if (_path?.startsWith('/')) {
+						// 	p = 'file://' + p
+						// }
 						let nuri = mUri.parse(p)
+						console.log('adding local file', _path, nuri.toString())
 						if (editor) {
 							let localModel = meditor.getModel(nuri)
 							if (localModel) {
