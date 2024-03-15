@@ -665,16 +665,13 @@ export function getTablesByResource(
 	const s = Object.values(schema)?.[0]
 	switch (dbType) {
 		case 'postgresql':
-			if (s?.lang === 'postgresql') {
-				return Object.keys(s.schema?.public ?? s.schema ?? {})
-			}
 		case 'mysql':
-			return Object.keys(Object.values(s?.schema ?? {})?.[0])
 		case 'ms_sql_server':
-			return Object.keys(Object.values(s?.schema ?? {})?.[0])
-		case 'snowflake': {
-			return Object.keys(Object.values(s?.schema ?? {})?.[0])
-		}
+		case 'snowflake':
+			return Object.entries(s?.schema ?? {}).reduce((acc: string[], [k, v]) => {
+				acc.push(...Object.keys(v ?? {}))
+				return acc
+			}, [])
 
 		case 'bigquery': {
 			const paths: string[] = []
