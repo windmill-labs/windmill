@@ -1080,6 +1080,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         .with_context(|| "Unable to parse flow status")?;
 
     if !flow_job.is_flow_step
+        && status.retry.fail_count == 0
         && flow_job.schedule_path.is_some()
         && flow_job.script_path.is_some()
         && status.step == 0
@@ -2920,7 +2921,6 @@ async fn script_to_payload(
     module: &FlowModule,
     tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
-    tracing::warn!("Script tag override: {:?}", tag_override);
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
         script_path_to_payload(script_path, &db, &flow_job.workspace_id).await?
     } else {
