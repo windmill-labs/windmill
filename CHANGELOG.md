@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.291.4](https://github.com/windmill-labs/windmill/compare/v1.291.3...v1.291.4) (2024-03-15)
+
+
+### Bug Fixes
+
+* avoid unecessary re-schedule for retyied flows ([89516b9](https://github.com/windmill-labs/windmill/commit/89516b922f06a2c584a4b39be70d0d736d97906c))
+* db studio include tables of all schemas ([#3418](https://github.com/windmill-labs/windmill/issues/3418)) ([c2098e5](https://github.com/windmill-labs/windmill/commit/c2098e56ae436b3e4204e1aadb7dee9fb16471da))
+* **frontend:** correctly change the currentPage when perPage changes ([#3420](https://github.com/windmill-labs/windmill/issues/3420)) ([50b4c71](https://github.com/windmill-labs/windmill/commit/50b4c711988b8e9aaca4a18e990bb93c02a6fac2))
+* improve bun assistant for relative paths ([a278f28](https://github.com/windmill-labs/windmill/commit/a278f28d6ffb5048e93da61392262737b103a0eb))
+* improve pip_secret interpolation ([71f7299](https://github.com/windmill-labs/windmill/commit/71f7299b6c7a04dd71d2b32d1e96913305d73935))
+
 ## [1.291.3](https://github.com/windmill-labs/windmill/compare/v1.291.2...v1.291.3) (2024-03-14)
 
 
