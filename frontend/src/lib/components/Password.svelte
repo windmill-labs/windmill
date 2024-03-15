@@ -5,6 +5,7 @@
 	export let placeholder = '******'
 	export let disabled = false
 	export let required = false
+	export let small = false
 
 	onMount(() => {
 		const passwordToggle = document.querySelector('.js-password-toggle')
@@ -31,7 +32,7 @@
 	$: red = required && (password == '' || password == undefined)
 </script>
 
-<div class="relative w-full">
+<div class="relative w-full {small ? 'max-w-lg' : ''}">
 	<div class="absolute inset-y-0 right-0 flex items-center px-2">
 		<input class="!hidden js-password-toggle" id="toggle" type="checkbox" />
 		<label
@@ -40,7 +41,9 @@
 		>
 	</div>
 	<input
-		class="block w-full px-2 py-1 {red ? '!border-red-500' : ''} text-sm js-password h-9"
+		class="block {small ? '!text-2xs' : 'w-full'} px-2 py-1 {red
+			? '!border-red-500'
+			: ''} text-sm js-password h-9"
 		id="password"
 		type="password"
 		bind:value={password}

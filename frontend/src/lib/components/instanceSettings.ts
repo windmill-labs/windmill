@@ -94,6 +94,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'S3 Bucket for Python Distributed Cache & Large Logs',
+			description:
+				'Bucket to store large logs and cache for distributed python jobs. Format: s3://bucket-name',
+			key: 's3_cache_bucket',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Azure OpenAI base path',
 			description:
 				'All Windmill AI features will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}',
