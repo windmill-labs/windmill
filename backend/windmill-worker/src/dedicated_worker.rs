@@ -8,7 +8,8 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
 };
-use windmill_common::{error, jobs::QueuedJob, variables, worker::to_raw_value};
+use windmill_common::{error, jobs::QueuedJob, variables, worker::to_raw_value, DB};
+use windmill_queue::append_logs;
 
 use std::{collections::VecDeque, process::Stdio, sync::Arc};
 
@@ -56,6 +57,7 @@ pub async fn handle_dedicated_process(
     token: &str,
     mut jobs_rx: Receiver<Arc<QueuedJob>>,
     worker_name: &str,
+    db: &DB,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
     let mut child = {
@@ -147,15 +149,16 @@ pub async fn handle_dedicated_process(
                         let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
                         match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res[success]:", "").replace("wm_res[error]:", "")) {
                             Ok(result) => {
+                                append_logs(job.id, job.workspace_id.clone(),  logs.clone(), db).await;
                                 if line.starts_with("wm_res[success]:") {
-                                    job_completed_tx.send(JobCompleted { job , result, logs: logs, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap()
+                                    job_completed_tx.send(JobCompleted { job , result, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap()
                                 } else {
-                                    job_completed_tx.send(JobCompleted { job , result, logs: logs, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap()
+                                    job_completed_tx.send(JobCompleted { job , result, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap()
                                 }
                             },
                             Err(e) => {
                                 tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                                job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})), logs: "".to_string(), mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                                job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})),  mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
                             },
                         };
                         logs = init_log.clone();

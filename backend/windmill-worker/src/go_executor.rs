@@ -14,12 +14,12 @@ use windmill_common::{
     utils::calculate_hash,
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
-use windmill_queue::CanceledBy;
+use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        set_logs, start_child_process, write_file,
+        start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
@@ -34,7 +34,6 @@ lazy_static::lazy_static! {
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -74,13 +73,12 @@ pub async fn handle_go_job(
     };
 
     if !bin_exists {
-        logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-        set_logs(logs, &job.id, db).await;
+        let logs1 = "\n\n--- GO DEPENDENCIES SETUP ---\n".to_string();
+        append_logs(job.id.clone(), job.workspace_id.to_string(), logs1, db).await;
 
         install_go_dependencies(
             &job.id,
             inner_content,
-            logs,
             mem_peak,
             canceled_by,
             job_dir,
@@ -93,8 +91,9 @@ pub async fn handle_go_job(
         )
         .await?;
 
-        logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
-        set_logs(logs, &job.id, db).await;
+        let logs2 = "\n\n--- GO CODE EXECUTION ---\n".to_string();
+        append_logs(job.id.clone(), job.workspace_id.to_string(), logs2, db).await;
+
         create_args_and_out_file(client, job, job_dir, db).await?;
         {
             let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
@@ -197,7 +196,6 @@ func Run(req Req) (interface{{}}, error){{
         handle_child(
             &job.id,
             db,
-            logs,
             mem_peak,
             canceled_by,
             build_go_process,
@@ -211,20 +209,28 @@ func Run(req Req) (interface{{}}, error){{
         .await?;
 
         create_dir(&bin_path).await?;
-        tokio::fs::copy(format!("{job_dir}/main"), format!("{bin_path}/main")).await?;
-        logs.push_str(&format!("write cached binary: {}\n", bin_path));
+        let target = format!("{bin_path}/main");
+        tokio::fs::copy(format!("{job_dir}/main"), &target).await?;
+        append_logs(
+            job.id.clone(),
+            job.workspace_id.to_string(),
+            format!("write cached binary: {}\n", bin_path),
+            db,
+        )
+        .await;
     } else {
         let path = format!("{bin_path}/main");
-        logs.push_str(&format!("found cached binary: {path}\n"));
-        tokio::fs::copy(&path, format!("{job_dir}/main"))
-            .await
-            .map_err(|e| {
-                Error::ExecutionErr(format!(
-                    "could not copy cached binary from {path} to {job_dir}/main: {e:?}"
-                ))
-            })?;
-        logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
-        set_logs(logs, &job.id, db).await;
+        let mut logs2 = "".to_string();
+        logs2.push_str(&format!("found cached binary: {path}\n"));
+        let target = format!("{job_dir}/main");
+        tokio::fs::symlink(&path, &target).await.map_err(|e| {
+            Error::ExecutionErr(format!(
+                "could not copy cached binary from {path} to {job_dir}/main: {e:?}"
+            ))
+        })?;
+
+        logs2.push_str("\n\n--- GO CODE EXECUTION ---\n");
+        append_logs(job.id.clone(), job.workspace_id.to_string(), logs2, db).await;
         create_args_and_out_file(client, job, job_dir, db).await?;
     }
 
@@ -283,7 +289,6 @@ func Run(req Req) (interface{{}}, error){{
     handle_child(
         &job.id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child,
@@ -322,7 +327,6 @@ use std::io::prelude::*;
 pub async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -346,7 +350,6 @@ pub async fn install_go_dependencies(
         handle_child(
             job_id,
             db,
-            logs,
             mem_peak,
             canceled_by,
             child_process,
@@ -389,7 +392,8 @@ pub async fn install_go_dependencies(
         .fetch_optional(db)
         .await?
         {
-            logs.push_str(&format!("\nfound cached resolution: {}", hash));
+            let logs1 = format!("\nfound cached resolution: {}", hash);
+            append_logs(job_id.clone(), w_id.to_string(), logs1, db).await;
             gen_go_mod(code, job_dir, &cached).await?;
             skip_tidy = true;
             new_lockfile = false;
@@ -411,7 +415,6 @@ pub async fn install_go_dependencies(
     handle_child(
         job_id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child_process,

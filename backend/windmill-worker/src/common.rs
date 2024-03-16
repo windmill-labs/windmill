@@ -29,13 +29,12 @@ use windmill_common::{
 };
 
 use anyhow::Result;
-use windmill_queue::CanceledBy;
+use windmill_queue::{append_logs, CanceledBy};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::process::ExitStatusExt;
 
 use std::{
-    borrow::Borrow,
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     io, panic,
@@ -350,21 +349,6 @@ pub async fn read_result(job_dir: &str) -> error::Result<Box<RawValue>> {
     return read_file(&format!("{job_dir}/result.json")).await;
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn set_logs(logs: &str, id: &uuid::Uuid, db: &Pool<Postgres>) {
-    if sqlx::query!(
-        "UPDATE queue SET logs = $1 WHERE id = $2",
-        logs.to_owned(),
-        id
-    )
-    .execute(db)
-    .await
-    .is_err()
-    {
-        tracing::error!(%id, "error updating logs for id {id}")
-    };
-}
-
 pub fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
@@ -614,7 +598,6 @@ pub async fn update_job_poller<F, Fut>(
 pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     mut child: Child,
@@ -631,8 +614,17 @@ pub async fn handle_child(
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
         //set the highest oom priority
-        let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
-        let _ = file.write_all(b"1000").await;
+        if let Some(mut file) = File::create(format!("/proc/{pid}/oom_score_adj"))
+            .await
+            .map_err(|e| {
+                tracing::error!("Could not create oom_score_file to pid {pid}: {e}");
+                e
+            })
+            .ok()
+        {
+            let _ = file.write_all(b"1000").await;
+            let _ = file.sync_all().await;
+        }
     } else {
         tracing::info!("could not get child pid");
     }
@@ -667,8 +659,7 @@ pub async fn handle_child(
     let (timeout_duration, timeout_warn_msg) =
         resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
-        logs.push_str(msg.as_str());
-        append_logs(job_id, msg.as_str(), db).await;
+        append_logs(job_id, w_id.to_string(), msg.as_str(), db).await;
     }
 
     /* a future that completes when the child process exits */
@@ -745,6 +736,7 @@ pub async fn handle_child(
 
     /* a future that reads output from the child and appends to the database */
     let lines = async move {
+
         let max_log_size = if *CLOUD_HOSTED {
             MAX_RESULT_SIZE
         } else {
@@ -753,12 +745,16 @@ pub async fn handle_child(
 
         /* log_remaining is zero when output limit was reached */
         let mut log_remaining =  if *CLOUD_HOSTED {
-            max_log_size.saturating_sub(logs.chars().count())
+            max_log_size
         } else {
             usize::MAX
         };
         let mut result = io::Result::Ok(());
-        let mut output = output.take_until(rx2.recv()).boxed();
+        let mut output = output.take_until(async {
+            let _ = rx2.recv().await;
+            //wait at most 50ms after end of a script for output stream to end
+            tokio::time::sleep(Duration::from_millis(50)).await;
+         }).boxed();
         /* `do_write` resolves the task, but does not contain the Result.
          * It's useful to know if the task completed. */
         let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
@@ -795,7 +791,6 @@ pub async fn handle_child(
             while let Some(line) = read_lines.next().await {
 
                 match line {
-                    Ok(_) if log_remaining == 0 => (),
                     Ok(line) => {
                         if line.is_empty() {
                             continue;
@@ -818,8 +813,6 @@ pub async fn handle_child(
                 }
             }
 
-            logs.push_str(&joined);
-
 
             /* Ensure the last flush completed before starting a new one.
              *
@@ -837,7 +830,7 @@ pub async fn handle_child(
                 panic::resume_unwind(p);
             }
 
-            (do_write, write_result) = tokio::spawn(append_logs(job_id, joined, db.clone())).remote_handle();
+            (do_write, write_result) = tokio::spawn(append_logs(job_id, w_id.to_string(), joined, db.clone())).remote_handle();
 
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
@@ -993,10 +986,8 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
 
 lazy_static::lazy_static! {
     static ref RE_00: Regex = Regex::new('\u{00}'.to_string().as_str()).unwrap();
-    pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
     pub static ref NO_LOGS_AT_ALL: bool = std::env::var("NO_LOGS_AT_ALL").ok().is_some_and(|x| x == "1" || x == "true");
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
-
 }
 // as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
 // so this pushes \n to thd destination string in each call
@@ -1274,29 +1265,6 @@ pub async fn save_in_cache(
     .await
     {
         tracing::error!("Error creating cache resource {e}")
-    }
-}
-
-/* TODO retry this? */
-#[tracing::instrument(level = "trace", skip_all)]
-async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<Pool<Postgres>>) {
-    if logs.as_ref().is_empty() {
-        return;
-    }
-
-    if *NO_LOGS {
-        tracing::info!("NO LOGS [{job_id}]: {}", logs.as_ref());
-        return;
-    }
-    if let Err(err) = sqlx::query!(
-        "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2",
-        logs.as_ref(),
-        job_id,
-    )
-    .execute(db.borrow())
-    .await
-    {
-        tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
 }
 

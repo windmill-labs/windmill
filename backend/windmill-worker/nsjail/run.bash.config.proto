@@ -54,6 +54,9 @@ mount {
 	rw: true
 }
 
+
+
+
 mount {
 	dst: "/tmp"
 	fstype: "tmpfs"
@@ -64,6 +67,13 @@ mount {
 mount {
     src: "{JOB_DIR}/main.sh"
     dst: "/tmp/main.sh"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "{JOB_DIR}/wrapper.sh"
+    dst: "/tmp/wrapper.sh"
     is_bind: true
     mandatory: false
 }
@@ -96,6 +106,13 @@ mount {
 mount {
     src: "{JOB_DIR}/result.out"
     dst: "/tmp/result.out"
+    rw: true
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/result2.out"
+    dst: "/tmp/result2.out"
     rw: true
     is_bind: true
 }

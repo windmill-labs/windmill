@@ -3,12 +3,12 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use uuid::Uuid;
-use windmill_queue::CanceledBy;
+use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_result, set_logs, start_child_process, write_file,
+        parse_npm_config, read_result, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
@@ -85,7 +85,6 @@ async fn get_common_deno_proc_envs(
 pub async fn generate_deno_lock(
     job_id: &Uuid,
     code: &str,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -138,7 +137,6 @@ pub async fn generate_deno_lock(
     handle_child(
         job_id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child_process,
@@ -161,7 +159,6 @@ pub async fn generate_deno_lock(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
     requirements_o: Option<String>,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -174,16 +171,8 @@ pub async fn handle_deno_job(
     envs: HashMap<String, String>,
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
-    logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-
-    let logs_to_set = logs.clone();
-    let id = job.id.clone();
-    let db2 = db.clone();
-
-    let set_logs_f = async {
-        set_logs(&logs_to_set, &id, &db2).await;
-        Ok(()) as error::Result<()>
-    };
+    let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
+    append_logs(job.id.clone(), job.workspace_id.to_string(), logs1, db).await;
 
     let main_override = get_main_override(job.args.as_ref());
 
@@ -267,8 +256,7 @@ try {{
         Ok(reserved_variables) as error::Result<(HashMap<String, String>, String)>
     };
 
-    let (_, (reserved_variables, token), _, _, _) = tokio::try_join!(
-        set_logs_f,
+    let ((reserved_variables, token), _, _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
         write_main_f,
         write_wrapper_f,
@@ -342,7 +330,6 @@ try {{
     handle_child(
         &job.id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child,
@@ -424,6 +411,7 @@ pub async fn start_worker(
     job_completed_tx: JobCompletedSender,
     jobs_rx: Receiver<Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<()> {
     use windmill_common::variables;
 
@@ -537,6 +525,7 @@ for await (const chunk of Deno.stdin.readable) {{
         token,
         jobs_rx,
         worker_name,
+        db,
     )
     .await
 }

@@ -5,7 +5,7 @@ use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use tokio::process::Command;
 use windmill_common::{error::Error, jobs::QueuedJob, worker::to_raw_value};
-use windmill_queue::CanceledBy;
+use windmill_queue::{append_logs, CanceledBy};
 
 const BIN_BASH: &str = "/bin/bash";
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
@@ -19,7 +19,7 @@ lazy_static::lazy_static! {
 use crate::{
     common::{
         build_args_map, get_reserved_variables, handle_child, read_file, read_file_content,
-        set_logs, start_child_process, write_file,
+        start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
@@ -32,7 +32,6 @@ lazy_static::lazy_static! {
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -45,14 +44,17 @@ pub async fn handle_bash_job(
     worker_name: &str,
     envs: HashMap<String, String>,
 ) -> Result<Box<RawValue>, Error> {
-    logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
+    let logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
+    append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+
+    write_file(job_dir, "main.sh", &format!("set -e\n{content}")).await?;
     write_file(
         job_dir,
-        "main.sh",
-        &format!("set -e\n{content}\necho \"\"\nsleep 0.02"),
+        "wrapper.sh",
+        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n /bin/bash ./main.sh \"$@\" 2>&1 | tee bp\nwait $!"),
     )
     .await?;
+
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -76,6 +78,7 @@ pub async fn handle_bash_job(
     let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
     let _ = write_file(job_dir, "result.json", "").await?;
     let _ = write_file(job_dir, "result.out", "").await?;
+    let _ = write_file(job_dir, "result2.out", "").await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -87,7 +90,13 @@ pub async fn handle_bash_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
+        let mut cmd_args = vec![
+            "--config",
+            "run.config.proto",
+            "--",
+            "/bin/bash",
+            "wrapper.sh",
+        ];
         cmd_args.extend(args);
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -101,7 +110,7 @@ pub async fn handle_bash_job(
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
-        let mut cmd_args = vec!["main.sh"];
+        let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
         let mut bash_cmd = Command::new(BIN_BASH);
         bash_cmd
@@ -120,7 +129,6 @@ pub async fn handle_bash_job(
     handle_child(
         &job.id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child,
@@ -148,13 +156,15 @@ pub async fn handle_bash_job(
         }
     }
 
-    //for now bash jobs have an empty result object
-    let last_line = serde_json::json!(logs
-        .lines()
-        .last()
-        .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
-        .unwrap_or_else(String::new));
-    Ok(to_raw_value(&last_line))
+    let result_out_path2 = format!("{job_dir}/result2.out");
+    if tokio::fs::metadata(&result_out_path2).await.is_ok() {
+        let result = read_file_content(&result_out_path2).await?;
+        return Ok(to_raw_value(&json!(result)));
+    }
+
+    Ok(to_raw_value(&json!(
+        "No result.out, result2.out or result.json found"
+    )))
 }
 
 fn raw_to_string(x: &str) -> String {
@@ -166,7 +176,6 @@ fn raw_to_string(x: &str) -> String {
 }
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -221,26 +230,26 @@ pub async fn handle_powershell_job(
         .collect::<Vec<String>>();
 
     let mut install_string: String = String::new();
+    let mut logs1 = String::new();
     for line in content.lines() {
         for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
             let module = cap.get(1).unwrap().as_str();
             if !installed_modules.contains(&module.to_lowercase()) {
-                logs.push_str(&format!("\n{} not found in cache", module.to_string()));
+                logs1.push_str(&format!("\n{} not found in cache", module.to_string()));
                 // instead of using Install-Module, we use Save-Module so that we can specify the installation path
                 install_string.push_str(&format!(
                     "Save-Module -Path {} -Force {};",
                     POWERSHELL_CACHE_DIR, module
                 ));
             } else {
-                logs.push_str(&format!("\n{} found in cache", module.to_string()));
+                logs1.push_str(&format!("\n{} found in cache", module.to_string()));
             }
         }
     }
-    set_logs(logs, &job.id, db).await;
 
     if !install_string.is_empty() {
-        logs.push_str("\n\nInstalling modules...");
-        set_logs(logs, &job.id, db).await;
+        logs1.push_str("\n\nInstalling modules...");
+        append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
         let child = Command::new("pwsh")
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())
@@ -250,7 +259,6 @@ pub async fn handle_powershell_job(
         handle_child(
             &job.id,
             db,
-            logs,
             mem_peak,
             canceled_by,
             child,
@@ -264,8 +272,9 @@ pub async fn handle_powershell_job(
         .await?;
     }
 
-    logs.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
+    let mut logs2 = "".to_string();
+    logs2.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
+    append_logs(job.id, job.workspace_id.clone(), logs2, db).await;
 
     // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
     let profile = format!(
@@ -291,12 +300,19 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     };
 
     write_file(job_dir, "main.ps1", content.as_str()).await?;
+    write_file(
+        job_dir,
+        "wrapper.sh",
+        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n{} -F ./main.ps1 \"$@\" 2>&1 | tee bp\nwait $!", POWERSHELL_PATH.as_str()),
+    )
+    .await?;
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let _ = write_file(job_dir, "result.json", "").await?;
     let _ = write_file(job_dir, "result.out", "").await?;
+    let _ = write_file(job_dir, "result2.out", "").await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -313,9 +329,8 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
             "--config",
             "run.config.proto",
             "--",
-            POWERSHELL_PATH.as_str(),
-            "-F",
-            "main.ps1",
+            "/bin/bash",
+            "wrapper.sh",
         ];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
         Command::new(NSJAIL_PATH.as_str())
@@ -330,9 +345,9 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        let mut cmd_args = vec!["-F", "main.ps1"];
+        let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-        Command::new(POWERSHELL_PATH.as_str())
+        Command::new("/bin/bash")
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
@@ -349,7 +364,6 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     handle_child(
         &job.id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child,
@@ -362,10 +376,13 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     )
     .await?;
 
-    let last_line = serde_json::json!(logs
-        .lines()
-        .last()
-        .map(|x| ANSI_ESCAPE_RE.replace_all(x, "").to_string())
-        .unwrap_or_else(String::new));
-    Ok(to_raw_value(&last_line))
+    let result_out_path2 = format!("{job_dir}/result2.out");
+    if tokio::fs::metadata(&result_out_path2).await.is_ok() {
+        let result = read_file_content(&result_out_path2).await?;
+        return Ok(to_raw_value(&json!(result)));
+    }
+
+    Ok(to_raw_value(&json!(
+        "No result.out, result2.out or result.json found"
+    )))
 }

@@ -38,7 +38,7 @@ use hyper::{http, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::types::JsonRawValue;
-use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
+use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
 use windmill_audit::audit_ee::audit_log;
@@ -61,8 +61,8 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    add_completed_job_error, get_queued_job, get_result_by_id_from_running_flow, job_is_complete,
-    push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel,
+    add_completed_job_error, append_logs, get_queued_job, get_result_by_id_from_running_flow,
+    job_is_complete, push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -545,11 +545,14 @@ async fn get_job(
 
 async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::Result<Job> {
     let cjob_maybe = sqlx::query_as::<_, CompletedJob>("SELECT 
-        id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
-        CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, right(logs, 20000000) as logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+        id, completed_job.workspace_id, parent_job, created_by, completed_job.created_at, duration_ms, success, script_hash, script_path, 
+        CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result,
+        right(concat(coalesce(completed_job.logs, ''), job_logs.logs), 20000) as logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
         schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
         raw_lock, email, visible_to_owner, mem_peak, tag, priority
-        FROM completed_job WHERE id = $1 AND workspace_id = $2")
+        FROM completed_job
+        LEFT JOIN job_logs ON completed_job.id = job_logs.job_id
+        WHERE id = $1 AND completed_job.workspace_id = $2")
             .bind(job_id)
             .bind(workspace_id)
             .fetch_optional(db)
@@ -559,12 +562,16 @@ async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::R
         Ok(cjob)
     } else {
         let job_o = sqlx::query_as::<_, QueuedJob>(
-            "SELECT  id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for, running,
-                script_hash, script_path, CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, right(logs, 20000000) as logs, raw_code, canceled, canceled_by, canceled_reason, last_ping, 
+            "SELECT  id, queue.workspace_id, parent_job, created_by, queue.created_at, started_at, scheduled_for, running,
+                script_hash, script_path, CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, 
+                right(concat(coalesce(queue.logs, ''), job_logs.logs), 20000) as logs,
+                raw_code, canceled, canceled_by, canceled_reason, last_ping, 
                 job_kind, env_id, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
-                 suspend, suspend_until, same_worker, raw_lock, pre_run_error, email, visible_to_owner, mem_peak, 
+                suspend, suspend_until, same_worker, raw_lock, pre_run_error, email, visible_to_owner, mem_peak, 
                 root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, priority
-                FROM queue WHERE id = $1 AND workspace_id = $2",
+                FROM queue
+                LEFT JOIN job_logs ON queue.id = job_logs.job_id
+                WHERE id = $1 AND queue.workspace_id = $2",
         )
         .bind(job_id)
         .bind(workspace_id)
@@ -581,7 +588,10 @@ async fn get_job_logs(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<String> {
     let text = sqlx::query_scalar!(
-        "SELECT logs FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        "SELECT CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) 
+        FROM completed_job 
+        LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
+        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2",
         id,
         w_id
     )
@@ -871,10 +881,16 @@ async fn cancel_all(
             let job_running = get_queued_job(&j.id, &w_id, &db).await?;
 
             if let Some(job_running) = job_running {
+                append_logs(
+                    j.id,
+                    w_id.clone(),
+                    format!("canceled by {username}: cancel_all"),
+                    db.clone(),
+                )
+                .await;
                 let add_job = add_completed_job_error(
                     &db,
                     &job_running,
-                    format!("canceled by {username}: cancel_all"),
                     job_running.mem_peak.unwrap_or(0),
                     Some(CanceledBy {
                         username: Some(username.to_string()),
@@ -1615,6 +1631,39 @@ impl Job {
                 .as_ref()
                 .map(|rf| serde_json::from_str(rf.0.get()).ok())
                 .flatten(),
+        }
+    }
+
+    pub fn append_to_logs(&mut self, logs: &str) {
+        match self {
+            Job::QueuedJob(job) => {
+                if let Some(ref mut l) = job.logs {
+                    l.push_str(logs);
+                } else {
+                    job.logs = Some(logs.to_string());
+                }
+            }
+            Job::CompletedJob(job) => {
+                if let Some(ref mut l) = job.logs {
+                    l.push_str(logs);
+                } else {
+                    job.logs = Some(logs.to_string());
+                }
+            }
+        }
+    }
+
+    pub fn log_len(&self) -> Option<usize> {
+        match self {
+            Job::QueuedJob(job) => job.logs.as_ref().map(|l| l.len()),
+            Job::CompletedJob(job) => job.logs.as_ref().map(|l| l.len()),
+        }
+    }
+
+    pub fn logs(&self) -> Option<String> {
+        match self {
+            Job::QueuedJob(job) => job.logs.clone(),
+            Job::CompletedJob(job) => job.logs.clone(),
         }
     }
     pub fn flow_status(&self) -> Option<FlowStatus> {
@@ -3198,9 +3247,11 @@ async fn get_job_update(
     Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
     let record = sqlx::query!(
-        "SELECT running, substr(logs, $1) as logs, mem_peak, 
+        "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), $1) as logs, mem_peak, 
         CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status 
-        FROM queue WHERE workspace_id = $2 AND id = $3",
+        FROM queue
+        LEFT JOIN job_logs ON job_logs.job_id =  queue.id 
+        WHERE queue.workspace_id = $2 AND queue.id = $3",
         log_offset,
         &w_id,
         &job_id
@@ -3221,23 +3272,29 @@ async fn get_job_update(
             flow_status: record.flow_status,
         }))
     } else {
-        let logs = query_scalar!(
-            "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = \
-             $3",
+        let record = sqlx::query!(
+            "SELECT substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), $1) as logs, mem_peak, 
+            CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status 
+            FROM completed_job 
+            LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
+            WHERE completed_job.workspace_id = $2 AND id = $3",
             log_offset,
             &w_id,
             &job_id
         )
         .fetch_optional(&db)
         .await?;
-        let logs = not_found_if_none(logs, "Job Update", job_id.to_string())?;
-        Ok(Json(JobUpdate {
-            running: Some(false),
-            completed: Some(true),
-            new_logs: logs,
-            mem_peak: record.as_ref().map(|r| r.mem_peak).flatten(),
-            flow_status: record.and_then(|r| r.flow_status),
-        }))
+        if let Some(record) = record {
+            Ok(Json(JobUpdate {
+                running: Some(false),
+                completed: Some(true),
+                new_logs: record.logs,
+                mem_peak: record.mem_peak,
+                flow_status: record.flow_status,
+            }))
+        } else {
+            Err(error::Error::NotFound(format!("Job not found: {}", job_id)))
+        }
     }
 }
 
@@ -3417,7 +3474,7 @@ async fn get_completed_job<'a>(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     let job_o = sqlx::query("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
-    CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, right(logs, 20000000) as logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+    CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
     raw_lock, email, visible_to_owner, mem_peak, tag, priority FROM completed_job WHERE id = $1 AND workspace_id = $2")
         .bind(id)
@@ -3426,7 +3483,18 @@ async fn get_completed_job<'a>(
         .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
-    let response = Json(CompletedJob::from_row(&job)?).into_response();
+    let cj = CompletedJob::from_row(&job)?;
+    tracing::error!("response: {:?}", cj.logs);
+
+    let response = Json(cj).into_response();
+    // let extra_log = query_scalar!(
+    //     "SELECT substr(logs, $1) as logs FROM large_logs WHERE workspace_id = $2 AND job_id = $3",
+    //     log_offset - len,
+    //     &w_id,
+    //     &job_id
+    // )
+    // .fetch_optional(db)
+    // .await.ok().flatten().flatten();
     Ok(response)
 }
 

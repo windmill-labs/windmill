@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT running, substr(logs, $1) as logs, mem_peak, \n        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status \n        FROM queue WHERE workspace_id = $2 AND id = $3",
+  "query": "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), $1) as logs, mem_peak, \n        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status \n        FROM queue\n        LEFT JOIN job_logs ON job_logs.job_id =  queue.id \n        WHERE queue.workspace_id = $2 AND queue.id = $3",
   "describe": {
     "columns": [
       {
@@ -38,5 +38,5 @@
       null
     ]
   },
-  "hash": "8a3340146fe2072c7d47984c2f768c1ef632f8146766b494398421a8fc552ab3"
+  "hash": "04d9cb2edf6933a3b8efbe274e10227a37475ff4ec351577bfdade19a15596d4"
 }

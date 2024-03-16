@@ -6,7 +6,7 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::CanceledBy;
+use windmill_queue::{append_logs, CanceledBy};
 
 #[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
@@ -14,8 +14,7 @@ use crate::common::build_envs_map;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_result, set_logs, start_child_process, write_file,
-        write_file_binary,
+        parse_npm_config, read_result, start_child_process, write_file, write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
     DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV,
@@ -53,7 +52,6 @@ lazy_static::lazy_static! {
 }
 
 pub async fn gen_lockfile(
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
@@ -110,7 +108,6 @@ pub async fn gen_lockfile(
         handle_child(
             job_id,
             db,
-            logs,
             mem_peak,
             canceled_by,
             child_process,
@@ -124,10 +121,12 @@ pub async fn gen_lockfile(
         .await?;
 
         if trusted_deps.len() > 0 {
-            logs.push_str(&format!(
+            let logs1 = format!(
                 "\ndetected trustedDependencies: {}\n",
                 trusted_deps.join(", ")
-            ));
+            );
+            append_logs(job_id.clone(), w_id.to_string(), logs1, db).await;
+
             let mut content = "".to_string();
             {
                 let mut file = File::open(format!("{job_dir}/package.json")).await?;
@@ -150,7 +149,6 @@ pub async fn gen_lockfile(
     }
 
     install_lockfile(
-        logs,
         mem_peak,
         canceled_by,
         job_id,
@@ -224,7 +222,6 @@ registry = {}
 }
 
 pub async fn install_lockfile(
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
@@ -243,9 +240,13 @@ pub async fn install_lockfile(
         .args(vec!["install"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if npm_mode {
-        logs.push_str("NPM mode\n")
-    }
+
+    let mut npm_logs = if npm_mode {
+        "NPM mode\n".to_string()
+    } else {
+        "".to_string()
+    };
+
     let has_file = if npm_mode {
         let registry = NPM_CONFIG_REGISTRY.read().await.clone();
         if let Some(registry) = registry {
@@ -255,7 +256,7 @@ pub async fn install_lockfile(
 
             let mut splitted = registry.split(":_authToken=");
             let custom_registry = splitted.next().unwrap_or_default();
-            logs.push_str(&format!(
+            npm_logs.push_str(&format!(
                 "Using custom npm registry: {custom_registry} {}\n",
                 if splitted.next().is_some() {
                     "with authToken"
@@ -274,13 +275,16 @@ pub async fn install_lockfile(
         false
     };
 
+    if npm_mode {
+        append_logs(job_id.clone(), w_id.to_string(), npm_logs, db).await;
+    }
+
     let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
 
     gen_bunfig(job_dir).await?;
     handle_child(
         job_id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child_process,
@@ -337,7 +341,6 @@ fn get_annotation(inner_content: &str) -> Annotations {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -392,7 +395,6 @@ pub async fn handle_bun_job(
             }
 
             install_lockfile(
-                logs,
                 mem_peak,
                 canceled_by,
                 &job.id,
@@ -410,10 +412,10 @@ pub async fn handle_bun_job(
         let trusted_deps = get_trusted_deps(inner_content);
 
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
-        logs.push_str("\n\n--- BUN INSTALL ---\n");
-        set_logs(&logs, &job.id, &db).await;
+        let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
+        append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+
         let _ = gen_lockfile(
-            logs,
             mem_peak,
             canceled_by,
             &job.id,
@@ -436,16 +438,13 @@ pub async fn handle_bun_job(
     let main_code = remove_pinned_imports(inner_content)?;
     let _ = write_file(job_dir, "main.ts", &main_code).await?;
 
-    if annotation.nodejs_mode {
-        logs.push_str("\n\n--- NODE CODE EXECUTION ---\n");
+    let init_logs = if annotation.nodejs_mode {
+        "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
-        logs.push_str("\n\n--- BUN CODE EXECUTION ---\n");
-    }
-
-    let logs_f = async {
-        set_logs(&logs, &job.id, &db).await;
-        Ok(()) as error::Result<()>
+        "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
+
+    append_logs(job.id.clone(), job.workspace_id.to_string(), init_logs, db).await;
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
@@ -583,10 +582,9 @@ plugin(p)
         }
     };
 
-    let (reserved_variables, _, _, _) = tokio::try_join!(
+    let (reserved_variables, _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
         write_wrapper_f,
-        logs_f,
         write_loader_f
     )?;
 
@@ -604,7 +602,6 @@ plugin(p)
         handle_child(
             &job.id,
             db,
-            logs,
             mem_peak,
             canceled_by,
             child_process,
@@ -730,7 +727,6 @@ plugin(p)
     handle_child(
         &job.id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child,
@@ -838,7 +834,6 @@ pub async fn start_worker(
             }
 
             install_lockfile(
-                &mut logs,
                 &mut mem_peak,
                 &mut canceled_by,
                 &Uuid::nil(),
@@ -856,7 +851,6 @@ pub async fn start_worker(
         let trusted_deps = get_trusted_deps(inner_content);
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
-            &mut logs,
             &mut mem_peak,
             &mut canceled_by,
             &Uuid::nil(),
@@ -977,6 +971,7 @@ plugin(p)
         token,
         jobs_rx,
         worker_name,
+        db,
     )
     .await
 }

@@ -69,6 +69,13 @@ mount {
 }
 
 mount {
+    src: "{JOB_DIR}/wrapper.sh"
+    dst: "/tmp/wrapper.sh"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "/etc"
     dst: "/etc"
 	is_bind: true

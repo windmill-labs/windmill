@@ -7,6 +7,7 @@
  */
 
 use std::{
+    borrow::Borrow,
     collections::{HashMap, HashSet},
     sync::Arc,
     vec,
@@ -61,7 +62,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
-    worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, WORKER_CONFIG},
+    worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
 
@@ -163,10 +164,16 @@ pub async fn cancel_job<'c: 'async_recursion>(
             .clone()
             .unwrap_or_else(|| "unexplicited reasons".to_string());
         let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
+        append_logs(
+            id,
+            w_id.to_string(),
+            format!("canceled by {username}: (force cancel: {force_cancel})"),
+            db,
+        )
+        .await;
         let add_job = add_completed_job_error(
             &db,
             &job_running,
-            format!("canceled by {username}: (force cancel: {force_cancel})"),
             job_running.mem_peak.unwrap_or(0),
             Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
             e,
@@ -214,6 +221,35 @@ pub async fn cancel_job<'c: 'async_recursion>(
         tx = ntx;
     }
     Ok((tx, Some(id)))
+}
+
+/* TODO retry this? */
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn append_logs(
+    job_id: uuid::Uuid,
+    workspace: String,
+    logs: impl AsRef<str>,
+    db: impl Borrow<Pool<Postgres>>,
+) {
+    if logs.as_ref().is_empty() {
+        return;
+    }
+
+    if *NO_LOGS {
+        tracing::info!("NO LOGS [{job_id}]: {}", logs.as_ref());
+        return;
+    }
+    if let Err(err) = sqlx::query!(
+        "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, $1::text)",
+        logs.as_ref(),
+        job_id,
+        workspace,
+    )
+    .execute(db.borrow())
+    .await
+    {
+        tracing::error!(%job_id, %err, "error updating logs for large_log job {job_id}: {err}");
+    }
 }
 
 pub async fn cancel_persistent_script_jobs<'c>(
@@ -357,7 +393,6 @@ where
 pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
-    logs: String,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     e: serde_json::Value,
@@ -396,7 +431,6 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         false,
         false,
         Json(&result),
-        logs,
         mem_peak,
         canceled_by,
         rsmq,
@@ -438,7 +472,6 @@ pub async fn add_completed_job<
     success: bool,
     skipped: bool,
     result: Json<&T>,
-    logs: String,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     rsmq: Option<R>,
@@ -504,7 +537,6 @@ pub async fn add_completed_job<
                    , script_path
                    , args
                    , result
-                   , logs
                    , raw_code
                    , raw_lock
                    , canceled
@@ -524,9 +556,9 @@ pub async fn add_completed_job<
                    , tag
                    , priority
                 )
-            VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30, $31)
-         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING duration_ms",
+            VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), COALESCE($25, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $26, $27, $28, $29, $30)
+         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11 RETURNING duration_ms",
         queued_job.workspace_id,
         queued_job.id,
         queued_job.parent_job,
@@ -538,7 +570,6 @@ pub async fn add_completed_job<
         queued_job.script_path,
         &queued_job.args as &Option<Json<HashMap<String, Box<RawValue>>>>,
         result as Json<&T>,
-        logs,
         queued_job.raw_code,
         queued_job.raw_lock,
         canceled_by.is_some(),
