@@ -2394,6 +2394,14 @@ async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Er
     )
     .execute(db)
     .await?;
+    sqlx::query!(
+        "UPDATE job_logs
+        SET logs = '##DELETED##'
+        WHERE job_id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -3626,6 +3634,10 @@ async fn delete_completed_job<'a>(
     .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
+
+    sqlx::query!("DELETE FROM job_logs WHERE job_id = $1", id)
+        .execute(&mut *tx)
+        .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
