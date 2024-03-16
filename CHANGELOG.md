@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.292.0](https://github.com/windmill-labs/windmill/compare/v1.291.4...v1.292.0) (2024-03-16)
+
+
+### Features
+
+* db schema explorer collapsed by default ([#3427](https://github.com/windmill-labs/windmill/issues/3427)) ([695e2c5](https://github.com/windmill-labs/windmill/commit/695e2c54cf945e52a8afdd4ee2b169a6c17d0dbd))
+* refactor logging to improve performance by order of magnitude for longer jobs ([e5366b8](https://github.com/windmill-labs/windmill/commit/e5366b84bb5cfcd57f8aaecc4fec7c8e55564313))
+* wmill sync workspace settings ([#3425](https://github.com/windmill-labs/windmill/issues/3425)) ([bab67fe](https://github.com/windmill-labs/windmill/commit/bab67fe3ae6669efb56dcc489d7ae080923c2160))
+
+
+### Bug Fixes
+
+* allow longer worker names ([a2f4c26](https://github.com/windmill-labs/windmill/commit/a2f4c2669021f4ca2714683e15a979175747cd96))
+* s3 cache is an instance settings ([#3421](https://github.com/windmill-labs/windmill/issues/3421)) ([ae66136](https://github.com/windmill-labs/windmill/commit/ae661365e4bc8db3015222c1843e961bbe56ddfe))
+
 ## [1.291.4](https://github.com/windmill-labs/windmill/compare/v1.291.3...v1.291.4) (2024-03-15)
 
 
