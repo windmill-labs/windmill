@@ -598,8 +598,22 @@ async fn get_job_logs(
     .fetch_optional(&db)
     .await?
     .flatten();
-    let text = not_found_if_none(text, "Job Logs", id.to_string())?;
-    Ok(text)
+    if let Some(text) = text {
+        Ok(text)
+    } else {
+        let text = sqlx::query_scalar!(
+            "SELECT CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) 
+            FROM queue 
+            LEFT JOIN job_logs ON job_logs.job_id = queue.id 
+            WHERE queue.id = $1 AND queue.workspace_id = $2",
+            id,
+            w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        let text = not_found_if_none(text, "Job Logs", id.to_string())?;
+        Ok(text)
+    }
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
