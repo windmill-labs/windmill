@@ -20,6 +20,7 @@
 	export let topBrackets = false
 	export let topLevelNode = false
 	export let allowCopy = true
+	export let collapseLevel: number | undefined = undefined
 
 	let s3FileViewer: S3FilePicker
 
@@ -101,6 +102,8 @@
 								{pureViewer}
 								{allowCopy}
 								on:select
+								{collapseLevel}
+								collapsed={collapseLevel !== undefined ? level + 1 >= collapseLevel : undefined}
 							/>
 						{:else}
 							<button

@@ -95,7 +95,7 @@
 			{#if dbSchema.lang === 'graphql'}
 				<GraphqlSchemaViewer code={formatGraphqlSchema(dbSchema)} class="h-full" />
 			{:else}
-				<ObjectViewer json={formatSchema(dbSchema)} pureViewer />
+				<ObjectViewer json={formatSchema(dbSchema)} pureViewer collapseLevel={1} />
 			{/if}
 		</DrawerContent>
 	</Drawer>
