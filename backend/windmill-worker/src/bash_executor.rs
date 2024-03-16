@@ -158,7 +158,10 @@ pub async fn handle_bash_job(
 
     let result_out_path2 = format!("{job_dir}/result2.out");
     if tokio::fs::metadata(&result_out_path2).await.is_ok() {
-        let result = read_file_content(&result_out_path2).await?;
+        let result = read_file_content(&result_out_path2)
+            .await?
+            .trim()
+            .to_string();
         return Ok(to_raw_value(&json!(result)));
     }
 
@@ -378,7 +381,10 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
 
     let result_out_path2 = format!("{job_dir}/result2.out");
     if tokio::fs::metadata(&result_out_path2).await.is_ok() {
-        let result = read_file_content(&result_out_path2).await?;
+        let result = read_file_content(&result_out_path2)
+            .await?
+            .trim()
+            .to_string();
         return Ok(to_raw_value(&json!(result)));
     }
 
