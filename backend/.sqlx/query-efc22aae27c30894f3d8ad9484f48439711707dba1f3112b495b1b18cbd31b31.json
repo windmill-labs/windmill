@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) \n            FROM queue \n            LEFT JOIN job_logs ON job_logs.job_id = queue.id \n            WHERE queue.id = $1 AND queue.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "concat",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "efc22aae27c30894f3d8ad9484f48439711707dba1f3112b495b1b18cbd31b31"
+}
