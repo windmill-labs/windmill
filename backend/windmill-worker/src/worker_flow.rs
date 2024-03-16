@@ -43,8 +43,8 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, get_queued_job, handle_maybe_scheduled_job,
-    CanceledBy, PushIsolationLevel, WrappedError,
+    add_completed_job, add_completed_job_error, append_logs, get_queued_job,
+    handle_maybe_scheduled_job, CanceledBy, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -614,16 +614,18 @@ pub async fn update_flow_status_after_job_completion_internal<
     };
 
     let done = if !should_continue_flow {
-        let logs = if flow_job.canceled {
-            "Flow job canceled\n".to_string()
-        } else if stop_early {
-            format!("Flow job stopped early because of a stop early predicate returning true\n")
-        } else if success {
-            "Flow job completed with success\n".to_string()
-        } else {
-            "Flow job completed with error\n".to_string()
-        };
-
+        {
+            let logs = if flow_job.canceled {
+                "Flow job canceled\n".to_string()
+            } else if stop_early {
+                format!("Flow job stopped early because of a stop early predicate returning true\n")
+            } else if success {
+                "Flow job completed with success\n".to_string()
+            } else {
+                "Flow job completed with error\n".to_string()
+            };
+            append_logs(flow_job.id, w_id.to_string(), logs, db).await;
+        }
         #[cfg(feature = "enterprise")]
         if flow_job.parent_job.is_none() {
             // run the cleanup step only when the root job is complete
@@ -646,7 +648,6 @@ pub async fn update_flow_status_after_job_completion_internal<
             add_completed_job_error(
                 db,
                 &flow_job,
-                logs,
                 0,
                 Some(CanceledBy {
                     username: flow_job.canceled_by.clone(),
@@ -687,7 +688,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                     success,
                     stop_early && skip_if_stop_early,
                     Json(&nresult),
-                    logs,
                     0,
                     None,
                     rsmq.clone(),
@@ -705,7 +705,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                             |e| json!({"error": format!("Impossible to serialize error: {e}")}),
                         ),
                     ),
-                    logs,
                     0,
                     None,
                     rsmq.clone(),
@@ -731,10 +730,16 @@ pub async fn update_flow_status_after_job_completion_internal<
         {
             Err(err) => {
                 let e = json!({"message": err.to_string(), "name": "InternalError"});
+                append_logs(
+                    flow_job.id,
+                    w_id.to_string(),
+                    format!("Unexpected error during flow chaining:\n{:#?}", e),
+                    db,
+                )
+                .await;
                 let _ = add_completed_job_error(
                     db,
                     &flow_job,
-                    "Unexpected error during flow chaining:\n".to_string(),
                     0,
                     None,
                     e,
@@ -1511,7 +1516,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 let success = false;
                 let skipped = false;
+
                 let logs = "Timed out waiting to be resumed".to_string();
+                append_logs(flow_job.id, flow_job.workspace_id.clone(), logs.clone(), db).await;
+
                 let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
                 let canceled_by = if flow_job.canceled {
                     Some(CanceledBy {
@@ -1527,7 +1535,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     success,
                     skipped,
                     Json(&result),
-                    logs,
                     0,
                     canceled_by,
                     rsmq.clone(),

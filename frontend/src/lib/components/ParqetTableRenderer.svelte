@@ -130,10 +130,11 @@
 <DarkModeObserver bind:darkMode />
 
 <div class={twMerge('mt-4 border shadow-sm divide-y flex flex-col h-full min-h-[600px]')}>
-	<div class="ag-theme-alpine h-full" class:ag-theme-alpine-dark={darkMode}>
-		<div bind:this={eGui} style="height:100%" />
+	<div class="ag-theme-alpine h-full" class:ag-theme-alpine-dark={darkMode} style="height: 600px;">
+		<div bind:this={eGui} style="height:100%; " />
 	</div>
 </div>
+
 <!-- <div class="flex gap-1 absolute bottom-1 right-2 text-sm text-secondary"
 	>{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows</div
 > -->

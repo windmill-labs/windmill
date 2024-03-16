@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = $3",
+  "query": "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -11,14 +11,13 @@
     ],
     "parameters": {
       "Left": [
-        "Int4",
-        "Text",
-        "Uuid"
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
-      null
+      true
     ]
   },
-  "hash": "453501fbd61efd26647baf9b6ef702ce0bc2e920914e9f08fe5f2a5f4ab03f02"
+  "hash": "d9b32f819c87250962dae44e34d13b234e765b4b90b961e7db494f4c544c08ca"
 }

@@ -8,7 +8,6 @@
 
 use anyhow::Result;
 use const_format::concatcp;
-use itertools::Itertools;
 #[cfg(feature = "prometheus")]
 use prometheus::{
     core::{AtomicI64, GenericGauge},
@@ -46,14 +45,15 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::{rd_string, StripPath},
     worker::{
-        to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, WORKER_CONFIG, WORKER_GROUP,
+        to_raw_value, to_raw_value_owned, update_ping, CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG,
+        WORKER_GROUP,
     },
     DB, IS_READY,
 };
 
 use windmill_queue::{
-    canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy, PushArgs,
-    PushIsolationLevel, WrappedError, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result, get_queued_job, pull, push, CanceledBy,
+    PushArgs, PushIsolationLevel, WrappedError, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -96,7 +96,7 @@ use crate::{
     bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
     common::{
         build_args_map, get_cached_resource_value_if_valid, hash_args, read_result, save_in_cache,
-        write_file, NO_LOGS, NO_LOGS_AT_ALL, SLOW_LOGS,
+        write_file, NO_LOGS_AT_ALL, SLOW_LOGS,
     },
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
@@ -1586,7 +1586,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             job: Arc::new(job),
                             success: true,
                             result: empty_result(),
-                            logs: String::new(),
                             mem_peak: 0,
                             cached_res_path: None,
                             token: "".to_string(),
@@ -2156,6 +2155,7 @@ async fn spawn_dedicated_worker(
                         job_completed_tx,
                         dedicated_worker_rx,
                         killpill_rx,
+                        &db,
                     )
                     .await
                 }
@@ -2237,16 +2237,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 // ) -> error::Result<()> {
 
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    JobCompleted {
-        job,
-        result,
-        logs,
-        mem_peak,
-        success,
-        cached_res_path,
-        canceled_by,
-        ..
-    }: JobCompleted,
+    JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
@@ -2273,7 +2264,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             true,
             false,
             Json(&result),
-            logs,
             mem_peak.to_owned(),
             canceled_by,
             rsmq.clone(),
@@ -2315,7 +2305,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
         let result = add_completed_job_error(
             db,
             &job,
-            logs.to_string(),
             mem_peak.to_owned(),
             canceled_by,
             serde_json::from_str(result.get()).unwrap_or_else(
@@ -2406,11 +2395,17 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     };
 
     let rsmq_2 = rsmq.clone();
-    let update_job_future = || {
+    let update_job_future = || async {
+        append_logs(
+            job.id,
+            job.workspace_id.clone(),
+            format!("Unexpected error during job execution:\n{err:#?}"),
+            db,
+        )
+        .await;
         add_completed_job_error(
             db,
             job,
-            format!("Unexpected error during job execution:\n{err:#?}"),
             mem_peak,
             canceled_by.clone(),
             err.clone(),
@@ -2418,6 +2413,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             worker_name,
             false,
         )
+        .await
     };
 
     let update_job_future = if job.is_flow_step || job.is_flow() {
@@ -2458,10 +2454,16 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                     get_queued_job(&parent_job_id, &job.workspace_id, &db).await
                 {
                     let e = json!({"message": err.to_string(), "name": "InternalErr"});
+                    append_logs(
+                        parent_job.id,
+                        job.workspace_id.clone(),
+                        format!("Unexpected error during flow job error handling:\n{err}"),
+                        db,
+                    )
+                    .await;
                     let _ = add_completed_job_error(
                         db,
                         &parent_job,
-                        format!("Unexpected error during flow job error handling:\n{err}"),
                         mem_peak,
                         canceled_by.clone(),
                         e,
@@ -2522,7 +2524,6 @@ pub enum SendResult {
 pub struct JobCompleted {
     pub job: Arc<QueuedJob>,
     pub result: Box<RawValue>,
-    pub logs: String,
     pub mem_peak: i32,
     pub success: bool,
     pub cached_res_path: Option<String>,
@@ -2532,7 +2533,6 @@ pub struct JobCompleted {
 
 async fn do_nativets(
     job: &QueuedJob,
-    logs: String,
     client: &AuthedClientBackgroundTask,
     code: String,
     db: &Pool<Postgres>,
@@ -2560,7 +2560,7 @@ async fn do_nativets(
         &job.workspace_id,
     )
     .await?;
-    Ok((result.0, [logs, result.1].join("\n\n")))
+    Ok((result.0, result.1))
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -2678,12 +2678,15 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         )
         .await;
         if let Some(cached_resource_value) = cached_resource_value_maybe {
-            let logs = "Job skipped because args & path found in cache and not expired".to_string();
+            {
+                let logs =
+                    "Job skipped because args & path found in cache and not expired".to_string();
+                append_logs(job.id, job.workspace_id.clone(), logs, db).await;
+            }
             job_completed_tx
                 .send(JobCompleted {
                     job: job,
                     result: cached_resource_value,
-                    logs,
                     mem_peak: 0,
                     canceled_by: None,
                     success: true,
@@ -2717,10 +2720,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         let mut mem_peak: i32 = 0;
         let mut canceled_by: Option<CanceledBy> = None;
         // println!("handle queue {:?}",  SystemTime::now());
-        if let Some(log_str) = &job.logs {
-            logs.push_str(&log_str);
-            logs.push_str("\n");
-        }
 
         logs.push_str(&format!(
             "job {} on worker {} (tag: {})\n",
@@ -2753,12 +2752,12 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             "handling job {}",
             job.id
         );
+        append_logs(job.id, job.workspace_id.clone(), logs, db).await;
 
         let result = match job.job_kind {
             JobKind::Dependencies => {
                 handle_dependency_job(
                     &job,
-                    &mut logs,
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,
@@ -2773,7 +2772,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
             JobKind::FlowDependencies => handle_flow_dependency_job(
                 &job,
-                &mut logs,
                 &mut mem_peak,
                 &mut canceled_by,
                 job_dir,
@@ -2788,7 +2786,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             .map(|()| serde_json::from_str("{}").unwrap()),
             JobKind::AppDependencies => handle_app_dependency_job(
                 &job,
-                &mut logs,
                 &mut mem_peak,
                 &mut canceled_by,
                 job_dir,
@@ -2817,7 +2814,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     client,
                     job_dir,
                     worker_dir,
-                    &mut logs,
                     &mut mem_peak,
                     &mut canceled_by,
                     base_internal_url,
@@ -2839,11 +2835,11 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             result,
             job_dir,
             job_completed_tx,
-            logs,
             mem_peak,
             canceled_by,
             cached_res_path,
             client.get_token().await,
+            db,
         )
         .await?;
     };
@@ -2855,11 +2851,11 @@ async fn process_result(
     result: error::Result<Box<RawValue>>,
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
-    logs: String,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
     token: String,
+    db: &DB,
 ) -> error::Result<()> {
     match result {
         Ok(r) => {
@@ -2867,7 +2863,6 @@ async fn process_result(
                 .send(JobCompleted {
                     job: job,
                     result: r,
-                    logs,
                     mem_peak,
                     canceled_by,
                     success: true,
@@ -2885,17 +2880,16 @@ async fn process_result(
                     if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
                         res.unwrap()
                     } else {
-                        let last_10_log_lines = logs
-                            .lines()
-                            .skip(logs.lines().count().max(13) - 13)
-                            .join("\n")
-                            .to_string()
-                            .replace("\n\n", "\n");
+                        let last_10_log_lines = sqlx::query_scalar!(
+                            "SELECT right(logs, 300) FROM job_logs WHERE job_id = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                            &job.id,
+                            &job.workspace_id
+                        ).fetch_one(db).await.ok().flatten().unwrap_or("".to_string());
 
                         let log_lines = last_10_log_lines
                             .split("CODE EXECUTION ---")
                             .last()
-                            .unwrap_or(&logs);
+                            .unwrap_or(&last_10_log_lines);
 
                         extract_error_value(log_lines, i)
                     }
@@ -2910,7 +2904,6 @@ async fn process_result(
                 .send(JobCompleted {
                     job: job,
                     result: to_raw_value(&error_value),
-                    logs: logs,
                     mem_peak,
                     canceled_by,
                     success: false,
@@ -3047,7 +3040,6 @@ async fn handle_code_execution_job(
     client: &AuthedClientBackgroundTask,
     job_dir: &str,
     worker_dir: &str,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     base_internal_url: &str,
@@ -3180,24 +3172,21 @@ async fn handle_code_execution_job(
         )
         .await;
     } else if language == Some(ScriptLang::Nativets) {
-        logs.push_str("\n--- FETCH TS EXECUTION ---\n");
+        append_logs(
+            job.id,
+            job.workspace_id.clone(),
+            "\n--- FETCH TS EXECUTION ---\n",
+            db,
+        )
+        .await;
         let code = format!(
             "const BASE_URL = '{base_internal_url}';\nconst WM_TOKEN = '{}';\n{}",
             &client.get_token().await,
             inner_content
         );
-        let (result, ts_logs) = do_nativets(
-            job,
-            logs.clone(),
-            &client,
-            code,
-            db,
-            mem_peak,
-            canceled_by,
-            worker_name,
-        )
-        .await?;
-        *logs = ts_logs;
+        let (result, ts_logs) =
+            do_nativets(job, &client, code, db, mem_peak, canceled_by, worker_name).await?;
+        append_logs(job.id, job.workspace_id.clone(), ts_logs, db).await;
         return Ok(result);
     }
 
@@ -3248,7 +3237,6 @@ mount {{
                 worker_dir,
                 worker_name,
                 job,
-                logs,
                 mem_peak,
                 canceled_by,
                 db,
@@ -3263,7 +3251,6 @@ mount {{
         Some(ScriptLang::Deno) => {
             handle_deno_job(
                 requirements_o,
-                logs,
                 mem_peak,
                 canceled_by,
                 job,
@@ -3280,7 +3267,6 @@ mount {{
         Some(ScriptLang::Bun) => {
             handle_bun_job(
                 requirements_o,
-                logs,
                 mem_peak,
                 canceled_by,
                 job,
@@ -3297,7 +3283,6 @@ mount {{
         }
         Some(ScriptLang::Go) => {
             handle_go_job(
-                logs,
                 mem_peak,
                 canceled_by,
                 job,
@@ -3315,7 +3300,6 @@ mount {{
         }
         Some(ScriptLang::Bash) => {
             handle_bash_job(
-                logs,
                 mem_peak,
                 canceled_by,
                 job,
@@ -3332,7 +3316,6 @@ mount {{
         }
         Some(ScriptLang::Powershell) => {
             handle_powershell_job(
-                logs,
                 mem_peak,
                 canceled_by,
                 job,
@@ -3366,7 +3349,6 @@ mount {{
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -3398,6 +3380,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                 .is_some_and(|y| y.to_string().as_str() == "true")
         })
         .unwrap_or(false);
+
     let content = capture_dependency_job(
         &job.id,
         job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
@@ -3406,7 +3389,6 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
             ))
         })?,
         &raw_code,
-        logs,
         mem_peak,
         canceled_by,
         job_dir,
@@ -3420,6 +3402,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
         raw_deps,
     )
     .await;
+
     match content {
         Ok(content) => {
             if job.script_hash.is_none() {
@@ -3460,6 +3443,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
 
             if &job.language == &Some(ScriptLang::Python3) {
                 if let Ok(relative_imports) = parse_relative_imports(&raw_code, script_path) {
+                    let mut logs = "".to_string();
                     logs.push_str("\n--- RELATIVE IMPORTS ---\n\n");
                     logs.push_str(&relative_imports.join("\n"));
                     if !relative_imports.is_empty() {
@@ -3487,6 +3471,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                         }
                         tx.commit().await?;
                     }
+                    append_logs(job.id, job.workspace_id.clone(), logs, db).await;
                     if let Err(e) = trigger_python_dependents_to_recompute_dependencies(
                         w_id,
                         script_path,
@@ -3509,9 +3494,18 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
             ))
         }
         Err(error) => {
+            let logs2 = sqlx::query_scalar!(
+                "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+                &job.id,
+                &job.workspace_id
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten()
+            .unwrap_or_else(|| "no logs".to_string());
             sqlx::query!(
                 "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
-                &format!("{logs}\n{error}"),
+                &format!("{logs2}\n{error}"),
                 &job.script_hash.unwrap_or(ScriptHash(0)).0,
                 &job.workspace_id
             )
@@ -3605,7 +3599,6 @@ async fn trigger_python_dependents_to_recompute_dependencies<
 
 async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -3631,7 +3624,6 @@ async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync 
     flow.modules = lock_modules(
         flow.modules,
         job,
-        logs,
         mem_peak,
         canceled_by,
         job_dir,
@@ -3717,7 +3709,6 @@ fn get_deployment_msg_and_parent_path_from_args(
 async fn lock_modules(
     modules: Vec<FlowModule>,
     job: &QueuedJob,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -3754,7 +3745,6 @@ async fn lock_modules(
                         modules: lock_modules(
                             modules,
                             job,
-                            logs,
                             mem_peak,
                             canceled_by,
                             job_dir,
@@ -3777,7 +3767,6 @@ async fn lock_modules(
                         b.modules = lock_modules(
                             b.modules,
                             job,
-                            logs,
                             mem_peak,
                             canceled_by,
                             job_dir,
@@ -3799,7 +3788,6 @@ async fn lock_modules(
                         b.modules = lock_modules(
                             b.modules,
                             job,
-                            logs,
                             mem_peak,
                             canceled_by,
                             job_dir,
@@ -3816,7 +3804,6 @@ async fn lock_modules(
                     let default = lock_modules(
                         default,
                         job,
-                        logs,
                         mem_peak,
                         canceled_by,
                         job_dir,
@@ -3843,7 +3830,6 @@ async fn lock_modules(
             &job.id,
             &language,
             &content,
-            logs,
             mem_peak,
             canceled_by,
             job_dir,
@@ -3878,7 +3864,6 @@ async fn lock_modules(
                     path = path,
                     language = ?language,
                     error = ?error,
-                    logs = ?logs,
                     "Failed to generate flow lock for raw script"
                 );
                 e.value = FlowModuleValue::RawScript {
@@ -3903,7 +3888,6 @@ async fn lock_modules(
 async fn lock_modules_app(
     value: Value,
     job: &QueuedJob,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -3929,12 +3913,12 @@ async fn lock_modules_app(
                                 .as_str()
                                 .unwrap_or_default()
                                 .to_string();
+                            let mut logs = "".to_string();
                             logs.push_str("Found lockable inline script. Generating lock...\n");
                             let new_lock = capture_dependency_job(
                                 &job.id,
                                 &language,
                                 &content,
-                                logs,
                                 mem_peak,
                                 canceled_by,
                                 job_dir,
@@ -3950,6 +3934,7 @@ async fn lock_modules_app(
                             .await;
                             match new_lock {
                                 Ok(new_lock) => {
+                                    append_logs(job.id, job.workspace_id.clone(), logs, db).await;
                                     v.insert(
                                         "lock".to_string(),
                                         serde_json::Value::String(new_lock),
@@ -3976,7 +3961,6 @@ async fn lock_modules_app(
                     lock_modules_app(
                         b,
                         job,
-                        logs,
                         mem_peak,
                         canceled_by,
                         job_dir,
@@ -3999,7 +3983,6 @@ async fn lock_modules_app(
                     lock_modules_app(
                         b,
                         job,
-                        logs,
                         mem_peak,
                         canceled_by,
                         job_dir,
@@ -4021,7 +4004,6 @@ async fn lock_modules_app(
 
 async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -4051,7 +4033,6 @@ async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         let value = lock_modules_app(
             value,
             job,
-            logs,
             mem_peak,
             canceled_by,
             job_dir,
@@ -4129,7 +4110,6 @@ async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
     job_raw_code: &str,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -4163,7 +4143,6 @@ async fn capture_dependency_job(
             let req: std::result::Result<String, Error> = pip_compile(
                 job_id,
                 &reqs,
-                logs,
                 mem_peak,
                 canceled_by,
                 job_dir,
@@ -4178,7 +4157,6 @@ async fn capture_dependency_job(
                     req.split("\n").filter(|x| !x.starts_with("--")).collect(),
                     job_id,
                     w_id,
-                    logs,
                     mem_peak,
                     canceled_by,
                     db,
@@ -4190,9 +4168,8 @@ async fn capture_dependency_job(
 
                 if let Err(e) = r {
                     tracing::error!(
-                        "Failed to install python dependencies to prefill the cache: {:?} \n{}",
-                        e,
-                        logs
+                        "Failed to install python dependencies to prefill the cache: {:?} \n",
+                        e
                     );
                 }
             }
@@ -4207,7 +4184,6 @@ async fn capture_dependency_job(
             install_go_dependencies(
                 job_id,
                 job_raw_code,
-                logs,
                 mem_peak,
                 canceled_by,
                 job_dir,
@@ -4229,7 +4205,6 @@ async fn capture_dependency_job(
             generate_deno_lock(
                 job_id,
                 job_raw_code,
-                logs,
                 mem_peak,
                 canceled_by,
                 job_dir,
@@ -4249,7 +4224,6 @@ async fn capture_dependency_job(
                 vec![]
             };
             let req = gen_lockfile(
-                logs,
                 mem_peak,
                 canceled_by,
                 job_id,

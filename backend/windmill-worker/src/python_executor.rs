@@ -23,7 +23,7 @@ use windmill_common::{
 #[cfg(feature = "enterprise")]
 use windmill_common::variables::get_secret_value_as_admin;
 
-use windmill_queue::CanceledBy;
+use windmill_queue::{append_logs, CanceledBy};
 
 lazy_static::lazy_static! {
     static ref PYTHON_PATH: String =
@@ -56,7 +56,7 @@ use windmill_common::s3_helpers::S3_CACHE_BUCKET;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_result, set_logs, start_child_process, write_file,
+        read_result, start_child_process, write_file,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
@@ -95,7 +95,6 @@ pub fn handle_ephemeral_token(x: String) -> String {
 pub async fn pip_compile(
     job_id: &Uuid,
     requirements: &str,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -103,8 +102,8 @@ pub async fn pip_compile(
     worker_name: &str,
     w_id: &str,
 ) -> error::Result<String> {
+    let mut logs = String::new();
     logs.push_str(&format!("\nresolving dependencies..."));
-    set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
     let requirements = if let Some(pip_local_dependencies) =
         WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
@@ -192,10 +191,10 @@ pub async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let child_process = start_child_process(child_cmd, "pip-compile").await?;
+    append_logs(job_id.clone(), w_id.to_string(), logs, db).await;
     handle_child(
         job_id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child_process,
@@ -233,7 +232,6 @@ pub async fn handle_python_job(
     worker_dir: &str,
     worker_name: &str,
     job: &QueuedJob,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -254,14 +252,18 @@ pub async fn handle_python_job(
         db,
         worker_name,
         worker_dir,
-        logs,
         mem_peak,
         canceled_by,
     )
     .await?;
 
-    logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
+    append_logs(
+        job.id.clone(),
+        job.workspace_id.to_string(),
+        "\n\n--- PYTHON CODE EXECUTION ---\n".to_string(),
+        db,
+    )
+    .await;
 
     let (
         import_loader,
@@ -432,7 +434,6 @@ mount {{
     handle_child(
         &job.id,
         db,
-        logs,
         mem_peak,
         canceled_by,
         child,
@@ -627,7 +628,6 @@ async fn handle_python_deps(
     db: &DB,
     worker_name: &str,
     worker_dir: &str,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
 ) -> error::Result<Vec<String>> {
@@ -661,7 +661,6 @@ async fn handle_python_deps(
                 pip_compile(
                     job_id,
                     &requirements,
-                    logs,
                     mem_peak,
                     canceled_by,
                     job_dir,
@@ -685,7 +684,6 @@ async fn handle_python_deps(
                 .collect(),
             job_id,
             w_id,
-            logs,
             mem_peak,
             canceled_by,
             db,
@@ -707,7 +705,6 @@ pub async fn handle_python_reqs(
     requirements: Vec<&str>,
     job_id: &Uuid,
     w_id: &str,
-    logs: &mut String,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -793,8 +790,10 @@ pub async fn handle_python_reqs(
             }
         }
 
-        logs.push_str("\n--- PIP INSTALL ---\n");
-        logs.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
+        let mut logs1 = String::new();
+        logs1.push_str("\n\n--- PIP INSTALL ---\n");
+        logs1.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
+        append_logs(job_id.clone(), w_id.to_string(), logs1, db).await;
 
         tracing::info!(
             worker_name = %worker_name,
@@ -899,7 +898,6 @@ pub async fn handle_python_reqs(
         let child = handle_child(
             &job_id,
             db,
-            logs,
             mem_peak,
             canceled_by,
             child,
@@ -963,7 +961,6 @@ pub async fn start_worker(
     jobs_rx: Receiver<Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
-    let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     let context = variables::get_reserved_variables(
@@ -995,14 +992,10 @@ pub async fn start_worker(
         db,
         worker_name,
         job_dir,
-        &mut logs,
         &mut mem_peak,
         &mut canceled_by,
     )
     .await?;
-
-    logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
-    set_logs(&mut logs, &Uuid::nil(), db).await;
 
     let _args = None;
     let (
@@ -1123,6 +1116,7 @@ for line in sys.stdin:
         token,
         jobs_rx,
         worker_name,
+        db,
     )
     .await
 }
