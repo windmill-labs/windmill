@@ -2716,15 +2716,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         #[cfg(feature = "prometheus")]
         timer.map(|x| x.stop_and_record());
     } else {
-        if job.logs.as_ref().is_some_and(|x| !x.is_empty()) {
-            append_logs(
-                job.id,
-                job.workspace_id.clone(),
-                job.logs.clone().unwrap(),
-                db,
-            )
-            .await;
-        }
         let mut logs = "".to_string();
         let mut mem_peak: i32 = 0;
         let mut canceled_by: Option<CanceledBy> = None;
