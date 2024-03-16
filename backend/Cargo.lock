@@ -1469,9 +1469,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.2"
+version = "4.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b230ab84b0ffdf890d5a10abdbc8b83ae1c4918275daea1ab8801f71536b2651"
+checksum = "949626d00e063efc93b6dca932419ceb5432f99769911c0b995f7e884c778813"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1491,11 +1491,11 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.0"
+version = "4.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "307bc0538d5f0f83b8248db3087aa92fe504e4691294d0c96c0eabc33f47ba47"
+checksum = "90239a040c80f5e14809ca132ddc4176ab33d5e17e49691793296e3fcb34d72f"
 dependencies = [
- "heck",
+ "heck 0.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.52",
@@ -2567,7 +2567,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ffccbb6966c05b32ef8fbac435df276c4ae4d3dc55a8cd0eb9745e6c12f546a"
 dependencies = [
- "heck",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 2.0.52",
@@ -3306,9 +3306,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.3.24"
+version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb2c4422095b67ee78da96fbb51a4cc413b3b25883c7717ff7ca1ab31022c9c9"
+checksum = "4fbd2820c5e49886948654ab546d0688ff24530286bdcf8fca3cefb16d4618eb"
 dependencies = [
  "bytes",
  "fnv",
@@ -3407,6 +3407,12 @@ checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 dependencies = [
  "unicode-segmentation",
 ]
+
+[[package]]
+name = "heck"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hermit-abi"
@@ -4312,7 +4318,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56b0d8a0db9bf6d2213e11f2c701cb91387b0614361625ab7b9743b41aa4938f"
 dependencies = [
  "darling 0.20.8",
- "heck",
+ "heck 0.4.1",
  "num-bigint",
  "proc-macro-crate 1.3.1",
  "proc-macro-error",
@@ -4416,9 +4422,9 @@ dependencies = [
 
 [[package]]
 name = "new_debug_unreachable"
-version = "1.0.4"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4a24736216ec316047a1fc4252e27dabb04218aa4a3f37c6e7ddbf1f9782b54"
+checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nix"
@@ -5706,7 +5712,7 @@ version = "0.3.0"
 source = "git+https://github.com/oxidecomputer/progenitor?rev=3d96016ae8d422e90513b2d34fb5b63eeab30b01#3d96016ae8d422e90513b2d34fb5b63eeab30b01"
 dependencies = [
  "getopts",
- "heck",
+ "heck 0.4.1",
  "http 0.2.12",
  "indexmap 1.9.3",
  "openapiv3",
@@ -5822,9 +5828,9 @@ dependencies = [
 
 [[package]]
 name = "pulp"
-version = "0.18.8"
+version = "0.18.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "091bad01115892393939669b38f88ff2b70838e969a7ac172a9d06d05345a732"
+checksum = "03457ac216146f43f921500bac4e892d5cd32b0479b929cbfc90f95cd6c599c2"
 dependencies = [
  "bytemuck",
  "libm",
@@ -7192,7 +7198,7 @@ version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "990079665f075b699031e9c08fd3ab99be5029b96f3b78dc0709e8f77e4efebf"
 dependencies = [
- "heck",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "syn 1.0.109",
@@ -7413,7 +7419,7 @@ checksum = "5833ef53aaa16d860e92123292f1f6a3d53c34ba8b1969f152ef1a7bb803f3c8"
 dependencies = [
  "dotenvy",
  "either",
- "heck",
+ "heck 0.4.1",
  "hex",
  "once_cell",
  "proc-macro2",
@@ -7639,7 +7645,7 @@ version = "0.25.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23dc1fa9ac9c169a78ba62f0b841814b7abae11bdd047b9c58f893439e309ea0"
 dependencies = [
- "heck",
+ "heck 0.4.1",
  "proc-macro2",
  "quote",
  "rustversion",
@@ -8801,7 +8807,7 @@ version = "0.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34d3bb47587b13edf526d6ed02bf360ecefe083ab47a4ef29fc43112828b2bef"
 dependencies = [
- "heck",
+ "heck 0.4.1",
  "log",
  "proc-macro2",
  "quote",
@@ -9408,7 +9414,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9445,7 +9451,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9520,7 +9526,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9538,7 +9544,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9551,7 +9557,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9586,7 +9592,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9601,7 +9607,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9609,7 +9615,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9620,7 +9626,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9632,7 +9638,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9643,7 +9649,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9654,7 +9660,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9671,7 +9677,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9682,7 +9688,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9700,7 +9706,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9718,7 +9724,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9751,7 +9757,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.291.4"
+version = "1.292.0"
 dependencies = [
  "anyhow",
  "async-recursion",
