@@ -8,7 +8,6 @@
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
 	import { WORKER_S3_BUCKET_SYNC_SETTING } from '$lib/consts'
@@ -118,33 +117,6 @@
 	>
 		{#if $superadmin}
 			<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
-				<div class="flex gap-2 items-center">
-					<Toggle
-						checked={globalCache}
-						on:change={async (e) => {
-							try {
-								console.log('Setting global cache to', e.detail)
-								await SettingService.setGlobal({
-									key: WORKER_S3_BUCKET_SYNC_SETTING,
-									requestBody: { value: e.detail }
-								})
-								globalCache = e.detail
-							} catch (err) {
-								sendUserToast(`Could not set global cache: ${err}`, true)
-							}
-						}}
-						options={{ right: 'global cache to s3' }}
-						size="sm"
-						disabled={!$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
-					/>
-					<Tooltip
-						><p
-							>global cache to s3 is an enterprise feature that enable workers to do fast cold start
-							and share a single cache backed by s3 for pip dependencies.
-						</p>require S3_CACHE_BUCKET to be set and has NO effect otherwise (even if this setting
-						is on)</Tooltip
-					>
-				</div>
 				<div
 					><AssignableTags
 						on:refresh={() => {
