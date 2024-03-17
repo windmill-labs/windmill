@@ -12,6 +12,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
+    worker::CLOUD_HOSTED,
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy};
@@ -61,7 +62,7 @@ pub async fn handle_go_job(
                 .unwrap_or_default()
         ))
     );
-    let bin_exists = tokio::fs::metadata(&bin_path).await.is_ok();
+    let bin_exists = !*CLOUD_HOSTED && tokio::fs::metadata(&bin_path).await.is_ok();
 
     let (skip_go_mod, skip_tidy) = if bin_exists {
         create_dir(job_dir).await?;
@@ -208,16 +209,18 @@ func Run(req Req) (interface{{}}, error){{
         )
         .await?;
 
-        create_dir(&bin_path).await?;
-        let target = format!("{bin_path}/main");
-        tokio::fs::copy(format!("{job_dir}/main"), &target).await?;
-        append_logs(
-            job.id.clone(),
-            job.workspace_id.to_string(),
-            format!("write cached binary: {}\n", bin_path),
-            db,
-        )
-        .await;
+        if !*CLOUD_HOSTED {
+            create_dir(&bin_path).await?;
+            let target = format!("{bin_path}/main");
+            tokio::fs::copy(format!("{job_dir}/main"), &target).await?;
+            append_logs(
+                job.id.clone(),
+                job.workspace_id.to_string(),
+                format!("write cached binary: {}\n", bin_path),
+                db,
+            )
+            .await;
+        }
     } else {
         let path = format!("{bin_path}/main");
         let mut logs2 = "".to_string();
