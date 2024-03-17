@@ -10,13 +10,14 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:openidconnect"]
 stripe = ["dep:async-stripe"]
 enterprise_saml = ["dep:samael"]
 benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
 parquet = ["dep:polars", "dep:polars-io", "dep:object_store", "windmill-common/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
+openidconnect = ["dep:openidconnect"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -85,7 +86,7 @@ candle-nn = { workspace = true, optional = true}
 polars = { workspace = true, optional = true}
 polars-io = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
-openidconnect = { workspace = true}
+openidconnect = { workspace = true, optional = true}
 pin-project.workspace = true
 crc.workspace = true
 
