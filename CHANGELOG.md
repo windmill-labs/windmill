@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.292.1](https://github.com/windmill-labs/windmill/compare/v1.292.0...v1.292.1) (2024-03-17)
+
+
+### Bug Fixes
+
+* disapproval does not trigger flow error handler anymore ([e0235d9](https://github.com/windmill-labs/windmill/commit/e0235d9e9eb79fcdea37426368364db7958dce0c))
+* improve default value for approval flows ([5fca9e8](https://github.com/windmill-labs/windmill/commit/5fca9e8188179bb06aed4da60b8cac42a2f15eb3))
+
 ## [1.292.0](https://github.com/windmill-labs/windmill/compare/v1.291.4...v1.292.0) (2024-03-16)
 
 
