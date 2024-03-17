@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.292.2](https://github.com/windmill-labs/windmill/compare/v1.292.1...v1.292.2) (2024-03-17)
+
+
+### Bug Fixes
+
+* allow multiple PIP_SECRETS ([ca88047](https://github.com/windmill-labs/windmill/commit/ca88047312352a9e594697c234ca0bea53029d97))
+* **cli:** fix summary clash ([fcb6f17](https://github.com/windmill-labs/windmill/commit/fcb6f174e63e9e42cc4afc35db659da47af08a7e))
+
 ## [1.292.1](https://github.com/windmill-labs/windmill/compare/v1.292.0...v1.292.1) (2024-03-17)
 
 
