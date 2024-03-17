@@ -368,7 +368,7 @@ mod suspend_resume {
         server.close().await.unwrap();
 
         assert_eq!(
-            json!({"error": {"name": "Canceled", "reason": "approval request disapproved", "message": "Job canceled: approval request disapproved by ruben", "canceler": "ruben"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by None"}}),
             result
         );
     }
@@ -428,7 +428,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.json_result().unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "Canceled", "reason": "approval request disapproved", "message": "Job canceled: approval request disapproved by unknown", "canceler": "unknown"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by Some(\"ruben\")"}}),
             result
         );
     }
