@@ -1,4 +1,3 @@
-pub const WORKER_S3_BUCKET_SYNC: &str = "worker_s3_bucket_sync";
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const BASE_URL_SETTING: &str = "base_url";

@@ -34,8 +34,7 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_py_imports::parse_relative_imports;
 
 use uuid::Uuid;
-#[cfg(feature = "enterprise")]
-use windmill_common::ee::{get_license_plan, LicensePlan};
+
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue},
@@ -58,9 +57,6 @@ use windmill_queue::{
 
 #[cfg(feature = "prometheus")]
 use windmill_queue::register_metric;
-
-#[cfg(feature = "enterprise")]
-use windmill_common::s3_helpers::S3_CACHE_BUCKET;
 
 use serde_json::{json, value::RawValue, Value};
 
@@ -85,9 +81,6 @@ use futures::future::FutureExt;
 use async_recursion::async_recursion;
 
 use rand::Rng;
-
-#[cfg(feature = "enterprise")]
-use crate::global_cache::{copy_all_piptars_from_bucket, untar_all_piptars};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -938,20 +931,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     #[cfg(feature = "prometheus")]
     if let Some(ws) = WORKER_STARTED.as_ref() {
         ws.inc();
-    }
-
-    #[cfg(feature = "enterprise")]
-    if i_worker == 1 {
-        if let Some(bucket) = S3_CACHE_BUCKET.read().await.clone() {
-            if matches!(get_license_plan().await, LicensePlan::Pro) {
-                tracing::warn!("S3 cache not available in the pro plan");
-            } else if crate::global_cache::worker_s3_bucket_sync_enabled(&db).await {
-                copy_all_piptars_from_bucket(&bucket).await;
-                if let Err(e) = untar_all_piptars().await {
-                    tracing::error!("Failed to untar pip tarballs: {:?}", e);
-                }
-            }
-        }
     }
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
