@@ -17,6 +17,7 @@
 
 	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
 
+	let defaultValues = {}
 	$: job && getDefaultArgs()
 
 	async function getDefaultArgs() {
@@ -28,7 +29,10 @@
 			workspace: workspaceId ?? $workspaceStore ?? '',
 			id: jobId
 		})
-		default_payload = job_result?.default_args ?? {}
+		const args = job_result?.default_args ?? {}
+		defaultValues = JSON.parse(JSON.stringify(args))
+		default_payload = args
+
 		enum_payload = job_result?.enums ?? {}
 		resumeUrl = job_result?.['resume']
 	}
@@ -93,6 +97,7 @@
 					<div class="w-full border rounded-lg p-2">
 						<LightweightSchemaForm
 							bind:args={default_payload}
+							{defaultValues}
 							schema={mergeSchema(
 								job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
 								enum_payload
