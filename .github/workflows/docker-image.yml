@@ -73,7 +73,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet
+            features=embedding,parquet,openidconnect
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
             ${{ steps.meta-public.outputs.tags }}
@@ -135,7 +135,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect
             nsjail=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
