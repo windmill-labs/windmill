@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
 
       # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
+      #   uses: docker/setup-buildx-action@v3
       - uses: depot/setup-action@v1
 
       - name: Login to registry
@@ -152,7 +152,7 @@ jobs:
         with:
           fetch-depth: 0
       # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
+      #   uses: docker/setup-buildx-action@v3
 
       - uses: depot/setup-action@v1
 
@@ -324,7 +324,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to ECR
         if: github.event_name != 'pull_request'
