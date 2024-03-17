@@ -572,7 +572,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         let module = get_module(&flow_job, module_index);
 
         // tracing::error!(
-        //     "UPDATE FLOW STATUS 3: {module:#?} {skip_failure} {is_last_step} {success}"
+        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler}", flow_job.canceled
         // );
         let should_continue_flow = match success {
             _ if stop_early => false,
@@ -1145,6 +1145,7 @@ pub struct MergeArgs<'a> {
 pub struct ResumeRow {
     pub value: Json<Box<RawValue>>,
     pub approver: Option<String>,
+    pub approved: bool,
     pub resume_id: i32,
 }
 
@@ -1359,7 +1360,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .context("lock flow in queue")?;
 
             let resumes = sqlx::query(
-                "SELECT value, approver, resume_id FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
             )
             .bind(last)
             .fetch_all(&mut *tx)
@@ -1443,7 +1444,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .await?;
             }
 
-            if resume_messages.len() >= required_events as usize {
+            let is_disapproved = resumes
+                .iter()
+                .find(|x| x.as_ref().is_ok_and(|x| !x.approved));
+            if is_disapproved.is_none() && resume_messages.len() >= required_events as usize {
                 sqlx::query(
                     "UPDATE queue
                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
@@ -1482,7 +1486,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             } else if matches!(
                 &status_module,
                 FlowStatusModule::WaitingForPriorSteps { .. }
-            ) {
+            ) && is_disapproved.is_none()
+            {
                 sqlx::query(
                     "UPDATE queue SET 
                         flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step'::text], $1), 
@@ -1514,53 +1519,42 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             } else {
                 tx.commit().await?;
 
-                let success = false;
-                let skipped = false;
+                let (logs, error_name) = if let Some(disapprover) = is_disapproved {
+                    (
+                        format!(
+                            "Disapproved by {:?}",
+                            disapprover.as_ref().unwrap().approver
+                        ),
+                        "SuspendedDisapproved",
+                    )
+                } else {
+                    (
+                        "Timed out waiting to be resumed".to_string(),
+                        "SuspendedTimedOut",
+                    )
+                };
 
-                let logs = "Timed out waiting to be resumed".to_string();
+                let result: Value = json!({ "error": {"message": logs, "name": error_name}});
+
                 append_logs(flow_job.id, flow_job.workspace_id.clone(), logs.clone(), db).await;
 
-                let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
-                let canceled_by = if flow_job.canceled {
-                    Some(CanceledBy {
-                        username: flow_job.canceled_by.clone(),
-                        reason: flow_job.canceled_reason.clone(),
+                job_completed_tx
+                    .send(SendResult::UpdateFlow {
+                        flow: flow_job.id,
+                        success: false,
+                        result: to_raw_value(&result),
+                        stop_early_override: None,
+                        w_id: flow_job.workspace_id.clone(),
+                        worker_dir: worker_dir.to_string(),
+                        token: client.token.clone(),
                     })
-                } else {
-                    None
-                };
-                let _uuid = add_completed_job(
-                    db,
-                    &flow_job,
-                    success,
-                    skipped,
-                    Json(&result),
-                    0,
-                    canceled_by,
-                    rsmq.clone(),
-                    false,
-                )
-                .await?;
-                if flow_job.is_flow_step {
-                    if let Some(parent_job) = flow_job.parent_job {
-                        job_completed_tx
-                            .send(SendResult::UpdateFlow {
-                                flow: parent_job,
-                                success: true,
-                                result: to_raw_value(&result),
-                                stop_early_override: Some(true),
-                                w_id: flow_job.workspace_id.clone(),
-                                worker_dir: worker_dir.to_string(),
-                                token: client.token.clone(),
-                            })
-                            .await
-                            .map_err(|e| {
-                                Error::InternalErr(format!(
-                                "error sending update flow message to job completed channel: {e}"
-                            ))
-                            })?;
-                    }
-                }
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!(
+                            "error sending update flow message to job completed channel: {e}"
+                        ))
+                    })?;
+
                 return Ok(());
             }
         }
