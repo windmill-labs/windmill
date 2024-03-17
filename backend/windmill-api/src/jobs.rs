@@ -1142,7 +1142,16 @@ pub async fn resume_suspended_flow_as_owner(
         &flow.script_path.clone().unwrap_or_else(|| String::new()),
     )?;
 
-    insert_resume_job(0, job_id, &flow, value, Some(authed.username), &mut tx).await?;
+    insert_resume_job(
+        0,
+        job_id,
+        &flow,
+        value,
+        Some(authed.username),
+        true,
+        &mut tx,
+    )
+    .await?;
 
     resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
 
@@ -1157,6 +1166,23 @@ pub async fn resume_suspended_job(
     Query(approver): Query<QueryApprover>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
+    resume_suspended_job_internal(
+        value, db, w_id, job_id, resume_id, approver, secret, authed, true,
+    )
+    .await
+}
+
+async fn resume_suspended_job_internal(
+    value: Option<serde_json::Value>,
+    db: sqlx::Pool<Postgres>,
+    w_id: String,
+    job_id: Uuid,
+    resume_id: u32,
+    approver: QueryApprover,
+    secret: String,
+    authed: Option<ApiAuthed>,
+    approved: bool,
+) -> Result<StatusCode, Error> {
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
     let key = get_workspace_key(&w_id, &mut tx).await?;
@@ -1209,13 +1235,32 @@ pub async fn resume_suspended_job(
         job_id,
         &parent_flow_info,
         value,
-        approver,
+        approver.clone(),
+        approved,
         &mut tx,
     )
     .await?;
 
-    resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
-
+    if !approved {
+        sqlx::query!(
+            "UPDATE queue SET suspend = 0 WHERE id = $1",
+            parent_flow_info.id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
+    }
+    audit_log(
+        &mut *tx,
+        &approver.unwrap_or_else(|| "anonymous".to_string()),
+        "jobs.approved",
+        ActionKind::Update,
+        &w_id,
+        Some(&job_id.to_string()),
+        None,
+    )
+    .await?;
     tx.commit().await?;
     Ok(StatusCode::CREATED)
 }
@@ -1259,20 +1304,22 @@ async fn insert_resume_job<'c>(
     flow: &FlowInfo,
     value: serde_json::Value,
     approver: Option<String>,
+    approved: bool,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
     sqlx::query!(
         r#"
         INSERT INTO resume_job
-                    (id, resume_id, job, flow, value, approver)
-             VALUES ($1, $2, $3, $4, $5, $6)
+                    (id, resume_id, job, flow, value, approver, approved)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
         resume_id as i32,
         job_id,
         flow.id,
         value,
-        approver
+        approver,
+        approved
     )
     .execute(&mut **tx)
     .await?;
@@ -1342,64 +1389,14 @@ async fn get_suspended_flow_info<'c>(
 pub async fn cancel_suspended_job(
     authed: Option<ApiAuthed>,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
-    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
-) -> error::Result<String> {
-    let mut tx = db.begin().await?;
-    let key = get_workspace_key(&w_id, &mut tx).await?;
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
-    mac.update(job.as_bytes());
-    mac.update(resume_id.to_be_bytes().as_ref());
-    if let Some(approver) = approver.approver.clone() {
-        mac.update(approver.as_bytes());
-    }
-    mac.verify_slice(hex::decode(secret)?.as_ref())
-        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-
-    let whom = approver.approver.unwrap_or_else(|| "unknown".to_string());
-    let parent_flow_id = get_suspended_parent_flow_info(job, &mut tx).await?.id;
-
-    let parent_flow = get_job_internal(&db, w_id.as_str(), parent_flow_id).await?;
-    let flow_status = parent_flow
-        .flow_status()
-        .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
-    let trigger_email = match &parent_flow {
-        Job::CompletedJob(job) => &job.email,
-        Job::QueuedJob(job) => &job.email,
-    };
-    conditionally_require_authed_user(authed, flow_status, trigger_email)?;
-
-    let (mut tx, cjob) = windmill_queue::cancel_job(
-        &whom,
-        Some("approval request disapproved".to_string()),
-        parent_flow_id,
-        &w_id,
-        tx,
-        &db,
-        rsmq,
-        false,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+) -> error::Result<StatusCode> {
+    resume_suspended_job_internal(
+        value, db, w_id, job_id, resume_id, approver, secret, authed, false,
     )
-    .await?;
-    if cjob.is_some() {
-        audit_log(
-            &mut *tx,
-            &whom,
-            "jobs.disapproval",
-            ActionKind::Delete,
-            &w_id,
-            Some(&parent_flow_id.to_string()),
-            None,
-        )
-        .await?;
-        tx.commit().await?;
-
-        Ok(format!("Flow {parent_flow_id} of job {job} cancelled"))
-    } else {
-        Ok(format!(
-            "Flow {parent_flow_id} of job {job} was not cancellable"
-        ))
-    }
+    .await
 }
 
 #[derive(Serialize)]
