@@ -595,24 +595,36 @@ async fn replace_pip_secret(
     job_id: &Uuid,
 ) -> error::Result<String> {
     if PIP_SECRET_VARIABLE.is_match(req) {
-        let capture = PIP_SECRET_VARIABLE.captures(req);
-        let variable = capture.unwrap().get(1).unwrap().as_str();
-        if !variable.contains("/PIP_SECRET_") {
-            return Err(error::Error::InternalErr(format!(
-                "invalid secret variable in pip requirements, (last part of path ma): {}",
-                req
-            )));
+        let mut joined = "".to_string();
+        for req in req.lines() {
+            let nreq = if PIP_SECRET_VARIABLE.is_match(req) {
+                let capture = PIP_SECRET_VARIABLE.captures(req);
+                let variable = capture.unwrap().get(1).unwrap().as_str();
+                if !variable.contains("/PIP_SECRET_") {
+                    return Err(error::Error::InternalErr(format!(
+                        "invalid secret variable in pip requirements, (last part of path ma): {}",
+                        req
+                    )));
+                }
+                let secret = get_secret_value_as_admin(db, w_id, variable).await?;
+                tracing::info!(
+                    worker_name = %worker_name,
+                    job_id = %job_id,
+                    workspace_id = %w_id,
+                    "found secret variable in pip requirements: {}",
+                    req
+                );
+                PIP_SECRET_VARIABLE
+                    .replace(req, secret.as_str())
+                    .to_string()
+            } else {
+                req.to_string()
+            };
+            joined.push_str(&nreq);
+            joined.push_str("\n");
         }
-        let secret = get_secret_value_as_admin(db, w_id, variable).await?;
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job_id,
-            workspace_id = %w_id,
-            "found secret variable in pip requirements: {}",
-            req
-        );
-        let req = PIP_SECRET_VARIABLE.replace(req, secret.as_str());
-        Ok(req.to_string())
+
+        Ok(joined)
     } else {
         Ok(req.to_string())
     }
