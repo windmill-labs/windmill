@@ -132,17 +132,23 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       language: RawScript.language
     ): string {
       let name;
-      if (summary && summary != "" && !seen_names.has(summary)) {
-        name = summary.toLowerCase().replaceAll(" ", "_");
-        seen_names.add(name);
-      } else {
-        name = `inline_script_${counter}`;
-        while (seen_names.has(name)) {
-          counter++;
-          name = `inline_script_${counter}`;
-        }
-        seen_names.add(name);
+
+      const INLINE_SCRIPT = "inline_script";
+      name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+
+      let original_name = name;
+
+      if (name == "") {
+        original_name = INLINE_SCRIPT;
+        name = `${INLINE_SCRIPT}_0`;
       }
+
+      while (seen_names.has(name)) {
+        counter++;
+        name = `${original_name}_${counter}`;
+      }
+      seen_names.add(name);
+
       let ext;
       if (language == "python3") ext = "py";
       else if (language == "deno") ext = "ts";
