@@ -365,8 +365,10 @@
 									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
 										{#if hiddenColumns.includes(key)}
 											...
+										{:else if Array.isArray(value) && value.length === 0}
+											<div class="flex flex-row gap-1 w-full flex-wrap" />
 										{:else if Array.isArray(value) && typeof value[0] === 'string'}
-											<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-80">
+											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
 												{#each value as item, index}
 													<Badge
 														color={darkMode
@@ -377,11 +379,21 @@
 													</Badge>
 												{/each}
 											</div>
-										{:else if Array.isArray(value)}
-											<div class="flex flex-row gap-1 w-full max-w-80 flex-wrap min-w-96">
+										{:else if Array.isArray(value) && typeof value[0] === 'number'}
+											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
 												{#each value as val}
 													<div
-														class="p-2 bg-surface-secondary rounded-md text-2xs max-w-96 text-wrap whitespace-pre-wrap flex flex-grow w-max overflow-hidden"
+														class="p-2 bg-surface-secondary rounded-md text-2xs text-wrap whitespace-pre-wrap flex flex-grow w-max overflow-hidden"
+													>
+														{JSON.stringify(val, null, 2)}
+													</div>
+												{/each}
+											</div>
+										{:else if Array.isArray(value)}
+											<div class="flex flex-row gap-1 w-full flex-wrap min-w-96">
+												{#each value as val}
+													<div
+														class="p-2 bg-surface-secondary rounded-md text-2xs text-wrap whitespace-pre-wrap flex flex-grow w-max overflow-hidden"
 													>
 														{JSON.stringify(val, null, 2)}
 													</div>
