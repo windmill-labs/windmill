@@ -92,6 +92,7 @@
 	"type": "module",
 	"dependencies": {
 		"@aws-crypto/sha256-js": "^4.0.0",
+		"@json2csv/plainjs": "^7.0.6",
 		"@leeoniya/ufuzzy": "^1.0.8",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
