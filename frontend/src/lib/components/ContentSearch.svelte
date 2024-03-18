@@ -12,6 +12,7 @@
 	import { Alert, Button } from './common'
 	import { goto } from '$app/navigation'
 	import YAML from 'yaml'
+	import { onMount } from 'svelte';
 
 	let search: string = ''
 
@@ -41,7 +42,14 @@
 
 	let searchKind: 'all' | 'scripts' | 'flows' | 'apps' | 'resources' = 'all'
 
-	let isOpen = false
+	let isOpen = false;
+    let inputElement;
+
+    // Reactive statement to focus the input when the modal opens
+    $: if (isOpen && inputElement) {
+        // Use a timeout to ensure focus after any animations or rendering
+        setTimeout(() => inputElement.focus(), 0);
+    }
 
 	let scripts: undefined | { path: string; content: string }[] = undefined
 	let filteredScriptItems: { path: string; content: string; marked: any }[] = []
@@ -87,6 +95,14 @@
 					flows: getCounts(filteredFlowItems.length),
 					scripts: getCounts(filteredScriptItems.length)
 			  }
+
+	onMount(() => {
+    if (isOpen) {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) searchInput.focus();
+    }
+});
+
 </script>
 
 <SearchItems
@@ -194,8 +210,8 @@
 						<div class="relative text-tertiary grow min-w-[100px]">
 							<!-- svelte-ignore a11y-autofocus -->
 							<input
-								autofocus
-								placeholder={'Search in the content of resources, scripts, flows and apps'}
+								bind:this={inputElement}
+								placeholder="Search in the content of resources, scripts, flows and apps"
 								bind:value={search}
 								class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 							/>
