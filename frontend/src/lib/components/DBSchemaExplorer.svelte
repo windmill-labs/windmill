@@ -93,7 +93,7 @@
 				</ToggleButtonGroup>
 			{/if}
 			{#if dbSchema.lang === 'graphql'}
-				<GraphqlSchemaViewer code={formatGraphqlSchema(dbSchema)} class="h-full" />
+				<GraphqlSchemaViewer code={formatGraphqlSchema(dbSchema.schema)} class="h-full" />
 			{:else}
 				<ObjectViewer json={formatSchema(dbSchema)} pureViewer collapseLevel={1} />
 			{/if}

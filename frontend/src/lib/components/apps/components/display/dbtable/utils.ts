@@ -1,7 +1,13 @@
 import { JobService, Preview } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
-import { buildClientSchema, getIntrospectionQuery, printSchema } from 'graphql'
+import {
+	buildClientSchema,
+	getIntrospectionQuery,
+	printSchema,
+	type IntrospectionQuery
+} from 'graphql'
 import { tryEvery } from '$lib/utils'
+import { stringifySchema } from '$lib/components/copilot/lib'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -442,10 +448,14 @@ export async function getDbSchemas(
 								const schema =
 									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
 
-								dbSchemas[resourcePath] = {
+								const dbSchema = {
 									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 									schema,
 									publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
+								}
+								dbSchemas[resourcePath] = {
+									...dbSchema,
+									stringified: stringifySchema(dbSchema)
 								}
 							} else {
 								if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
@@ -453,9 +463,13 @@ export async function getDbSchemas(
 
 									errorCallback('Invalid GraphQL schema')
 								} else {
-									dbSchemas[resourcePath] = {
-										lang: 'graphql',
+									const dbSchema = {
+										lang: 'graphql' as GraphqlSchema['lang'],
 										schema: testResult.result
+									}
+									dbSchemas[resourcePath] = {
+										...dbSchema,
+										stringified: stringifySchema(dbSchema)
 									}
 								}
 							}
@@ -486,18 +500,20 @@ export async function getDbSchemas(
 	})
 }
 
-export function formatSchema(dbSchema: DBSchema) {
-	if (dbSchema.lang !== 'graphql' && dbSchema.publicOnly) {
+export function formatSchema(dbSchema: {
+	lang: SQLSchema['lang']
+	schema: SQLSchema['schema']
+	publicOnly: SQLSchema['publicOnly']
+}) {
+	if (dbSchema.publicOnly) {
 		return dbSchema.schema.public || dbSchema.schema.PUBLIC || dbSchema.schema.dbo || dbSchema
-	} else if (dbSchema.lang === 'mysql' && Object.keys(dbSchema.schema).length === 1) {
-		return dbSchema.schema[Object.keys(dbSchema.schema)[0]]
 	} else {
 		return dbSchema.schema
 	}
 }
 
-export function formatGraphqlSchema(dbSchema: GraphqlSchema): string {
-	return printSchema(buildClientSchema(dbSchema.schema))
+export function formatGraphqlSchema(schema: IntrospectionQuery): string {
+	return printSchema(buildClientSchema(schema))
 }
 
 export function getFieldType(type: string, databaseType: DbType) {

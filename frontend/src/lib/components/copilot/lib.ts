@@ -2,7 +2,7 @@ import { OpenAI } from 'openai'
 import { OpenAPI, ResourceService, Script } from '../../gen'
 import type { Writable } from 'svelte/store'
 
-import type { DBSchema } from '$lib/stores'
+import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { formatResourceTypes } from './utils'
 
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
@@ -147,6 +147,51 @@ export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: st
 	return prompt
 }
 
+export const MAX_SCHEMA_LENGTH = 100000 * 3.5
+
+export function addThousandsSeparator(n: number) {
+	return n.toFixed().replace(/\B(?=(\d{3})+(?!\d))/g, "'")
+}
+
+export function stringifySchema(
+	dbSchema: Omit<SQLSchema, 'stringified'> | Omit<GraphqlSchema, 'stringified'>
+) {
+	const { schema, lang } = dbSchema
+	if (lang === 'graphql') {
+		let graphqlSchema = printSchema(buildClientSchema(schema))
+		return graphqlSchema
+	} else {
+		let smallerSchema: {
+			[schemaKey: string]: {
+				[tableKey: string]: Array<[string, string, boolean, string?]>
+			}
+		} = {}
+		for (const schemaKey in schema) {
+			smallerSchema[schemaKey] = {}
+			for (const tableKey in schema[schemaKey]) {
+				smallerSchema[schemaKey][tableKey] = []
+				for (const colKey in schema[schemaKey][tableKey]) {
+					const col = schema[schemaKey][tableKey][colKey]
+					const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
+					if (col.default) {
+						p.push(col.default)
+					}
+					smallerSchema[schemaKey][tableKey].push(p)
+				}
+			}
+		}
+
+		let finalSchema: typeof smallerSchema | (typeof smallerSchema)['schemaKey'] = smallerSchema
+		if (dbSchema.publicOnly) {
+			finalSchema =
+				smallerSchema.public || smallerSchema.PUBLIC || smallerSchema.dbo || smallerSchema
+		} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
+			finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
+		}
+		return JSON.stringify(finalSchema)
+	}
+}
+
 function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 	const { dbSchema, language } = scriptOptions
 	if (
@@ -154,46 +199,20 @@ function addDBSChema(scriptOptions: CopilotOptions, prompt: string) {
 		['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(language) && // make sure we are using a SQL/query language
 		language === dbSchema.lang // make sure we are using the same language as the schema
 	) {
-		const { schema, lang } = dbSchema
-		if (lang === 'graphql') {
-			const graphqlSchema = printSchema(buildClientSchema(schema))
-			prompt =
-				prompt +
-				'\nHere is the GraphQL schema: <schema>\n' +
-				JSON.stringify(graphqlSchema) +
-				'\n</schema>'
-		} else {
-			let smallerSchema: {
-				[schemaKey: string]: {
-					[tableKey: string]: Array<[string, string, boolean, string?]>
-				}
-			} = {}
-			for (const schemaKey in schema) {
-				smallerSchema[schemaKey] = {}
-				for (const tableKey in schema[schemaKey]) {
-					smallerSchema[schemaKey][tableKey] = []
-					for (const colKey in schema[schemaKey][tableKey]) {
-						const col = schema[schemaKey][tableKey][colKey]
-						const p: [string, string, boolean, string?] = [colKey, col.type, col.required]
-						if (col.default) {
-							p.push(col.default)
-						}
-						smallerSchema[schemaKey][tableKey].push(p)
-					}
-				}
+		let { stringified } = dbSchema
+		if (dbSchema.lang === 'graphql') {
+			if (stringified.length > MAX_SCHEMA_LENGTH) {
+				stringified = stringified.slice(0, MAX_SCHEMA_LENGTH) + '...'
 			}
-
-			let finalSchema: typeof smallerSchema | (typeof smallerSchema)['schemaKey'] = smallerSchema
-			if (dbSchema.publicOnly) {
-				finalSchema =
-					smallerSchema.public || smallerSchema.PUBLIC || smallerSchema.dbo || smallerSchema
-			} else if (lang === 'mysql' && Object.keys(smallerSchema).length === 1) {
-				finalSchema = smallerSchema[Object.keys(smallerSchema)[0]]
+			prompt = prompt + '\nHere is the GraphQL schema: <schema>\n' + stringified + '\n</schema>'
+		} else {
+			if (stringified.length > MAX_SCHEMA_LENGTH) {
+				stringified = stringified.slice(0, MAX_SCHEMA_LENGTH) + '...'
 			}
 			prompt =
 				prompt +
 				"\nHere's the database schema, each column is in the format [name, type, required, default?]: <dbschema>\n" +
-				JSON.stringify(finalSchema) +
+				stringified +
 				'\n</dbschema>'
 		}
 	}

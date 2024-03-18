@@ -80,7 +80,9 @@ pub async fn do_graphql(
     }));
 
     if let Some(token) = &api.bearer_token {
-        request = request.bearer_auth(token.as_str());
+        if token.len() > 0 {
+            request = request.bearer_auth(token.as_str());
+        }
     }
 
     if let Some(headers) = &api.custom_headers {
