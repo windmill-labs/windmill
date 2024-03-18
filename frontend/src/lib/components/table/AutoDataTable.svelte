@@ -119,10 +119,9 @@
 		)
 	}
 
-	function convertJsonToCsv(arr: Array<Record<string, any>>) {
+	function convertJsonToCsv(arr: Array<Record<string, any>>): string {
 		try {
-			const opts = {}
-			const parser = new Parser(opts)
+			const parser = new Parser({})
 			const csv = parser.parse(arr)
 			return csv
 		} catch (err) {
