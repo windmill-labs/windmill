@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '../common'
 
-	import { SUPPORTED_LANGUAGES, copilot } from './lib'
+	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
@@ -19,10 +19,20 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Ban, Bot, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		Ban,
+		Bot,
+		Check,
+		ExternalLink,
+		HistoryIcon,
+		Wand2,
+		X
+	} from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
+	import Popover from '../Popover.svelte'
 
 	// props
 	export let iconOnly: boolean = false
@@ -406,13 +416,24 @@
 
 					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(lang) && dbSchema?.lang === lang}
 						<div class="flex flex-row items-center justify-between gap-2 w-96">
-							<div class="flex flex-row items-center">
+							<div class="flex flex-row items-center gap-1">
 								<p class="text-xs text-secondary">
 									Context: {lang === 'graphql' ? 'GraphQL' : 'DB'} schema
 								</p>
-								<Tooltip>
+								<Tooltip placement="top">
 									We pass the selected schema to GPT-4 Turbo for better script generation.
 								</Tooltip>
+								{#if dbSchema.stringified.length > MAX_SCHEMA_LENGTH}
+									<Popover notClickable placement="top">
+										<AlertTriangle size={16} class="text-yellow-500" />
+										<svelte:fragment slot="text">
+											The schema is about {addThousandsSeparator(dbSchema.stringified.length / 3.5)}
+											tokens. To avoid exceeding the model's context length, it will be truncated to
+											{addThousandsSeparator(MAX_SCHEMA_LENGTH / 3.5)}
+											tokens.
+										</svelte:fragment>
+									</Popover>
+								{/if}
 							</div>
 							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
 								<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
