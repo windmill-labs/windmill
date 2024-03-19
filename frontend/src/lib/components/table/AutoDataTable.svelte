@@ -366,7 +366,7 @@
 										{#if hiddenColumns.includes(key)}
 											...
 										{:else if Array.isArray(value) && value.length === 0}
-											<div class="flex flex-row gap-1 w-full flex-wrap" />
+											<div />
 										{:else if Array.isArray(value) && typeof value[0] === 'string'}
 											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
 												{#each value as item, index}
