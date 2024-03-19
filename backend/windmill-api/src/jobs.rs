@@ -3503,7 +3503,6 @@ async fn get_completed_job<'a>(
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     let cj = CompletedJob::from_row(&job)?;
-    tracing::error!("response: {:?}", cj.logs);
 
     let response = Json(cj).into_response();
     // let extra_log = query_scalar!(
