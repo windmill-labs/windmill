@@ -10,8 +10,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
-	import { WORKER_S3_BUCKET_SYNC_SETTING } from '$lib/consts'
-	import { WorkerService, type WorkerPing, SettingService, ConfigService } from '$lib/gen'
+	import { WorkerService, type WorkerPing, ConfigService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
@@ -24,7 +23,6 @@
 	let intervalId: NodeJS.Timeout | undefined
 
 	const splitter = '_%%%_'
-	let globalCache = false
 	let customTags: string[] | undefined = undefined
 
 	$: groupedWorkers = groupBy(
@@ -80,17 +78,6 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
-	$: if ($superadmin) {
-		loadGlobalCache()
-	}
-
-	async function loadGlobalCache() {
-		try {
-			globalCache = (await SettingService.getGlobal({ key: WORKER_S3_BUCKET_SYNC_SETTING })) ?? true
-		} catch (err) {
-			sendUserToast(`Could not load global cache: ${err}`, true)
-		}
-	}
 
 	onDestroy(() => {
 		if (intervalId) {
