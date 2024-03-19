@@ -14,14 +14,14 @@
 	import DataTable from './DataTable.svelte'
 	import Head from './Head.svelte'
 	import Row from './Row.svelte'
-	import { pluralize } from '$lib/utils'
+	import { pluralize, sendUserToast } from '$lib/utils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { isEmail, isLink } from './tableUtils'
 	import type { BadgeColor } from '../common'
 	import Popover from '../Popover.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import Button from '../common/button/Button.svelte'
-
+	import { Parser } from '@json2csv/plainjs'
 	export let objects: Array<Record<string, any>> = []
 
 	let currentPage = 1
@@ -118,6 +118,16 @@
 			typeof objects[0][key] === 'boolean'
 		)
 	}
+
+	function convertJsonToCsv(arr: Array<Record<string, any>>): string {
+		try {
+			const parser = new Parser({})
+			const csv = parser.parse(arr)
+			return csv
+		} catch (err) {
+			throw new Error('An error occured when generating CSV:' + err)
+		}
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -157,39 +167,32 @@
 					color="light"
 					startIcon={{ icon: Download }}
 					on:click={() => {
-						const headers =
-							structuredObjects.length > 0
-								? Object.keys(structuredObjects[0].rowData).join(',')
-								: ''
-						const csvContent = [
-							headers, // Add headers as the first row
-							...structuredObjects
-								.filter(({ _id }) => {
-									if (selection.length > 0) {
-										return selection.includes(_id)
-									} else {
-										return true
-									}
-								})
-								.map(({ rowData }) =>
-									Object.values(rowData)
-										.map((field) =>
-											/[\",\n]/.test(field) ? '"' + field.replace(/"/g, '""') + '"' : field
-										)
-										.join(',')
-								)
-						].join('\n')
+						try {
+							const csvContent = convertJsonToCsv(
+								structuredObjects
+									.filter(({ _id }) => {
+										if (selection.length > 0) {
+											return selection.includes(_id)
+										} else {
+											return true
+										}
+									})
+									.map((obj) => obj.rowData)
+							)
 
-						const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-						const url = URL.createObjectURL(blob)
-						const link = document.createElement('a')
-						link.setAttribute('href', url)
-						link.setAttribute('download', 'data.csv')
-						link.style.visibility = 'hidden'
-						document.body.appendChild(link)
-						link.click()
+							const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+							const url = URL.createObjectURL(blob)
+							const link = document.createElement('a')
+							link.setAttribute('href', url)
+							link.setAttribute('download', 'data.csv')
+							link.style.visibility = 'hidden'
+							document.body.appendChild(link)
+							link.click()
 
-						document.body.removeChild(link)
+							document.body.removeChild(link)
+						} catch (err) {
+							sendUserToast(err, true)
+						}
 					}}
 				>
 					{#if selection.length > 0}
