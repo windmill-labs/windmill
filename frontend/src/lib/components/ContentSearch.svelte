@@ -43,13 +43,13 @@
 	let searchKind: 'all' | 'scripts' | 'flows' | 'apps' | 'resources' = 'all'
 
 	let isOpen = false;
-    let inputElement;
+    	let inputElement;
 
-    // Reactive statement to focus the input when the modal opens
-    $: if (isOpen && inputElement) {
-        // Use a timeout to ensure focus after any animations or rendering
-        setTimeout(() => inputElement.focus(), 0);
-    }
+        // Reactive statement to focus the input when the modal opens
+        $: if (isOpen && inputElement) {
+	  // Use a timeout to ensure focus after any animations or rendering
+	  setTimeout(() => inputElement.focus(), 0);
+        }
 
 	let scripts: undefined | { path: string; content: string }[] = undefined
 	let filteredScriptItems: { path: string; content: string; marked: any }[] = []
