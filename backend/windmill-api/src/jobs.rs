@@ -7,6 +7,7 @@
  */
 
 use axum::http::HeaderValue;
+use indexmap::IndexMap;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
@@ -558,7 +559,11 @@ async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::R
             .fetch_optional(db)
             .await?
             .map(Job::CompletedJob);
-    if let Some(cjob) = cjob_maybe {
+    if let Some(mut cjob) = cjob_maybe {
+        match cjob {
+            Job::CompletedJob(ref mut cjob) => format_completed_job_sql_result(cjob)?,
+            _ => {}
+        }
         Ok(cjob)
     } else {
         let job_o = sqlx::query_as::<_, QueuedJob>(
@@ -2310,14 +2315,18 @@ async fn run_wait_result(
             .await
             .ok();
         } else {
-            let row =
-                sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
-                    .bind(uuid)
-                    .bind(&w_id)
-                    .fetch_optional(db)
-                    .await?;
+            let row = sqlx::query(
+                "SELECT result, language FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(uuid)
+            .bind(&w_id)
+            .fetch_optional(db)
+            .await?;
             if let Some(row) = row {
-                result = Some(RawResult::from_row(&row)?.result.to_owned());
+                let raw_result = RawResult::from_row(&row)?;
+                let sql_result =
+                    get_formatted_sql_result(raw_result.language.as_ref(), raw_result.result)?;
+                result = Some(sql_result.unwrap_or(raw_result.result.to_owned()));
             } else {
                 result = None;
             }
@@ -3488,6 +3497,62 @@ async fn list_completed_jobs(
     Ok(Json(jobs))
 }
 
+#[derive(Deserialize)]
+struct SQLResult {
+    rows: Vec<Box<RawValue>>,
+    columns: Vec<String>,
+}
+
+pub fn format_completed_job_sql_result(cj: &mut CompletedJob) -> error::Result<()> {
+    if let Some(ref mut result) = cj.result {
+        let sql_result = get_formatted_sql_result(cj.language.as_ref(), &*result.0)?;
+        if let Some(sql_result) = sql_result {
+            *result = sqlx::types::Json(sql_result);
+        }
+    }
+
+    Ok(())
+}
+
+pub fn get_formatted_sql_result(
+    language: Option<&ScriptLang>,
+    result: &RawValue,
+) -> error::Result<Option<Box<RawValue>>> {
+    if language == Some(&ScriptLang::Postgresql) {
+        let sql_result = serde_json::from_str::<SQLResult>(result.get()).ok();
+        // result could not be a SQLResult for too big results or results from previous versions
+        if let Some(sql_result) = sql_result {
+            if let Some(first_row) = sql_result.rows.get(0) {
+                let first_row: HashMap<String, Box<RawValue>> =
+                    serde_json::from_str(first_row.get()).map_err(|e| {
+                        error::Error::BadRequest(format!(
+                            "Error parsing first row of SQL result: {}",
+                            e
+                        ))
+                    })?;
+                let mut new_first_row = IndexMap::new();
+                for col in sql_result.columns {
+                    if let Some(val) = first_row.get(&col) {
+                        new_first_row.insert(col, val.clone());
+                    }
+                }
+                let new_row_as_raw_value = to_raw_value(&new_first_row);
+                let new_rows = to_raw_value(
+                    &vec![new_row_as_raw_value]
+                        .iter()
+                        .chain(sql_result.rows.iter().skip(1))
+                        .collect::<Vec<_>>(),
+                );
+                return Ok(Some(new_rows));
+            } else {
+                return Ok(Some(to_raw_value(&sql_result.rows)));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 async fn get_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
@@ -3502,8 +3567,10 @@ async fn get_completed_job<'a>(
         .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
-    let cj = CompletedJob::from_row(&job)?;
-    tracing::error!("response: {:?}", cj.logs);
+
+    let mut cj = CompletedJob::from_row(&job)?;
+
+    format_completed_job_sql_result(&mut cj)?;
 
     let response = Json(cj).into_response();
     // let extra_log = query_scalar!(
@@ -3520,12 +3587,14 @@ async fn get_completed_job<'a>(
 #[derive(FromRow)]
 pub struct RawResult<'a> {
     pub result: &'a JsonRawValue,
+    pub language: Option<ScriptLang>,
 }
 
 #[derive(FromRow)]
 pub struct RawResultWithSuccess<'a> {
     pub result: &'a JsonRawValue,
     pub success: bool,
+    pub language: Option<ScriptLang>,
 }
 
 impl<'a> IntoResponse for RawResult<'a> {
@@ -3562,7 +3631,15 @@ async fn get_completed_job_result(
     };
 
     let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
-    Ok(RawResult::from_row(&result)?.into_response())
+
+    let mut raw_result = RawResult::from_row(&result)?;
+    let sql_result = get_formatted_sql_result(raw_result.language.as_ref(), raw_result.result)?;
+    if let Some(sql_result) = sql_result {
+        raw_result.result = &*sql_result;
+        Ok(raw_result.into_response())
+    } else {
+        Ok(raw_result.into_response())
+    }
 }
 
 #[derive(Serialize)]
@@ -3584,7 +3661,7 @@ async fn get_completed_job_result_maybe(
     Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
     let result_o = sqlx::query(
-        "SELECT result, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        "SELECT result, success, language FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
     .bind(&w_id)
@@ -3593,13 +3670,25 @@ async fn get_completed_job_result_maybe(
 
     if let Some(result) = result_o {
         let res = RawResultWithSuccess::from_row(&result)?;
-        Ok(Json(CompletedJobResult {
-            started: Some(true),
-            success: Some(res.success),
-            completed: true,
-            result: Some(res.result),
-        })
-        .into_response())
+        // let mut result = Box::new(res.result);
+        let sql_result = get_formatted_sql_result(res.language.as_ref(), res.result)?;
+        if let Some(sql_result) = sql_result {
+            Ok(Json(CompletedJobResult {
+                started: Some(true),
+                success: Some(res.success),
+                completed: true,
+                result: Some(&*sql_result),
+            })
+            .into_response())
+        } else {
+            Ok(Json(CompletedJobResult {
+                started: Some(true),
+                success: Some(res.success),
+                completed: true,
+                result: Some(res.result),
+            })
+            .into_response())
+        }
     } else if get_started.is_some_and(|x| x) {
         let started = sqlx::query_scalar!(
             "SELECT running FROM queue WHERE id = $1 AND workspace_id = $2",
@@ -3664,6 +3753,10 @@ async fn delete_completed_job<'a>(
     .await?;
 
     tx.commit().await?;
-    let response = Json(CompletedJob::from_row(&job)?).into_response();
+    let mut cj = CompletedJob::from_row(&job)?;
+
+    format_completed_job_sql_result(&mut cj)?;
+
+    let response = Json(cj).into_response();
     Ok(response)
 }

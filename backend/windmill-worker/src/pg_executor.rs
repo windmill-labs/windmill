@@ -217,10 +217,26 @@ pub async fn do_postgresql(
             .map_err(to_anyhow)?;
 
         let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
-        Ok(rows
+        let columns = rows
+            .first()
+            .map(|x| {
+                x.columns()
+                    .iter()
+                    .map(|x| x.name().to_string())
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+
+        let result_rows = rows
             .into_iter()
             .map(|x: Row| postgres_row_to_json_value(x))
-            .collect::<Result<Vec<_>, _>>()?) as anyhow::Result<Vec<serde_json::Value>>
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let result = serde_json::json!({
+            "columns": columns,
+            "rows": result_rows,
+        });
+        Ok(result)
     };
 
     let result = run_future_with_polling_update_job_poller(

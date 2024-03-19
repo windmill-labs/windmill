@@ -225,6 +225,7 @@ candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
 tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"] }
 pin-project = "1"
+indexmap = { version = "2.2.5", features = ["serde"]}
 
 polars = { version = "0.35.4", features = ["lazy", "parquet", "aws", "azure", "csv", "dtype-full", "serde", "strings", "extract_groups"] }
 polars-io = { version = "0.35.4", features = ["csv"] }

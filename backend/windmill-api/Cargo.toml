@@ -89,4 +89,5 @@ object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
 pin-project.workspace = true
 crc.workspace = true
+indexmap.workspace = true
 
