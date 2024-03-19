@@ -18,6 +18,7 @@ prompts:
       ```
       <contextual_information>
       You have to write a function in python called "main". Specify the parameter types. Do not call the main function. You should generally return the result.
+      The "main" function cannot be async. If you need to use async code, you can use the asyncio library.
       You can take as parameters resources which are dictionaries containing credentials or configuration information. For Windmill to correctly detect the resources to be passed, the resource type name has to be exactly as specified in the following list:
       <resourceTypes>
       {resourceTypes}
