@@ -96,11 +96,13 @@ export interface SQLSchema {
 	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql'
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
+	stringified: string
 }
 
 export interface GraphqlSchema {
 	lang: 'graphql'
 	schema: IntrospectionQuery
+	stringified: string
 }
 
 export type DBSchema = SQLSchema | GraphqlSchema
