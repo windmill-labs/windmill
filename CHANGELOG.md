@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.292.4](https://github.com/windmill-labs/windmill/compare/v1.292.3...v1.292.4) (2024-03-19)
+
+
+### Bug Fixes
+
+* ai prevent python async + max db schema length ([#3440](https://github.com/windmill-labs/windmill/issues/3440)) ([4557e7b](https://github.com/windmill-labs/windmill/commit/4557e7beb40de12b3d26708968f855ecbf49e7b5))
+* **frontend:** Fix csv generation ([#3439](https://github.com/windmill-labs/windmill/issues/3439)) ([21b4719](https://github.com/windmill-labs/windmill/commit/21b4719949f4c044b4fc29e92e17c9527beb07b0))
+* **frontend:** handle the case when the observer is not defined onDestroy ([#3431](https://github.com/windmill-labs/windmill/issues/3431)) ([734da17](https://github.com/windmill-labs/windmill/commit/734da1717ecc351b3b10b2e49bce54f3796a2f9e))
+* **frontend:** Improve autodatatable ([#3434](https://github.com/windmill-labs/windmill/issues/3434)) ([87b0112](https://github.com/windmill-labs/windmill/commit/87b0112db733591dbb197e150c991a8948e3adff))
+
 ## [1.292.3](https://github.com/windmill-labs/windmill/compare/v1.292.2...v1.292.3) (2024-03-17)
 
 
