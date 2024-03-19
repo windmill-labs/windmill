@@ -12,7 +12,6 @@
 	import { Alert, Button } from './common'
 	import { goto } from '$app/navigation'
 	import YAML from 'yaml'
-	import { onMount } from 'svelte';
 
 	let search: string = ''
 
@@ -95,13 +94,6 @@
 					flows: getCounts(filteredFlowItems.length),
 					scripts: getCounts(filteredScriptItems.length)
 			  }
-
-	onMount(() => {
-    if (isOpen) {
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput) searchInput.focus();
-    }
-});
 
 </script>
 
