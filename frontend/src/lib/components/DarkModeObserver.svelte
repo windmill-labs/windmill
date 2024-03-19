@@ -5,7 +5,8 @@
 	export let darkMode: boolean = false
 	const dispatch = createEventDispatcher()
 
-	let observer: MutationObserver
+	let observer: MutationObserver | undefined = undefined
+
 	onMount(() => {
 		darkMode = document.documentElement.classList.contains('dark')
 
@@ -24,6 +25,6 @@
 	})
 
 	onDestroy(() => {
-		observer.disconnect()
+		observer?.disconnect()
 	})
 </script>
