@@ -14,8 +14,11 @@
 
 	function parseValue(value: string | undefined = undefined) {
 		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
-
-		date = isValidDate(dateFromValue) ? dateFromValue!.toISOString().split('T')[0] : undefined
+		date = isValidDate(dateFromValue)
+			? `${dateFromValue!.getFullYear().toString()}-${(dateFromValue!.getMonth() + 1)
+					.toString()
+					.padStart(2, '0')}-${dateFromValue!.getDate().toString().padStart(2, '0')}`
+			: undefined
 		time = isValidDate(dateFromValue)
 			? `${dateFromValue!.getHours().toString().padStart(2, '0')}:${dateFromValue!
 					.getMinutes()
