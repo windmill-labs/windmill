@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::{types::Json, Pool, Postgres, Transaction};
@@ -13,6 +14,7 @@ use crate::{
     flows::{FlowValue, Retry},
     get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
+    worker::to_raw_value,
 };
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -268,6 +270,7 @@ impl CompletedJob {
 pub struct BranchResults<'a> {
     pub result: &'a RawValue,
     pub id: Uuid,
+    pub language: Option<ScriptLang>,
 }
 
 #[derive(Debug, Clone)]
@@ -464,4 +467,125 @@ pub async fn get_payload_tag_from_prefixed_path(
         )));
     };
     Ok((payload, tag))
+}
+
+pub fn format_completed_job_result(mut cj: CompletedJob) -> CompletedJobWithFormattedResult {
+    let sql_result = format_result(
+        cj.language.as_ref(),
+        cj.flow_status.clone().map(|x| x.0),
+        cj.result.map(|x| x.0),
+    );
+    cj.result = None; // very important to avoid sending the result twice
+    CompletedJobWithFormattedResult { cj, result: Some(sql_result) }
+}
+
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum FormattedResult {
+    RawValue(Option<Box<RawValue>>),
+    Vec(Vec<Box<RawValue>>),
+}
+
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum FormattedResultRef<'a> {
+    RawValueRef(Option<&'a RawValue>),
+    Vec(Vec<Box<RawValue>>),
+}
+
+#[derive(Serialize, Debug)]
+pub struct CompletedJobWithFormattedResult {
+    #[serde(flatten)]
+    pub cj: CompletedJob,
+    pub result: Option<FormattedResult>,
+}
+
+pub fn format_result_ref<'a>(
+    language: Option<&ScriptLang>,
+    flow_status: Option<&'a RawValue>,
+    result: Option<&'a RawValue>,
+) -> FormattedResultRef<'a> {
+    if language == Some(&ScriptLang::Postgresql) {
+        if let Some(flow_status) = flow_status {
+            let flow_status = serde_json::from_str::<FlowStatusWithMetadataOnly>(flow_status.get());
+            if let Ok(flow_status) = flow_status {
+                if let Some(result) = result {
+                    let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
+                    if let Some(mut rows) = rows {
+                        if let Some(first_row) = rows.get(0) {
+                            let first_row = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
+                                first_row.get(),
+                            );
+                            if let Ok(first_row) = first_row {
+                                let mut new_first_row = IndexMap::new();
+                                for col in flow_status.metadata.column_order {
+                                    if let Some(val) = first_row.get(&col) {
+                                        new_first_row.insert(col, val.clone());
+                                    }
+                                }
+                                let new_row_as_raw_value = to_raw_value(&new_first_row);
+
+                                rows[0] = new_row_as_raw_value;
+
+                                return FormattedResultRef::Vec(rows);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    FormattedResultRef::RawValueRef(result)
+}
+
+#[derive(Deserialize)]
+struct FlowStatusMetadata {
+    column_order: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct FlowStatusWithMetadataOnly {
+    metadata: FlowStatusMetadata,
+}
+
+fn format_result(
+    language: Option<&ScriptLang>,
+    flow_status: Option<Box<RawValue>>,
+    result: Option<Box<RawValue>>,
+) -> FormattedResult {
+    if language == Some(&ScriptLang::Postgresql) {
+        if let Some(flow_status) = flow_status {
+            let flow_status = serde_json::from_str::<FlowStatusWithMetadataOnly>(flow_status.get());
+            if let Ok(flow_status) = flow_status {
+                if let Some(result) = result {
+                    let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
+                    if let Some(mut rows) = rows {
+                        if let Some(first_row) = rows.get(0) {
+                            let first_row = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
+                                first_row.get(),
+                            );
+                            if let Ok(first_row) = first_row {
+                                let mut new_first_row = IndexMap::new();
+                                for col in flow_status.metadata.column_order {
+                                    if let Some(val) = first_row.get(&col) {
+                                        new_first_row.insert(col, val.clone());
+                                    }
+                                }
+                                let new_row_as_raw_value = to_raw_value(&new_first_row);
+
+                                rows[0] = new_row_as_raw_value;
+                            }
+                        }
+
+                        return FormattedResult::Vec(rows);
+                    }
+
+                    return FormattedResult::RawValue(Some(result));
+                }
+            }
+        }
+    }
+
+    FormattedResult::RawValue(result)
 }

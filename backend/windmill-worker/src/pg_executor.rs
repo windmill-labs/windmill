@@ -63,6 +63,7 @@ pub async fn do_postgresql(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, db).await?;
 
@@ -227,15 +228,13 @@ pub async fn do_postgresql(
             })
             .unwrap_or_default();
 
-        let result_rows = rows
+        let result = rows
             .into_iter()
             .map(|x: Row| postgres_row_to_json_value(x))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let result = serde_json::json!({
-            "columns": columns,
-            "rows": result_rows,
-        });
+        *column_order = Some(columns);
+
         Ok(result)
     };
 
