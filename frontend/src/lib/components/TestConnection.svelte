@@ -7,8 +7,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 
+	export let workspaceOverride: string | undefined = undefined
 	export let resourceType: string | undefined
 	export let args: Record<string, any> | any = {}
+	export let buttonTextOverride: string | undefined = undefined
 
 	const scripts: {
 		[key: string]: {
@@ -81,6 +83,29 @@ export async function main(s3: S3) {
 					return testResult
 				}
 			}
+		},
+		s3_bucket: {
+			code: `
+
+const process = require('process');
+
+export async function main(bucket: any) {
+	const req = await fetch(process.env.BASE_URL + '/api/settings/test_s3_config', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: 'Bearer ' + process.env.WM_TOKEN,
+		},
+		body: JSON.stringify(bucket),
+	});
+	if (!req.ok) {
+		throw new Error(await req.text());
+	}
+	return await req.text();
+}
+`,
+			lang: 'bun',
+			argName: 'bucket'
 		}
 	}
 
@@ -92,7 +117,7 @@ export async function main(s3: S3) {
 		const resourceScript = scripts[resourceType]
 
 		const job = await JobService.runScriptPreview({
-			workspace: $workspaceStore!,
+			workspace: workspaceOverride ?? $workspaceStore!,
 			requestBody: {
 				path: `testConnection: ${resourceType}`,
 				language: resourceScript.lang as Preview.language,
@@ -106,7 +131,7 @@ export async function main(s3: S3) {
 		tryEvery({
 			tryCode: async () => {
 				let testResult = await JobService.getCompletedJob({
-					workspace: $workspaceStore!,
+					workspace: workspaceOverride ?? $workspaceStore!,
 					id: job
 				})
 				if (resourceScript.additionalCheck) {
@@ -128,7 +153,7 @@ export async function main(s3: S3) {
 				)
 				try {
 					await JobService.cancelQueuedJob({
-						workspace: $workspaceStore!,
+						workspace: workspaceOverride ?? $workspaceStore!,
 						id: job,
 						requestBody: {
 							reason:
@@ -159,6 +184,6 @@ export async function main(s3: S3) {
 		{:else}
 			<Database class="mr-2 !h-4 !w-4" />
 		{/if}
-		Test connection
+		{buttonTextOverride ?? 'Test connection'}
 	</Button>
 {/if}

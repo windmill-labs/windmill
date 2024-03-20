@@ -24,7 +24,7 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, S3_CACHE_BUCKET_SETTING, SAML_METADATA_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, S3_CACHE_CONFIG_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING,
     },
     stats_ee::schedule_stats,
@@ -48,7 +48,7 @@ use crate::monitor::{
     monitor_db, monitor_pool, reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_extra_pip_index_url_setting, reload_job_default_timeout_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_s3_cache_bucket_setting, reload_scim_token_setting,
+    reload_retention_period_setting, reload_s3_cache_setting, reload_scim_token_setting,
     reload_server_config, reload_worker_config,
 };
 
@@ -441,8 +441,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
                                                     reload_job_default_timeout_setting(&db).await
                                                 },
-                                                S3_CACHE_BUCKET_SETTING => {
-                                                    reload_s3_cache_bucket_setting(&db).await
+                                                #[cfg(feature = "parquet")]
+                                                S3_CACHE_CONFIG_SETTING => {
+                                                    reload_s3_cache_setting(&db).await
                                                 },
                                                 SCIM_TOKEN_SETTING => {
                                                     reload_scim_token_setting(&db).await

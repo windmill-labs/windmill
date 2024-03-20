@@ -39,7 +39,9 @@ pub fn global_service() -> Router {
         )
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
+        .route("/test_s3_config", post(test_s3_bucket))
         .route("/send_stats", post(send_stats))
+
 }
 
 #[derive(Deserialize)]
@@ -85,6 +87,38 @@ pub async fn test_email(
         .map_err(to_anyhow)?;
     tracing::info!("Sent test email to {to}");
     Ok("Sent test email".to_string())
+}
+
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::S3Settings;
+
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::build_s3_client_from_settings;
+
+
+
+#[cfg(feature = "parquet")]
+pub async fn test_s3_bucket(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(test_s3_bucket): Json<S3Settings>,
+) -> error::Result<String> {
+    use bytes::Bytes;
+
+
+
+    require_super_admin(&db, &authed.email).await?;
+    let client = build_s3_client_from_settings(test_s3_bucket).await?;
+
+    let path = object_store::path::Path::from(format!("/test-s3-bucket-{uuid}", uuid = uuid::Uuid::new_v4()));
+    tracing::info!("Testing s3 bucket at path: {path}");
+    client.put(&path, Bytes::from_static(b"hello")).await.map_err(to_anyhow)?;
+    let content = client.get(&path).await.map_err(to_anyhow)?.bytes().await.map_err(to_anyhow)?;
+    if content != Bytes::from_static(b"hello") {
+        return Err(error::Error::InternalErr("Failed to read back from s3".to_string()));
+    }
+    client.delete(&path).await.map_err(to_anyhow)?;
+    Ok("Tested bucket successfully".to_string())
 }
 
 #[derive(Deserialize)]

@@ -111,12 +111,10 @@ FROM ${PYTHON_IMAGE}
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.3.5
 ARG POWERSHELL_DEB_VERSION=7.3.5-1
-ARG RCLONE_VERSION=1.60.1
 ARG KUBECTL_VERSION=1.27.2
 ARG HELM_VERSION=3.12.0
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
-ARG WITH_RCLONE=true
 ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
 
@@ -167,12 +165,6 @@ RUN set -eux; \
     unzip awscliv2.zip && \
     ./aws/install && rm awscliv2.zip
 
-RUN if [ "$WITH_RCLONE" = "true" ]; then \
-    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    curl -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-$arch.zip"; \
-    unzip -p rclone.zip rclone-v${RCLONE_VERSION}-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
-    chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone; \
-    else echo 'Building the image without rclone'; fi
 
 
 RUN set -eux; \
