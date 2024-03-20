@@ -10,7 +10,7 @@ use tokio::{
     process::Command,
 };
 use uuid::Uuid;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
