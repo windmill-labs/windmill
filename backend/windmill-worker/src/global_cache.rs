@@ -1,4 +1,4 @@
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use crate::{ROOT_CACHE_DIR, PIP_CACHE_DIR};
 
 // #[cfg(feature = "enterprise")]
@@ -24,7 +24,7 @@ pub async fn build_tar_and_push(s3_client: Arc<dyn ObjectStore>, folder: String)
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
     let folder_name = folder.split("/").last().unwrap();
-    let tar_path = format!("{PIP_CACHE_DIR}/{folder_name}.tar",);
+    let tar_path = format!("{PIP_CACHE_DIR}/{folder_name}_tar.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
