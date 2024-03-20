@@ -791,6 +791,7 @@ pub async fn handle_python_reqs(
         }
     }
 
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     enum PullFromTar {
         Pulled(String),
         NotPulled(String, String),

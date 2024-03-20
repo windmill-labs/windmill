@@ -24,7 +24,7 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, S3_CACHE_CONFIG_SETTING, SAML_METADATA_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING,
     },
     stats_ee::schedule_stats,
@@ -35,6 +35,9 @@ use windmill_common::{
 
 #[cfg(feature = "enterprise")]
 use windmill_common::METRICS_ADDR;
+
+#[cfg(feature = "parquet")]
+use windmill_common::global_settings::S3_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
@@ -48,9 +51,12 @@ use crate::monitor::{
     monitor_db, monitor_pool, reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_extra_pip_index_url_setting, reload_job_default_timeout_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_s3_cache_setting, reload_scim_token_setting,
+    reload_retention_period_setting, reload_scim_token_setting,
     reload_server_config, reload_worker_config,
 };
+
+#[cfg(feature = "parquet")]
+use crate::monitor::reload_s3_cache_setting;
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 1;

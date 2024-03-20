@@ -49,6 +49,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "atlassian" => "atlassian-python-api",
     "mysql" => "mysql-connector-python",
     "tenable" => "pytenable",
+    "ns1" => "ns1-python",
 };
 
 fn replace_import(x: String) -> String {
