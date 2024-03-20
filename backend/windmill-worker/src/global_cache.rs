@@ -133,7 +133,7 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn extract_pip_tar(tar: &str, folder: &str) -> error::Result<()> {
     use tokio::fs::{self};
 
