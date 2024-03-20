@@ -31,7 +31,9 @@ use windmill_common::{
 };
 
 pub fn global_service() -> Router {
-    Router::new()
+
+    #[warn(unused_mut)]
+    let mut r = Router::new()
         .route("/envs", get(get_local_settings))
         .route(
             "/global/:key",
@@ -39,8 +41,14 @@ pub fn global_service() -> Router {
         )
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
-        .route("/test_s3_config", post(test_s3_bucket))
-        .route("/send_stats", post(send_stats))
+        .route("/send_stats", post(send_stats));
+    
+    #[cfg(feature = "parquet")]
+    {
+        r = r.route("/test_s3_config", post(test_s3_bucket));
+    }
+
+    return r
 
 }
 

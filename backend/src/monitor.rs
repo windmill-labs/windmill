@@ -25,9 +25,9 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, S3_CACHE_CONFIG_SETTING, SAML_METADATA_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING,
-    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, s3_helpers::{build_s3_client_from_settings, S3Settings, S3_CACHE_SETTINGS}, server::load_server_config, users::truncate_token, worker::{
+    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,  server::load_server_config, users::truncate_token, worker::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
     }, BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED
@@ -38,6 +38,12 @@ use windmill_worker::{
     BUNFIG_INSTALL_SCOPES, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, NPM_CONFIG_REGISTRY,
     PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
 };
+
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::{build_s3_client_from_settings, S3_CACHE_SETTINGS, S3Settings};
+
+#[cfg(feature = "parquet")]
+use windmill_common::global_settings::S3_CACHE_CONFIG_SETTING;
 
 #[cfg(feature = "enterprise")]
 use crate::ee::verify_license_key;

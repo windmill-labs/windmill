@@ -1,7 +1,10 @@
 #[cfg(feature = "parquet")]
 use crate::error;
+#[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
+#[cfg(feature = "parquet")]
 use axum::async_trait;
+#[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
 use object_store::azure::MicrosoftAzureBuilder;
@@ -10,9 +13,12 @@ use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "parquet")]
 use std::sync::Arc;
+#[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
 
+#[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
 
     pub static ref S3_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
@@ -178,6 +184,7 @@ use aws_config::{default_provider::credentials::DefaultCredentialsChain, Region}
 #[cfg(feature = "parquet")]
 use  object_store::CredentialProvider;
 
+#[cfg(feature = "parquet")]
 pub fn build_s3_client(s3_resource_ref: &S3Resource, credential_providers: Option<DefaultCredentialsChain>) -> error::Result<Arc<dyn ObjectStore>> {
 
     let s3_resource = s3_resource_ref.clone();
@@ -315,6 +322,7 @@ pub struct S3Settings {
     pub store_logs: Option<bool>,
 }
 
+#[cfg(feature = "parquet")]
  fn none_if_empty(s: Option<String>) -> Option<String> {
     if s.is_none() || s.as_ref().unwrap().is_empty() {
         None
@@ -352,11 +360,13 @@ pub async fn build_s3_client_from_settings(settings: S3Settings) -> error::Resul
     build_s3_client(&s3_resource, credentials_provider)
 }
 
+#[cfg(feature = "parquet")]
 #[derive(Debug)]
 struct AwsCredentialAdapter {
     pub inner: DefaultCredentialsChain,
 }
 
+#[cfg(feature = "parquet")]
 #[async_trait]
 impl CredentialProvider for AwsCredentialAdapter {
     type Credential = AwsCredential;
