@@ -1,5 +1,8 @@
 #[cfg(feature = "parquet")]
 use crate::error;
+use aws_sdk_sts::config::ProvideCredentials;
+use axum::async_trait;
+use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
 use object_store::azure::MicrosoftAzureBuilder;
 #[cfg(feature = "parquet")]
@@ -12,8 +15,7 @@ use tokio::sync::RwLock;
 
 lazy_static::lazy_static! {
 
-    pub static ref S3_CACHE_BUCKET: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
-
+    pub static ref S3_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,8 +44,8 @@ pub struct AzureBlobStorage {
 
 #[derive(Clone, Debug)]
 pub enum ObjectStoreResource {
-    S3Resource(S3Resource),
-    AzureBlobResource(AzureBlobResource),
+    S3(S3Resource),
+    Azure(AzureBlobResource),
 }
 
 #[derive(Deserialize, Debug)]
@@ -71,6 +73,7 @@ pub struct S3Resource {
     pub path_style: Option<bool>,
     pub token: Option<String>,
     pub port: Option<u16>,
+
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -163,15 +166,20 @@ pub fn build_object_store_client(
     resource_ref: &ObjectStoreResource,
 ) -> error::Result<Arc<dyn ObjectStore>> {
     match resource_ref {
-        ObjectStoreResource::S3Resource(s3_resource_ref) => build_s3_client(&s3_resource_ref),
-        ObjectStoreResource::AzureBlobResource(azure_blob_resource_ref) => {
+        ObjectStoreResource::S3(s3_resource_ref) => build_s3_client(&s3_resource_ref, None),
+        ObjectStoreResource::Azure(azure_blob_resource_ref) => {
             build_azure_blob_client(&azure_blob_resource_ref)
         }
     }
 }
 
 #[cfg(feature = "parquet")]
-fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
+use aws_config::{default_provider::credentials::DefaultCredentialsChain, Region};
+#[cfg(feature = "parquet")]
+use  object_store::CredentialProvider;
+
+pub fn build_s3_client(s3_resource_ref: &S3Resource, credential_providers: Option<DefaultCredentialsChain>) -> error::Result<Arc<dyn ObjectStore>> {
+
     let s3_resource = s3_resource_ref.clone();
     let endpoint = render_endpoint(
         s3_resource.endpoint,
@@ -181,12 +189,20 @@ fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn Object
         s3_resource.bucket.clone(),
     );
 
+
+
     let mut store_builder = AmazonS3Builder::new()
         .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
         .with_region(s3_resource.region)
         .with_bucket_name(s3_resource.bucket)
         .with_endpoint(endpoint);
 
+    if let Some(credentials_provider) = credential_providers {
+        store_builder = store_builder.with_credentials(Arc::new(AwsCredentialAdapter {
+            inner: credentials_provider,
+        }));
+    }
+    
     if !s3_resource.use_ssl {
         store_builder = store_builder.with_allow_http(true)
     }
@@ -280,4 +296,76 @@ fn build_azure_blob_client(
     })?;
 
     return Ok(Arc::new(store));
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "typ", content = "value")]
+pub enum ObjectStoreSettings {
+    S3(S3Settings),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct S3Settings {
+    pub bucket: Option<String>,
+    pub region: Option<String>,
+    pub access_key: Option<String>,
+    pub secret_key: Option<String>,
+    pub endpoint: Option<String>,
+    pub allow_http: Option<bool>, // default to true
+    pub store_logs: Option<bool>,
+}
+
+ fn none_if_empty(s: Option<String>) -> Option<String> {
+    if s.is_none() || s.as_ref().unwrap().is_empty() {
+        None
+    } else {
+        s
+    }
+}
+
+#[cfg(feature = "parquet")]
+pub async fn build_s3_client_from_settings(settings: S3Settings) -> error::Result<Arc<dyn ObjectStore>> {
+    let region = none_if_empty(settings.region).unwrap_or_else(|| std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()));
+    let access_key = none_if_empty(settings.access_key);
+    let secret_key = none_if_empty(settings.secret_key);
+    let credentials_provider = if access_key.is_none() && secret_key.is_none() { 
+        Some(DefaultCredentialsChain::builder()
+            .region(Region::new(region.clone()))
+            .build()
+            .await)
+     } else { None };
+    let s3_resource = S3Resource {
+        endpoint: none_if_empty(settings.endpoint).unwrap_or_else(|| std::env::var("S3_ENDPOINT")
+            .unwrap_or_else(|_| format!("s3.{region}.amazonaws.com"))),
+        bucket: settings.bucket.clone()
+            .unwrap_or_else(|| std::env::var("S3_CACHE_BUCKET").unwrap_or_else(|_| "missingbucket".to_string())),
+        region,
+        access_key,
+        secret_key,
+        use_ssl: !settings.allow_http.unwrap_or(false),
+        path_style: None,
+        port: None,
+        token: None,
+    };
+     
+
+    build_s3_client(&s3_resource, credentials_provider)
+}
+
+#[derive(Debug)]
+struct AwsCredentialAdapter {
+    pub inner: DefaultCredentialsChain,
+}
+
+#[async_trait]
+impl CredentialProvider for AwsCredentialAdapter {
+    type Credential = AwsCredential;
+    async fn get_credential(&self) -> object_store::Result<Arc<Self::Credential>> {
+        let creds = self.inner.provide_credentials().await.unwrap();
+        Ok(Arc::new(Self::Credential {
+            key_id: creds.access_key_id().to_string(),
+            secret_key: creds.secret_access_key().to_string(),
+            token: creds.session_token().map(|s| s.to_string()),
+        }))
+    }
 }

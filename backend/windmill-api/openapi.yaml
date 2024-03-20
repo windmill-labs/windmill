@@ -718,6 +718,38 @@ paths:
               schema:
                 type: string
 
+  /settings/test_s3_config:
+    post:
+      summary: test s3 config
+      operationId: testS3Config
+      tags:
+        - setting
+      requestBody:
+        description: test s3 config
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bucket:
+                  type: string
+                region:
+                  type: string
+                access_key:
+                  type: string
+                secret_key:
+                  type: tring
+                endpoint:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/send_stats:
     post:
       summary: send stats
