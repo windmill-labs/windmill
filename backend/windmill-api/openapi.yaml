@@ -739,7 +739,7 @@ paths:
                 access_key:
                   type: string
                 secret_key:
-                  type: tring
+                  type: string
                 endpoint:
                   type: string
       responses:
