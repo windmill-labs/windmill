@@ -43,7 +43,7 @@ use windmill_worker::{
     BUN_CACHE_DIR,  DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
       GO_BIN_CACHE_DIR,
     GO_CACHE_DIR,  HUB_CACHE_DIR,  LOCK_CACHE_DIR,
-    PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
+    PIP_CACHE_DIR, TAR_PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -664,6 +664,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     for x in [
         LOCK_CACHE_DIR,
         PIP_CACHE_DIR,
+        TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
