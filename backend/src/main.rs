@@ -14,7 +14,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::fs::{metadata, DirBuilder};
+use tokio::fs::DirBuilder;
 use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
@@ -40,10 +40,10 @@ use windmill_common::METRICS_ADDR;
 use windmill_common::global_settings::S3_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    DENO_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR_DEPS, DENO_TMP_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
-    GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, LOCK_CACHE_DIR,
-    PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
+    BUN_CACHE_DIR,  DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
+      GO_BIN_CACHE_DIR,
+    GO_CACHE_DIR,  HUB_CACHE_DIR,  LOCK_CACHE_DIR,
+    PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
 };
 
 use crate::monitor::{
