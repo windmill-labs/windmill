@@ -4,13 +4,13 @@ use crate::{ROOT_CACHE_DIR, PIP_CACHE_DIR};
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
 
 #[cfg(feature = "parquet")]
 use object_store::ObjectStore;
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::error;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
