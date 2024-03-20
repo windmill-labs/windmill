@@ -43,7 +43,7 @@ use windmill_worker::{
     BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
     DENO_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR_DEPS, DENO_TMP_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
     GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, LOCK_CACHE_DIR,
-    PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
+    PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -659,11 +659,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
-    if metadata(&ROOT_TMP_CACHE_DIR).await.is_ok() {
-        if let Err(e) = tokio::fs::remove_dir_all(&ROOT_TMP_CACHE_DIR).await {
-            tracing::info!(error = %e, "Could not remove root tmp cache dir");
-        }
-    }
+
 
     for x in [
         LOCK_CACHE_DIR,
@@ -675,14 +671,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         HUB_CACHE_DIR,
-        POWERSHELL_CACHE_DIR,
-        TAR_PIP_TMP_CACHE_DIR,
-        DENO_TMP_CACHE_DIR,
-        DENO_TMP_CACHE_DIR_DEPS,
-        DENO_TMP_CACHE_DIR_NPM,
-        BUN_TMP_CACHE_DIR,
-        GO_TMP_CACHE_DIR,
-        HUB_TMP_CACHE_DIR,
+        POWERSHELL_CACHE_DIR
     ] {
         DirBuilder::new()
             .recursive(true)

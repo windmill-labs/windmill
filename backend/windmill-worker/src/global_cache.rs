@@ -1,5 +1,5 @@
 #[cfg(feature = "enterprise")]
-use crate::{ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR};
+use crate::{ROOT_CACHE_DIR, PIP_CACHE_DIR};
 
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
@@ -24,7 +24,7 @@ pub async fn build_tar_and_push(s3_client: Arc<dyn ObjectStore>, folder: String)
     tracing::info!("Started building and pushing piptar {folder}");
     let start = Instant::now();
     let folder_name = folder.split("/").last().unwrap();
-    let tar_path = format!("{TAR_PIP_TMP_CACHE_DIR}/{folder_name}.tar",);
+    let tar_path = format!("{PIP_CACHE_DIR}/{folder_name}.tar",);
 
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
@@ -81,7 +81,7 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
 
     let start = Instant::now();
     let tar_path = format!("tar/pip/{folder_name}.tar");
-    let target = format!("{ROOT_TMP_CACHE_DIR}/{tar_path}.single");
+    let target = format!("{ROOT_CACHE_DIR}/{tar_path}.single");
 
     let object = client
         .get(&Path::from(format!("tar/pip/{folder_name}.tar")))
