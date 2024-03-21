@@ -1088,18 +1088,41 @@
 							disabled={emptyString(s3ResourceSettings.resourcePath)}
 							bind:checked={s3ResourceSettings.publicResource}
 							options={{
-								right: 'S3 resource details can be accessed by all users of this workspace',
+								right:
+									'S3 resource details and content can be accessed by all users of this workspace',
 								rightTooltip:
 									'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details. this effectively by-pass the permissions set on the resource and makes it public to everyone.'
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
+							<div class="pt-2" />
+
 							<Alert type="warning" title="S3 bucket content and resource details are shared">
 								S3 resource public access is ON, which means that the entire content of the S3
 								bucket will be accessible to all the users of this workspace regardless of whether
 								they have access the resource or not. Similarly, certain Windmill SDK endpoints can
 								be used in scripts to access the resource details, including public and private
 								keys.
+							</Alert>
+						{/if}
+					</div>
+				{:else}
+					<div class="flex flex-col mt-5 mb-1 gap-1">
+						<Toggle
+							disabled={emptyString(s3ResourceSettings.resourcePath)}
+							bind:checked={s3ResourceSettings.publicResource}
+							options={{
+								right: 'object storage content can be accessed by all users of this workspace',
+								rightTooltip:
+									'If set, all users of this workspace will have access the to entire content of the object storage.'
+							}}
+						/>
+						{#if s3ResourceSettings.publicResource === true}
+							<div class="pt-2" />
+							<Alert type="warning" title="object content">
+								object public access is ON, which means that the entire content of the object store
+								will be accessible to all the users of this workspace regardless of whether they
+								have access the resource or not.
 							</Alert>
 						{/if}
 					</div>
