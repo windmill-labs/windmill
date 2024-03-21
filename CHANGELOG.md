@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.293.0](https://github.com/windmill-labs/windmill/compare/v1.292.4...v1.293.0) (2024-03-21)
+
+
+### Features
+
+* s3 cache config added to instance settings + parallelized tar pulling ([174ead0](https://github.com/windmill-labs/windmill/commit/174ead04739359fa250d43397fe3e3548dde71d4))
+
+
+### Bug Fixes
+
+* **frontend:** datetime input date timezone ([#3445](https://github.com/windmill-labs/windmill/issues/3445)) ([458c476](https://github.com/windmill-labs/windmill/commit/458c476f0812e7514430fa56268a6958d1dc419a))
+
 ## [1.292.4](https://github.com/windmill-labs/windmill/compare/v1.292.3...v1.292.4) (2024-03-19)
 
 
