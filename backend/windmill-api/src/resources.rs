@@ -12,13 +12,12 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
-    body,
+    body::Body,
     extract::{Extension, Path, Query},
     response::Response,
     routing::{delete, get, post},
     Json, Router,
 };
-use bytes::Bytes;
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -387,7 +386,7 @@ async fn custom_component(
     let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
 
     Ok(res
-        .body(body::boxed(body::Full::from(Bytes::from(cc))))
+        .body(Body::from(cc))
         .unwrap())
 }
 

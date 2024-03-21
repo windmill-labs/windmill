@@ -107,13 +107,13 @@ windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-api-client = { path = "./windmill-api-client" }
 
-axum = { version = "^0", features = ["headers"] }
+axum = { version = "^0.7" } 
 headers = "^0"
-hyper = { version = "^0", features = ["full"] }
+hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
 tower = "^0"
-tower-http = { version = "^0.4", features = ["trace", "cors"] }
-tower-cookies = "0.9.0"
+tower-http = { version = "^0.5", features = ["trace", "cors"] }
+tower-cookies = "^0.10"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
@@ -142,7 +142,8 @@ mail-send = { version = "0.4.0", features = ["builder"], default-features=false 
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
-reqwest = { version = "^0", features = ["json"] }
+reqwest = { version = "^0.12", features = ["json", "stream"] }
+reqwest_11 = { package = "reqwest", version = "0.11" }
 time = "0.3.16"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
@@ -188,7 +189,7 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
 rsa = "0.7.2"
-async-stripe = { version = "0.25.2", features = [
+async-stripe = { version = "0.34.1", features = [
     "runtime-tokio-hyper",
     "checkout",
     "billing",
@@ -226,9 +227,9 @@ candle-nn = "0.3.0"
 tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"] }
 pin-project = "1"
 
-polars = { version = "0.35.4", features = ["lazy", "parquet", "aws", "azure", "csv", "dtype-full", "serde", "strings", "extract_groups"] }
-polars-io = { version = "0.35.4", features = ["csv"] }
-object_store = { version = "0.8.0", features = ["aws", "azure"] }
+polars = { version = "0.38.3", features = ["lazy", "parquet", "aws", "azure", "csv", "dtype-full", "serde", "strings", "extract_groups"] }
+polars-io = { version = "0.38.3", features = ["csv"] }
+object_store = { version = "0.9.1", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
 
 aws-config = "^1"
@@ -236,3 +237,4 @@ aws-sdk-sts = "^1"
 
 crc = "^3"
 tar = "^0"
+http = "^1"

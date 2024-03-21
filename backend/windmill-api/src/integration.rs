@@ -1,6 +1,6 @@
 use crate::{db::DB, HTTP_CLIENT};
 use axum::{
-    body::StreamBody, extract::Query, response::IntoResponse, routing::get, Extension, Router,
+     extract::Query, response::IntoResponse, routing::get, Extension, Router,
 };
 use windmill_common::{error::Error, utils::query_elems_from_hub};
 
@@ -32,6 +32,6 @@ async fn list_hub_integrations(
     Ok::<_, Error>((
         status_code,
         headers,
-        StreamBody::new(response.bytes_stream()),
+        response
     ))
 }

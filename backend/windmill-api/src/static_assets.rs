@@ -7,7 +7,7 @@
  */
 
 use axum::{
-    body::{self, BoxBody},
+    body::Body,
     extract::OriginalUri,
     http::{header, Response},
     response::IntoResponse,
@@ -28,7 +28,7 @@ struct Asset;
 pub struct StaticFile(Uri);
 
 impl IntoResponse for StaticFile {
-    fn into_response(self) -> Response<BoxBody> {
+    fn into_response(self) -> Response<Body> {
         let path = self.0.path().trim_start_matches('/');
         serve_path(path)
     }
@@ -36,16 +36,16 @@ impl IntoResponse for StaticFile {
 
 const TWO_HUNDRED: &str = "200.html";
 
-fn serve_path(path: &str) -> Response<BoxBody> {
+fn serve_path(path: &str) -> Response<Body> {
     if path.starts_with("api/") {
         return Response::builder()
             .status(404)
-            .body(body::boxed(body::Empty::new()))
+            .body(Body::empty())
             .unwrap();
     }
     match Asset::get(path) {
         Some(content) => {
-            let body = body::boxed(body::Full::from(content.data));
+            let body = Body::from(content.data);
             let mime = mime_guess::from_path(path).first_or_octet_stream();
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
@@ -64,7 +64,7 @@ fn serve_path(path: &str) -> Response<BoxBody> {
         }
         None if path.starts_with("_app/") => Response::builder()
             .status(404)
-            .body(body::boxed(body::Empty::new()))
+            .body(Body::empty())
             .unwrap(),
         None => serve_path(TWO_HUNDRED),
     }
