@@ -22,15 +22,14 @@ use crate::{
 };
 
 use axum::{
-    body::StreamBody,
     extract::{Extension, Path, Query},
-    headers,
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
 use chrono::Utc;
 
+use http::HeaderName;
 use itertools::Itertools;
 use regex::Regex;
 
@@ -2270,7 +2269,7 @@ async fn tarball_workspace(
         include_settings,
         default_ts,
     }): Query<ArchiveQueryParams>,
-) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
+) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
     // require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -2622,7 +2621,7 @@ async fn tarball_workspace(
     let file = tokio::fs::File::open(&file_path).await?;
 
     let stream = ReaderStream::new(file);
-    let body = StreamBody::new(stream);
+    let body = axum::body::Body::from_stream(stream);
 
     let headers = [
         (header::CONTENT_TYPE, "application/x-tar".to_string()),

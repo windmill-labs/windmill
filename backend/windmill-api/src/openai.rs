@@ -6,7 +6,7 @@ use crate::{
 };
 
 use axum::{
-    body::{Bytes, StreamBody},
+    body::Bytes,
     extract::{Extension, Path, Query},
     response::IntoResponse,
     routing::post,
@@ -337,5 +337,5 @@ async fn proxy(
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
 
-    Ok((status_code, headers, StreamBody::new(stream)))
+    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
 }

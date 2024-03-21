@@ -14,7 +14,6 @@ use crate::{
     HTTP_CLIENT,
 };
 use axum::{
-    body::StreamBody,
     extract::{Extension, Path, Query},
     response::IntoResponse,
     routing::{get, post},
@@ -298,7 +297,7 @@ async fn get_top_hub_scripts(
     Ok::<_, Error>((
         status_code,
         headers,
-        StreamBody::new(response.bytes_stream()),
+        response,
     ))
 }
 

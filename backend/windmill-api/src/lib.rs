@@ -23,7 +23,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
-use hyper::{http, Method};
+use hyper::http;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
@@ -108,6 +108,11 @@ lazy_static::lazy_static! {
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
+    pub static ref HTTP_CLIENT_11: reqwest_11::Client = reqwest_11::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
+        .build().unwrap();
+
     pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
@@ -161,7 +166,7 @@ pub async fn run_server(
         ));
 
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([http::Method::GET, http::Method::POST])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
@@ -304,21 +309,26 @@ pub async fn run_server(
 
     let instance_name = rd_string(5);
 
-    let server = axum::Server::bind(&addr).serve(app.into_make_service());
 
-    let port = server.local_addr().port();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
+    let ip = listener.local_addr().map(|x| x.ip().to_string()).unwrap_or("localhost".to_string());
+
+    let server = axum::serve(listener, app.into_make_service());
+
+    
     tracing::info!(
         instance = %instance_name,
         "server started on port={} and addr={}",
         port,
-        server.local_addr().ip()
+        ip
     );
 
     port_tx
-        .send(format!("http://localhost:{}", server.local_addr().port()))
+        .send(format!("http://localhost:{}", port))
         .expect("Failed to send port");
 
-    let server = server.with_graceful_shutdown(async {
+    let server = server.with_graceful_shutdown(async move {
         rx.recv().await.ok();
         println!("Graceful shutdown of server");
     });

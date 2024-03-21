@@ -11,13 +11,12 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
-    body,
+    body::Body,
     extract::{Extension, Json, Path, Query},
     response::Response,
     routing::{delete, get, post},
     Router,
 };
-use bytes::Bytes;
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
@@ -136,7 +135,7 @@ async fn get_data(
     let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
 
     Ok(res
-        .body(body::boxed(body::Full::from(Bytes::from(app))))
+        .body(Body::from(app))
         .unwrap())
 }
 

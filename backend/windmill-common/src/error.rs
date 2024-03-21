@@ -6,9 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::body::Body;
 use axum::response::Response;
 use axum::{
-    body::{self, BoxBody},
     response::IntoResponse,
     response::Json,
 };
@@ -73,9 +73,9 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
 }
 
 impl IntoResponse for Error {
-    fn into_response(self) -> axum::response::Response<BoxBody> {
+    fn into_response(self) -> axum::response::Response {
         let e = &self;
-        let body = body::boxed(body::Full::from(e.to_string()));
+        let body = Body::from(e.to_string());
 
         let status = match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
@@ -117,7 +117,7 @@ pub struct AppError(anyhow::Error);
 // Tell axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let body = body::boxed(body::Full::from(self.0.to_string()));
+        let body = Body::from(self.0.to_string());
         tracing::error!(error = self.0.to_string());
         axum::response::Response::builder()
             .header("Content-Type", "text/plain")
