@@ -16,7 +16,7 @@ export interface Setting {
 		| 'seconds'
 		| 'email'
 		| 'license_key'
-		| 's3_config'
+		| 'object_store_config'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
 	error?: string
@@ -97,8 +97,8 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'S3 for Python Cache & Large Logs',
 			description: 'Bucket to store large logs and cache for distributed python jobs.',
-			key: 's3_cache_config',
-			fieldType: 's3_config',
+			key: 'object_store_cache_config',
+			fieldType: 'object_store_config',
 			storage: 'setting',
 			ee_only: ''
 		},
