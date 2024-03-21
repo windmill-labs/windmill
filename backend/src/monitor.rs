@@ -40,10 +40,10 @@ use windmill_worker::{
 };
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{build_s3_client_from_settings, S3_CACHE_SETTINGS, S3Settings};
+use windmill_common::s3_helpers::{build_object_store_from_settings, build_s3_client_from_settings, OBJECT_STORE_CACHE_SETTINGS, S3Settings};
 
 #[cfg(feature = "parquet")]
-use windmill_common::global_settings::S3_CACHE_CONFIG_SETTING;
+use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 #[cfg(feature = "enterprise")]
 use crate::ee::verify_license_key;
@@ -397,17 +397,19 @@ pub async fn reload_retention_period_setting(db: &DB) {
 
 #[cfg(feature = "parquet")]
 pub async fn reload_s3_cache_setting(db: &DB) {
-    let s3_config = load_value_from_global_settings(db, S3_CACHE_CONFIG_SETTING).await;
+    use windmill_common::s3_helpers::ObjectSettings;
+
+    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CACHE_CONFIG_SETTING).await;
     if let Err(e) = s3_config {
         tracing::error!("Error reloading s3 cache config: {:?}", e)
     } else {
         if let Some(v) = s3_config.unwrap() {
-            let mut s3_cache_settings = S3_CACHE_SETTINGS.write().await;
-            let setting = serde_json::from_value::<S3Settings>(v);
+            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
+            let setting = serde_json::from_value::<ObjectSettings>(v);
             if let Err(e) = setting {
                 tracing::error!("Error parsing s3 cache config: {:?}", e)
             } else {
-                let s3_client = build_s3_client_from_settings(setting.unwrap()).await;
+                let s3_client = build_object_store_from_settings(setting.unwrap()).await;
                 if let Err(e) = s3_client {
                     tracing::error!("Error building s3 client from settings: {:?}", e)
                 } else {
@@ -415,7 +417,7 @@ pub async fn reload_s3_cache_setting(db: &DB) {
                 }
             }
         } else {
-            let mut s3_cache_settings = S3_CACHE_SETTINGS.write().await;
+            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
             if std::env::var("S3_CACHE_BUCKET").is_ok() {
                 *s3_cache_settings = build_s3_client_from_settings(S3Settings {
                     bucket:  None,

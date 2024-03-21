@@ -51,7 +51,7 @@ const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 use crate::global_cache::{build_tar_and_push, pull_from_tar};
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::s3_helpers::S3_CACHE_SETTINGS;
+use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
     common::{
@@ -799,7 +799,7 @@ pub async fn handle_python_reqs(
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if req_with_penv.len() > 0 {
-        if let Some(os) = S3_CACHE_SETTINGS.read().await.clone() {
+        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
                 append_logs(job_id.clone(), w_id.to_string(), format!("s3 cache not available in Pro Plan"), db).await;
                 tracing::warn!("S3 cache not available in the pro plan");
@@ -991,7 +991,7 @@ pub async fn handle_python_reqs(
         child?;
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = S3_CACHE_SETTINGS.read().await.clone() {
+        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {

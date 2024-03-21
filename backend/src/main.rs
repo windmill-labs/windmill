@@ -37,7 +37,7 @@ use windmill_common::{
 use windmill_common::METRICS_ADDR;
 
 #[cfg(feature = "parquet")]
-use windmill_common::global_settings::S3_CACHE_CONFIG_SETTING;
+use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
     BUN_CACHE_DIR,  DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
@@ -448,7 +448,7 @@ Windmill Community Edition {GIT_VERSION}
                                                     reload_job_default_timeout_setting(&db).await
                                                 },
                                                 #[cfg(feature = "parquet")]
-                                                S3_CACHE_CONFIG_SETTING => {
+                                                OBJECT_STORE_CACHE_CONFIG_SETTING => {
                                                     reload_s3_cache_setting(&db).await
                                                 },
                                                 SCIM_TOKEN_SETTING => {
@@ -562,6 +562,11 @@ Windmill Community Edition {GIT_VERSION}
         tracing::info!("Nothing to do, exiting.");
     }
     tracing::info!("Exiting connection pool");
+    tokio::select! {
+        _ = db.close() => {
+            tracing::info!("Database connection pool closed");
+        },
+    }
     db.close().await;
     Ok(())
 }

@@ -101,10 +101,10 @@ pub async fn test_email(
 }
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::S3Settings;
+use windmill_common::s3_helpers::ObjectSettings;
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::build_s3_client_from_settings;
+use windmill_common::s3_helpers::build_object_store_from_settings;
 
 
 
@@ -112,14 +112,12 @@ use windmill_common::s3_helpers::build_s3_client_from_settings;
 pub async fn test_s3_bucket(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-    Json(test_s3_bucket): Json<S3Settings>,
+    Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
 
-
-
     require_super_admin(&db, &authed.email).await?;
-    let client = build_s3_client_from_settings(test_s3_bucket).await?;
+    let client = build_object_store_from_settings(test_s3_bucket).await?;
 
     let path = object_store::path::Path::from(format!("/test-s3-bucket-{uuid}", uuid = uuid::Uuid::new_v4()));
     tracing::info!("Testing s3 bucket at path: {path}");

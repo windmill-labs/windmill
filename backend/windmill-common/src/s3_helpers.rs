@@ -21,7 +21,7 @@ use tokio::sync::RwLock;
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
 
-    pub static ref S3_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
+    pub static ref OBJECT_STORE_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -84,7 +84,6 @@ pub struct S3Resource {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AzureBlobResource {
-    #[serde(rename = "endpoint")]
     pub endpoint: Option<String>,
     #[serde(rename = "useSSL")]
     pub use_ssl: Option<bool>,
@@ -309,6 +308,24 @@ fn build_azure_blob_client(
 #[serde(tag = "typ", content = "value")]
 pub enum ObjectStoreSettings {
     S3(S3Settings),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum ObjectSettings {
+    S3(S3Settings),
+    Azure(AzureBlobResource),
+}
+
+#[cfg(feature = "parquet")]
+pub async fn build_object_store_from_settings(settings: ObjectSettings) -> error::Result<Arc<dyn ObjectStore>> {
+    match settings {
+        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings).await,
+        ObjectSettings::Azure(azure_settings) => {
+            let azure_blob_resource = azure_settings;
+            build_azure_blob_client(&azure_blob_resource)
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
