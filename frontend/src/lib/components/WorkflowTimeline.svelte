@@ -38,7 +38,7 @@
 	})
 </script>
 
-{#if flow_status && Object.keys(flow_status).filter((k) => k !== 'metadata').length > 0}
+{#if flow_status}
 	<div class="divide-y border-b">
 		<div class="px-2 py-2 grid grid-cols-12 w-full"
 			><div />

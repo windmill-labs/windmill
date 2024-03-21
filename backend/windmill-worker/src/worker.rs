@@ -2839,7 +2839,7 @@ async fn process_result(
                     None => {
                         job_with_column_order.flow_status =
                             Some(sqlx::types::Json(to_raw_value(&serde_json::json!({
-                                "metadata": {
+                                "_metadata": {
                                     "column_order": column_order
                                 }
                             }))));

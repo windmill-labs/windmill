@@ -89,7 +89,7 @@
 		{#if selectedTab === 'logs'}
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
-					{#if previewJob?.is_flow_step == false && previewJob?.flow_status && Object.keys(previewJob.flow_status).filter((k) => k !== 'metadata').length > 0}
+					{#if previewJob?.is_flow_step == false && previewJob?.flow_status && !('_metadata' in previewJob.flow_status)}
 						<Pane class="relative">
 							<WorkflowTimeline
 								flow_status={asWorkflowStatus(previewJob.flow_status)}

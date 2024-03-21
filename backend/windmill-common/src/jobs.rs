@@ -490,7 +490,7 @@ struct FlowStatusMetadata {
 
 #[derive(Deserialize)]
 struct FlowStatusWithMetadataOnly {
-    metadata: FlowStatusMetadata,
+    _metadata: FlowStatusMetadata,
 }
 
 pub fn order_columns(
@@ -534,7 +534,7 @@ pub fn format_result(
             {
                 if let Some(result) = result {
                     let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
-                    match order_columns(rows, flow_status.metadata.column_order) {
+                    match order_columns(rows, flow_status._metadata.column_order) {
                         Some(rows) => return FormattedResult::Vec(rows),
                         None => return FormattedResult::RawValue(Some(result)),
                     }
