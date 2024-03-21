@@ -638,7 +638,17 @@ plugin(p)
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace(
+                    "{SHARED_MOUNT}",
+                    &shared_mount.replace(
+                        "/tmp/shared",
+                        if annotation.nodejs_mode {
+                            "/tmp/nodejs/shared"
+                        } else {
+                            "/tmp/bun/shared"
+                        },
+                    ),
+                ),
         )
         .await?;
 

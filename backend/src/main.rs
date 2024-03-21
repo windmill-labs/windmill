@@ -14,7 +14,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::fs::{metadata, DirBuilder};
+use tokio::fs::DirBuilder;
 use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
@@ -24,7 +24,7 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, S3_CACHE_BUCKET_SETTING, SAML_METADATA_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING,
     },
     stats_ee::schedule_stats,
@@ -36,11 +36,14 @@ use windmill_common::{
 #[cfg(feature = "enterprise")]
 use windmill_common::METRICS_ADDR;
 
+#[cfg(feature = "parquet")]
+use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
+
 use windmill_worker::{
-    BUN_CACHE_DIR, BUN_TMP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    DENO_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR_DEPS, DENO_TMP_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
-    GO_CACHE_DIR, GO_TMP_CACHE_DIR, HUB_CACHE_DIR, HUB_TMP_CACHE_DIR, LOCK_CACHE_DIR,
-    PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_PIP_TMP_CACHE_DIR,
+    BUN_CACHE_DIR,  DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
+      GO_BIN_CACHE_DIR,
+    GO_CACHE_DIR,  HUB_CACHE_DIR,  LOCK_CACHE_DIR,
+    PIP_CACHE_DIR, TAR_PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -48,9 +51,12 @@ use crate::monitor::{
     monitor_db, monitor_pool, reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_extra_pip_index_url_setting, reload_job_default_timeout_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_s3_cache_bucket_setting, reload_scim_token_setting,
+    reload_retention_period_setting, reload_scim_token_setting,
     reload_server_config, reload_worker_config,
 };
+
+#[cfg(feature = "parquet")]
+use crate::monitor::reload_s3_cache_setting;
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 1;
@@ -441,8 +447,9 @@ Windmill Community Edition {GIT_VERSION}
                                                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
                                                     reload_job_default_timeout_setting(&db).await
                                                 },
-                                                S3_CACHE_BUCKET_SETTING => {
-                                                    reload_s3_cache_bucket_setting(&db).await
+                                                #[cfg(feature = "parquet")]
+                                                OBJECT_STORE_CACHE_CONFIG_SETTING => {
+                                                    reload_s3_cache_setting(&db).await
                                                 },
                                                 SCIM_TOKEN_SETTING => {
                                                     reload_scim_token_setting(&db).await
@@ -555,7 +562,14 @@ Windmill Community Edition {GIT_VERSION}
         tracing::info!("Nothing to do, exiting.");
     }
     tracing::info!("Exiting connection pool");
-    db.close().await;
+    tokio::select! {
+        _ = db.close() => {
+            tracing::info!("Database connection pool closed");
+        },
+        _ = tokio::time::sleep(Duration::from_secs(15)) => {
+            tracing::warn!("Could not close database connection pool in time (15s). Exiting anyway.");
+        }
+    }
     Ok(())
 }
 
@@ -652,15 +666,12 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
-    if metadata(&ROOT_TMP_CACHE_DIR).await.is_ok() {
-        if let Err(e) = tokio::fs::remove_dir_all(&ROOT_TMP_CACHE_DIR).await {
-            tracing::info!(error = %e, "Could not remove root tmp cache dir");
-        }
-    }
+
 
     for x in [
         LOCK_CACHE_DIR,
         PIP_CACHE_DIR,
+        TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
@@ -668,14 +679,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         HUB_CACHE_DIR,
-        POWERSHELL_CACHE_DIR,
-        TAR_PIP_TMP_CACHE_DIR,
-        DENO_TMP_CACHE_DIR,
-        DENO_TMP_CACHE_DIR_DEPS,
-        DENO_TMP_CACHE_DIR_NPM,
-        BUN_TMP_CACHE_DIR,
-        GO_TMP_CACHE_DIR,
-        HUB_TMP_CACHE_DIR,
+        POWERSHELL_CACHE_DIR
     ] {
         DirBuilder::new()
             .recursive(true)

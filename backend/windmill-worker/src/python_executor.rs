@@ -10,7 +10,7 @@ use tokio::{
     process::Command,
 };
 use uuid::Uuid;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::ee::{get_license_plan, LicensePlan};
 use windmill_common::{
     error::{self, Error},
@@ -47,11 +47,11 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use crate::global_cache::{build_tar_and_push, pull_from_tar};
 
-#[cfg(feature = "enterprise")]
-use windmill_common::s3_helpers::S3_CACHE_BUCKET;
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 use crate::{
     common::{
@@ -152,7 +152,7 @@ pub async fn pip_compile(
 
     write_file(job_dir, file, &requirements).await?;
 
-    let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
+    let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking", "--strip-extras"];
     let mut pip_args = vec![];
     let pip_extra_index_url = PIP_EXTRA_INDEX_URL
         .read()
@@ -776,31 +776,90 @@ pub async fn handle_python_reqs(
         .await?;
     };
 
+
+    let mut req_with_penv: Vec<(String, String)> = vec![];
+
     for req in requirements {
-        // todo: handle many reqs
         let venv_p = format!(
             "{PIP_CACHE_DIR}/{}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(&venv_p).await.is_ok() {
             req_paths.push(venv_p);
-            continue;
+        } else {
+            req_with_penv.push((req.to_string(), venv_p));
         }
+    }
 
-        #[cfg(feature = "enterprise")]
-        if let Some(ref bucket) = S3_CACHE_BUCKET.read().await.clone() {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    enum PullFromTar {
+        Pulled(String),
+        NotPulled(String, String),
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if req_with_penv.len() > 0 {
+        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
+                append_logs(job_id.clone(), w_id.to_string(), format!("s3 cache not available in Pro Plan"), db).await;
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {
-                sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                    .execute(db)
-                    .await?;
-                if pull_from_tar(bucket, venv_p.clone()).await.is_ok() {
-                    req_paths.push(venv_p.clone());
-                    continue;
+                
+                let (done_tx, mut done_rx) = tokio::sync::mpsc::channel(1);
+                let job_id_2 = job_id.clone();
+                let db_2 = db.clone();
+                tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+                                if let Err(e) = sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", &job_id_2)
+                                .execute(&db_2)
+                                .await {
+                                    tracing::error!("failed to update last_ping: {}", e);
+                                }
+                            }
+                            _ = done_rx.recv() => {
+                                break;
+                            }
+                        }
+                    }
+
+                });
+
+                let start = std::time::Instant::now();
+                let futures = req_with_penv.clone().into_iter().map(|(req, venv_p)| {
+                let os = os.clone();
+                async move {
+                    if pull_from_tar(os, venv_p.clone()).await.is_ok() {
+                        PullFromTar::Pulled(venv_p.to_string())
+                    } else {
+                        PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
+                    }
+                }}).collect::<Vec<_>>();
+                let results = futures::future::join_all(futures).await;
+                req_with_penv.clear();
+                done_tx.send(()).await.expect("failed to send done");
+                let mut pulled = vec![];
+                for result in results {
+                    match result {
+                        PullFromTar::Pulled(venv_p) => {
+                            pulled.push(venv_p.split("/").last().unwrap_or_default().to_string());
+                            req_paths.push(venv_p);
+                        }
+                        PullFromTar::NotPulled(req, venv_p) => {
+                            req_with_penv.push((req, venv_p));
+                        }
+                    }
+                }
+                if pulled.len() > 0 {
+                    append_logs(job_id.clone(), w_id.to_string(), format!("pulled {} from s3 cache in {}ms", pulled.join(", "), start.elapsed().as_millis()), db).await;
                 }
             }
-        }
+        } 
+    }
+
+    for (req, venv_p) in req_with_penv {
+
 
         let mut logs1 = String::new();
         logs1.push_str("\n\n--- PIP INSTALL ---\n");
@@ -931,13 +990,13 @@ pub async fn handle_python_reqs(
         );
         child?;
 
-        #[cfg(feature = "enterprise")]
-        if let Some(bucket) = S3_CACHE_BUCKET.read().await.clone() {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {
                 let venv_p = venv_p.clone();
-                tokio::spawn(build_tar_and_push(bucket, venv_p));
+                tokio::spawn(build_tar_and_push(os, venv_p));
             }
         }
         req_paths.push(venv_p);

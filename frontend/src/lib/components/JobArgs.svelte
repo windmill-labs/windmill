@@ -19,16 +19,16 @@
 
 	function pythonCode() {
 		return `
-if __name__ == 'main':
+if __name__ == "__main__":
 ${Object.entries(args)
 	.map(([arg, value]) => {
-		return `  ${arg} = ${JSON.stringify(value)}`
+		return `    ${arg} = ${JSON.stringify(value)}`
 	})
 	.join('\n')}
 
-  main(${Object.keys(args)
-		.map((x) => `${x} = ${x}`)
-		.join(', ')})
+	main(${Object.keys(args)
+			.map((x) => `${x} = ${x}`)
+			.join(', ')})
 `
 	}
 

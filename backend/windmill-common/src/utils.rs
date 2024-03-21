@@ -11,7 +11,6 @@ use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
 use git_version::git_version;
-use hyper::{HeaderMap, StatusCode};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -86,12 +85,12 @@ pub async fn query_elems_from_hub(
     url: &str,
     query_params: Option<Vec<(&str, String)>>,
     db: &DB,
-) -> Result<(StatusCode, HeaderMap, reqwest::Response)> {
+) -> Result<(reqwest::StatusCode, reqwest::header::HeaderMap, axum::body::Body)> {
     let response = http_get_from_hub(http_client, url, false, query_params, db).await?;
 
     let status = response.status();
 
-    Ok((status, response.headers().clone(), response))
+    Ok((status, response.headers().clone(), axum::body::Body::from_stream(response.bytes_stream())))
 }
 
 pub async fn http_get_from_hub(

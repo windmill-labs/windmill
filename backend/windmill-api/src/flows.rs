@@ -16,7 +16,6 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
-use axum::body::StreamBody;
 use axum::response::IntoResponse;
 use axum::{
     extract::{Extension, Path, Query},
@@ -177,7 +176,7 @@ async fn list_hub_flows(Extension(db): Extension<DB>) -> impl IntoResponse {
     Ok::<_, Error>((
         status_code,
         headers,
-        StreamBody::new(response.bytes_stream()),
+        response
     ))
 }
 

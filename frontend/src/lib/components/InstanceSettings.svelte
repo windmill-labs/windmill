@@ -23,6 +23,7 @@
 	import KanidmSetting from '$lib/components/KanidmSetting.svelte'
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import Password from './Password.svelte'
+	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -494,6 +495,8 @@
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
 												/>
+											{:else if setting.fieldType == 'object_store_config'}
+												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
 											{:else if setting.fieldType == 'number'}
 												<input
 													type="number"

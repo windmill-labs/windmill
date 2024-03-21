@@ -150,9 +150,9 @@ pub async fn serve_metrics(
 
     tokio::spawn(async move {
         tracing::info!("Serving metrics at: {addr}");
-        if let Err(e) = axum::Server::bind(&addr)
-            .serve(router.into_make_service())
-            .with_graceful_shutdown(async {
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        if let Err(e) = axum::serve(listener, router.into_make_service())
+            .with_graceful_shutdown(async move {
                 rx.recv().await.ok();
                 println!("Graceful shutdown of metrics");
             })
