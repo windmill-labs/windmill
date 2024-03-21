@@ -2846,7 +2846,7 @@ async fn process_result(
                 let mut job_with_column_order = (*job).clone();
                 match job_with_column_order.flow_status {
                     Some(_) => {
-                        tracing::error!("flow_status was expected to be none");
+                        tracing::warn!("flow_status was expected to be none");
                     }
                     None => {
                         job_with_column_order.flow_status =
@@ -3099,6 +3099,7 @@ async fn handle_code_execution_job(
             mem_peak,
             canceled_by,
             worker_name,
+            column_order,
         )
         .await;
     } else if language == Some(ScriptLang::Bigquery) {
@@ -3119,6 +3120,7 @@ async fn handle_code_execution_job(
                 mem_peak,
                 canceled_by,
                 worker_name,
+                column_order,
             )
             .await;
         }
@@ -3140,6 +3142,7 @@ async fn handle_code_execution_job(
                 mem_peak,
                 canceled_by,
                 worker_name,
+                column_order,
             )
             .await;
         }

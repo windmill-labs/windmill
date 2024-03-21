@@ -37,6 +37,7 @@ pub async fn do_mysql(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, db).await?.map(Json);
     let job_args = if args.is_some() {
@@ -173,6 +174,18 @@ pub async fn do_mysql(
             )
             .await
             .map_err(to_anyhow)?;
+
+        *column_order = Some(
+            rows.first()
+                .map(|x| {
+                    x.columns()
+                        .iter()
+                        .map(|x| x.name_str().to_string())
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default(),
+        );
+
         Ok(rows
             .into_iter()
             .map(|x| convert_row_to_value(x))

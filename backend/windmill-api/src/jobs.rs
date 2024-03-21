@@ -15,8 +15,8 @@ use std::sync::atomic::Ordering;
 use tokio::time::Instant;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
-    format_completed_job_result, format_result_ref, CompletedJobWithFormattedResult,
-    FormattedResultRef, ENTRYPOINT_OVERRIDE,
+    format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
+    ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::variables::get_workspace_key;
 
@@ -2355,13 +2355,13 @@ async fn run_wait_result(
             .await?;
             if let Some(row) = row {
                 let raw_result = RawResult::from_row(&row)?;
-                result = match format_result_ref(
+                result = match format_result(
                     raw_result.language.as_ref(),
-                    raw_result.flow_status,
-                    raw_result.result,
+                    raw_result.flow_status.map(|x| x.0),
+                    raw_result.result.map(|x| x.0),
                 ) {
-                    FormattedResultRef::RawValueRef(rv) => rv.map(|x| x.to_owned()),
-                    FormattedResultRef::Vec(fv) => Some(to_raw_value(&fv)),
+                    FormattedResult::RawValue(rv) => rv,
+                    FormattedResult::Vec(v) => Some(to_raw_value(&v)),
                 };
             } else {
                 result = None;
@@ -3565,16 +3565,16 @@ async fn get_completed_job<'a>(
 }
 
 #[derive(FromRow)]
-pub struct RawResult<'a> {
-    pub result: Option<&'a JsonRawValue>,
-    pub flow_status: Option<&'a JsonRawValue>,
+pub struct RawResult {
+    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
     pub language: Option<ScriptLang>,
 }
 
 #[derive(FromRow)]
-pub struct RawResultWithSuccess<'a> {
-    pub result: Option<&'a JsonRawValue>,
-    pub flow_status: Option<&'a JsonRawValue>,
+pub struct RawResultWithSuccess {
+    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
     pub language: Option<ScriptLang>,
     pub success: bool,
 }
@@ -3586,7 +3586,7 @@ async fn get_completed_job_result(
 ) -> error::Result<Response> {
     let result_o = if let Some(json_path) = json_path {
         sqlx::query(
-            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            "SELECT result #> $3 as result, flow_status, language FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
         .bind(id)
         .bind(w_id)
@@ -3610,21 +3610,21 @@ async fn get_completed_job_result(
 
     let raw_result = RawResult::from_row(&result)?;
 
-    let result = format_result_ref(
+    let result = format_result(
         raw_result.language.as_ref(),
-        raw_result.flow_status,
-        raw_result.result,
+        raw_result.flow_status.map(|x| x.0),
+        raw_result.result.map(|x| x.0),
     );
 
     Ok(Json(result).into_response())
 }
 
 #[derive(Serialize)]
-struct CompletedJobResult<'c> {
+struct CompletedJobResult {
     started: Option<bool>,
     success: Option<bool>,
     completed: bool,
-    result: Option<FormattedResultRef<'c>>,
+    result: Option<FormattedResult>,
 }
 
 #[derive(Deserialize)]
@@ -3647,7 +3647,11 @@ async fn get_completed_job_result_maybe(
 
     if let Some(result) = result_o {
         let res = RawResultWithSuccess::from_row(&result)?;
-        let result = format_result_ref(res.language.as_ref(), res.flow_status, res.result);
+        let result = format_result(
+            res.language.as_ref(),
+            res.flow_status.map(|x| x.0),
+            res.result.map(|x| x.0),
+        );
         Ok(Json(CompletedJobResult {
             started: Some(true),
             success: Some(res.success),

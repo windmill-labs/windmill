@@ -218,22 +218,22 @@ pub async fn do_postgresql(
             .map_err(to_anyhow)?;
 
         let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
-        let columns = rows
-            .first()
-            .map(|x| {
-                x.columns()
-                    .iter()
-                    .map(|x| x.name().to_string())
-                    .collect::<Vec<String>>()
-            })
-            .unwrap_or_default();
+
+        *column_order = Some(
+            rows.first()
+                .map(|x| {
+                    x.columns()
+                        .iter()
+                        .map(|x| x.name().to_string())
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default(),
+        );
 
         let result = rows
             .into_iter()
             .map(|x: Row| postgres_row_to_json_value(x))
             .collect::<Result<Vec<_>, _>>()?;
-
-        *column_order = Some(columns);
 
         Ok(result)
     };
