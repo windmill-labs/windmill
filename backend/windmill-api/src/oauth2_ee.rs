@@ -8,7 +8,6 @@
 
 use std::{collections::HashMap, fmt::Debug};
 
-use axum::body::StreamBody;
 use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
 use hmac::Mac;
@@ -157,21 +156,10 @@ pub async fn _refresh_token<'c>(
 }
 
 async fn list_supabase(headers: HeaderMap) -> impl IntoResponse {
-    let token = headers
-        .get("X-Supabase-Token")
-        .map(|x| x.to_str().unwrap_or(""))
-        .unwrap_or("");
-    let resp = HTTP_CLIENT
-        .get("https://api.supabase.com/v1/projects")
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(to_anyhow)?;
-
-    let status_code = resp.status();
-    let stream = resp.bytes_stream();
-
-    Ok((status_code, StreamBody::new(stream))) as error::Result<(StatusCode, StreamBody<_>)>
+    // Implementation is not open source
+    Err(error::Error::BadRequest(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
 }
 
 pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
