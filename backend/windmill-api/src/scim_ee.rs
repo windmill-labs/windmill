@@ -17,7 +17,7 @@ pub async fn ee() -> String {
     return "Enterprise Edition".to_string();
 }
 
-pub async fn has_scim_token<B>(request: Request<B>, next: Next) -> Response {
+pub async fn has_scim_token<B>(_request: Request<B>, _next: Next) -> Response {
     //Not implemented in open-source version
     todo!()
 }
