@@ -566,8 +566,10 @@ Windmill Community Edition {GIT_VERSION}
         _ = db.close() => {
             tracing::info!("Database connection pool closed");
         },
+        _ = tokio::time::sleep(Duration::from_secs(15)) => {
+            tracing::warn!("Could not close database connection pool in time (15s). Exiting anyway.");
+        }
     }
-    db.close().await;
     Ok(())
 }
 
