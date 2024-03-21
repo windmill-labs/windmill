@@ -136,7 +136,7 @@ rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = { git = "https://github.com/RustPython/Parser", rev = "29c4728dbedc7e69cc2560b9b34058bbba9b1303" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser", rev = "9ce55aefdeb35e2f706ce0b02d5a2dfe6295fc57" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
