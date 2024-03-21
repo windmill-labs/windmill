@@ -8,18 +8,17 @@
 
 use std::{collections::HashMap, fmt::Debug};
 
-use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
 use hmac::Mac;
-use hyper::{HeaderMap, StatusCode};
+use hyper::HeaderMap;
 
 use oauth2::{Client as OClient, *};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use windmill_common::more_serde::maybe_number_opt;
 
-use crate::{HTTP_CLIENT, OAUTH_CLIENTS};
-use windmill_common::error::{self, to_anyhow};
+use crate::OAUTH_CLIENTS;
+use windmill_common::error;
 use windmill_common::oauth2::*;
 
 use crate::db::DB;
@@ -155,7 +154,7 @@ pub async fn _refresh_token<'c>(
     ))
 }
 
-async fn list_supabase(headers: HeaderMap) -> impl IntoResponse {
+async fn list_supabase(_headers: HeaderMap) -> error::Result<String> {
     // Implementation is not open source
     Err(error::Error::BadRequest(
         "Not implemented in Windmill's Open Source repository".to_string(),
