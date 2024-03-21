@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.293.1](https://github.com/windmill-labs/windmill/compare/v1.293.0...v1.293.1) (2024-03-21)
+
+
+### Bug Fixes
+
+* update axum to 0.7 and object_store to 0.9 ([f13aea2](https://github.com/windmill-labs/windmill/commit/f13aea299824e49be5aee56fb39dd4c220fa70a8))
+
 ## [1.293.0](https://github.com/windmill-labs/windmill/compare/v1.292.4...v1.293.0) (2024-03-21)
 
 
