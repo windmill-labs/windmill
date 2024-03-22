@@ -270,7 +270,6 @@ impl CompletedJob {
 pub struct BranchResults<'a> {
     pub result: &'a RawValue,
     pub id: Uuid,
-    pub language: Option<ScriptLang>,
 }
 
 #[derive(Debug, Clone)]
