@@ -63,6 +63,7 @@ pub async fn do_postgresql(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, db).await?;
 
@@ -217,10 +218,24 @@ pub async fn do_postgresql(
             .map_err(to_anyhow)?;
 
         let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
-        Ok(rows
+
+        *column_order = Some(
+            rows.first()
+                .map(|x| {
+                    x.columns()
+                        .iter()
+                        .map(|x| x.name().to_string())
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default(),
+        );
+
+        let result = rows
             .into_iter()
             .map(|x: Row| postgres_row_to_json_value(x))
-            .collect::<Result<Vec<_>, _>>()?) as anyhow::Result<Vec<serde_json::Value>>
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(result)
     };
 
     let result = run_future_with_polling_update_job_poller(

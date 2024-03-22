@@ -363,7 +363,7 @@
 										on:change={() => handleCheckboxChange(_id)}
 									/>
 								</Cell>
-								{#each Object.keys(rowData ?? {}) ?? [] as key, index}
+								{#each Object.keys(data[0].rowData ?? {}) ?? [] as key, index}
 									{@const value = rowData[key]}
 									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
 										{#if hiddenColumns.includes(key)}
