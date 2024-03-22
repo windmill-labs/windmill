@@ -1184,10 +1184,53 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/rename:
+  /w/{workspace}/workspaces/get_workspace_name:
+    get:
+      summary: get workspace name
+      operationId: getWorkspaceName
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/change_workspace_name:
     post:
-      summary: rename workspace
-      operationId: renameWorkspace
+      summary: change workspace name
+      operationId: changeWorkspaceName
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_name:
+                  type: string
+              required:
+                - username
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
+  /w/{workspace}/workspaces/change_workspace_id:
+    post:
+      summary: change workspace id
+      operationId: changeWorkspaceId
       tags:
         - workspace
       parameters:
