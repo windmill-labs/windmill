@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace SELECT $1, $2, owner, deleted, premium, is_overquota FROM workspace WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d89ac43c4ae3a17167a44c802df72bc506803b79fe93ab3b203fb0690b1bef1"
+}
