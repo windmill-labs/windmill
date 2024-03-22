@@ -65,6 +65,7 @@ pub async fn do_bigquery(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let bigquery_args = build_args_values(job, client, db).await?;
 
@@ -220,6 +221,17 @@ pub async fn do_bigquery(
                     "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
                 ));
                 }
+
+                *column_order = Some(
+                    result
+                        .schema
+                        .as_ref()
+                        .unwrap()
+                        .fields
+                        .iter()
+                        .map(|x| x.name.clone())
+                        .collect::<Vec<String>>(),
+                );
 
                 let rows = result
                     .rows

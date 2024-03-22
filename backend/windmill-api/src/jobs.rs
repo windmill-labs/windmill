@@ -14,7 +14,10 @@ use std::sync::atomic::Ordering;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
-use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
+use windmill_common::jobs::{
+    format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
+    ENTRYPOINT_OVERRIDE,
+};
 use windmill_common::variables::get_workspace_key;
 
 use crate::db::ApiAuthed;
@@ -559,7 +562,12 @@ async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::R
             .await?
             .map(Job::CompletedJob);
     if let Some(cjob) = cjob_maybe {
-        Ok(cjob)
+        Ok(match cjob {
+            Job::CompletedJob(cjob) => {
+                Job::CompletedJobWithFormattedResult(format_completed_job_result(cjob))
+            }
+            cjob => cjob,
+        })
     } else {
         let job_o = sqlx::query_as::<_, QueuedJob>(
             "SELECT  id, queue.workspace_id, parent_job, created_by, queue.created_at, started_at, scheduled_for, running,
@@ -1203,6 +1211,7 @@ async fn resume_suspended_job_internal(
     let trigger_email = match &parent_flow {
         Job::CompletedJob(job) => &job.email,
         Job::QueuedJob(job) => &job.email,
+        Job::CompletedJobWithFormattedResult(job) => &job.cj.email,
     };
     conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
 
@@ -1459,6 +1468,7 @@ pub async fn get_suspended_job_flow(
     let trigger_email = match &flow {
         Job::CompletedJob(job) => &job.email,
         Job::QueuedJob(job) => &job.email,
+        Job::CompletedJobWithFormattedResult(job) => &job.cj.email,
     };
     conditionally_require_authed_user(authed, flow_status.clone(), trigger_email)?;
 
@@ -1627,6 +1637,8 @@ pub async fn get_resume_urls(
 pub enum Job {
     QueuedJob(QueuedJob),
     CompletedJob(CompletedJob),
+    #[serde(rename = "CompletedJob")]
+    CompletedJobWithFormattedResult(CompletedJobWithFormattedResult),
 }
 
 impl Job {
@@ -1638,6 +1650,12 @@ impl Job {
                 .map(|rf| serde_json::from_str(rf.0.get()).ok())
                 .flatten(),
             Job::CompletedJob(job) => job
+                .raw_flow
+                .as_ref()
+                .map(|rf| serde_json::from_str(rf.0.get()).ok())
+                .flatten(),
+            Job::CompletedJobWithFormattedResult(job) => job
+                .cj
                 .raw_flow
                 .as_ref()
                 .map(|rf| serde_json::from_str(rf.0.get()).ok())
@@ -1661,6 +1679,13 @@ impl Job {
                     job.logs = Some(logs.to_string());
                 }
             }
+            Job::CompletedJobWithFormattedResult(job) => {
+                if let Some(ref mut l) = job.cj.logs {
+                    l.push_str(logs);
+                } else {
+                    job.cj.logs = Some(logs.to_string());
+                }
+            }
         }
     }
 
@@ -1668,6 +1693,7 @@ impl Job {
         match self {
             Job::QueuedJob(job) => job.logs.as_ref().map(|l| l.len()),
             Job::CompletedJob(job) => job.logs.as_ref().map(|l| l.len()),
+            Job::CompletedJobWithFormattedResult(job) => job.cj.logs.as_ref().map(|l| l.len()),
         }
     }
 
@@ -1675,6 +1701,7 @@ impl Job {
         match self {
             Job::QueuedJob(job) => job.logs.clone(),
             Job::CompletedJob(job) => job.logs.clone(),
+            Job::CompletedJobWithFormattedResult(job) => job.cj.logs.clone(),
         }
     }
     pub fn flow_status(&self) -> Option<FlowStatus> {
@@ -1689,12 +1716,19 @@ impl Job {
                 .as_ref()
                 .map(|rf| serde_json::from_str(rf.0.get()).ok())
                 .flatten(),
+            Job::CompletedJobWithFormattedResult(job) => job
+                .cj
+                .flow_status
+                .as_ref()
+                .map(|rf| serde_json::from_str(rf.0.get()).ok())
+                .flatten(),
         }
     }
     pub fn is_flow_step(&self) -> bool {
         match self {
             Job::QueuedJob(job) => job.is_flow_step,
             Job::CompletedJob(job) => job.is_flow_step,
+            Job::CompletedJobWithFormattedResult(job) => job.cj.is_flow_step,
         }
     }
 
@@ -1702,6 +1736,7 @@ impl Job {
         match self {
             Job::QueuedJob(job) => &job.job_kind,
             Job::CompletedJob(job) => &job.job_kind,
+            Job::CompletedJobWithFormattedResult(job) => &job.cj.job_kind,
         }
     }
 
@@ -1709,6 +1744,7 @@ impl Job {
         match self {
             Job::QueuedJob(job) => job.id,
             Job::CompletedJob(job) => job.id,
+            Job::CompletedJobWithFormattedResult(job) => job.cj.id,
         }
     }
 }
@@ -2310,14 +2346,23 @@ async fn run_wait_result(
             .await
             .ok();
         } else {
-            let row =
-                sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
-                    .bind(uuid)
-                    .bind(&w_id)
-                    .fetch_optional(db)
-                    .await?;
+            let row = sqlx::query(
+                "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            )
+            .bind(uuid)
+            .bind(&w_id)
+            .fetch_optional(db)
+            .await?;
             if let Some(row) = row {
-                result = Some(RawResult::from_row(&row)?.result.to_owned());
+                let raw_result = RawResult::from_row(&row)?;
+                result = match format_result(
+                    raw_result.language.as_ref(),
+                    raw_result.flow_status.map(|x| x.0),
+                    raw_result.result.map(|x| x.0),
+                ) {
+                    FormattedResult::RawValue(rv) => rv,
+                    FormattedResult::Vec(v) => Some(to_raw_value(&v)),
+                };
             } else {
                 result = None;
             }
@@ -3502,7 +3547,10 @@ async fn get_completed_job<'a>(
         .await?;
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
+
     let cj = CompletedJob::from_row(&job)?;
+
+    let cj = format_completed_job_result(cj);
 
     let response = Json(cj).into_response();
     // let extra_log = query_scalar!(
@@ -3517,20 +3565,18 @@ async fn get_completed_job<'a>(
 }
 
 #[derive(FromRow)]
-pub struct RawResult<'a> {
-    pub result: &'a JsonRawValue,
+pub struct RawResult {
+    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub language: Option<ScriptLang>,
 }
 
 #[derive(FromRow)]
-pub struct RawResultWithSuccess<'a> {
-    pub result: &'a JsonRawValue,
+pub struct RawResultWithSuccess {
+    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub language: Option<ScriptLang>,
     pub success: bool,
-}
-
-impl<'a> IntoResponse for RawResult<'a> {
-    fn into_response(self) -> Response {
-        Json(self.result).into_response()
-    }
 }
 
 async fn get_completed_job_result(
@@ -3540,7 +3586,7 @@ async fn get_completed_job_result(
 ) -> error::Result<Response> {
     let result_o = if let Some(json_path) = json_path {
         sqlx::query(
-            "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            "SELECT result #> $3 as result, flow_status, language FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
         .bind(id)
         .bind(w_id)
@@ -3553,7 +3599,7 @@ async fn get_completed_job_result(
         .fetch_optional(&db)
         .await?
     } else {
-        sqlx::query("SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2")
+        sqlx::query("SELECT result, flow_status, language FROM completed_job WHERE id = $1 AND workspace_id = $2")
             .bind(id)
             .bind(w_id)
             .fetch_optional(&db)
@@ -3561,15 +3607,24 @@ async fn get_completed_job_result(
     };
 
     let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
-    Ok(RawResult::from_row(&result)?.into_response())
+
+    let raw_result = RawResult::from_row(&result)?;
+
+    let result = format_result(
+        raw_result.language.as_ref(),
+        raw_result.flow_status.map(|x| x.0),
+        raw_result.result.map(|x| x.0),
+    );
+
+    Ok(Json(result).into_response())
 }
 
 #[derive(Serialize)]
-struct CompletedJobResult<'c> {
+struct CompletedJobResult {
     started: Option<bool>,
     success: Option<bool>,
     completed: bool,
-    result: Option<&'c JsonRawValue>,
+    result: Option<FormattedResult>,
 }
 
 #[derive(Deserialize)]
@@ -3583,7 +3638,7 @@ async fn get_completed_job_result_maybe(
     Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
     let result_o = sqlx::query(
-        "SELECT result, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        "SELECT result, success, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
     .bind(&w_id)
@@ -3592,11 +3647,16 @@ async fn get_completed_job_result_maybe(
 
     if let Some(result) = result_o {
         let res = RawResultWithSuccess::from_row(&result)?;
+        let result = format_result(
+            res.language.as_ref(),
+            res.flow_status.map(|x| x.0),
+            res.result.map(|x| x.0),
+        );
         Ok(Json(CompletedJobResult {
             started: Some(true),
             success: Some(res.success),
             completed: true,
-            result: Some(res.result),
+            result: Some(result),
         })
         .into_response())
     } else if get_started.is_some_and(|x| x) {
@@ -3663,6 +3723,10 @@ async fn delete_completed_job<'a>(
     .await?;
 
     tx.commit().await?;
-    let response = Json(CompletedJob::from_row(&job)?).into_response();
+    let cj = CompletedJob::from_row(&job)?;
+
+    let cj = format_completed_job_result(cj);
+
+    let response = Json(cj).into_response();
     Ok(response)
 }
