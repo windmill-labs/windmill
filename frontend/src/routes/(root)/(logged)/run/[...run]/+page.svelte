@@ -605,7 +605,7 @@
 				/>
 			</div>
 		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
-			{#if job?.flow_status && !('_metadata' in job.flow_status)}
+			{#if job?.flow_status && typeof job.flow_status == '_metadata' && !('_metadata' in job.flow_status)}
 				<div class="mt-10" />
 				<WorkflowTimeline
 					flow_status={asWorkflowStatus(job.flow_status)}
