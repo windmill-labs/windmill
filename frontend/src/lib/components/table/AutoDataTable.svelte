@@ -411,7 +411,12 @@
 												{value}
 											</a>
 										{:else}
-											{@const txt = typeof value == 'object' ? JSON.stringify(value) : value}
+											{@const txt =
+												value == undefined
+													? ''
+													: typeof value != 'string'
+													? JSON.stringify(value)
+													: value}
 											<Popover
 												placement="bottom"
 												notClickable
