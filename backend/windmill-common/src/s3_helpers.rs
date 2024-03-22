@@ -79,7 +79,6 @@ pub struct S3Resource {
     pub path_style: Option<bool>,
     pub token: Option<String>,
     pub port: Option<u16>,
-
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -181,11 +180,13 @@ pub fn build_object_store_client(
 #[cfg(feature = "parquet")]
 use aws_config::{default_provider::credentials::DefaultCredentialsChain, Region};
 #[cfg(feature = "parquet")]
-use  object_store::CredentialProvider;
+use object_store::CredentialProvider;
 
 #[cfg(feature = "parquet")]
-pub fn build_s3_client(s3_resource_ref: &S3Resource, credential_providers: Option<DefaultCredentialsChain>) -> error::Result<Arc<dyn ObjectStore>> {
-
+pub fn build_s3_client(
+    s3_resource_ref: &S3Resource,
+    credential_providers: Option<DefaultCredentialsChain>,
+) -> error::Result<Arc<dyn ObjectStore>> {
     let s3_resource = s3_resource_ref.clone();
     let endpoint = render_endpoint(
         s3_resource.endpoint,
@@ -194,8 +195,6 @@ pub fn build_s3_client(s3_resource_ref: &S3Resource, credential_providers: Optio
         s3_resource.path_style,
         s3_resource.bucket.clone(),
     );
-
-
 
     let mut store_builder = AmazonS3Builder::new()
         .with_client_options(ClientOptions::new().with_timeout_disabled()) // TODO: make it configurable maybe
@@ -208,7 +207,7 @@ pub fn build_s3_client(s3_resource_ref: &S3Resource, credential_providers: Optio
             inner: credentials_provider,
         }));
     }
-    
+
     if !s3_resource.use_ssl {
         store_builder = store_builder.with_allow_http(true)
     }
@@ -318,7 +317,9 @@ pub enum ObjectSettings {
 }
 
 #[cfg(feature = "parquet")]
-pub async fn build_object_store_from_settings(settings: ObjectSettings) -> error::Result<Arc<dyn ObjectStore>> {
+pub async fn build_object_store_from_settings(
+    settings: ObjectSettings,
+) -> error::Result<Arc<dyn ObjectStore>> {
     match settings {
         ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings).await,
         ObjectSettings::Azure(azure_settings) => {
@@ -340,7 +341,7 @@ pub struct S3Settings {
 }
 
 #[cfg(feature = "parquet")]
- fn none_if_empty(s: Option<String>) -> Option<String> {
+fn none_if_empty(s: Option<String>) -> Option<String> {
     if s.is_none() || s.as_ref().unwrap().is_empty() {
         None
     } else {
@@ -349,21 +350,30 @@ pub struct S3Settings {
 }
 
 #[cfg(feature = "parquet")]
-pub async fn build_s3_client_from_settings(settings: S3Settings) -> error::Result<Arc<dyn ObjectStore>> {
-    let region = none_if_empty(settings.region).unwrap_or_else(|| std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()));
+pub async fn build_s3_client_from_settings(
+    settings: S3Settings,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    let region = none_if_empty(settings.region)
+        .unwrap_or_else(|| std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()));
     let access_key = none_if_empty(settings.access_key);
     let secret_key = none_if_empty(settings.secret_key);
-    let credentials_provider = if access_key.is_none() && secret_key.is_none() { 
-        Some(DefaultCredentialsChain::builder()
-            .region(Region::new(region.clone()))
-            .build()
-            .await)
-     } else { None };
+    let credentials_provider = if access_key.is_none() && secret_key.is_none() {
+        Some(
+            DefaultCredentialsChain::builder()
+                .region(Region::new(region.clone()))
+                .build()
+                .await,
+        )
+    } else {
+        None
+    };
     let s3_resource = S3Resource {
-        endpoint: none_if_empty(settings.endpoint).unwrap_or_else(|| std::env::var("S3_ENDPOINT")
-            .unwrap_or_else(|_| format!("s3.{region}.amazonaws.com"))),
-        bucket: settings.bucket.clone()
-            .unwrap_or_else(|| std::env::var("S3_CACHE_BUCKET").unwrap_or_else(|_| "missingbucket".to_string())),
+        endpoint: none_if_empty(settings.endpoint).unwrap_or_else(|| {
+            std::env::var("S3_ENDPOINT").unwrap_or_else(|_| format!("s3.{region}.amazonaws.com"))
+        }),
+        bucket: settings.bucket.clone().unwrap_or_else(|| {
+            std::env::var("S3_CACHE_BUCKET").unwrap_or_else(|_| "missingbucket".to_string())
+        }),
         region,
         access_key,
         secret_key,
@@ -372,7 +382,6 @@ pub async fn build_s3_client_from_settings(settings: S3Settings) -> error::Resul
         port: None,
         token: None,
     };
-     
 
     build_s3_client(&s3_resource, credentials_provider)
 }
@@ -388,7 +397,10 @@ struct AwsCredentialAdapter {
 impl CredentialProvider for AwsCredentialAdapter {
     type Credential = AwsCredential;
     async fn get_credential(&self) -> object_store::Result<Arc<Self::Credential>> {
-        let creds = self.inner.provide_credentials().await.unwrap();
+        let creds = self.inner.provide_credentials().await.map_err(|e| {
+            tracing::error!("Error getting credentials: {:?}", e);
+            object_store::Error::Generic { store: "AWS", source: Box::new(e) }
+        })?;
         Ok(Arc::new(Self::Credential {
             key_id: creds.access_key_id().to_string(),
             secret_key: creds.secret_access_key().to_string(),
