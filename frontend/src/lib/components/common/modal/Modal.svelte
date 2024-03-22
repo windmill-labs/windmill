@@ -39,6 +39,7 @@
 
 {#if open}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 	<div
 		on:click={() => (open = false)}
 		transition:fadeFast|local
@@ -54,6 +55,7 @@
 
 		<div class="fixed inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
 					on:click|stopPropagation
 					class={twMerge(

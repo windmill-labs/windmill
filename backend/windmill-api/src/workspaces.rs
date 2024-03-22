@@ -108,7 +108,10 @@ pub fn workspaced_service() -> Router {
             "/encryption_key",
             get(get_encryption_key).post(set_encryption_key),
         )
-        .route("/leave", post(leave_workspace));
+        .route("/leave", post(leave_workspace))
+        .route("/get_workspace_name", get(get_workspace_name))
+        .route("/change_workspace_name", post(change_workspace_name))
+        .route("/change_workspace_id", post(change_workspace_id));
 
     #[cfg(feature = "stripe")]
     {
@@ -2631,4 +2634,374 @@ async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+async fn get_workspace_name(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+    let workspace = sqlx::query_scalar!("SELECT name FROM workspace WHERE id = $1", &w_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(workspace)
+}
+
+#[derive(Deserialize)]
+struct ChangeWorkspaceName {
+    new_name: String,
+}
+
+async fn change_workspace_name(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
+    Json(rw): Json<ChangeWorkspaceName>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE workspace SET name = $1 WHERE id = $2",
+        &rw.new_name,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspace.change_workspace_name",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("updated workspace name to {}", &rw.new_name))
+}
+
+#[derive(Deserialize)]
+struct ChangeWorkspaceId {
+    new_id: String,
+    new_name: String,
+}
+async fn change_workspace_id(
+    authed: ApiAuthed,
+    Path(old_id): Path<String>,
+    Extension(db): Extension<DB>,
+    Json(rw): Json<ChangeWorkspaceId>,
+) -> Result<String> {
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "This feature is not available on the cloud".to_string(),
+        ));
+    }
+
+    if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+        require_super_admin(&db, &authed.email).await?;
+    } else {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
+
+    let mut tx = db.begin().await?;
+
+    let workspace_conflict = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)",
+        &rw.new_id,
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if workspace_conflict {
+        return Err(Error::BadRequest(format!(
+            "workspace id {} already used",
+            &rw.new_id
+        )));
+    }
+
+    // duplicate workspace with new id name
+    sqlx::query!(
+        "INSERT INTO workspace SELECT $1, $2, owner, deleted, premium, is_overquota FROM workspace WHERE id = $3",
+        &rw.new_id,
+        &rw.new_name,
+        &old_id
+    ).execute(&mut *tx).await?;
+
+    sqlx::query!(
+        "UPDATE account SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE app SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE audit SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE capture SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE completed_job SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE dependency_map SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE dependency_map SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE deployment_metadata SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE draft SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE favorite SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // have to duplicate group_ with new workspace id because of foreign key constraint
+    sqlx::query!(
+        "INSERT INTO group_ SELECT $1, name, summary, extra_perms FROM group_ WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE usr_to_group SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // then delete old group_
+    sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &old_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!(
+        "UPDATE input SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE job_logs SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE job_stats SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE queue SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE raw_app SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE resource SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE resource_type SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE schedule SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE script SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE token SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE usage SET id = $1 WHERE id = $2 AND is_workspace = true",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE usr SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE variable SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE workspace_invite SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE workspace_key SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // delete old workspace
+    sqlx::query!("DELETE FROM workspace WHERE id = $1", &old_id)
+        .execute(&mut *tx)
+        .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed.username,
+        "workspace.change_workspace_id",
+        ActionKind::Update,
+        &rw.new_id,
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!(
+        "updated workspace from {} to {}",
+        &old_id, &rw.new_id
+    ))
 }
