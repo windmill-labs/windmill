@@ -801,6 +801,7 @@ pub async fn start_worker(
         get_common_bun_proc_envs(&base_internal_url).await;
 
     let context = variables::get_reserved_variables(
+        db,
         w_id,
         &token,
         "dedicated_worker@windmill.dev",

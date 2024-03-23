@@ -2,6 +2,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import ContextualVariableEditor from '$lib/components/ContextualVariableEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
@@ -18,7 +19,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable } from '$lib/gen'
-	import { OauthService, VariableService } from '$lib/gen'
+	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
@@ -44,6 +45,7 @@
 	let contextualVariables: ContextualVariable[] = []
 	let shareModal: ShareModal
 	let variableEditor: VariableEditor
+	let contextualVariableEditor: ContextualVariableEditor
 	let loading = {
 		contextual: true
 	}
@@ -101,6 +103,18 @@
 	let tab: 'workspace' | 'contextual' = 'workspace'
 
 	let deploymentDrawer: DeployWorkspaceDrawer
+
+	async function deleteContextualVariable(row: { name: string }) {
+		await WorkspaceService.setEnvironmentVariable({
+			workspace: $workspaceStore!,
+			requestBody: {
+				name: row.name,
+				value: undefined
+			}
+		})
+		loadContextualVariables()
+		sendUserToast(`Custom contextual variable ${row.name} was deleted`)
+	}
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
@@ -119,13 +133,27 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 	>
 		<div class="flex flex-row justify-end">
-			<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor.initNew()}>
-				New&nbsp;variable
-			</Button>
+			{#if tab == 'contextual' && $userStore?.is_admin}
+				<Button
+					size="md"
+					startIcon={{ icon: Plus }}
+					on:click={() => contextualVariableEditor.initNew()}
+				>
+					New&nbsp;contextual&nbsp;variable
+				</Button>
+			{:else}
+				<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor.initNew()}>
+					New&nbsp;variable
+				</Button>
+			{/if}
 		</div>
 	</PageHeader>
 
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
+	<ContextualVariableEditor
+		bind:this={contextualVariableEditor}
+		on:update={loadContextualVariables}
+	/>
 	<ShareModal
 		bind:this={shareModal}
 		on:change={() => {
@@ -370,9 +398,39 @@
 					<Skeleton layout={[[2.8], 0.5]} />
 				{/each}
 			{:else}
+				<PageHeader title="Custom contextual variables" primary={false} />
+				{#if contextualVariables.filter((x) => x.is_custom).length === 0}
+					<div class="flex flex-col items-center justify-center h-full">
+						<div class="text-md font-medium">No custom contextual variables found</div>
+					</div>
+				{:else}
+					<TableSimple
+						headers={['Name', 'Value']}
+						data={contextualVariables.filter((x) => x.is_custom)}
+						keys={['name', 'value']}
+						getRowActions={$userStore?.is_admin
+							? (row) => {
+									return [
+										{
+											displayName: 'Edit',
+											action: () => contextualVariableEditor.editVariable(row.name, row.value)
+										},
+										{
+											displayName: 'Delete',
+											type: 'delete',
+											action: () => {
+												deleteContextualVariable(row)
+											}
+										}
+									]
+							  }
+							: undefined}
+					/>
+				{/if}
+				<PageHeader title="Contextual variables" primary={false} />
 				<TableSimple
 					headers={['Name', 'Example of value', 'Description']}
-					data={contextualVariables}
+					data={contextualVariables.filter((x) => !x.is_custom)}
 					keys={['name', 'value', 'description']}
 				/>
 			{/if}

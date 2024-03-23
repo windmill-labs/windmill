@@ -421,6 +421,7 @@ pub async fn start_worker(
     let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
 
     let context = variables::get_reserved_variables(
+        db,
         w_id,
         &token,
         "dedicated_worker@windmill.dev",

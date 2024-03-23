@@ -385,9 +385,7 @@ async fn custom_component(
     let cc = not_found_if_none(cc_o, "Custom Component", name)?;
     let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
 
-    Ok(res
-        .body(Body::from(cc))
-        .unwrap())
+    Ok(res.body(Body::from(cc)).unwrap())
 }
 
 #[derive(Deserialize)]
@@ -537,6 +535,7 @@ pub async fn transform_json_value<'c>(
             };
 
             let variables = variables::get_reserved_variables(
+                db,
                 &job.workspace_id,
                 token,
                 &job.email,

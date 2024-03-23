@@ -1046,6 +1046,7 @@ pub async fn start_worker(
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     let context = variables::get_reserved_variables(
+        db,
         w_id,
         &token,
         "dedicated_worker@windmill.dev",
@@ -1163,6 +1164,7 @@ for line in sys.stdin:
     }
 
     let reserved_variables = windmill_common::variables::get_reserved_variables(
+        db,
         w_id,
         token,
         "dedicated_worker",
