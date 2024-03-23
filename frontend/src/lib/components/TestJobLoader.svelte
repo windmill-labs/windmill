@@ -159,9 +159,8 @@
 						workspace: workspace!,
 						id,
 						running: job.running,
-						logOffset: logOffset == 0 ? job?.logs?.length + 1 ?? 0 : logOffset
+						logOffset: logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
 					})
-					console.log(logOffset, previewJobUpdates.log_offset, previewJobUpdates.new_logs)
 
 					if (previewJobUpdates.log_offset) {
 						logOffset = previewJobUpdates.log_offset ?? 0
