@@ -22,10 +22,10 @@ pub struct ContextualVariable {
     pub name: String,
     pub value: String,
     pub description: String,
+    pub is_custom: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 
 pub struct ListableVariable {
     pub workspace_id: String,
@@ -42,8 +42,7 @@ pub struct ListableVariable {
     pub is_linked: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 
 pub struct ExportableListableVariable {
     pub workspace_id: String,
@@ -133,6 +132,7 @@ pub async fn get_secret_value_as_admin(
 }
 
 pub async fn get_reserved_variables(
+    db: &DB,
     w_id: &str,
     token: &str,
     email: &str,
@@ -146,7 +146,7 @@ pub async fn get_reserved_variables(
     step_id: Option<String>,
     root_flow_id: Option<String>,
     jwt_token: Option<String>,
-) -> [ContextualVariable; 17] {
+) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
             username.to_string()
@@ -192,11 +192,12 @@ pub async fn get_reserved_variables(
         format!("{joined_script_path}/{joined_schedule_path}/{ts}_{job_id}")
     };
 
-    [
+    vec![
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
             value: w_id.to_string(),
             description: "Workspace id of the current script".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_TOKEN".to_string(),
@@ -204,46 +205,55 @@ pub async fn get_reserved_variables(
             description: "Token ephemeral to the current script with equal permission to the \
                           permission of the run (Usable as a bearer token)"
                 .to_string(),
+                is_custom: false,
         },
         ContextualVariable {
             name: "WM_EMAIL".to_string(),
             value: email.to_string(),
             description: "Email of the user that executed the current script".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_USERNAME".to_string(),
             value: username.to_string(),
             description: "Username of the user that executed the current script".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_BASE_URL".to_string(),
             value: BASE_URL.read().await.clone(),
             description: "base url of this instance".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_JOB_ID".to_string(),
             value: job_id.to_string(),
             description: "Job id of the current script".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_JOB_PATH".to_string(),
             value: path.unwrap_or_else(|| "".to_string()),
             description: "Path of the script or flow being run if any".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_FLOW_JOB_ID".to_string(),
             value: flow_id.unwrap_or_else(|| "".to_string()),
             description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_ROOT_FLOW_JOB_ID".to_string(),
             value: root_flow_id.unwrap_or_else(|| "".to_string()),
             description: "Job id of the root flow if the job is a flow step".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_FLOW_PATH".to_string(),
             value: flow_path.unwrap_or_else(|| "".to_string()),
             description: "Path of the encapsulating flow if the job is a flow step".to_string(),
+            is_custom: false,
         },
 
         ContextualVariable {
@@ -252,36 +262,55 @@ pub async fn get_reserved_variables(
             description: "Path of the schedule if the job of the step or encapsulating step has \
                           been triggered by a schedule"
                 .to_string(),
+                is_custom: false,
         },
         ContextualVariable {
             name: "WM_PERMISSIONED_AS".to_string(),
             value: permissioned_as.to_string(),
             description: "Fully Qualified (u/g) owner name of executor of the job".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_STATE_PATH".to_string(),
             value: state_path.clone(),
             description: "State resource path unique to a script and its trigger".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_STATE_PATH_NEW".to_string(),
             value: state_path,
             description: "State resource path unique to a script and its trigger (legacy)".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_FLOW_STEP_ID".to_string(),
             value: step_id.unwrap_or_else(|| "".to_string()),
             description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_OBJECT_PATH".to_string(),
             value: object_path,
             description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
+            is_custom: false,
         },
         ContextualVariable {
             name: "WM_OIDC_JWT".to_string(),
             value: jwt_token.unwrap_or_else(|| "".to_string()),
             description: "OIDC JWT token (EE only)".to_string(),
+            is_custom: false,
         },
-    ]
+    ].into_iter().chain( sqlx::query_as::<_, (String, String)>(
+        "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default()
+    .into_iter().map(|(name, value)| ContextualVariable {
+        name,
+        value,
+        description: "Custom workspace environment variable".to_string(),
+        is_custom: true,
+    })).collect()
 }
