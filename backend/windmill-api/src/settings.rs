@@ -44,7 +44,7 @@ pub fn global_service() -> Router {
 
     #[cfg(feature = "parquet")]
     {
-        return r.route("/test_s3_config", post(test_s3_bucket));
+        return r.route("/test_object_storage_config", post(test_s3_bucket));
     }
 
     #[cfg(not(feature = "parquet"))]
@@ -126,7 +126,7 @@ pub async fn test_s3_bucket(
         "/test-s3-bucket-{uuid}",
         uuid = uuid::Uuid::new_v4()
     ));
-    tracing::info!("Testing s3 bucket at path: {path}");
+    tracing::info!("Testing blob storage at path: {path}");
     client
         .put(&path, Bytes::from_static(b"hello"))
         .await
@@ -140,12 +140,13 @@ pub async fn test_s3_bucket(
         .map_err(to_anyhow)?;
     if content != Bytes::from_static(b"hello") {
         return Err(error::Error::InternalErr(
-            "Failed to read back from s3".to_string(),
+            "Failed to read back from blob storage".to_string(),
         ));
     }
     client.delete(&path).await.map_err(to_anyhow)?;
-    Ok("Tested bucket successfully".to_string())
+    Ok("Tested blob storage successfully".to_string())
 }
+
 
 #[derive(Deserialize)]
 pub struct TestKey {

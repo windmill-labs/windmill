@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { Database, Loader2 } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
-	import { Button } from './common'
+	import { Button, Tab, Tabs } from './common'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
 
-	type BucketConfig = {
+	type S3Config = {
 		type: 'S3'
 		bucket: string
 		region: string
@@ -14,7 +14,19 @@
 		secret_key: string
 		endpoint: string
 	}
-	export let bucket_config: BucketConfig | undefined = undefined
+
+	type AzureConfig = {
+		type: 'Azure'
+		accountName: string
+		containerName: string
+		useSSL?: boolean
+		tenantId: string
+		clientId: string
+		accessKey: string
+		endpoint?: string
+	}
+
+	export let bucket_config: S3Config | AzureConfig | undefined = undefined
 
 	let loading = false
 
@@ -22,7 +34,7 @@
 		loading = true
 		try {
 			if (bucket_config) {
-				await SettingService.testS3Config({ requestBody: bucket_config })
+				await SettingService.testObjectStorageConfig({ requestBody: bucket_config })
 				sendUserToast('Connection successful', false)
 			}
 		} catch (e) {
@@ -77,36 +89,103 @@
 			buttonTextOverride="Test from a worker"
 		/>
 	</div>
-	<label class="block pb-2">
-		<span class="text-primary font-semibold text-sm">Bucket</span>
-		<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
-	</label>
+	<Tabs
+		bind:selected={bucket_config.type}
+		on:selected={(e) => {
+			if (e.detail === 'S3') {
+				bucket_config = {
+					type: 'S3',
+					bucket: '',
+					region: '',
+					access_key: '',
+					secret_key: '',
+					endpoint: ''
+				}
+			} else if (e.detail === 'Azure') {
+				bucket_config = {
+					type: 'Azure',
+					accountName: '',
+					containerName: '',
+					useSSL: false,
+					tenantId: '',
+					clientId: '',
+					accessKey: ''
+				}
+			}
+		}}
+	>
+		<Tab size="sm" value="S3">S3</Tab>
+		<Tab size="sm" value="Azure">Azure Blob</Tab>
+	</Tabs>
+	{#if bucket_config.type === 'S3'}
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Bucket</span>
+			<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
+		</label>
 
-	<label class="block pb-2">
-		<span class="text-primary font-semibold text-sm">Region</span>
-		<span class="text-tertiary text-2xs"
-			>If left empty, will be derived automatically from $AWS_REGION</span
-		>
-		<input type="text" bind:value={bucket_config.region} />
-	</label>
-	<label class="block pb-2">
-		<span class="text-primary font-semibold text-sm">Access Key ID</span>
-		<span class="text-tertiary text-2xs"
-			>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2 profile</span
-		>
-		<input type="text" bind:value={bucket_config.access_key} />
-	</label>
-	<label class="block pb-2">
-		<span class="text-primary font-semibold text-sm">Secret Key</span>
-		<span class="text-tertiary text-2xs"
-			>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
-		>
-		<input type="text" bind:value={bucket_config.secret_key} />
-	</label>
-	<label class="block pb-2">
-		<span class="text-primary font-semibold text-sm">Endpoint</span>
-		<span class="text-tertiary text-2xs">Only needed for non AWS S3 providers like R2 or MinIo</span
-		>
-		<input type="text" bind:value={bucket_config.endpoint} />
-	</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Region</span>
+			<span class="text-tertiary text-2xs"
+				>If left empty, will be derived automatically from $AWS_REGION</span
+			>
+			<input type="text" bind:value={bucket_config.region} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Access Key ID</span>
+			<span class="text-tertiary text-2xs"
+				>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2 profile</span
+			>
+			<input type="text" bind:value={bucket_config.access_key} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Secret Key</span>
+			<span class="text-tertiary text-2xs"
+				>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
+			>
+			<input type="password" bind:value={bucket_config.secret_key} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Endpoint</span>
+			<span class="text-tertiary text-2xs"
+				>Only needed for non AWS S3 providers like R2 or MinIo</span
+			>
+			<input type="text" bind:value={bucket_config.endpoint} />
+		</label>
+	{:else if bucket_config.type === 'Azure'}
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Account Name</span>
+			<input type="text" placeholder="account-name" bind:value={bucket_config.accountName} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Container Name</span>
+			<input type="text" placeholder="container-name" bind:value={bucket_config.containerName} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm">Access Key</span>
+			<input type="password" bind:value={bucket_config.accessKey} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm"
+				>Tenant ID <span class="text-2xs text-tertiary">(optional)</span></span
+			>
+			<input type="text" bind:value={bucket_config.tenantId} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm"
+				>Client ID <span class="text-2xs text-tertiary">(optional)</span></span
+			>
+			<input type="text" bind:value={bucket_config.clientId} />
+		</label>
+		<label class="block pb-2">
+			<span class="text-primary font-semibold text-sm"
+				>Endpoint <span class="text-2xs text-tertiary">(optional)</span></span
+			>
+			<span class="text-tertiary text-2xs"
+				>Only needed for non Azure Blob providers like Azurite</span
+			>
+			<input type="text" bind:value={bucket_config.endpoint} />
+		</label>
+	{:else}
+		<div>Unknown bucket type {bucket_config['type']}</div>
+	{/if}
 {/if}

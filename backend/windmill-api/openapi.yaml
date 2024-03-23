@@ -718,23 +718,46 @@ paths:
               schema:
                 type: string
 
-  /settings/test_s3_config:
+
+    # pub use_ssl: Option<bool>,
+    # #[serde(rename = "accountName")]
+    # pub account_name: String,
+    # #[serde(rename = "tenantId")]
+    # pub tenant_id: Option<String>,
+    # #[serde(rename = "clientId")]
+    # pub client_id: Option<String>,
+    # #[serde(rename = "containerName")]
+    # pub container_name: String,
+    # #[serde(rename = "accessKey")]
+    # pub access_key: Option<String>,
+
+  /settings/test_object_storage_config:
     post:
-      summary: test s3 config
-      operationId: testS3Config
+      summary: test object storage config
+      operationId: testObjectStorageConfig
       tags:
         - setting
       requestBody:
-        description: test s3 config
+        description: test object storage config
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
+                type:
+                  type: string
                 bucket:
                   type: string
                 region:
+                  type: string
+                accessKey:
+                  type: string
+                accountName:
+                  type: string
+                tenantId:
+                  type: string
+                clientId:
                   type: string
                 access_key:
                   type: string

@@ -90,7 +90,7 @@ export async function main(s3: S3) {
 const process = require('process');
 
 export async function main(bucket: any) {
-	const req = await fetch(process.env.BASE_URL + '/api/settings/test_s3_config', {
+	const req = await fetch(process.env.BASE_URL + '/api/settings/test_object_storage_config', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
