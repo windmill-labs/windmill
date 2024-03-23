@@ -19,18 +19,25 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 use windmill_common::{
-    error, flow_status::FlowStatusModule, global_settings::{
+    error,
+    flow_status::FlowStatusModule,
+    global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING,
-        SCIM_TOKEN_SETTING,
-    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,  server::load_server_config, users::truncate_token, worker::{
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+    },
+    jobs::QueuedJob,
+    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
+    server::load_server_config,
+    users::truncate_token,
+    worker::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
-    }, BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED
+    },
+    BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -40,7 +47,10 @@ use windmill_worker::{
 };
 
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{build_object_store_from_settings, build_s3_client_from_settings, OBJECT_STORE_CACHE_SETTINGS, S3Settings};
+use windmill_common::s3_helpers::{
+    build_object_store_from_settings, build_s3_client_from_settings, S3Settings,
+    OBJECT_STORE_CACHE_SETTINGS,
+};
 
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
@@ -159,7 +169,8 @@ pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
 }
 
 pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
-    let metrics_enabled = load_value_from_global_settings(db, DEFAULT_TAGS_PER_WORKSPACE_SETTING).await;
+    let metrics_enabled =
+        load_value_from_global_settings(db, DEFAULT_TAGS_PER_WORKSPACE_SETTING).await;
 
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => {
@@ -171,10 +182,7 @@ pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
 }
 
 pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
-    let metrics_enabled = load_value_from_global_settings(db, 
-        EXPOSE_DEBUG_METRICS_SETTING
-    )
-    .await;
+    let metrics_enabled = load_value_from_global_settings(db, EXPOSE_DEBUG_METRICS_SETTING).await;
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed),
         _ => (),
@@ -183,10 +191,7 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
 }
 
 pub async fn load_keep_job_dir(db: &DB) {
-    let value = load_value_from_global_settings(db, 
-        KEEP_JOB_DIR_SETTING
-    )
-    .await;
+    let value = load_value_from_global_settings(db, KEEP_JOB_DIR_SETTING).await;
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => KEEP_JOB_DIR.store(t, Ordering::Relaxed),
         Err(e) => {
@@ -197,9 +202,8 @@ pub async fn load_keep_job_dir(db: &DB) {
 }
 
 pub async fn load_require_preexisting_user(db: &DB) {
-    let value = load_value_from_global_settings(db, 
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING
-    ).await;
+    let value =
+        load_value_from_global_settings(db, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING).await;
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => {
             REQUIRE_PREEXISTING_USER_FOR_OAUTH.store(t, Ordering::Relaxed)
@@ -394,16 +398,22 @@ pub async fn reload_retention_period_setting(db: &DB) {
     }
 }
 
-
 #[cfg(feature = "parquet")]
 pub async fn reload_s3_cache_setting(db: &DB) {
-    use windmill_common::s3_helpers::ObjectSettings;
+    use windmill_common::{
+        ee::{get_license_plan, LicensePlan},
+        s3_helpers::ObjectSettings,
+    };
 
     let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CACHE_CONFIG_SETTING).await;
     if let Err(e) = s3_config {
         tracing::error!("Error reloading s3 cache config: {:?}", e)
     } else {
         if let Some(v) = s3_config.unwrap() {
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::error!("S3 cache is not available for pro plan");
+                return;
+            }
             let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
             let setting = serde_json::from_value::<ObjectSettings>(v);
             if let Err(e) = setting {
@@ -419,15 +429,21 @@ pub async fn reload_s3_cache_setting(db: &DB) {
         } else {
             let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
             if std::env::var("S3_CACHE_BUCKET").is_ok() {
+                if matches!(get_license_plan().await, LicensePlan::Pro) {
+                    tracing::error!("S3 cache is not available for pro plan");
+                    return;
+                }
                 *s3_cache_settings = build_s3_client_from_settings(S3Settings {
-                    bucket:  None,
-                    region:  None,
+                    bucket: None,
+                    region: None,
                     access_key: None,
                     secret_key: None,
                     endpoint: None,
                     store_logs: None,
-                    allow_http: None
-                }).await.ok();
+                    allow_http: None,
+                })
+                .await
+                .ok();
             } else {
                 *s3_cache_settings = None;
             }
@@ -461,9 +477,7 @@ pub async fn reload_request_size(db: &DB) {
 }
 
 pub async fn reload_license_key(db: &DB) -> error::Result<()> {
-    let q = load_value_from_global_settings(db, 
-        LICENSE_KEY_SETTING
-    ).await?;
+    let q = load_value_from_global_settings(db, LICENSE_KEY_SETTING).await?;
 
     let mut value = std::env::var("LICENSE_KEY")
         .ok()
@@ -498,13 +512,17 @@ pub async fn reload_option_setting_with_tracing<T: FromStr + DeserializeOwned>(
     }
 }
 
-async fn load_value_from_global_settings(db: &DB, setting_name: &str) -> error::Result<Option<serde_json::Value>> {
+async fn load_value_from_global_settings(
+    db: &DB,
+    setting_name: &str,
+) -> error::Result<Option<serde_json::Value>> {
     let r = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",
         setting_name
     )
     .fetch_optional(db)
-    .await?.map(|x| x.value);
+    .await?
+    .map(|x| x.value);
     Ok(r)
 }
 pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
@@ -521,10 +539,7 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<T>(q.clone()) {
-            tracing::info!(
-                "Loaded setting {setting_name} from db config: {:#?}",
-                &q
-            );
+            tracing::info!("Loaded setting {setting_name} from db config: {:#?}", &q);
             value = Some(v)
         } else {
             tracing::error!("Could not parse {setting_name} found: {:#?}", &q);
@@ -559,10 +574,7 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<T>(q.clone()) {
-            tracing::info!(
-                "Loaded setting {setting_name} from db config: {:#?}",
-                &q
-            );
+            tracing::info!("Loaded setting {setting_name} from db config: {:#?}", &q);
             value = transformer(v);
         } else {
             tracing::error!("Could not parse {setting_name} found: {:#?}", &q);
@@ -738,9 +750,7 @@ pub async fn reload_worker_config(
 }
 
 pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
-    let q_base_url = load_value_from_global_settings(db, 
-        BASE_URL_SETTING
-    ).await?;
+    let q_base_url = load_value_from_global_settings(db, BASE_URL_SETTING).await?;
 
     let std_base_url = std::env::var("BASE_URL")
         .ok()
@@ -763,21 +773,13 @@ pub async fn reload_base_url_setting(db: &DB) -> error::Result<()> {
         std_base_url
     };
 
-    let q_oauth = load_value_from_global_settings(db, 
-        OAUTH_SETTING
-    )
-    .await?;
+    let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
 
     let oauths = if let Some(q) = q_oauth {
-        if let Ok(v) =
-            serde_json::from_value::<Option<HashMap<String, OAuthClient>>>(q.clone())
-        {
+        if let Ok(v) = serde_json::from_value::<Option<HashMap<String, OAuthClient>>>(q.clone()) {
             v
         } else {
-            tracing::error!(
-                "Could not parse oauth setting as a json, found: {:#?}",
-                &q
-            );
+            tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);
             None
         }
     } else {

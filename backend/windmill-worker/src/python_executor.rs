@@ -805,79 +805,68 @@ pub async fn handle_python_reqs(
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if req_with_penv.len() > 0 {
         if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-            if matches!(get_license_plan().await, LicensePlan::Pro) {
+            let (done_tx, mut done_rx) = tokio::sync::mpsc::channel(1);
+            let job_id_2 = job_id.clone();
+            let db_2 = db.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+                            if let Err(e) = sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", &job_id_2)
+                            .execute(&db_2)
+                            .await {
+                                tracing::error!("failed to update last_ping: {}", e);
+                            }
+                        }
+                        _ = done_rx.recv() => {
+                            break;
+                        }
+                    }
+                }
+            });
+
+            let start = std::time::Instant::now();
+            let futures = req_with_penv
+                .clone()
+                .into_iter()
+                .map(|(req, venv_p)| {
+                    let os = os.clone();
+                    async move {
+                        if pull_from_tar(os, venv_p.clone()).await.is_ok() {
+                            PullFromTar::Pulled(venv_p.to_string())
+                        } else {
+                            PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
+            let results = futures::future::join_all(futures).await;
+            req_with_penv.clear();
+            done_tx.send(()).await.expect("failed to send done");
+            let mut pulled = vec![];
+            for result in results {
+                match result {
+                    PullFromTar::Pulled(venv_p) => {
+                        pulled.push(venv_p.split("/").last().unwrap_or_default().to_string());
+                        req_paths.push(venv_p);
+                    }
+                    PullFromTar::NotPulled(req, venv_p) => {
+                        req_with_penv.push((req, venv_p));
+                    }
+                }
+            }
+            if pulled.len() > 0 {
                 append_logs(
                     job_id.clone(),
                     w_id.to_string(),
-                    format!("s3 cache not available in Pro Plan"),
+                    format!(
+                        "pulled {} from s3 cache in {}ms",
+                        pulled.join(", "),
+                        start.elapsed().as_millis()
+                    ),
                     db,
                 )
                 .await;
-                tracing::warn!("S3 cache not available in the pro plan");
-            } else {
-                let (done_tx, mut done_rx) = tokio::sync::mpsc::channel(1);
-                let job_id_2 = job_id.clone();
-                let db_2 = db.clone();
-                tokio::spawn(async move {
-                    loop {
-                        tokio::select! {
-                            _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-                                if let Err(e) = sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", &job_id_2)
-                                .execute(&db_2)
-                                .await {
-                                    tracing::error!("failed to update last_ping: {}", e);
-                                }
-                            }
-                            _ = done_rx.recv() => {
-                                break;
-                            }
-                        }
-                    }
-                });
-
-                let start = std::time::Instant::now();
-                let futures = req_with_penv
-                    .clone()
-                    .into_iter()
-                    .map(|(req, venv_p)| {
-                        let os = os.clone();
-                        async move {
-                            if pull_from_tar(os, venv_p.clone()).await.is_ok() {
-                                PullFromTar::Pulled(venv_p.to_string())
-                            } else {
-                                PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
-                            }
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                let results = futures::future::join_all(futures).await;
-                req_with_penv.clear();
-                done_tx.send(()).await.expect("failed to send done");
-                let mut pulled = vec![];
-                for result in results {
-                    match result {
-                        PullFromTar::Pulled(venv_p) => {
-                            pulled.push(venv_p.split("/").last().unwrap_or_default().to_string());
-                            req_paths.push(venv_p);
-                        }
-                        PullFromTar::NotPulled(req, venv_p) => {
-                            req_with_penv.push((req, venv_p));
-                        }
-                    }
-                }
-                if pulled.len() > 0 {
-                    append_logs(
-                        job_id.clone(),
-                        w_id.to_string(),
-                        format!(
-                            "pulled {} from s3 cache in {}ms",
-                            pulled.join(", "),
-                            start.elapsed().as_millis()
-                        ),
-                        db,
-                    )
-                    .await;
-                }
             }
         }
     }

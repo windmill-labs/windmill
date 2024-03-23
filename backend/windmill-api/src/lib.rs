@@ -23,7 +23,6 @@ use axum::extract::DefaultBodyLimit;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
-use hyper::http;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
@@ -175,30 +174,27 @@ pub async fn run_server(
     let embeddings_db = if server_mode {
         #[cfg(feature = "embedding")]
         {
-        Some(load_embeddings_db(&db))
+            Some(load_embeddings_db(&db))
         }
         #[cfg(not(feature = "embedding"))]
         {
-        Some(())
+            Some(())
         }
     } else {
         None
     };
 
-
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
         {
-        job_helpers_ee::workspaced_service()
+            job_helpers_ee::workspaced_service()
         }
-
 
         #[cfg(not(feature = "parquet"))]
         {
-        Router::new()
+            Router::new()
         }
     };
-
 
     // build our application with a route
     let app = Router::new()
@@ -309,14 +305,15 @@ pub async fn run_server(
 
     let instance_name = rd_string(5);
 
-
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
-    let ip = listener.local_addr().map(|x| x.ip().to_string()).unwrap_or("localhost".to_string());
+    let ip = listener
+        .local_addr()
+        .map(|x| x.ip().to_string())
+        .unwrap_or("localhost".to_string());
 
     let server = axum::serve(listener, app.into_make_service());
 
-    
     tracing::info!(
         instance = %instance_name,
         "server started on port={} and addr={}",

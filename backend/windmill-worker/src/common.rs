@@ -1,4 +1,5 @@
 use async_recursion::async_recursion;
+use deno_ast::swc::parser::lexer::util::CharExt;
 use futures::Future;
 use itertools::Itertools;
 
@@ -7,6 +8,8 @@ use nix::sys::signal::{self, Signal};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use object_store::path::Path;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -17,6 +20,8 @@ use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
 use windmill_common::error::to_anyhow;
 use windmill_common::jobs::ENTRYPOINT_OVERRIDE;
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
@@ -34,6 +39,8 @@ use windmill_queue::{append_logs, CanceledBy};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::process::ExitStatusExt;
 
+use std::sync::atomic::AtomicU32;
+use std::sync::Arc;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
@@ -62,7 +69,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TMP_DIR,
 };
 
 pub async fn build_args_map<'a>(
@@ -590,6 +597,202 @@ pub async fn update_job_poller<F, Fut>(
     tracing::info!("job {job_id} finished");
 }
 
+pub enum CompactLogs {
+    NotEE,
+    NoS3,
+    S3,
+}
+
+async fn compact_logs(
+    job_id: Uuid,
+    w_id: &str,
+    db: &DB,
+    nlogs: String,
+    total_size: Arc<AtomicU32>,
+    compact_kind: CompactLogs,
+    worker_name: &str,
+) -> error::Result<(String, String)> {
+    let size = sqlx::query_scalar!(
+        "SELECT char_length(logs) FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(0);
+    let mut prev_logs = sqlx::query_scalar!(
+        "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or_default();
+    let nlogs_len = nlogs.char_indices().count();
+    let modulo = nlogs_len % LARGE_LOG_THRESHOLD_SIZE;
+    let extra_split = modulo < nlogs_len;
+    let excess_size_modulo = if extra_split { nlogs_len - modulo } else { 0 };
+    let excess_size = excess_size_modulo
+        + nlogs[excess_size_modulo..]
+            .chars()
+            .find_position(|x| x.is_line_break())
+            .map(|(i, _)| i + 1)
+            .unwrap_or(0);
+
+    let (excess_prev_logs, current_logs) = if extra_split {
+        let (excess_prev_logs, current_logs) = nlogs.split_at(excess_size as usize);
+        (excess_prev_logs, current_logs.to_string())
+    } else {
+        ("", nlogs.to_string())
+    };
+
+    let new_size_with_excess = size + excess_size as i32;
+
+    let new_size = total_size.fetch_add(
+        new_size_with_excess as u32,
+        std::sync::atomic::Ordering::SeqCst,
+    ) + new_size_with_excess as u32;
+
+    let path = format!(
+        "logs/{job_id}/{}_{new_size}.txt",
+        chrono::Utc::now().timestamp_millis()
+    );
+
+    let mut new_current_logs = match compact_kind {
+        CompactLogs::NoS3 => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}, add object storage in the instance settings to save it on distributed storage and allow direct download from Windmill\n"),
+        CompactLogs::S3 => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to object storage at {path}\n[windmill] Download logs in expanded drawer to get full logs."),
+        CompactLogs::NotEE => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}\n[windmill] Upgrade to EE and add object storage to save it persistentely on distributed storage and allow direct download from Windmill\n"),
+    };
+    new_current_logs.push_str(&current_logs);
+
+    sqlx::query!(
+        "UPDATE job_logs SET logs = $1, log_offset = $2, 
+        log_file_index = array_append(coalesce(log_file_index, array[]::text[]), $3) 
+        WHERE workspace_id = $4 AND job_id = $5",
+        new_current_logs,
+        new_size as i32,
+        path,
+        w_id,
+        job_id
+    )
+    .execute(db)
+    .await?;
+    prev_logs.push_str(&excess_prev_logs);
+
+    return Ok((prev_logs, path));
+}
+
+async fn default_disk_log_storage(
+    job_id: Uuid,
+    w_id: &str,
+    db: &DB,
+    nlogs: String,
+    total_size: Arc<AtomicU32>,
+    compact_kind: CompactLogs,
+    worker_name: &str,
+) {
+    match compact_logs(
+        job_id,
+        &w_id,
+        &db,
+        nlogs,
+        total_size,
+        compact_kind,
+        worker_name,
+    )
+    .await
+    {
+        Err(e) => tracing::error!("Could not compact logs for job {job_id}: {e:?}",),
+        Ok((prev_logs, path)) => {
+            let path_dir = format!("{}/{}", TMP_DIR, path);
+            tokio::fs::create_dir_all(&path_dir)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Could not create logs directory: {e:?}",);
+                    e
+                })
+                .ok();
+            tokio::fs::write(&path, prev_logs)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Could not save logs to disk: {e:?}",);
+                    e
+                })
+                .ok();
+        }
+    }
+}
+
+async fn append_job_logs(
+    job_id: Uuid,
+    w_id: String,
+    logs: String,
+    db: DB,
+    must_compact_logs: bool,
+    total_size: Arc<AtomicU32>,
+    worker_name: String,
+) -> () {
+    if must_compact_logs {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+            match compact_logs(
+                job_id,
+                &w_id,
+                &db,
+                logs,
+                total_size,
+                CompactLogs::S3,
+                &worker_name,
+            )
+            .await
+            {
+                Err(e) => tracing::error!("Could not compact logs for job {job_id}: {e:?}",),
+                Ok((prev_logs, path)) => {
+                    tracing::info!("Logs length has exceeded a threshold. Previous logs have been saved to object storage at {path}");
+                    let path2 = path.clone();
+                    if let Err(e) = os
+                        .put(&Path::from(path), prev_logs.to_string().into_bytes().into())
+                        .await
+                    {
+                        tracing::error!("Could not save logs to s3: {e:?}");
+                    }
+                    tracing::info!("Logs saved to object storage at {path2}");
+                }
+            }
+        } else {
+            default_disk_log_storage(
+                job_id,
+                &w_id,
+                &db,
+                logs,
+                total_size,
+                CompactLogs::NoS3,
+                &worker_name,
+            )
+            .await;
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            default_disk_log_storage(
+                job_id,
+                &w_id,
+                &db,
+                logs,
+                total_size,
+                CompactLogs::NotEE,
+                &worker_name,
+            )
+            .await;
+        }
+    } else {
+        append_logs(job_id, w_id, logs, db).await;
+    }
+}
+
+pub const LARGE_LOG_THRESHOLD_SIZE: usize = 5000;
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -761,6 +964,9 @@ pub async fn handle_child(
          * It's useful to know if the task completed. */
         let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
 
+        let mut log_total_size: u64 = 0;
+        let pg_log_total_size = Arc::new(AtomicU32::new(0));
+
         while let Some(line) =  output.by_ref().next().await {
 
             let do_write_ = do_write.shared();
@@ -832,7 +1038,19 @@ pub async fn handle_child(
                 panic::resume_unwind(p);
             }
 
-            (do_write, write_result) = tokio::spawn(append_logs(job_id, w_id.to_string(), joined, db.clone())).remote_handle();
+
+            let joined_len = joined.len() as u64;
+            log_total_size += joined_len;
+            let compact_logs = log_total_size > LARGE_LOG_THRESHOLD_SIZE as u64;
+            if compact_logs {
+                log_total_size = 0;
+            }
+
+            let worker_name = worker_name.to_string();
+            let w_id2 = w_id.to_string();
+            (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, db.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
+
+
 
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");

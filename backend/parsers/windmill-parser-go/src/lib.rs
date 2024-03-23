@@ -142,8 +142,6 @@ pub fn otyp_to_string(otyp: Option<String>) -> String {
 #[cfg(test)]
 mod tests {
 
-    use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
-
     use super::*;
 
     #[test]

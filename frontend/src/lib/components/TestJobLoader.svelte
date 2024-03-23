@@ -21,6 +21,8 @@
 	let syncIteration: number = 0
 	let errorIteration = 0
 
+	let logOffset = 0
+
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
@@ -135,6 +137,7 @@
 	}
 
 	export async function watchJob(testId: string) {
+		logOffset = 0
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
@@ -156,8 +159,13 @@
 						workspace: workspace!,
 						id,
 						running: job.running,
-						logOffset: job.logs?.length ? job.logs?.length + 1 : 0
+						logOffset: logOffset == 0 ? job?.logs?.length + 1 ?? 0 : logOffset
 					})
+					console.log(logOffset, previewJobUpdates.log_offset, previewJobUpdates.new_logs)
+
+					if (previewJobUpdates.log_offset) {
+						logOffset = previewJobUpdates.log_offset ?? 0
+					}
 					if (previewJobUpdates.new_logs) {
 						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
 					}

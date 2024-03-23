@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT right(logs, 300) FROM job_logs WHERE job_id = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+  "query": "SELECT right(logs, 600) FROM job_logs WHERE job_id = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "ab3c979c20a8ba9f6d906193c3bc7bc1941f0ecbe7ee2d8a62d2e02faeaae3f0"
+  "hash": "eb610cc508048cdcc030369784c274c828d67ee46ae7260b3c2fb04901b782f2"
 }

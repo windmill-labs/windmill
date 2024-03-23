@@ -171,10 +171,8 @@ fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowSt
 
 mod suspend_resume {
 
-    use futures::{Stream, StreamExt};
     use serde_json::json;
-    use sqlx::{query_scalar, types::Uuid};
-    use windmill_common::{flows::FlowValue, jobs::JobPayload};
+    use sqlx::query_scalar;
 
     use super::*;
 
@@ -437,7 +435,6 @@ mod suspend_resume {
 mod retry {
     use serde_json::json;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use windmill_common::flows::FlowValue;
 
     use super::*;
 

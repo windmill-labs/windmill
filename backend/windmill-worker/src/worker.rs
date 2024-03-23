@@ -185,6 +185,8 @@ pub async fn create_token_for_owner(
 }
 
 pub const TMP_DIR: &str = "/tmp/windmill";
+pub const TMP_LOGS_DIR: &str = "/tmp/windmill/logs";
+
 pub const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
@@ -2871,7 +2873,7 @@ async fn process_result(
                         res.unwrap()
                     } else {
                         let last_10_log_lines = sqlx::query_scalar!(
-                            "SELECT right(logs, 300) FROM job_logs WHERE job_id = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                            "SELECT right(logs, 600) FROM job_logs WHERE job_id = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
                             &job.id,
                             &job.workspace_id
                         ).fetch_one(db).await.ok().flatten().unwrap_or("".to_string());
