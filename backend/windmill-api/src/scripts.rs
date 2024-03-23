@@ -23,7 +23,6 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sql_builder::prelude::*;
-use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
@@ -48,7 +47,7 @@ use windmill_common::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{self, schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{schedule::push_scheduled_job, PushIsolationLevel, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -294,11 +293,7 @@ async fn get_top_hub_scripts(
         &db,
     )
     .await?;
-    Ok::<_, Error>((
-        status_code,
-        headers,
-        response,
-    ))
+    Ok::<_, Error>((status_code, headers, response))
 }
 
 fn hash_script(ns: &NewScript) -> i64 {

@@ -25,7 +25,7 @@ use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, Pa
 use axum::{
     async_trait,
     extract::{Extension, FromRequestParts, OriginalUri, Path, Query},
-    http::{self, request::Parts},
+    http::request::Parts,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,

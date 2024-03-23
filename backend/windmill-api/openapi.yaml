@@ -5467,6 +5467,8 @@ paths:
                     type: boolean
                   new_logs:
                     type: string
+                  log_offset:
+                    type: integer
                   mem_peak:
                     type: integer
                   flow_status:

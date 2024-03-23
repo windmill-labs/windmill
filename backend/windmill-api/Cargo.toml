@@ -91,3 +91,4 @@ openidconnect = { workspace = true, optional = true}
 pin-project.workspace = true
 crc.workspace = true
 http.workspace = true
+async-stream.workspace = true

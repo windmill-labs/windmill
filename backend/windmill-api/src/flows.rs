@@ -27,7 +27,6 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sql_builder::prelude::*;
-use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
@@ -173,11 +172,7 @@ async fn list_hub_flows(Extension(db): Extension<DB>) -> impl IntoResponse {
         &db,
     )
     .await?;
-    Ok::<_, Error>((
-        status_code,
-        headers,
-        response
-    ))
+    Ok::<_, Error>((status_code, headers, response))
 }
 
 async fn list_paths(

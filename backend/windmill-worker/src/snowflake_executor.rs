@@ -2,7 +2,6 @@ use base64::{engine, Engine as _};
 use core::fmt::Write;
 use futures::TryFutureExt;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use pem;
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use windmill_common::error::to_anyhow;

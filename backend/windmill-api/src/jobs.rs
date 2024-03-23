@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::body::Body;
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -37,9 +38,9 @@ use axum::{
 use base64::Engine;
 use chrono::Utc;
 use hmac::Mac;
-use hyper::{http, Request, StatusCode};
+use hyper::{Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sql_builder::{prelude::*, quote, SqlBuilder};
+use sql_builder::prelude::*;
 use sqlx::types::JsonRawValue;
 use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
@@ -59,6 +60,8 @@ use windmill_common::{
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 #[cfg(feature = "prometheus")]
 use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
@@ -591,12 +594,40 @@ async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::R
     }
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+async fn get_logs_from_store(
+    log_offset: i32,
+    logs: &str,
+    log_file_index: Option<Vec<String>>,
+) -> Option<error::Result<Body>> {
+    if log_offset > 0 {
+        if let Some(file_index) = log_file_index {
+            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+                let logs = logs.to_string();
+                let stream = async_stream::stream! {
+                    for file in file_index {
+                        let file = os.get(&object_store::path::Path::from(file)).await;
+                        if let Ok(file) = file {
+                            if let Ok(bytes) = file.bytes().await {
+                                yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
+                            }
+                        }
+                    }
+
+                    yield Ok(bytes::Bytes::from(logs))
+                };
+                return Some(Ok(Body::from_stream(stream)));
+            }
+        }
+    }
+    return None;
+}
 async fn get_job_logs(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::Result<String> {
-    let text = sqlx::query_scalar!(
-        "SELECT CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) 
+) -> error::Result<Body> {
+    let record = sqlx::query!(
+        "SELECT CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
         FROM completed_job 
         LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
         WHERE completed_job.id = $1 AND completed_job.workspace_id = $2",
@@ -604,23 +635,35 @@ async fn get_job_logs(
         w_id
     )
     .fetch_optional(&db)
-    .await?
-    .flatten();
-    if let Some(text) = text {
-        Ok(text)
+    .await?;
+
+    if let Some(record) = record {
+        let logs = record.logs.unwrap_or_default();
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(r) = get_logs_from_store(record.log_offset, &logs, record.log_file_index).await
+        {
+            return r;
+        }
+        Ok(Body::from(logs))
     } else {
-        let text = sqlx::query_scalar!(
-            "SELECT CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) 
+        let text = sqlx::query!(
+            "SELECT CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
             FROM queue 
             LEFT JOIN job_logs ON job_logs.job_id = queue.id 
             WHERE queue.id = $1 AND queue.workspace_id = $2",
             id,
             w_id
         )
-        .fetch_one(&db)
+        .fetch_optional(&db)
         .await?;
         let text = not_found_if_none(text, "Job Logs", id.to_string())?;
-        Ok(text)
+
+        let logs = text.logs.unwrap_or_default();
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(r) = get_logs_from_store(text.log_offset, &logs, text.log_file_index).await {
+            return r;
+        }
+        Ok(Body::from(logs))
     }
 }
 
@@ -3301,6 +3344,7 @@ pub struct JobUpdate {
     pub running: Option<bool>,
     pub completed: Option<bool>,
     pub new_logs: Option<String>,
+    pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
     pub flow_status: Option<serde_json::Value>,
 }
@@ -3311,8 +3355,9 @@ async fn get_job_update(
     Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
     let record = sqlx::query!(
-        "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), $1) as logs, mem_peak, 
-        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status 
+        "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) as logs, mem_peak, 
+        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
+        job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset
         FROM queue
         LEFT JOIN job_logs ON job_logs.job_id =  queue.id 
         WHERE queue.workspace_id = $2 AND queue.id = $3",
@@ -3330,6 +3375,7 @@ async fn get_job_update(
             } else {
                 None
             },
+            log_offset: record.log_offset,
             completed: None,
             new_logs: record.logs,
             mem_peak: record.mem_peak,
@@ -3337,8 +3383,9 @@ async fn get_job_update(
         }))
     } else {
         let record = sqlx::query!(
-            "SELECT substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), $1) as logs, mem_peak, 
-            CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status 
+            "SELECT substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0))  as logs, mem_peak, 
+            CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
+            job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset
             FROM completed_job 
             LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
             WHERE completed_job.workspace_id = $2 AND id = $3",
@@ -3352,6 +3399,7 @@ async fn get_job_update(
             Ok(Json(JobUpdate {
                 running: Some(false),
                 completed: Some(true),
+                log_offset: record.log_offset,
                 new_logs: record.logs,
                 mem_peak: record.mem_peak,
                 flow_status: record.flow_status,
