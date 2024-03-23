@@ -71,6 +71,7 @@ pub async fn do_snowflake(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let snowflake_args = build_args_values(job, client, db).await?;
 
@@ -204,6 +205,15 @@ pub async fn do_snowflake(
                 ));
                 }
 
+                *column_order = Some(
+                    result
+                        .resultSetMetaData
+                        .rowType
+                        .iter()
+                        .map(|x| x.name.clone())
+                        .collect::<Vec<String>>(),
+                );
+
                 let rows = to_raw_value(
                     &result
                         .data
@@ -218,7 +228,7 @@ pub async fn do_snowflake(
                                         parse_val(&val, &row_type.r#type),
                                     );
                                 });
-                            Value::from(row_map)
+                            row_map
                         })
                         .collect::<Vec<_>>(),
                 );

@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.294.0](https://github.com/windmill-labs/windmill/compare/v1.293.1...v1.294.0) (2024-03-22)
+
+
+### Features
+
+* workspace renaming ([#3452](https://github.com/windmill-labs/windmill/issues/3452)) ([fdc98b7](https://github.com/windmill-labs/windmill/commit/fdc98b73ae06fb65c86bd542991d84219cb3eaea))
+
+
+### Bug Fixes
+
+* small table fixes ([089aab8](https://github.com/windmill-labs/windmill/commit/089aab880d83bf24e079f501f9415bc321836a23))
+* update git sync cli ([868020f](https://github.com/windmill-labs/windmill/commit/868020fbf74fbfb5410c41e2250401e5ec9d0f2b))
+
+## [1.293.1](https://github.com/windmill-labs/windmill/compare/v1.293.0...v1.293.1) (2024-03-21)
+
+
+### Bug Fixes
+
+* update axum to 0.7 and object_store to 0.9 ([f13aea2](https://github.com/windmill-labs/windmill/commit/f13aea299824e49be5aee56fb39dd4c220fa70a8))
+
 ## [1.293.0](https://github.com/windmill-labs/windmill/compare/v1.292.4...v1.293.0) (2024-03-21)
 
 

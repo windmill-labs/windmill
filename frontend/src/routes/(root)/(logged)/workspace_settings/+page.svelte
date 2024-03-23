@@ -51,6 +51,8 @@
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
 	import Portal from 'svelte-portal'
 	import { fade } from 'svelte/transition'
+	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
+	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -125,7 +127,7 @@
 			| 'users'
 			| 'slack'
 			| 'premium'
-			| 'export_delete'
+			| 'general'
 			| 'webhook'
 			| 'deploy_to'
 			| 'error_handler') ?? 'users'
@@ -685,8 +687,8 @@
 				<Tab size="xs" value="encryption">
 					<div class="flex gap-2 items-center my-1"> Encryption </div>
 				</Tab>
-				<Tab size="xs" value="export_delete">
-					<div class="flex gap-2 items-center my-1"> Delete Workspace </div>
+				<Tab size="xs" value="general">
+					<div class="flex gap-2 items-center my-1"> General </div>
 				</Tab>
 			</Tabs>
 		</div>
@@ -817,12 +819,16 @@
 					See more on <a href="https://www.windmill.dev/docs/integrations/slack">documentation</a>.
 				</div>
 			</div>
-		{:else if tab == 'export_delete'}
+		{:else if tab == 'general'}
 			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">Export or Delete workspace</div>
-				</div>
+				<div class=" text-primary text-lg font-semibold">General</div>
 			</div>
+
+			<div class="flex flex-col gap-10">
+				<ChangeWorkspaceName />
+				<ChangeWorkspaceId />
+			</div>
+
 			<PageHeader title="Export workspace" primary={false} />
 			<div class="flex justify-start">
 				<Button
@@ -876,7 +882,7 @@
 							goto('/user/workspaces')
 						}}
 					>
-						Delete workspace (superadmin)
+						General (superadmin)
 					</Button>
 				{/if}
 			</div>
@@ -1468,7 +1474,7 @@
 							gitSyncSettings.repositories = [
 								...gitSyncSettings.repositories,
 								{
-									script_path: 'hub/8701/sync-script-to-git-repo-windmill',
+									script_path: 'hub/8720/sync-script-to-git-repo-windmill',
 									git_repo_resource_path: '',
 									use_individual_branch: false,
 									exclude_types_override: {

@@ -363,7 +363,7 @@
 										on:change={() => handleCheckboxChange(_id)}
 									/>
 								</Cell>
-								{#each Object.keys(rowData ?? {}) ?? [] as key, index}
+								{#each Object.keys(data[0].rowData ?? {}) ?? [] as key, index}
 									{@const value = rowData[key]}
 									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
 										{#if hiddenColumns.includes(key)}
@@ -411,7 +411,12 @@
 												{value}
 											</a>
 										{:else}
-											{@const txt = typeof value == 'object' ? JSON.stringify(value) : value}
+											{@const txt =
+												value == undefined
+													? ''
+													: typeof value != 'string'
+													? JSON.stringify(value)
+													: value}
 											<Popover
 												placement="bottom"
 												notClickable

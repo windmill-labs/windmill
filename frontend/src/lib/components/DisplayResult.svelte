@@ -194,7 +194,10 @@
 		return (
 			Array.isArray(json) &&
 			json.length > 0 &&
-			json.every((item) => item && typeof item === 'object' && Object.keys(item).length > 0)
+			json.every(
+				(item) =>
+					item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
+			)
 		)
 	}
 
