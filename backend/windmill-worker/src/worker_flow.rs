@@ -2980,18 +2980,18 @@ async fn get_transform_context(
     Ok(IdContext { flow_job: flow_job.id, steps_results, previous_id: previous_id.to_string() })
 }
 
-trait IntoArray: Sized {
-    fn into_array(self) -> Result<Vec<Value>, Self>;
-}
+// trait IntoArray: Sized {
+//     fn into_array(self) -> Result<Vec<Value>, Self>;
+// }
 
-impl IntoArray for Value {
-    fn into_array(self) -> Result<Vec<Value>, Self> {
-        match self {
-            Value::Array(array) => Ok(array),
-            not_array => Err(not_array),
-        }
-    }
-}
+// impl IntoArray for Value {
+//     fn into_array(self) -> Result<Vec<Value>, Self> {
+//         match self {
+//             Value::Array(array) => Ok(array),
+//             not_array => Err(not_array),
+//         }
+//     }
+// }
 
 fn from_now(duration: Duration) -> chrono::DateTime<chrono::Utc> {
     // "This function errors when original duration is larger than

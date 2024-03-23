@@ -13,7 +13,7 @@ use std::{
 };
 
 use rand::Rng;
-use serde::{self, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{
     more_serde::{
@@ -22,8 +22,7 @@ use crate::{
     scripts::{Schema, ScriptHash, ScriptLang},
 };
 
-#[derive(Serialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct Flow {
     pub workspace_id: String,
     pub path: String,
@@ -47,8 +46,7 @@ pub struct Flow {
     pub timeout: Option<i32>,
 }
 
-#[derive(Serialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct ListableFlow {
     pub workspace_id: String,
     pub path: String,
@@ -66,8 +64,7 @@ pub struct ListableFlow {
     pub ws_error_handler_muted: Option<bool>,
 }
 
-#[derive(Deserialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Deserialize, sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,

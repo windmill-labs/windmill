@@ -1,4 +1,4 @@
-use serde_json::{self, json};
+use serde_json::json;
 use wasm_bindgen::prelude::*;
 use windmill_parser::MainArgSignature;
 use windmill_parser_ts::{parse_expr_for_ids, parse_expr_for_imports};

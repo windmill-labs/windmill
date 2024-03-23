@@ -227,7 +227,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn append_logs(
     job_id: uuid::Uuid,
-    workspace: String,
+    workspace: impl AsRef<str>,
     logs: impl AsRef<str>,
     db: impl Borrow<Pool<Postgres>>,
 ) {
@@ -243,7 +243,7 @@ pub async fn append_logs(
         "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, $1::text)",
         logs.as_ref(),
         job_id,
-        workspace,
+        workspace.as_ref(),
     )
     .execute(db.borrow())
     .await

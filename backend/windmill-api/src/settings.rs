@@ -31,7 +31,6 @@ use windmill_common::{
 };
 
 pub fn global_service() -> Router {
-
     #[warn(unused_mut)]
     let r = Router::new()
         .route("/envs", get(get_local_settings))
@@ -42,7 +41,7 @@ pub fn global_service() -> Router {
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats));
-    
+
     #[cfg(feature = "parquet")]
     {
         return r.route("/test_s3_config", post(test_s3_bucket));
@@ -50,9 +49,8 @@ pub fn global_service() -> Router {
 
     #[cfg(not(feature = "parquet"))]
     {
-        return r
+        return r;
     }
-
 }
 
 #[derive(Deserialize)]
@@ -106,8 +104,6 @@ use windmill_common::s3_helpers::ObjectSettings;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::build_object_store_from_settings;
 
-
-
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
     Extension(db): Extension<DB>,
@@ -115,16 +111,37 @@ pub async fn test_s3_bucket(
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
+    use windmill_common::ee::{get_license_plan, LicensePlan};
+
+    if matches!(get_license_plan().await, LicensePlan::Pro) {
+        return Err(error::Error::InternalErr(
+            "This feature is only available in Enterprise, not Pro".to_string(),
+        ));
+    }
 
     require_super_admin(&db, &authed.email).await?;
     let client = build_object_store_from_settings(test_s3_bucket).await?;
 
-    let path = object_store::path::Path::from(format!("/test-s3-bucket-{uuid}", uuid = uuid::Uuid::new_v4()));
+    let path = object_store::path::Path::from(format!(
+        "/test-s3-bucket-{uuid}",
+        uuid = uuid::Uuid::new_v4()
+    ));
     tracing::info!("Testing s3 bucket at path: {path}");
-    client.put(&path, Bytes::from_static(b"hello")).await.map_err(to_anyhow)?;
-    let content = client.get(&path).await.map_err(to_anyhow)?.bytes().await.map_err(to_anyhow)?;
+    client
+        .put(&path, Bytes::from_static(b"hello"))
+        .await
+        .map_err(to_anyhow)?;
+    let content = client
+        .get(&path)
+        .await
+        .map_err(to_anyhow)?
+        .bytes()
+        .await
+        .map_err(to_anyhow)?;
     if content != Bytes::from_static(b"hello") {
-        return Err(error::Error::InternalErr("Failed to read back from s3".to_string()));
+        return Err(error::Error::InternalErr(
+            "Failed to read back from s3".to_string(),
+        ));
     }
     client.delete(&path).await.map_err(to_anyhow)?;
     Ok("Tested bucket successfully".to_string())
@@ -162,7 +179,7 @@ pub async fn get_local_settings(
 
 #[derive(serde::Deserialize)]
 pub struct Value {
-    pub value: serde_json::Value,
+    pub value: Option<serde_json::Value>,
 }
 
 pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
@@ -179,7 +196,7 @@ pub async fn set_global_setting(
     Json(value): Json<Value>,
 ) -> error::Result<()> {
     require_super_admin(&db, &authed.email).await?;
-    set_global_setting_internal(&db, key, value.value).await
+    set_global_setting_internal(&db, key, value.value.unwrap_or(serde_json::Value::Null)).await
 }
 
 pub async fn set_global_setting_internal(

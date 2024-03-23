@@ -24,8 +24,7 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING,
-        SCIM_TOKEN_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
     stats_ee::schedule_stats,
     utils::{rd_string, Mode},
@@ -40,10 +39,9 @@ use windmill_common::METRICS_ADDR;
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    BUN_CACHE_DIR,  DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-      GO_BIN_CACHE_DIR,
-    GO_CACHE_DIR,  HUB_CACHE_DIR,  LOCK_CACHE_DIR,
-    PIP_CACHE_DIR, TAR_PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
+    BUN_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
+    GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
+    TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
 };
 
 use crate::monitor::{
@@ -51,8 +49,8 @@ use crate::monitor::{
     monitor_db, monitor_pool, reload_base_url_setting, reload_bunfig_install_scopes_setting,
     reload_extra_pip_index_url_setting, reload_job_default_timeout_setting, reload_license_key,
     reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting,
-    reload_server_config, reload_worker_config,
+    reload_retention_period_setting, reload_scim_token_setting, reload_server_config,
+    reload_worker_config,
 };
 
 #[cfg(feature = "parquet")]
@@ -666,10 +664,9 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
-
-
     for x in [
         LOCK_CACHE_DIR,
+        TMP_LOGS_DIR,
         PIP_CACHE_DIR,
         TAR_PIP_CACHE_DIR,
         DENO_CACHE_DIR,
@@ -679,7 +676,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         HUB_CACHE_DIR,
-        POWERSHELL_CACHE_DIR
+        POWERSHELL_CACHE_DIR,
     ] {
         DirBuilder::new()
             .recursive(true)

@@ -31,7 +31,7 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
+use windmill_queue::{schedule::push_scheduled_job, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()

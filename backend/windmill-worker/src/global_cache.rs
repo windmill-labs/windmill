@@ -1,5 +1,5 @@
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use crate::{ROOT_CACHE_DIR, PIP_CACHE_DIR};
+use crate::{PIP_CACHE_DIR, ROOT_CACHE_DIR};
 
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
@@ -7,7 +7,7 @@ use crate::{ROOT_CACHE_DIR, PIP_CACHE_DIR};
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
 
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use object_store::ObjectStore;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -17,7 +17,10 @@ use windmill_common::error;
 use std::sync::Arc;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn build_tar_and_push(s3_client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
+pub async fn build_tar_and_push(
+    s3_client: Arc<dyn ObjectStore>,
+    folder: String,
+) -> error::Result<()> {
     use bytes::Bytes;
     use object_store::path::Path;
 
@@ -37,7 +40,6 @@ pub async fn build_tar_and_push(s3_client: Arc<dyn ObjectStore>, folder: String)
             "Failed to tar cache: {folder}"
         )));
     }
-
 
     // let s3_settings = S3_CACHE_SETTINGS.read().await;
     // let s3_client = s3_settings.as_ref().ok_or_else(|| {
@@ -69,10 +71,8 @@ pub async fn build_tar_and_push(s3_client: Arc<dyn ObjectStore>, folder: String)
     Ok(())
 }
 
-
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
-
     use object_store::path::Path;
     use tokio::fs::metadata;
     let folder_name = folder.split("/").last().unwrap();
