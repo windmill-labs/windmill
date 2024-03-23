@@ -277,6 +277,7 @@ pub async fn transform_json_value(
             };
 
             let variables = variables::get_reserved_variables(
+                db,
                 &job.workspace_id,
                 &client.token,
                 &job.email,
@@ -373,6 +374,7 @@ pub async fn get_reserved_variables(
     };
 
     let variables = variables::get_reserved_variables(
+        db,
         &job.workspace_id,
         token,
         &job.email,

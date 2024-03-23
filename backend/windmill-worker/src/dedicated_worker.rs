@@ -49,7 +49,7 @@ pub async fn handle_dedicated_process(
     job_dir: &str,
     context_envs: HashMap<String, String>,
     envs: HashMap<String, String>,
-    reserved_variables: [variables::ContextualVariable; 17],
+    reserved_variables: Vec<variables::ContextualVariable>,
     common_bun_proc_envs: HashMap<String, String>,
     args: Vec<&str>,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,

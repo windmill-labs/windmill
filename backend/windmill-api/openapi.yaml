@@ -1770,6 +1770,35 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkspaceDefaultScripts"
 
+  /w/{workspace}/workspaces/set_environment_variable:
+    post:
+      summary: set environment variable
+      operationId: setEnvironmentVariable
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace default app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                value:
+                  type: string
+              required: [name]
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/encryption_key:
     get:
       summary: retrieves the encryption key for this workspace
@@ -8728,10 +8757,13 @@ components:
           type: string
         description:
           type: string
+        is_custom:
+          type: boolean
       required:
         - name
         - value
         - description
+        - is_custom
 
     CreateVariable:
       type: object

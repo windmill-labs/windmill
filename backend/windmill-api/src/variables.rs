@@ -57,9 +57,11 @@ pub fn workspaced_service() -> Router {
 async fn list_contextual_variables(
     Path(w_id): Path<String>,
     ApiAuthed { username, email, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
         get_reserved_variables(
+            &db,
             &w_id,
             "q1A0qcPuO00yxioll7iph76N9CJDqn",
             &email,

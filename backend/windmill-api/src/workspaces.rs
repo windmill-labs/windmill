@@ -104,6 +104,7 @@ pub fn workspaced_service() -> Router {
             "/default_scripts",
             post(edit_default_scripts).get(get_default_scripts),
         )
+        .route("/set_environment_variable", post(set_environment_variable))
         .route(
             "/encryption_key",
             get(get_encryption_key).post(set_encryption_key),
@@ -1195,6 +1196,71 @@ async fn edit_error_handler(
     tx.commit().await?;
 
     Ok(format!("Edit error_handler for workspace {}", &w_id))
+}
+
+#[derive(Deserialize)]
+struct NewEnvironmentVariable {
+    name: String,
+    value: Option<String>,
+}
+
+async fn set_environment_variable(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(NewEnvironmentVariable { value, name }): Json<NewEnvironmentVariable>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    match value {
+        Some(value) => {
+            sqlx::query!(
+                "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = $3",
+                &w_id,
+                name,
+                value
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            audit_log(
+                &mut *tx,
+                &authed.username,
+                "workspace.set_environment_variable",
+                ActionKind::Create,
+                &w_id,
+                Some(&authed.email),
+                None,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(format!("Set environment variable {}", name))
+        }
+        None => {
+            sqlx::query!(
+                "DELETE FROM workspace_env WHERE workspace_id = $1 AND name = $2",
+                &w_id,
+                name
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            audit_log(
+                &mut *tx,
+                &authed.username,
+                "workspace.delete_environment_variable",
+                ActionKind::Delete,
+                &w_id,
+                Some(&authed.email),
+                None,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(format!("Deleted environment variable {}", name))
+        }
+    }
 }
 
 #[derive(Serialize)]

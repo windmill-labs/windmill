@@ -152,7 +152,13 @@ pub async fn pip_compile(
 
     write_file(job_dir, file, &requirements).await?;
 
-    let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking", "--strip-extras"];
+    let mut args = vec![
+        "-q",
+        "--no-header",
+        file,
+        "--resolver=backtracking",
+        "--strip-extras",
+    ];
     let mut pip_args = vec![];
     let pip_extra_index_url = PIP_EXTRA_INDEX_URL
         .read()
@@ -776,7 +782,6 @@ pub async fn handle_python_reqs(
         .await?;
     };
 
-
     let mut req_with_penv: Vec<(String, String)> = vec![];
 
     for req in requirements {
@@ -801,10 +806,15 @@ pub async fn handle_python_reqs(
     if req_with_penv.len() > 0 {
         if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
-                append_logs(job_id.clone(), w_id.to_string(), format!("s3 cache not available in Pro Plan"), db).await;
+                append_logs(
+                    job_id.clone(),
+                    w_id.to_string(),
+                    format!("s3 cache not available in Pro Plan"),
+                    db,
+                )
+                .await;
                 tracing::warn!("S3 cache not available in the pro plan");
             } else {
-                
                 let (done_tx, mut done_rx) = tokio::sync::mpsc::channel(1);
                 let job_id_2 = job_id.clone();
                 let db_2 = db.clone();
@@ -823,19 +833,23 @@ pub async fn handle_python_reqs(
                             }
                         }
                     }
-
                 });
 
                 let start = std::time::Instant::now();
-                let futures = req_with_penv.clone().into_iter().map(|(req, venv_p)| {
-                let os = os.clone();
-                async move {
-                    if pull_from_tar(os, venv_p.clone()).await.is_ok() {
-                        PullFromTar::Pulled(venv_p.to_string())
-                    } else {
-                        PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
-                    }
-                }}).collect::<Vec<_>>();
+                let futures = req_with_penv
+                    .clone()
+                    .into_iter()
+                    .map(|(req, venv_p)| {
+                        let os = os.clone();
+                        async move {
+                            if pull_from_tar(os, venv_p.clone()).await.is_ok() {
+                                PullFromTar::Pulled(venv_p.to_string())
+                            } else {
+                                PullFromTar::NotPulled(req.to_string(), venv_p.to_string())
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>();
                 let results = futures::future::join_all(futures).await;
                 req_with_penv.clear();
                 done_tx.send(()).await.expect("failed to send done");
@@ -852,15 +866,23 @@ pub async fn handle_python_reqs(
                     }
                 }
                 if pulled.len() > 0 {
-                    append_logs(job_id.clone(), w_id.to_string(), format!("pulled {} from s3 cache in {}ms", pulled.join(", "), start.elapsed().as_millis()), db).await;
+                    append_logs(
+                        job_id.clone(),
+                        w_id.to_string(),
+                        format!(
+                            "pulled {} from s3 cache in {}ms",
+                            pulled.join(", "),
+                            start.elapsed().as_millis()
+                        ),
+                        db,
+                    )
+                    .await;
                 }
             }
-        } 
+        }
     }
 
     for (req, venv_p) in req_with_penv {
-
-
         let mut logs1 = String::new();
         logs1.push_str("\n\n--- PIP INSTALL ---\n");
         logs1.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
@@ -1035,6 +1057,7 @@ pub async fn start_worker(
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
     let context = variables::get_reserved_variables(
+        db,
         w_id,
         &token,
         "dedicated_worker@windmill.dev",
@@ -1152,6 +1175,7 @@ for line in sys.stdin:
     }
 
     let reserved_variables = windmill_common::variables::get_reserved_variables(
+        db,
         w_id,
         token,
         "dedicated_worker",
