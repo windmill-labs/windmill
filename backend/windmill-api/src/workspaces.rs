@@ -3027,6 +3027,14 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
+        "UPDATE workspace_env SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
         "UPDATE workspace_invite SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
