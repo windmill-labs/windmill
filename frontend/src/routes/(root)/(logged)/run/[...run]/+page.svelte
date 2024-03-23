@@ -81,17 +81,20 @@
 	let testJobLoader: TestJobLoader
 
 	let persistentScriptDrawer: PersistentScriptDrawer
+	let getLogs: (() => Promise<void>) | undefined = undefined
+
+	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
-		getLogs()
+		getJob()
 	}
 
 	async function cancelJob(id: string) {
 		try {
 			if (forceCancel) {
 				await JobService.forceCancelQueuedJob({ workspace: $workspaceStore!, id, requestBody: {} })
-				setTimeout(getLogs, 5000)
+				setTimeout(getJob, 5000)
 			} else {
 				await JobService.cancelQueuedJob({ workspace: $workspaceStore!, id, requestBody: {} })
 			}
@@ -128,7 +131,7 @@
 		}
 	}
 
-	async function getLogs() {
+	async function getJob() {
 		await testJobLoader?.watchJob($page.params.run)
 		initView()
 	}
@@ -172,7 +175,7 @@
 	$: {
 		if ($workspaceStore && $page.params.run && testJobLoader) {
 			forceCancel = false
-			getLogs()
+			getJob()
 		}
 	}
 
@@ -258,8 +261,10 @@
 {/if}
 
 <TestJobLoader
+	lazyLogs
 	on:done={() => (viewTab = 'result')}
 	bind:this={testJobLoader}
+	bind:getLogs
 	bind:isLoading={testIsLoading}
 	bind:job
 	bind:jobUpdateLastFetch

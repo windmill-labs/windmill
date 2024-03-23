@@ -706,21 +706,27 @@ async fn default_disk_log_storage(
     {
         Err(e) => tracing::error!("Could not compact logs for job {job_id}: {e:?}",),
         Ok((prev_logs, path)) => {
-            let path_dir = format!("{}/{}", TMP_DIR, path);
-            tokio::fs::create_dir_all(&path_dir)
+            let path = format!("{}/{}", TMP_DIR, path);
+            let splitted = &path.split("/").collect_vec();
+            tokio::fs::create_dir_all(splitted.into_iter().take(splitted.len() - 1).join("/"))
                 .await
                 .map_err(|e| {
                     tracing::error!("Could not create logs directory: {e:?}",);
                     e
                 })
                 .ok();
-            tokio::fs::write(&path, prev_logs)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Could not save logs to disk: {e:?}",);
-                    e
-                })
-                .ok();
+            let created = tokio::fs::File::create(&path)
+                .await;
+            if let Err(e) = created {
+                tracing::error!("Could not create logs file {path}: {e:?}",);
+                return
+            }
+            if let Err(e) = tokio::fs::write(&path, prev_logs).await {
+                tracing::error!("Could not write to logs file {path}: {e:?}");
+            } else {
+                tracing::info!("Logs length of {job_id} has exceeded a threshold. Previous logs have been saved to disk at {path}");
+            }
+
         }
     }
 }
@@ -750,7 +756,7 @@ async fn append_job_logs(
             {
                 Err(e) => tracing::error!("Could not compact logs for job {job_id}: {e:?}",),
                 Ok((prev_logs, path)) => {
-                    tracing::info!("Logs length has exceeded a threshold. Previous logs have been saved to object storage at {path}");
+                    tracing::info!("Logs length of {job_id} has exceeded a threshold. Previous logs have been saved to object storage at {path}");
                     let path2 = path.clone();
                     if let Err(e) = os
                         .put(&Path::from(path), prev_logs.to_string().into_bytes().into())
@@ -758,7 +764,7 @@ async fn append_job_logs(
                     {
                         tracing::error!("Could not save logs to s3: {e:?}");
                     }
-                    tracing::info!("Logs saved to object storage at {path2}");
+                    tracing::info!("Logs of {job_id} saved to object storage at {path2}");
                 }
             }
         } else {

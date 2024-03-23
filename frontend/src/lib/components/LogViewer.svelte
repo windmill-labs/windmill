@@ -93,7 +93,15 @@
 <div class="relative w-full h-full {wrapperClass}">
 	<div bind:this={div} class="w-full h-full overflow-auto relative bg-surface-secondary">
 		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
-			<div class="flex gap-1 pl-0.5 bg-surface-secondary">
+			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
+				<div class="pt-2">
+					<a
+						class="text-primary"
+						target="_blank"
+						href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+						download="windmill-logs.json"><Download size="14" /></a
+					>
+				</div>
 				<button on:click={logViewer.openDrawer}>Expand</button>
 				<div
 					class="{small ? '' : 'py-2'} pr-2 {small

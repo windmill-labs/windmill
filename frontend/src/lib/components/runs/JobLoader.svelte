@@ -172,11 +172,13 @@
 
 					while (cursor < jobs.length && minTs == undefined) {
 						let invCursor = jobs.length - 1 - cursor
-						let isQueuedJob =
-							cursor == jobs?.length - 1 || jobs[invCursor].type == Job.type.QUEUED_JOB
+						let isQueuedJob = invCursor == 0 || jobs[invCursor].type == Job.type.QUEUED_JOB
 						if (isQueuedJob) {
 							if (cursor > 0) {
-								const date = new Date(jobs[invCursor + 1]?.created_at!)
+								let inc = invCursor == 0 && jobs[invCursor].type == Job.type.COMPLETED_JOB ? 0 : 1
+								const date = new Date(
+									jobs[invCursor + inc]?.started_at ?? jobs[invCursor + inc]?.created_at!
+								)
 								date.setMilliseconds(date.getMilliseconds() + 1)
 								ts = date.toISOString()
 							}
