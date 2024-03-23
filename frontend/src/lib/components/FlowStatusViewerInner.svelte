@@ -175,7 +175,8 @@
 				) {
 					JobService.getJob({
 						workspace: workspaceId ?? $workspaceStore ?? '',
-						id: mod.job ?? ''
+						id: mod.job ?? '',
+						noLogs: true
 					})
 						.then((job) => {
 							const newState = {
@@ -203,7 +204,8 @@
 			try {
 				const newJob = await JobService.getJob({
 					workspace: workspaceId ?? $workspaceStore ?? '',
-					id: jobId ?? ''
+					id: jobId ?? '',
+					noLogs: true
 				})
 				if (!deepEqual(job, newJob)) {
 					job = newJob
@@ -445,7 +447,7 @@
 							jobId={job?.id}
 							loading={job['running'] == true}
 							result={job.result}
-							logs={job.logs ?? ''}
+							logs={job.logs}
 						/>
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
@@ -737,7 +739,6 @@
 												<JobArgs args={node.args} />
 											</div>
 										{/if}
-
 										<FlowJobResult
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
@@ -745,7 +746,7 @@
 											loading={false}
 											col
 											result={node.result}
-											logs={node.logs ?? ''}
+											logs={node.logs}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

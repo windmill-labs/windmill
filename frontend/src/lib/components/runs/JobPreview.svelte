@@ -18,7 +18,9 @@
 	export let workspace: string | undefined
 
 	let job: Job | undefined = undefined
-	let watchJob: (id: string) => Promise<void>
+	let watchJob: ((id: string) => Promise<void>) | undefined = undefined
+	let getLogs: (() => Promise<void>) | undefined = undefined
+
 	let result: any
 
 	function onDone(event: { detail: Job }) {
@@ -34,6 +36,8 @@
 
 	$: id && watchJob && watchJob(id)
 
+	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
+
 	let viewTab = 'result'
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
@@ -41,7 +45,14 @@
 	}
 </script>
 
-<TestJobLoader workspaceOverride={workspace} bind:job={currentJob} bind:watchJob on:done={onDone} />
+<TestJobLoader
+	lazyLogs
+	workspaceOverride={workspace}
+	bind:job={currentJob}
+	bind:getLogs
+	bind:watchJob
+	on:done={onDone}
+/>
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
 		<div class="flex gap-2">

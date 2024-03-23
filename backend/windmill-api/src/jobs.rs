@@ -527,7 +527,7 @@ async fn get_flow_job_debug_info(
             }
         }
         for job_id in job_ids {
-            let job = get_job_internal(&db, w_id.as_str(), job_id).await;
+            let job = get_job_internal(&db, w_id.as_str(), job_id, false).await;
             if let Ok(job) = job {
                 jobs.insert(job.id().to_string(), job);
             }
@@ -541,29 +541,90 @@ async fn get_flow_job_debug_info(
     }
 }
 
+#[derive(Deserialize)]
+struct GetJobQuery {
+    pub no_logs: Option<bool>,
+}
 async fn get_job(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
+    Query(GetJobQuery { no_logs }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
-    let job = get_job_internal(&db, w_id.as_str(), id).await?;
+    let job = get_job_internal(&db, w_id.as_str(), id, no_logs.unwrap_or(false)).await?;
     Ok(Json(job).into_response())
 }
 
-async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::Result<Job> {
-    let cjob_maybe = sqlx::query_as::<_, CompletedJob>("SELECT 
-        id, completed_job.workspace_id, parent_job, created_by, completed_job.created_at, duration_ms, success, script_hash, script_path, 
-        CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result,
-        right(concat(coalesce(completed_job.logs, ''), job_logs.logs), 20000) as logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
-        schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
-        raw_lock, email, visible_to_owner, mem_peak, tag, priority
-        FROM completed_job
-        LEFT JOIN job_logs ON completed_job.id = job_logs.job_id
-        WHERE id = $1 AND completed_job.workspace_id = $2")
-            .bind(job_id)
-            .bind(workspace_id)
-            .fetch_optional(db)
-            .await?
-            .map(Job::CompletedJob);
+lazy_static::lazy_static! {
+    static ref GET_COMPLETED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "completed_job");
+    static ref GET_COMPLETED_JOB_QUERY: String = generate_get_job_query(false, "completed_job");
+    static ref GET_QUEUED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "queue");
+    static ref GET_QUEUED_JOB_QUERY: String = generate_get_job_query(false, "queue");
+}
+
+fn generate_get_job_query(no_logs: bool, table: &str) -> String {
+    let log_expr = if no_logs {
+        "null".to_string()
+    } else {
+        format!("right(concat(coalesce({table}.logs, ''), job_logs.logs), 20000)")
+    };
+    let join = if no_logs {
+        "".to_string()
+    } else {
+        format!("LEFT JOIN job_logs ON {table}.id = job_logs.job_id")
+    };
+    let additional_fields = if table == "completed_job" {
+        "duration_ms,      
+        success,        
+        result,    
+        deleted,    
+        is_skipped,
+        CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result"
+    } else {
+        "scheduled_for,  
+        running,       
+        last_ping,        
+        suspend,     
+        suspend_until,
+        same_worker,
+        pre_run_error,           
+        visible_to_owner,          
+        root_job,         
+        leaf_jobs,        
+        tag,       
+        concurrent_limit,      
+        concurrency_time_window_s, 
+        timeout,
+        flow_step_id,
+        cache_ttl
+        "
+    };
+    return format!("SELECT 
+    id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, 
+    CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, 
+    {log_expr} as logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+    schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
+    raw_lock, email, visible_to_owner, mem_peak, tag, priority, {additional_fields}
+    FROM {table}
+    {join}
+    WHERE id = $1 AND {table}.workspace_id = $2");
+}
+async fn get_job_internal(
+    db: &DB,
+    workspace_id: &str,
+    job_id: Uuid,
+    no_logs: bool,
+) -> error::Result<Job> {
+    let cjob_maybe = sqlx::query_as::<_, CompletedJob>(if no_logs {
+        &*GET_COMPLETED_JOB_QUERY_NO_LOGS
+    } else {
+        &*GET_COMPLETED_JOB_QUERY
+    })
+    .bind(job_id)
+    .bind(workspace_id)
+    .fetch_optional(db)
+    .await?
+    .map(Job::CompletedJob);
+
     if let Some(cjob) = cjob_maybe {
         Ok(match cjob {
             Job::CompletedJob(cjob) => {
@@ -572,18 +633,11 @@ async fn get_job_internal(db: &DB, workspace_id: &str, job_id: Uuid) -> error::R
             cjob => cjob,
         })
     } else {
-        let job_o = sqlx::query_as::<_, QueuedJob>(
-            "SELECT  id, queue.workspace_id, parent_job, created_by, queue.created_at, started_at, scheduled_for, running,
-                script_hash, script_path, CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{\"reason\": \"WINDMILL_TOO_BIG\"}'::jsonb END as args, 
-                right(concat(coalesce(queue.logs, ''), job_logs.logs), 20000) as logs,
-                raw_code, canceled, canceled_by, canceled_reason, last_ping, 
-                job_kind, env_id, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
-                suspend, suspend_until, same_worker, raw_lock, pre_run_error, email, visible_to_owner, mem_peak, 
-                root_job, leaf_jobs, tag, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, priority
-                FROM queue
-                LEFT JOIN job_logs ON queue.id = job_logs.job_id
-                WHERE id = $1 AND queue.workspace_id = $2",
-        )
+        let job_o = sqlx::query_as::<_, QueuedJob>(if no_logs {
+            &*GET_QUEUED_JOB_QUERY_NO_LOGS
+        } else {
+            &*GET_QUEUED_JOB_QUERY
+        })
         .bind(job_id)
         .bind(workspace_id)
         .fetch_optional(db)
@@ -807,10 +861,16 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
     if let Some(dt) = &lq.started_before {
-        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_le(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
     if let Some(dt) = &lq.started_after {
-        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_ge(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
     if let Some(fs) = &lq.is_flow_step {
         sqlb.and_where_eq("is_flow_step", fs);
@@ -822,20 +882,26 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
 
     if let Some(dt) = &lq.created_before {
-        sqlb.and_where_le("created_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_le(
+            "created_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
     if let Some(dt) = &lq.created_after {
-        sqlb.and_where_ge("created_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_ge(
+            "created_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
 
     if let Some(dt) = &lq.created_or_started_after {
-        let ts = dt.timestamp();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({})) OR (started_at IS NULL AND created_at >= to_timestamp({}))", ts, ts));
+        let ts = dt.timestamp_millis();
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND created_at >= to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(dt) = &lq.created_or_started_before {
-        let ts = dt.timestamp();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({})) OR (started_at IS NULL AND created_at < to_timestamp({}))", ts, ts));
+        let ts = dt.timestamp_millis();
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND created_at < to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(s) = &lq.suspended {
@@ -1246,7 +1312,7 @@ async fn resume_suspended_job_internal(
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
     let parent_flow_info = get_suspended_parent_flow_info(job_id, &mut tx).await?;
-    let parent_flow = get_job_internal(&db, w_id.as_str(), parent_flow_info.id).await?;
+    let parent_flow = get_job_internal(&db, w_id.as_str(), parent_flow_info.id, false).await?;
     let flow_status = parent_flow
         .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
@@ -1497,7 +1563,7 @@ pub async fn get_suspended_job_flow(
     .flatten()
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
-    let flow = get_job_internal(&db, w_id.as_str(), flow_id).await?;
+    let flow = get_job_internal(&db, w_id.as_str(), flow_id, true).await?;
 
     let flow_status = flow
         .flow_status()
@@ -3454,17 +3520,29 @@ fn list_completed_jobs_query(
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
     if let Some(dt) = &lq.started_before {
-        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_le(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
     if let Some(dt) = &lq.started_after {
-        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_ge(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
 
     if let Some(dt) = &lq.created_or_started_before {
-        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_le(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
     if let Some(dt) = &lq.created_or_started_after {
-        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
+        sqlb.and_where_ge(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
     }
 
     if let Some(sk) = &lq.is_skipped {

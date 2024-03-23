@@ -13,6 +13,7 @@
 	export let notfound = false
 	export let jobUpdateLastFetch: Date | undefined = undefined
 	export let toastError = false
+	export let lazyLogs = false
 
 	const dispatch = createEventDispatcher()
 
@@ -87,6 +88,18 @@
 				requestBody: args
 			})
 		)
+	}
+
+	export async function getLogs() {
+		if (job) {
+			const getUpdate = await JobService.getJobUpdates({
+				workspace: workspace!,
+				id: job.id,
+				running: `running` in job && job.running,
+				logOffset: job.logs?.length ?? 0
+			})
+			job.logs = (job.logs ?? '').concat(getUpdate.new_logs ?? '')
+		}
 	}
 
 	export async function runPreview(
@@ -178,7 +191,7 @@
 						job = await JobService.getJob({ workspace: workspace!, id })
 					}
 				} else {
-					job = await JobService.getJob({ workspace: workspace!, id })
+					job = await JobService.getJob({ workspace: workspace!, id, noLogs: lazyLogs })
 				}
 				jobUpdateLastFetch = new Date()
 

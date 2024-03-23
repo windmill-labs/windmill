@@ -2,15 +2,31 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
+	import { JobService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	export let result: any
-	export let logs: string
+	export let logs: string | undefined
 	export let col: boolean = false
 	export let noBorder = false
 	export let loading: boolean
 	export let filename: string | undefined = undefined
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
+
+	$: jobId && logs == undefined && getLogs()
+
+	async function getLogs() {
+		if (jobId) {
+			const getUpdate = await JobService.getJobUpdates({
+				workspace: workspaceId ?? $workspaceStore!,
+				id: jobId,
+				running: loading,
+				logOffset: 0
+			})
+			logs = getUpdate.new_logs
+		}
+	}
 </script>
 
 <div
