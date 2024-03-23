@@ -681,7 +681,7 @@
 						/>
 					</div>
 					<div
-						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[800px] flex flex-col"
+						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col"
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>

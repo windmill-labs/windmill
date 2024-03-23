@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ClipboardCopy, Download, Loader2 } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
@@ -94,19 +94,19 @@
 	<div bind:this={div} class="w-full h-full overflow-auto relative bg-surface-secondary">
 		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
 			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
-				<div class="pt-2">
+				<div class="flex items-center">
 					<a
-						class="text-primary"
+						class="text-primary pb-0.5"
 						target="_blank"
 						href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
 						download="windmill-logs.json"><Download size="14" /></a
 					>
 				</div>
-				<button on:click={logViewer.openDrawer}>Expand</button>
+				<button on:click={logViewer.openDrawer}><Expand size="12" /></button>
 				<div
 					class="{small ? '' : 'py-2'} pr-2 {small
 						? '!text-2xs'
-						: '!text-xs'} flex gap-2 items-center"
+						: '!text-xs'} flex gap-2 text-tertiary items-center"
 				>
 					Auto scroll
 					<input class="windmillapp" type="checkbox" bind:checked={scroll} />
