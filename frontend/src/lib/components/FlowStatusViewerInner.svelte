@@ -199,6 +199,7 @@
 	}
 
 	let errorCount = 0
+	let logOffset = 0
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
@@ -225,6 +226,7 @@
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
+			logOffset = 0
 			$localModuleStates = {}
 			$localDurationStatuses = {}
 			flowTimeline?.reset()
@@ -429,7 +431,7 @@
 				</p>
 			{/if}
 			{#if render}
-				<div class="w-full h-full border border-gray-600 bg-surface p-1 overflow-auto">
+				<div class="w-full h-full border border-secondary bg-surface p-1 overflow-auto">
 					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
 				</div>
 			{/if}
@@ -453,7 +455,9 @@
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
 					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
 				{:else if job.logs}
-					<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
+					<div
+						class="text-xs p-4 bg-surface-secondary overflow-auto max-h-80 border border-tertiary-inverse"
+					>
 						<pre class="w-full">{job.logs}</pre>
 					</div>
 				{:else if innerModules?.length > 0}
@@ -676,7 +680,9 @@
 							failureModule={job.raw_flow?.failure_module}
 						/>
 					</div>
-					<div class="border-l border-gray-400 pt-1 overflow-auto min-h-[800px] flex flex-col">
+					<div
+						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[800px] flex flex-col"
+					>
 						<Tabs bind:selected={rightColumnSelect}>
 							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
 							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
@@ -689,7 +695,7 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'detail'}
-							<div class="pt-2">
+							<div class="pt-2 h-full">
 								{#if selectedNode}
 									{@const node = $localModuleStates[selectedNode]}
 
@@ -743,7 +749,9 @@
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder
-											loading={false}
+											loading={node.type != FlowStatusModule.type.SUCCESS &&
+												node.type != FlowStatusModule.type.FAILURE}
+											refreshLog={node.type == FlowStatusModule.type.IN_PROGRESS}
 											col
 											result={node.result}
 											logs={node.logs}

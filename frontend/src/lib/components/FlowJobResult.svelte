@@ -13,25 +13,37 @@
 	export let filename: string | undefined = undefined
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
+	export let refreshLog: boolean = false
 
 	$: jobId && logs == undefined && getLogs()
 
+	let logOffset = 0
 	async function getLogs() {
 		if (jobId) {
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspaceId ?? $workspaceStore!,
 				id: jobId,
 				running: loading,
-				logOffset: 0
+				logOffset: logOffset == 0 ? (logs?.length ? logs?.length + 1 : 0) : logOffset
 			})
-			logs = getUpdate.new_logs
+			logs = (logs ?? '').concat(getUpdate.new_logs ?? '')
+			logOffset = getUpdate.log_offset ?? 0
+		}
+		if (refreshLog) {
+			setTimeout(() => {
+				if (refreshLog) {
+					getLogs()
+				}
+			}, 1000)
 		}
 	}
 </script>
 
 <div
 	class:border={!noBorder}
-	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow border-gray-400 h-full max-h-screen"
+	class="grid {!col
+		? 'grid-cols-2'
+		: 'grid-rows-2'} shadow border border-tertiary-inverse h-full max-h-screen"
 >
 	<div class="bg-surface {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>
