@@ -860,7 +860,7 @@ pub async fn handle_python_reqs(
                     job_id.clone(),
                     w_id.to_string(),
                     format!(
-                        "pulled {} from s3 cache in {}ms",
+                        "pulled {} from distributed cache in {}ms",
                         pulled.join(", "),
                         start.elapsed().as_millis()
                     ),
