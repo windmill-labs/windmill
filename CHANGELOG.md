@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.295.1](https://github.com/windmill-labs/windmill/compare/v1.295.0...v1.295.1) (2024-03-23)
+
+
+### Bug Fixes
+
+* add support for azure storage on distributed cache/logs ([d2afc05](https://github.com/windmill-labs/windmill/commit/d2afc0570325c2cd3d8ae770c3b3858db6ace6a7))
+
 ## [1.295.0](https://github.com/windmill-labs/windmill/compare/v1.294.0...v1.295.0) (2024-03-23)
 
 
