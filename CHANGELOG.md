@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.295.0](https://github.com/windmill-labs/windmill/compare/v1.294.0...v1.295.0) (2024-03-23)
+
+
+### Features
+
+* add workspace environment vars (custom contextual vars) ([#3455](https://github.com/windmill-labs/windmill/issues/3455)) ([283d550](https://github.com/windmill-labs/windmill/commit/283d55008cdcd6c4286e702e93541f662516a643))
+* **frontend:** fetch logs just-in-time only when necessary ([6bf2083](https://github.com/windmill-labs/windmill/commit/6bf20838aeb3718d770b425380ecbb699c9e7425))
+* large log disk and distributed storage compaction ([75e9e67](https://github.com/windmill-labs/windmill/commit/75e9e67d7a8fa07d1dee6c1194261cbeacb69c8d))
+
 ## [1.294.0](https://github.com/windmill-labs/windmill/compare/v1.293.1...v1.294.0) (2024-03-22)
 
 
