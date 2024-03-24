@@ -744,27 +744,7 @@ paths:
           application/json:
             schema:
               type: object
-              properties:
-                type:
-                  type: string
-                bucket:
-                  type: string
-                region:
-                  type: string
-                accessKey:
-                  type: string
-                accountName:
-                  type: string
-                tenantId:
-                  type: string
-                clientId:
-                  type: string
-                access_key:
-                  type: string
-                secret_key:
-                  type: string
-                endpoint:
-                  type: string
+              additionalProperties: true
       responses:
         "200":
           description: status
