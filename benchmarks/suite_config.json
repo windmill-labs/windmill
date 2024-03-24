@@ -3,7 +3,7 @@
     {
       "graph_title": "noop throughput benchmark (single worker)",
       "kind": "noop",
-      "jobs": 30000
+      "jobs": 90000
     },
     {
       "graph_title": "flow throughput benchmark (single worker)",
@@ -13,7 +13,7 @@
     {
       "graph_title": "dedicated throughput benchmark (single worker)",
       "kind": "dedicated",
-      "jobs": 30000
+      "jobs": 90000
     },
     {
       "graph_title": "deno throughput benchmark (single worker)",
@@ -33,37 +33,27 @@
     {
       "graph_title": "go throughput benchmark (single worker)",
       "kind": "go",
-      "jobs": 500
+      "jobs": 2000
     },
     {
       "graph_title": "bash throughput benchmark (single worker)",
       "kind": "bash",
-      "jobs": 500
+      "jobs": 2000
     },
     {
       "graph_title": "nativets throughput benchmark (single worker)",
       "kind": "nativets",
-      "jobs": 500
+      "jobs": 2000
     }
   ],
   "extra_graphs": [
     {
       "graph_title": "go vs python vs deno vs bun vs bash",
-      "kinds": [
-        "go",
-        "python",
-        "deno",
-        "bun",
-        "bash"
-      ]
+      "kinds": ["go", "python", "deno", "bun", "bash"]
     },
     {
       "graph_title": "bun vs dedicated vs noop",
-      "kinds": [
-        "bun",
-        "dedicated",
-        "noop"
-      ]
+      "kinds": ["bun", "dedicated", "noop"]
     }
   ]
 }
