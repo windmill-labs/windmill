@@ -89,7 +89,7 @@ jobs:
         run:
           deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
-          -c
+          --no-warm-up -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_dedicated.json
 
   benchmark_4workers:
@@ -125,9 +125,7 @@ jobs:
           WORKER_GROUP: main
           WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
         options: >-
-          --pull always --health-interval 10s --health-timeout 5s
-          --health-retries 5 --health-cmd "curl
-          http://localhost:8000/api/version"
+          --pull always
 
       windmill_2:
         image: ghcr.io/windmill-labs/windmill-ee:main
@@ -138,9 +136,7 @@ jobs:
           WORKER_GROUP: main
           WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
         options: >-
-          --pull always --health-interval 10s --health-timeout 5s
-          --health-retries 5 --health-cmd "curl
-          http://localhost:8000/api/version"
+          --pull always
 
       windmill_3:
         image: ghcr.io/windmill-labs/windmill-ee:main
@@ -151,9 +147,7 @@ jobs:
           WORKER_GROUP: main
           WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
         options: >-
-          --pull always --health-interval 10s --health-timeout 5s
-          --health-retries 5 --health-cmd "curl
-          http://localhost:8000/api/version"
+          --pull always
 
     steps:
       - uses: denoland/setup-deno@v1
