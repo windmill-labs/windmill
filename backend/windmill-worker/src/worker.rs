@@ -1381,15 +1381,16 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             let db2 = db.clone();
-            let worker_instance = worker_instance.to_string();
-            let ip = ip.to_string();
             let worker_name2 = worker_name.clone();
             tokio::task::spawn(async move {
                 tracing::info!(worker = %worker_name2, "vacuuming queue and completed_job");
-                if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue").execute(&db2).await {
+                if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
+                    .execute(&db2)
+                    .await
+                {
                     tracing::error!(worker = %worker_name2, "failed to vacuum queue: {}", e);
                 }
-                tracing::info!(worker = %worker_name, "vacuumed queue and completed_job");
+                tracing::info!(worker = %worker_name2, "vacuumed queue and completed_job");
             });
             jobs_executed += 1;
         }
