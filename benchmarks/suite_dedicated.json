@@ -1,0 +1,15 @@
+{
+  "benchmarks": [
+    {
+      "graph_title": "warmup",
+      "kind": "dedicated",
+      "jobs": 50000
+    },
+
+    {
+      "graph_title": "dedicated throughput benchmark (single worker)",
+      "kind": "dedicated",
+      "jobs": 90000
+    }
+  ]
+}
