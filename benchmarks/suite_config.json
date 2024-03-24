@@ -11,11 +11,6 @@
       "jobs": 250
     },
     {
-      "graph_title": "dedicated throughput benchmark (single worker)",
-      "kind": "dedicated",
-      "jobs": 90000
-    },
-    {
       "graph_title": "deno throughput benchmark (single worker)",
       "kind": "deno",
       "jobs": 500
@@ -52,8 +47,8 @@
       "kinds": ["go", "python", "deno", "bun", "bash"]
     },
     {
-      "graph_title": "bun vs dedicated vs noop",
-      "kinds": ["bun", "dedicated", "noop"]
+      "graph_title": "bun vs noop",
+      "kinds": ["bun", "noop"]
     }
   ]
 }
