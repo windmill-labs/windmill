@@ -38,7 +38,7 @@ async function warmUp(
     token,
     workspace,
     kind: "noop",
-    jobs: 5000,
+    jobs: 50000,
   });
 }
 
