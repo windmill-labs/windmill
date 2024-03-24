@@ -66,7 +66,9 @@ async function main({
     }
   }
 
-  await warmUp(host, email, password, token, workspace);
+  if (!Deno.args.includes("--no-warm-up")) {
+    await warmUp(host, email, password, token, workspace);
+  }
 
   try {
     const config = await getConfig(configPath);
@@ -180,6 +182,7 @@ await new Command()
   .option("-c --config-path <config:string>", "The path of the config file", {
     required: true,
   })
+  .option("--no-warm-up", "Skip the warm up phase.")
   .action(main)
   .command(
     "upgrade",
