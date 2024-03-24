@@ -212,7 +212,7 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
 pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
-const VACUUM_PERIOD: u32 = 10000;
+const VACUUM_PERIOD: u32 = 50000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
 
@@ -1384,23 +1384,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let worker_instance = worker_instance.to_string();
             let ip = ip.to_string();
             let worker_name2 = worker_name.clone();
-            let r = tokio::task::spawn(async move {
+            tokio::task::spawn(async move {
                 tracing::info!(worker = %worker_name2, "vacuuming queue and completed_job");
-                if let Err(e) = sqlx::query!("VACUUM queue").execute(&db2).await {
+                if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue").execute(&db2).await {
                     tracing::error!(worker = %worker_name2, "failed to vacuum queue: {}", e);
                 }
+                tracing::info!(worker = %worker_name, "vacuumed queue and completed_job");
             });
-
-            loop {
-                update_ping(&worker_instance, &worker_name, &ip, &db).await;
-                if r.is_finished() {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_secs(5)).await
-            }
-
             jobs_executed += 1;
-            tracing::info!(worker = %worker_name, "vacuumed queue and completed_job");
         }
 
         let next_job = {
