@@ -238,7 +238,7 @@ export async function runScriptAsync(
   }
 
   let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
-  if (rootJobId != undefined) {
+  if (rootJobId != undefined && rootJobId != "") {
     params["root_job"] = rootJobId;
   }
 
@@ -260,9 +260,7 @@ export async function runScriptAsync(
       Authorization: `Bearer ${OpenAPI.TOKEN}`,
     },
     body: JSON.stringify(args),
-  })
-    .then((res) => res.json())
-    .then((data) => data.id);
+  }).then((res) => res.text());
 }
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
