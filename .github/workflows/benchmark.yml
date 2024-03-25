@@ -46,6 +46,7 @@ jobs:
       - name: Push changes
         run: |
           pwd
+          git pull
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -161,9 +162,11 @@ jobs:
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
+          --workers 4
       - name: Push changes
         run: |
           pwd
+          git pull
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -283,9 +286,11 @@ jobs:
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
+          --workers 4
       - name: Push changes
         run: |
           pwd
+          git pull
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
