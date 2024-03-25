@@ -49,6 +49,7 @@ async function main({
   token,
   workspace,
   configPath,
+  workers,
 }: {
   host: string;
   email?: string;
@@ -56,6 +57,7 @@ async function main({
   token?: string;
   workspace: string;
   configPath: string;
+  workers: number;
 }) {
   async function getConfig(configPath: string): Promise<Config> {
     if (configPath.startsWith("http")) {
@@ -97,7 +99,9 @@ async function main({
           ts: Date.now(),
         };
         let data: (typeof stat)[] = [];
-        const jsonFilePath = `${benchmark.kind}_benchmark.json`;
+        const benchmarkName =
+          benchmark.kind + (workers > 1 ? `_${workers}workers` : "");
+        const jsonFilePath = `${benchmarkName}_benchmark.json`;
         try {
           const existing = await Deno.readTextFile(jsonFilePath);
           data = JSON.parse(existing);
@@ -108,9 +112,10 @@ async function main({
         await Deno.writeTextFile(jsonFilePath, JSON.stringify(data, null, 4));
         const svg = drawGraph(
           data.slice(-10).map((d) => ({ ...d, date: new Date(d.ts) })),
-          benchmark.graph_title
+          benchmark.graph_title +
+            (workers > 1 ? ` (${workers} workers)` : " (single worker)")
         );
-        await Deno.writeTextFile(`${benchmark.kind}_benchmark.svg`, svg);
+        await Deno.writeTextFile(`${benchmarkName}_benchmark.svg`, svg);
       } catch (err) {
         console.error("Failed to run benchmark", benchmark.kind, err);
       }
@@ -124,8 +129,11 @@ async function main({
         kind: string;
       }[] = [];
       for (const kind of extraGraph.kinds) {
+        const benchmarkName = kind + (workers > 1 ? `_${workers}workers` : "");
         try {
-          const existing = await Deno.readTextFile(`${kind}_benchmark.json`);
+          const existing = await Deno.readTextFile(
+            `${benchmarkName}_benchmark.json`
+          );
           const existingData = JSON.parse(existing)
             .map((d: { value: number; ts: number }) => ({
               ...d,
@@ -138,8 +146,17 @@ async function main({
           console.log("Error while loading", kind, "benchmark data", err);
         }
       }
-      const svg = drawGraphMulti(data, extraGraph.graph_title);
-      await Deno.writeTextFile(`${extraGraph.kinds.join("_vs_")}.svg`, svg);
+      const svg = drawGraphMulti(
+        data,
+        extraGraph.graph_title +
+          (workers > 1 ? ` (${workers} workers)` : " (single worker)")
+      );
+      await Deno.writeTextFile(
+        `${extraGraph.kinds.join("_vs_")}_${
+          workers > 1 ? `_${workers}workers` : ""
+        }.svg`,
+        svg
+      );
     }
 
     Deno.exit(0); // JSDOM from drawGraph doesn't exit cleanly
@@ -183,6 +200,11 @@ await new Command()
     required: true,
   })
   .option("--no-warm-up", "Skip the warm up phase.")
+  .option(
+    "--workers <workers:number>",
+    "Number of workers that are used to run the benchmarks (only affect graph title)",
+    { default: 1 }
+  )
   .action(main)
   .command(
     "upgrade",
