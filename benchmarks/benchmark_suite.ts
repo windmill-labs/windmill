@@ -152,7 +152,7 @@ async function main({
           (workers > 1 ? ` (${workers} workers)` : " (single worker)")
       );
       await Deno.writeTextFile(
-        `${extraGraph.kinds.join("_vs_")}_${
+        `${extraGraph.kinds.join("_vs_")}${
           workers > 1 ? `_${workers}workers` : ""
         }.svg`,
         svg
