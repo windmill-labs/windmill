@@ -31,7 +31,7 @@ Open-source developer platform to turn scripts into workflows and UIs. Open-sour
 
 ![python benchmark](./python_benchmark.svg)
 ![python benchmark (4 workers)](./python_4workers_benchmark.svg)
-![python benchmark (8 workers)](./python_8workers._benchmarksvg)
+![python benchmark (8 workers)](./python_8workers_benchmark.svg)
 
 
 ![bash benchmark](./bash_benchmark.svg)
