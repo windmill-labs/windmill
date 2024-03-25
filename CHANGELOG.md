@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.295.2](https://github.com/windmill-labs/windmill/compare/v1.295.1...v1.295.2) (2024-03-25)
+
+
+### Bug Fixes
+
+* **typescript-client:** improve runScript ([aaa766b](https://github.com/windmill-labs/windmill/commit/aaa766bcd6b31ccedaa685ee7fa55c153c5e26f7))
+
 ## [1.295.1](https://github.com/windmill-labs/windmill/compare/v1.295.0...v1.295.1) (2024-03-23)
 
 
