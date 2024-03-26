@@ -14,7 +14,6 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { writable } from 'svelte/store'
-	import { WindmillIcon } from '../icons'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
@@ -33,6 +32,7 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '../Popover.svelte'
+	import { onDestroy } from 'svelte'
 
 	// props
 	export let iconOnly: boolean = false
@@ -44,9 +44,10 @@
 	export let transformer = false
 
 	// state
-	let funcDesc: string = ''
+	let funcDesc = ''
+	let trimmedDesc = ''
 	let genLoading: boolean = false
-	let input: HTMLInputElement | undefined
+	let input: HTMLTextAreaElement | undefined
 	let generatedCode = writable<string>('')
 	let dbSchema: DBSchema | undefined = undefined
 	let abortController: AbortController | undefined = undefined
@@ -55,8 +56,10 @@
 
 	let button: HTMLButtonElement | undefined
 
+	$: trimmedDesc = funcDesc.trim()
+
 	async function onGenerate(closePopup: () => void) {
-		if (funcDesc.length <= 0) {
+		if (trimmedDesc.length <= 0) {
 			return
 		}
 		savePrompt()
@@ -68,7 +71,7 @@
 				await copilot(
 					{
 						language: transformer && lang === 'frontend' ? 'transformer' : lang,
-						description: funcDesc,
+						description: trimmedDesc,
 						code: editor?.getCode() || '',
 						dbSchema: dbSchema,
 						type: 'edit',
@@ -81,7 +84,7 @@
 				await copilot(
 					{
 						language: transformer && lang === 'frontend' ? 'transformer' : lang,
-						description: funcDesc,
+						description: trimmedDesc,
 						dbSchema: dbSchema,
 						type: 'gen',
 						workspace: $workspaceStore!
@@ -110,6 +113,9 @@
 		} finally {
 			genLoading = false
 			blockPopupOpen = false
+			setTimeout(() => {
+				autoResize()
+			}, 0)
 		}
 	}
 
@@ -183,10 +189,10 @@
 	}
 
 	function savePrompt() {
-		if (promptHistory.includes(funcDesc)) {
+		if (promptHistory.includes(trimmedDesc)) {
 			return
 		}
-		promptHistory.unshift(funcDesc)
+		promptHistory.unshift(trimmedDesc)
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
@@ -208,6 +214,20 @@
 	$: lang && getPromptHistory()
 
 	$: $generatedCode && updateScroll()
+
+	function autoResize() {
+		if (input) {
+			const maxLinesHeight = 100 // Adjust this value based on your font size and line-height to fit 5 lines
+			input.style.height = 'auto' // Reset height to recalibrate
+			const newHeight = Math.min(input.scrollHeight, maxLinesHeight) // Calculate new height, but not exceed max
+			input.style.height = newHeight + 'px' // Set new height
+			input.style.overflowY = newHeight >= maxLinesHeight ? 'scroll' : 'hidden' // Show scrollbar if at max height
+		}
+	}
+
+	onDestroy(() => {
+		abortController?.abort()
+	})
 </script>
 
 {#if genLoading}
@@ -282,7 +302,7 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
-					propagateEvent
+					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
 						: () => {
@@ -293,6 +313,9 @@
 										mode = 'edit'
 									}
 								}
+								setTimeout(() => {
+									autoResize()
+								}, 0)
 						  }}
 					bind:element={button}
 					iconOnly
@@ -311,8 +334,8 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
-					startIcon={genLoading ? undefined : { icon: Wand2 }}
-					propagateEvent
+					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
+					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
 						: () => {
@@ -323,18 +346,14 @@
 										mode = 'edit'
 									}
 								}
+								setTimeout(() => {
+									autoResize()
+								}, 0)
 						  }}
 					bind:element={button}
 					{iconOnly}
 				>
 					{#if genLoading}
-						<WindmillIcon
-							white={true}
-							class="mr-1 text-white"
-							height="16px"
-							width="20px"
-							spin="veryfast"
-						/>
 						Stop
 					{:else}
 						AI Gen
@@ -365,31 +384,34 @@
 							GPT-4 Turbo<Bot size={14} />
 						</div>
 					</div>
-					<div class="flex w-96">
-						<input
-							type="text"
+					<div class="flex w-96 items-start">
+						<textarea
 							bind:this={input}
 							bind:value={funcDesc}
-							on:keypress={({ key }) => {
-								if (key === 'Enter' && funcDesc.length > 0) {
+							on:input={autoResize}
+							on:keydown={({ key, shiftKey }) => {
+								if (key === 'Enter' && !shiftKey && trimmedDesc.length > 0) {
 									onGenerate(() => close(input || null))
+									return false
 								}
 							}}
 							placeholder={mode === 'edit'
 								? 'Describe the changes you want'
 								: 'Describe what the script should do'}
+							rows="1"
+							class="resize-none overflow-hidden"
 						/>
 						<Button
 							size="xs"
 							color="light"
 							buttonType="button"
-							btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							btnClasses="h-[36px] !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 							title="Generate code from prompt"
 							aria-label="Generate"
 							on:click={() => {
 								onGenerate(() => close(input || null))
 							}}
-							disabled={funcDesc.length <= 0}
+							disabled={trimmedDesc.length <= 0}
 							iconOnly
 							startIcon={{ icon: Wand2 }}
 						/>
@@ -404,6 +426,9 @@
 									startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
 									on:click={() => {
 										funcDesc = p
+										setTimeout(() => {
+											autoResize()
+										}, 0)
 									}}>{p}</Button
 								>
 							{/each}
