@@ -346,6 +346,24 @@ class Windmill:
     def set_state(self, value: Any):
         self.set_resource(value, path=self.state_path, resource_type="state")
 
+    def set_flow_user_state(self, key: str, value: Any) -> None:
+        """Set the user state of a flow at a given key"""
+        flow_id = self.get_root_job_id()
+        r = client.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value,  raise_for_status=False)
+        if r.status_code == 404:
+            print(f"Job {flow_id} does not exist or is not a flow")
+
+
+    def get_flow_user_state(self, key: str) -> Any:
+        """Get the user state of a flow at a given key"""
+        flow_id = self.get_root_job_id()
+        r = client.get(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", raise_for_status=False)
+        if r.status_code == 404:
+            print(f"Job {flow_id} does not exist or is not a flow")
+            return None
+        else:
+            return r.json()
+
     @property
     def version(self):
         return self.get("version").text
@@ -849,6 +867,20 @@ def set_variable(path: str, value: str, is_secret: bool = False) -> None:
     Set the variable at a given path as a string, creating it if it does not exist
     """
     return _client.set_variable(path, value, is_secret)
+
+
+@init_global_client
+def get_flow_user_state(key: str) -> Any:
+    """
+    Get the user state of a flow at a given key
+    """
+    return _client.get_flow_user_state(key)
+
+def set_flow_user_state(key: str, value: Any) -> None:
+    """
+    Set the user state of a flow at a given key
+    """
+    return _client.set_flow_user_state(key, value)
 
 
 @init_global_client

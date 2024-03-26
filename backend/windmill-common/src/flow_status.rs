@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,10 @@ pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
     pub failure_module: FlowStatusModuleWParent,
+
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
+    pub user_states: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub cleanup_module: FlowCleanupModule,
     #[serde(default)]
@@ -231,6 +236,7 @@ impl FlowStatus {
             cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,
+            user_states: HashMap::new(),
         }
     }
 

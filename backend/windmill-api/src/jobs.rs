@@ -202,6 +202,12 @@ pub fn workspaced_service() -> Router {
             get(create_job_signature).layer(cors.clone()),
         )
         .route(
+            "/flow/user_states/:job_id/:key",
+            get(get_flow_user_state)
+                .post(set_flow_user_state)
+                .layer(cors.clone()),
+        )
+        .route(
             "/resume_urls/:job_id/:resume_id",
             get(get_resume_urls).layer(cors.clone()),
         )
@@ -1673,6 +1679,55 @@ pub async fn create_job_signature(
 ) -> error::Result<String> {
     let key = get_workspace_key(&w_id, &mut user_db.begin(&authed).await?).await?;
     create_signature(key, job_id, resume_id, approver.approver)
+}
+
+pub async fn get_flow_user_state(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id, key)): Path<(String, Uuid, String)>,
+) -> error::JsonResult<Option<serde_json::Value>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let r = sqlx::query_scalar!(
+        r#"
+        SELECT flow_status->'user_states'->$1
+        FROM queue
+        WHERE id = $2 AND workspace_id = $3
+        "#,
+        key,
+        job_id,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    Ok(Json(r))
+}
+
+pub async fn set_flow_user_state(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id, key)): Path<(String, Uuid, String)>,
+    Json(value): Json<serde_json::Value>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+    let r = sqlx::query_scalar!(
+        r#"
+        UPDATE queue SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
+        WHERE id = $3 AND workspace_id = $4 AND job_kind IN ('flow', 'flowpreview') RETURNING 1
+        "#,
+        key,
+        value,
+        job_id,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    if r.is_none() {
+        return Err(Error::NotFound("Flow job not found".to_string()));
+    }
+    tx.commit().await?;
+    Ok("Flow job state updated".to_string())
 }
 
 fn create_signature(

@@ -5820,6 +5820,53 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/flow/user_states/{id}/{key}:
+    post:
+      summary: set flow user state at a given key
+      operationId: setFlowUserState
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new value
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "200":
+          description: flow user state updated
+          content:
+            text/plain:
+              schema:
+                type: string
+    get:
+      summary: get flow user state at a given key
+      operationId: getFlowUserState
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: flow user state updated
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/flow/resume/{id}:
     post:
       summary: resume a job for a suspended flow as an owner

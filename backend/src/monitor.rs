@@ -105,6 +105,7 @@ pub async fn initial_load(
     tx: tokio::sync::broadcast::Sender<()>,
     worker_mode: bool,
     server_mode: bool,
+    _is_agent: bool,
 ) {
     if let Err(e) = load_metrics_enabled(db).await {
         tracing::error!("Error loading expose metrics: {e}");
@@ -136,7 +137,9 @@ pub async fn initial_load(
     }
 
     #[cfg(feature = "parquet")]
-    reload_s3_cache_setting(&db).await;
+    if !_is_agent {
+        reload_s3_cache_setting(&db).await;
+    }
 
     if server_mode {
         reload_server_config(&db).await;
