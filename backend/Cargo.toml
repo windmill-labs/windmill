@@ -119,7 +119,7 @@ serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^1"
 anyhow = "^1"
-chrono = { version = "^0", features = ["serde"] }
+chrono = { version = "0.4.35", features = ["serde"] }
 chrono-tz = "^0"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
