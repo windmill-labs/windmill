@@ -349,7 +349,7 @@ class Windmill:
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = client.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value,  raise_for_status=False)
+        r = self.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value,  raise_for_status=False)
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
 
@@ -357,7 +357,7 @@ class Windmill:
     def get_flow_user_state(self, key: str) -> Any:
         """Get the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = client.get(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", raise_for_status=False)
+        r = self.get(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", raise_for_status=False)
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
             return None
