@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.297.0](https://github.com/windmill-labs/windmill/compare/v1.296.1...v1.297.0) (2024-03-26)
+
+
+### Features
+
+* add visible to runner only default value ([#3472](https://github.com/windmill-labs/windmill/issues/3472)) ([14a86bf](https://github.com/windmill-labs/windmill/commit/14a86bf59c93d7e54d175a6e1e2b77804681fa3d))
+
 ## [1.296.1](https://github.com/windmill-labs/windmill/compare/v1.296.0...v1.296.1) (2024-03-26)
 
 
