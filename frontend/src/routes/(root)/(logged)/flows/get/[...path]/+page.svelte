@@ -52,7 +52,7 @@
 	let deploymentInProgress = false
 
 	let scheduledForStr: string | undefined = undefined
-	let invisible_to_owner: false | undefined = undefined
+	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
@@ -81,6 +81,9 @@
 	let schedule: Schedule | undefined = undefined
 	async function loadFlow(): Promise<void> {
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
+		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
+			invisible_to_owner = flow.visible_to_runner_only
+		}
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 		try {
 			schedule = await loadFlowSchedule(path, $workspaceStore!)

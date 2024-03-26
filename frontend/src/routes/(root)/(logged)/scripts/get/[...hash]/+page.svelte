@@ -77,7 +77,7 @@
 	let runForm: RunForm
 
 	let scheduledForStr: string | undefined = undefined
-	let invisible_to_owner: false | undefined = undefined
+	let invisible_to_owner: boolean | undefined = undefined
 	let overrideTag: string | undefined = undefined
 
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
@@ -171,6 +171,9 @@
 		deploymentInProgress = script.lock == undefined && script.lock_error_logs == undefined
 		if (deploymentInProgress) {
 			intervalId = setInterval(syncer, 500)
+		}
+		if (!script.path.startsWith(`u/${$userStore?.username}`) && script.path.split('/').length > 2) {
+			invisible_to_owner = script.visible_to_runner_only
 		}
 	}
 

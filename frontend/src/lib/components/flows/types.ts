@@ -14,7 +14,12 @@ export type FlowEditorContext = {
 	history: History<OpenFlow>
 	pathStore: Writable<string>
 	flowStore: Writable<
-		OpenFlow & { tag?: string; ws_error_handler_muted?: boolean; dedicated_worker?: boolean }
+		OpenFlow & {
+			tag?: string
+			ws_error_handler_muted?: boolean
+			dedicated_worker?: boolean
+			visible_to_runner_only?: boolean
+		}
 	>
 	flowStateStore: Writable<FlowState>
 	testStepStore: Writable<Record<string, any>>

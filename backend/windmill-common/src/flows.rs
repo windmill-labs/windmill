@@ -44,6 +44,8 @@ pub struct Flow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible_to_runner_only: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -77,6 +79,7 @@ pub struct NewFlow {
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,
     pub deployment_message: Option<String>,
+    pub visible_to_runner_only: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

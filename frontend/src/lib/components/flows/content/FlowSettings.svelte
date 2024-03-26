@@ -161,6 +161,23 @@
 									</svelte:fragment>
 								</Toggle>
 
+								<Toggle
+									size="sm"
+									checked={Boolean($flowStore.visible_to_runner_only)}
+									on:change={() => {
+										if ($flowStore.visible_to_runner_only) {
+											$flowStore.visible_to_runner_only = undefined
+										} else {
+											$flowStore.visible_to_runner_only = true
+										}
+									}}
+									options={{
+										right: 'Make runs invisible to others',
+										rightTooltip:
+											'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.'
+									}}
+								/>
+
 								<div class="flex flex-row items-center gap-1">
 									<ErrorHandlerToggleButton
 										kind="flow"
