@@ -164,7 +164,9 @@ export async function handleFile(
               remote.concurrency_time_window_s &&
             typed.concurrent_limit == remote.concurrent_limit &&
             Boolean(typed.restart_unless_cancelled) ==
-              Boolean(remote.restart_unless_cancelled))
+              Boolean(remote.restart_unless_cancelled) &&
+            Boolean(typed.visible_to_runner_only) ==
+              Boolean(remote.visible_to_runner_only))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
@@ -194,6 +196,7 @@ export async function handleFile(
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
           restart_unless_cancelled: typed?.restart_unless_cancelled,
+          visible_to_runner_only: typed?.visible_to_runner_only,
         },
       });
     } else {
@@ -221,6 +224,7 @@ export async function handleFile(
           concurrent_limit: typed?.concurrent_limit,
           deployment_message: message,
           restart_unless_cancelled: typed?.restart_unless_cancelled,
+          visible_to_runner_only: typed?.visible_to_runner_only,
         },
       });
     }

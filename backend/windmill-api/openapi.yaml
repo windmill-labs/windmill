@@ -718,7 +718,6 @@ paths:
               schema:
                 type: string
 
-
     # pub use_ssl: Option<bool>,
     # #[serde(rename = "accountName")]
     # pub account_name: String,
@@ -1228,7 +1227,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/workspaces/change_workspace_id:
     post:
@@ -8256,6 +8254,8 @@ components:
           type: integer
         delete_after_use:
           type: boolean
+        visible_to_runner_only:
+          type: boolean
       required:
         - hash
         - path
@@ -8342,6 +8342,8 @@ components:
           type: string
         concurrency_key:
           type: string
+        visible_to_runner_only:
+          type: boolean
       required:
         - path
         - summary
@@ -9670,6 +9672,8 @@ components:
           type: boolean
         timeout:
           type: number
+        visible_to_runner_only:
+          type: boolean
       required:
         - path
         - edited_by
@@ -9694,6 +9698,8 @@ components:
               type: boolean
             timeout:
               type: number
+            visible_to_runner_only:
+              type: boolean
           required:
             - path
 

@@ -571,10 +571,13 @@
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
 						{/if}
-						{#if !job.visible_to_owner}<Badge color="red"
-								>only visible to you <Tooltip
-									>The option to hide this run from the owner of this script or flow was activated</Tooltip
-								></Badge
+						{#if !job.visible_to_owner}
+							<div
+								><Badge color="red"
+									>only visible to you <Tooltip
+										>The option to hide this run from the owner of this script or flow was activated</Tooltip
+									>
+								</Badge></div
 							>
 						{/if}
 					</div>

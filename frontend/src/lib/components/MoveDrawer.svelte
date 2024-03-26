@@ -53,7 +53,8 @@
 					schema: flow.schema,
 					tag: flow.tag,
 					dedicated_worker: flow.dedicated_worker,
-					ws_error_handler_muted: flow.ws_error_handler_muted
+					ws_error_handler_muted: flow.ws_error_handler_muted,
+					visible_to_runner_only: flow.visible_to_runner_only
 				}
 			})
 		} else if (kind == 'script') {
