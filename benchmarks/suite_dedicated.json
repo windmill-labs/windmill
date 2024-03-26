@@ -5,11 +5,20 @@
       "kind": "dedicated",
       "jobs": 50000
     },
-
     {
-      "graph_title": "dedicated throughput benchmark (single worker)",
+      "graph_title": "dedicated throughput benchmark",
       "kind": "dedicated",
       "jobs": 90000
+    }
+  ],
+  "extra_graphs": [
+    {
+      "graph_title": "bun vs dedicated vs noop",
+      "kinds": [
+        "bun",
+        "dedicated",
+        "noop"
+      ]
     }
   ]
 }
