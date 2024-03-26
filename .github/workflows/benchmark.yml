@@ -54,7 +54,7 @@ jobs:
           git push
 
   benchmark_dedicated:
-    # needs: benchmark_single
+    needs: benchmark_single
     runs-on: ubicloud-standard-8
     services:
       postgres:
