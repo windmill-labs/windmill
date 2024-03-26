@@ -3422,7 +3422,11 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                 &job.created_by,
                 &db,
                 &w_id,
-                DeployedObject::Script { hash, path: script_path.to_string(), parent_path: None },
+                DeployedObject::Script {
+                    hash,
+                    path: script_path.to_string(),
+                    parent_path: parent_path.clone(),
+                },
                 deployment_message.clone(),
                 rsmq.clone(),
                 false,
@@ -3539,7 +3543,7 @@ async fn trigger_python_dependents_to_recompute_dependencies<
                 args.insert("deployment_message".to_string(), json!(dm));
             }
             if let Some(ref p_path) = parent_path {
-                args.insert("parent_path".to_string(), json!(p_path));
+                args.insert("common_dependency_path".to_string(), json!(p_path));
             }
 
             let (job_uuid, new_tx) = windmill_queue::push(
