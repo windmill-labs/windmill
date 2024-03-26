@@ -128,13 +128,3 @@
 .list-item {
     @apply list-none;
 }
-
-.textarea-resize-none {
-    resize: none; /* Prevent manual resizing */
-  }
-  
-  .fixed-height-btn {
-    height: 38px; /* Set a fixed height for the button */
-  }
-  
-  

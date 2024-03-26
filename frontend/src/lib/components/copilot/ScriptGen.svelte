@@ -55,7 +55,7 @@
 
 	let button: HTMLButtonElement | undefined
 
-	async function onGenerate(closePopup: () => void) {
+	async function onGenerate(closePopup: () => void = () => {}) {
 		if (funcDesc.length <= 0) {
 			return
 		}
@@ -387,13 +387,13 @@
 						  }}
 						  placeholder={mode === 'edit' ? 'Describe the changes you want' : 'Describe what the script should do'}
 						  rows="1"
-						  class="textarea-resize-none overflow-hidden"
+						  class="resize-none overflow-hidden"
 						></textarea>
 						<Button
 						  size="xs"
 						  color="light"
 						  buttonType="button"
-						  btnClasses="fixed-height-btn !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+						  btnClasses="h-[38px] !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 						  title="Generate code from prompt"
 						  aria-label="Generate"
 						  on:click={() => {
