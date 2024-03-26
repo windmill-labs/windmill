@@ -44,9 +44,10 @@
 	export let transformer = false
 
 	// state
-	let funcDesc = '';
+	let funcDesc = ''
+	let trimmedDesc = ''
 	let genLoading: boolean = false
-	let input;
+	let input: HTMLTextAreaElement | undefined
 	let generatedCode = writable<string>('')
 	let dbSchema: DBSchema | undefined = undefined
 	let abortController: AbortController | undefined = undefined
@@ -55,8 +56,10 @@
 
 	let button: HTMLButtonElement | undefined
 
-	async function onGenerate(closePopup: () => void = () => {}) {
-		if (funcDesc.length <= 0) {
+	$: trimmedDesc = funcDesc.trim()
+
+	async function onGenerate(closePopup: () => void) {
+		if (trimmedDesc.length <= 0) {
 			return
 		}
 		savePrompt()
@@ -68,7 +71,7 @@
 				await copilot(
 					{
 						language: transformer && lang === 'frontend' ? 'transformer' : lang,
-						description: funcDesc,
+						description: trimmedDesc,
 						code: editor?.getCode() || '',
 						dbSchema: dbSchema,
 						type: 'edit',
@@ -81,7 +84,7 @@
 				await copilot(
 					{
 						language: transformer && lang === 'frontend' ? 'transformer' : lang,
-						description: funcDesc,
+						description: trimmedDesc,
 						dbSchema: dbSchema,
 						type: 'gen',
 						workspace: $workspaceStore!
@@ -110,6 +113,9 @@
 		} finally {
 			genLoading = false
 			blockPopupOpen = false
+			setTimeout(() => {
+				autoResize()
+			}, 0)
 		}
 	}
 
@@ -183,10 +189,10 @@
 	}
 
 	function savePrompt() {
-		if (promptHistory.includes(funcDesc)) {
+		if (promptHistory.includes(trimmedDesc)) {
 			return
 		}
-		promptHistory.unshift(funcDesc)
+		promptHistory.unshift(trimmedDesc)
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
@@ -209,14 +215,15 @@
 
 	$: $generatedCode && updateScroll()
 
-	function autoResize(event) {
-    const maxLinesHeight = 100; // Adjust this value based on your font size and line-height to fit 5 lines
-    event.target.style.height = 'auto'; // Reset height to recalibrate
-    const newHeight = Math.min(event.target.scrollHeight, maxLinesHeight); // Calculate new height, but not exceed max
-    event.target.style.height = newHeight + 'px'; // Set new height
-    event.target.style.overflowY = newHeight >= maxLinesHeight ? 'scroll' : 'hidden'; // Show scrollbar if at max height
-  }
-
+	function autoResize() {
+		if (input) {
+			const maxLinesHeight = 100 // Adjust this value based on your font size and line-height to fit 5 lines
+			input.style.height = 'auto' // Reset height to recalibrate
+			const newHeight = Math.min(input.scrollHeight, maxLinesHeight) // Calculate new height, but not exceed max
+			input.style.height = newHeight + 'px' // Set new height
+			input.style.overflowY = newHeight >= maxLinesHeight ? 'scroll' : 'hidden' // Show scrollbar if at max height
+		}
+	}
 </script>
 
 {#if genLoading}
@@ -376,34 +383,36 @@
 					</div>
 					<div class="flex w-96 items-start">
 						<textarea
-						  bind:this={input}
-						  bind:value={funcDesc}
-						  on:input={autoResize}
-						  on:keydown={({ key, shiftKey }) => {
-							if (key === 'Enter' && !shiftKey && funcDesc.length > 0) {
-							  onGenerate();
-							  return false;
-							}
-						  }}
-						  placeholder={mode === 'edit' ? 'Describe the changes you want' : 'Describe what the script should do'}
-						  rows="1"
-						  class="resize-none overflow-hidden"
-						></textarea>
-						<Button
-						  size="xs"
-						  color="light"
-						  buttonType="button"
-						  btnClasses="h-[38px] !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
-						  title="Generate code from prompt"
-						  aria-label="Generate"
-						  on:click={() => {
-							onGenerate(() => close(input || null))
-						  }}
-						  disabled={funcDesc.length <= 0}
-						  iconOnly
-						  startIcon={{ icon: Wand2 }}
+							bind:this={input}
+							bind:value={funcDesc}
+							on:input={autoResize}
+							on:keydown={({ key, shiftKey }) => {
+								if (key === 'Enter' && !shiftKey && trimmedDesc.length > 0) {
+									onGenerate(() => close(input || null))
+									return false
+								}
+							}}
+							placeholder={mode === 'edit'
+								? 'Describe the changes you want'
+								: 'Describe what the script should do'}
+							rows="1"
+							class="resize-none overflow-hidden"
 						/>
-					  </div>															  
+						<Button
+							size="xs"
+							color="light"
+							buttonType="button"
+							btnClasses="h-[36px] !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							title="Generate code from prompt"
+							aria-label="Generate"
+							on:click={() => {
+								onGenerate(() => close(input || null))
+							}}
+							disabled={trimmedDesc.length <= 0}
+							iconOnly
+							startIcon={{ icon: Wand2 }}
+						/>
+					</div>
 					{#if promptHistory.length > 0}
 						<div class="w-96 flex flex-col gap-1">
 							{#each promptHistory as p}
@@ -414,6 +423,9 @@
 									startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
 									on:click={() => {
 										funcDesc = p
+										setTimeout(() => {
+											autoResize()
+										}, 0)
 									}}>{p}</Button
 								>
 							{/each}
