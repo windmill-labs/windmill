@@ -49,7 +49,7 @@
 	export let viewKeybinding = false
 
 	export let scheduledForStr: string | undefined
-	export let invisible_to_owner: false | undefined
+	export let invisible_to_owner: boolean | undefined
 	export let overrideTag: string | undefined
 
 	export let args: Record<string, any> = {}

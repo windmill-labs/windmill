@@ -157,7 +157,8 @@
 						schema: flow.schema,
 						tag: flow.tag,
 						draft_only: true,
-						ws_error_handler_muted: flow.ws_error_handler_muted
+						ws_error_handler_muted: flow.ws_error_handler_muted,
+						visible_to_runner_only: flow.visible_to_runner_only
 					}
 				})
 			}
@@ -235,7 +236,8 @@
 						schema: flow.schema,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						tag: flow.tag,
-						dedicated_worker: flow.dedicated_worker
+						dedicated_worker: flow.dedicated_worker,
+						visible_to_runner_only: flow.visible_to_runner_only
 					}
 				})
 				if (enabled) {
@@ -297,7 +299,8 @@
 						schema: flow.schema,
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
-						ws_error_handler_muted: flow.ws_error_handler_muted
+						ws_error_handler_muted: flow.ws_error_handler_muted,
+						visible_to_runner_only: flow.visible_to_runner_only
 					}
 				})
 			}

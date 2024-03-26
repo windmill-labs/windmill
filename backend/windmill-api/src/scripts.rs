@@ -88,6 +88,8 @@ pub struct ScriptWDraft {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible_to_runner_only: Option<bool>,
 }
 
 pub fn global_service() -> Router {
@@ -472,8 +474,8 @@ async fn create_script(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)",
         &w_id,
         &hash.0,
         ns.path,
@@ -501,6 +503,7 @@ async fn create_script(
         ns.delete_after_use,
         ns.timeout,
         ns.concurrency_key,
+        ns.visible_to_runner_only,
     )
     .execute(&mut tx)
     .await?;
@@ -720,7 +723,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2 \
          AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
