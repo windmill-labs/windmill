@@ -202,6 +202,12 @@ pub fn workspaced_service() -> Router {
             get(create_job_signature).layer(cors.clone()),
         )
         .route(
+            "/flow/user_states/:job_id/:key",
+            get(get_flow_user_state)
+                .post(set_flow_user_state)
+                .layer(cors.clone()),
+        )
+        .route(
             "/resume_urls/:job_id/:resume_id",
             get(get_resume_urls).layer(cors.clone()),
         )
@@ -1675,6 +1681,55 @@ pub async fn create_job_signature(
     create_signature(key, job_id, resume_id, approver.approver)
 }
 
+pub async fn get_flow_user_state(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id, key)): Path<(String, Uuid, String)>,
+) -> error::JsonResult<Option<serde_json::Value>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let r = sqlx::query_scalar!(
+        r#"
+        SELECT flow_status->'user_states'->$1
+        FROM queue
+        WHERE id = $2 AND workspace_id = $3
+        "#,
+        key,
+        job_id,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    Ok(Json(r))
+}
+
+pub async fn set_flow_user_state(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id, key)): Path<(String, Uuid, String)>,
+    Json(value): Json<serde_json::Value>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+    let r = sqlx::query_scalar!(
+        r#"
+        UPDATE queue SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
+        WHERE id = $3 AND workspace_id = $4 AND job_kind IN ('flow', 'flowpreview') RETURNING 1
+        "#,
+        key,
+        value,
+        job_id,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    if r.is_none() {
+        return Err(Error::NotFound("Flow job not found".to_string()));
+    }
+    tx.commit().await?;
+    Ok("Flow job state updated".to_string())
+}
+
 fn create_signature(
     key: String,
     job_id: Uuid,
@@ -2149,7 +2204,7 @@ pub async fn run_flow_by_path(
         &w_id,
         JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -2289,7 +2344,7 @@ pub async fn run_script_by_path(
         &w_id,
         job_payload,
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -2361,7 +2416,7 @@ pub async fn run_workflow_as_code(
         &w_id,
         job_payload,
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -2659,7 +2714,7 @@ pub async fn run_wait_result_job_by_path_get(
         &w_id,
         job_payload,
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         None,
@@ -2778,7 +2833,7 @@ async fn run_wait_result_script_by_path_internal(
         &w_id,
         job_payload,
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         None,
@@ -2853,7 +2908,7 @@ pub async fn run_wait_result_script_by_hash(
             priority,
         },
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         None,
@@ -2935,7 +2990,7 @@ async fn run_wait_result_flow_by_path_internal(
         &w_id,
         JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -3000,7 +3055,7 @@ async fn run_preview_script(
             }),
         },
         preview.args.unwrap_or_default(),
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -3092,7 +3147,7 @@ pub async fn run_dependencies_job(
             language: language,
         },
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         None,
@@ -3195,7 +3250,7 @@ async fn add_batch_jobs(
                     &w_id,
                     payload.clone(),
                     PushArgs::empty(),
-                    &authed.username,
+                    authed.display_username(),
                     &authed.email,
                     username_to_permissioned_as(&authed.username),
                     None,
@@ -3304,7 +3359,7 @@ async fn run_preview_flow_job(
             restarted_from: raw_flow.restarted_from,
         },
         raw_flow.args.unwrap_or_default(),
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -3376,7 +3431,7 @@ pub async fn run_job_by_hash(
             priority,
         },
         args,
-        &authed.username,
+        authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,

@@ -239,7 +239,7 @@
 						{diffEditor}
 						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
-						iconOnly={width < 850}
+						iconOnly={width < 950}
 						kind={scriptKind}
 						template={scriptTemplate}
 						args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {

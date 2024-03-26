@@ -46,6 +46,7 @@
 				envs?: string[]
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
+				visible_to_runner_only?: boolean
 		  }
 		| undefined = undefined
 
@@ -61,6 +62,8 @@
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
 				envs?: string[]
 				ws_error_handler_muted?: boolean
+				dedicated_worker?: boolean
+				visible_to_runner_only?: boolean
 		  }
 		| undefined = undefined
 

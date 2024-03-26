@@ -332,6 +332,61 @@ export async function setState(state: any): Promise<void> {
   await setResource(state, undefined, "state");
 }
 
+/**
+ * Set a flow user state 
+ * @param key key of the state 
+ * @param value value of the state
+
+ */
+export async function setFlowUserState(
+  key: string,
+  value: any,
+  errorIfNotPossible?: boolean
+): Promise<void> {
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  try {
+    await JobService.setFlowUserState({
+      workspace,
+      id: await getRootJobId(),
+      key,
+      requestBody: value,
+    });
+  } catch (e: any) {
+    if (errorIfNotPossible) {
+      throw Error(`Error setting flow user state at ${key}: ${e.body}`);
+    } else {
+      console.error(`Error setting flow user state at ${key}: ${e.body}`);
+    }
+  }
+}
+
+/**
+ * Get a flow user state
+ * @param path path of the variable
+
+ */
+export async function getFlowUserState(
+  key: string,
+  errorIfNotPossible?: boolean
+): Promise<any> {
+  !clientSet && setClient();
+  const workspace = getWorkspace();
+  try {
+    return await JobService.getFlowUserState({
+      workspace,
+      id: await getRootJobId(),
+      key,
+    });
+  } catch (e: any) {
+    if (errorIfNotPossible) {
+      throw Error(`Error setting flow user state at ${key}: ${e.body}`);
+    } else {
+      console.error(`Error setting flow user state at ${key}: ${e.body}`);
+    }
+  }
+}
+
 // /**
 //  * Set the shared state
 //  * @param state state to set

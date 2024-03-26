@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.297.1](https://github.com/windmill-labs/windmill/compare/v1.297.0...v1.297.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* fix approval steps handling of default args ([3388ab4](https://github.com/windmill-labs/windmill/commit/3388ab41ddaaf1a30b27292db11e650257990aa1))
+
+## [1.297.0](https://github.com/windmill-labs/windmill/compare/v1.296.1...v1.297.0) (2024-03-26)
+
+
+### Features
+
+* add visible to runner only default value ([#3472](https://github.com/windmill-labs/windmill/issues/3472)) ([14a86bf](https://github.com/windmill-labs/windmill/commit/14a86bf59c93d7e54d175a6e1e2b77804681fa3d))
+
+## [1.296.1](https://github.com/windmill-labs/windmill/compare/v1.296.0...v1.296.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* **backend:** update chrono dependency ([703c118](https://github.com/windmill-labs/windmill/commit/703c11891a18ced5a8da4365426cf80614fc230c))
+
+## [1.296.0](https://github.com/windmill-labs/windmill/compare/v1.295.4...v1.296.0) (2024-03-26)
+
+
+### Features
+
+* add set_flow_user_states and get_flow_user_states api and sdk support ([ef1ce83](https://github.com/windmill-labs/windmill/commit/ef1ce8327923120a851adce920f2f029e7e64f48))
+* differentiate benchmark graphs by nb of workers ([#3463](https://github.com/windmill-labs/windmill/issues/3463)) ([f8fa220](https://github.com/windmill-labs/windmill/commit/f8fa220dc7c2d0242c24a57a7873f7cb21966ff6))
+* gforms oauth ([#3466](https://github.com/windmill-labs/windmill/issues/3466)) ([195b378](https://github.com/windmill-labs/windmill/commit/195b378396275cb77138d829274505cd0ba41181))
+
+
+### Bug Fixes
+
+* improve git sync for script renames ([5fdfa28](https://github.com/windmill-labs/windmill/commit/5fdfa28cb979211fb44519ae223255062881c3a1))
+* replace token in webhook panel after creation ([339d17f](https://github.com/windmill-labs/windmill/commit/339d17ff48dba1441a701bfc53c1d22701deba13))
+
+## [1.295.4](https://github.com/windmill-labs/windmill/compare/v1.295.3...v1.295.4) (2024-03-26)
+
+
+### Bug Fixes
+
+* use webhook id as username ([d0edc75](https://github.com/windmill-labs/windmill/commit/d0edc75da9e159da6d4cf672ba0a32b141142761))
+
+## [1.295.3](https://github.com/windmill-labs/windmill/compare/v1.295.2...v1.295.3) (2024-03-25)
+
+
+### Bug Fixes
+
+* custom contextual variabels when superadmin ([#3458](https://github.com/windmill-labs/windmill/issues/3458)) ([abc3a7d](https://github.com/windmill-labs/windmill/commit/abc3a7d74a668855c08aabe5774251aaba62b797))
+* extension of full logs download ([#3464](https://github.com/windmill-labs/windmill/issues/3464)) ([a92ae18](https://github.com/windmill-labs/windmill/commit/a92ae18cb6570a73ebcc67da1574677aac0b4639))
+* previous runs date ([#3461](https://github.com/windmill-labs/windmill/issues/3461)) ([728a6b1](https://github.com/windmill-labs/windmill/commit/728a6b1665f8284c89dc0fd68aad3dd459872ff5))
+
 ## [1.295.2](https://github.com/windmill-labs/windmill/compare/v1.295.1...v1.295.2) (2024-03-25)
 
 

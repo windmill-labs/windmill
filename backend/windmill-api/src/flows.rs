@@ -319,7 +319,7 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema, dependency_job, draft_only, tag, dedicated_worker) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, $8, $9, $10)",
+         schema, dependency_job, draft_only, tag, dedicated_worker, visible_to_runner_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, $8, $9, $10, $11)",
         w_id,
         nf.path,
         nf.summary,
@@ -329,7 +329,8 @@ async fn create_flow(
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
         nf.draft_only,
         nf.tag,
-        nf.dedicated_worker
+        nf.dedicated_worker,
+        nf.visible_to_runner_only.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;
@@ -485,7 +486,7 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9, dedicated_worker = $10
+         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9, dedicated_worker = $10, visible_to_runner_only = $11
         WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
@@ -496,7 +497,8 @@ async fn update_flow(
         flow_path,
         w_id,
         nf.tag,
-        nf.dedicated_worker
+        nf.dedicated_worker,
+        nf.visible_to_runner_only.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;
@@ -669,6 +671,8 @@ pub struct FlowWDraft {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible_to_runner_only: Option<bool>,
 }
 
 async fn get_flow_by_path_w_draft(
@@ -680,7 +684,7 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag
+        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag, flow.visible_to_runner_only
          FROM flow
         LEFT JOIN draft ON 
         flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 

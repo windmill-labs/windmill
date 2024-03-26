@@ -70,7 +70,12 @@ export function evalValue(
 
 export function cleanInputs(
 	flow: OpenFlow | any
-): OpenFlow & { tag?: string; ws_error_handler_muted?: boolean; dedicated_worker?: boolean } {
+): OpenFlow & {
+	tag?: string
+	ws_error_handler_muted?: boolean
+	dedicated_worker?: boolean
+	visible_to_runner_only?: boolean
+} {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {

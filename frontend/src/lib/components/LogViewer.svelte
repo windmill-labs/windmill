@@ -54,7 +54,7 @@
 		<svelte:fragment slot="actions">
 			<Button
 				href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-				download="windmill-logs.json"
+				download="windmill_logs_{jobId}.txt"
 				color="light"
 				size="xs"
 				startIcon={{
@@ -99,8 +99,9 @@
 						class="text-primary pb-0.5"
 						target="_blank"
 						href="/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-						download="windmill-logs.json"><Download size="14" /></a
-					>
+						download="windmill_logs_{jobId}.txt"
+						><Download size="14" />
+					</a>
 				</div>
 				<button on:click={logViewer.openDrawer}><Expand size="12" /></button>
 				<div

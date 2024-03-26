@@ -116,6 +116,14 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", get(logout))
 }
 
+fn username_override_from_label(label: Option<String>) -> Option<String> {
+    if label.as_ref().is_some_and(|x| x.starts_with("webhook-")) {
+        label
+    } else {
+        None
+    }
+}
+
 #[derive(Clone)]
 pub struct ExpiringAuthCache {
     pub authed: ApiAuthed,
@@ -147,9 +155,9 @@ impl AuthCache {
                 Some(authed)
             }
             _ => {
-                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>)>(
+                let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<String>)>(
                     "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
-                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes",
+                     OR expiration IS NULL) RETURNING owner, email, super_admin, scopes, label",
                 )
                 .bind(token)
                 .fetch_optional(&self.db)
@@ -160,7 +168,8 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), Some(email), super_admin, _) if w_id.is_some() => {
+                            (Some(owner), Some(email), super_admin, _, label) if w_id.is_some() => {
+                                let username_override = username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let (is_admin, is_operator) = if super_admin {
@@ -203,6 +212,7 @@ impl AuthCache {
                                             groups,
                                             folders,
                                             scopes: None,
+                                            username_override,
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -223,6 +233,7 @@ impl AuthCache {
                                             is_operator: false,
                                             folders,
                                             scopes: None,
+                                            username_override,
                                         })
                                     }
                                 } else {
@@ -236,10 +247,12 @@ impl AuthCache {
                                         groups,
                                         folders,
                                         scopes: None,
+                                        username_override,
                                     })
                                 }
                             }
-                            (_, Some(email), super_admin, scopes) => {
+                            (_, Some(email), super_admin, scopes, label) => {
+                                let username_override = username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query_as::<_, (String, bool, bool)>(
                                         "SELECT username, is_admin, operator FROM usr where email = $1 AND \
@@ -280,6 +293,7 @@ impl AuthCache {
                                                 groups,
                                                 folders,
                                                 scopes,
+                                                username_override,
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -290,6 +304,7 @@ impl AuthCache {
                                             groups: vec![],
                                             folders: vec![],
                                             scopes,
+                                            username_override,
                                         }),
                                         None => None,
                                     }
@@ -302,6 +317,7 @@ impl AuthCache {
                                         groups: Vec::new(),
                                         folders: Vec::new(),
                                         scopes,
+                                        username_override,
                                     })
                                 }
                             }
@@ -333,6 +349,7 @@ impl AuthCache {
                         groups: Vec::new(),
                         folders: Vec::new(),
                         scopes: None,
+                        username_override: None,
                     })
                 } else {
                     None
@@ -455,6 +472,7 @@ where
                 groups: Vec::new(),
                 folders: Vec::new(),
                 scopes: None,
+                username_override: None,
             });
         };
         let already_authed = parts.extensions.get::<ApiAuthed>();

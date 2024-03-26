@@ -22,8 +22,7 @@ use serde_json::to_string_pretty;
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Hash, Eq)]
-#[derive(sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Hash, Eq, sqlx::Type)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
@@ -62,13 +61,11 @@ impl ScriptLang {
     }
 }
 
-#[derive(PartialEq, Debug, Hash, Clone, Copy)]
-#[derive(sqlx::Type)]
+#[derive(PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
 
-#[derive(PartialEq)]
-#[derive(sqlx::Type)]
+#[derive(PartialEq, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ScriptHashes(pub Vec<i64>);
 
@@ -109,8 +106,7 @@ impl Serialize for ScriptHashes {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Hash)]
-#[derive(sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, Hash, sqlx::Type)]
 #[sqlx(type_name = "SCRIPT_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ScriptKind {
@@ -132,8 +128,7 @@ impl Display for ScriptKind {
     }
 }
 
-#[derive(Serialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct Script {
     pub workspace_id: String,
     pub hash: ScriptHash,
@@ -178,10 +173,11 @@ pub struct Script {
     pub restart_unless_cancelled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible_to_runner_only: Option<bool>,
 }
 
-#[derive(Serialize)]
-#[derive(sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct ListableScript {
     pub hash: ScriptHash,
     pub path: String,
@@ -212,8 +208,7 @@ pub struct ScriptHistoryUpdate {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[derive(sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, sqlx::Type)]
 #[sqlx(transparent)]
 #[serde(transparent)]
 pub struct Schema(pub serde_json::Value);
@@ -255,6 +250,7 @@ pub struct NewScript {
     pub deployment_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
+    pub visible_to_runner_only: Option<bool>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

@@ -20,11 +20,16 @@
 	let defaultValues = {}
 	$: job && getDefaultArgs()
 
+	let lastJobId: string | undefined = undefined
 	async function getDefaultArgs() {
 		let jobId = job.flow_status?.modules?.[approvalStep]?.job
+		if (jobId === lastJobId) {
+			return
+		}
 		if (!jobId) {
 			return {}
 		}
+		lastJobId = jobId
 		let job_result = await JobService.getCompletedJobResult({
 			workspace: workspaceId ?? $workspaceStore ?? '',
 			id: jobId

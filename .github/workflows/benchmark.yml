@@ -39,14 +39,14 @@ jobs:
           ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
-        run:
-          deno run --unstable -A -r
+        run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
       - name: Push changes
         run: |
           pwd
+          git pull origin benchmarks
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -54,6 +54,7 @@ jobs:
           git push
 
   benchmark_dedicated:
+    needs: benchmark_single
     runs-on: ubicloud-standard-8
     services:
       postgres:
@@ -72,7 +73,7 @@ jobs:
           WORKER_GROUP: dedicated
           DEDICATED_WORKER: "admins:f/benchmarks/dedicated"
         options: >-
-          --pull always --health-interval 10s --health-timeout 5s
+          --pull always --restart unless-stopped --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
           http://localhost:8000/api/version"
         ports:
@@ -86,11 +87,19 @@ jobs:
           ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
-        run:
-          deno run --unstable -A -r
+        run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           --no-warm-up -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_dedicated.json
+      - name: Push changes
+        run: |
+          pwd
+          git pull origin benchmarks
+          git add .
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Update benchmarks"
+          git push
 
   benchmark_4workers:
     runs-on: ubicloud-standard-8
@@ -158,11 +167,20 @@ jobs:
           ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
-        run:
-          deno run --unstable -A -r
+        run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
+          --workers 4
+      - name: Push changes
+        run: |
+          pwd
+          git pull origin benchmarks
+          git add .
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Update benchmarks"
+          git push
 
   benchmark_8workers:
     runs-on: ubicloud-standard-8
@@ -273,8 +291,17 @@ jobs:
           ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
-        run:
-          deno run --unstable -A -r
+        run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
+          --workers 8
+      - name: Push changes
+        run: |
+          pwd
+          git pull origin benchmarks
+          git add .
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Update benchmarks"
+          git push

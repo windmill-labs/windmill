@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.295.2
+  version: 1.297.1
   title: Windmill API
 
   contact:
@@ -718,7 +718,6 @@ paths:
               schema:
                 type: string
 
-
     # pub use_ssl: Option<bool>,
     # #[serde(rename = "accountName")]
     # pub account_name: String,
@@ -1228,7 +1227,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/workspaces/change_workspace_id:
     post:
@@ -5820,6 +5818,53 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/flow/user_states/{id}/{key}:
+    post:
+      summary: set flow user state at a given key
+      operationId: setFlowUserState
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new value
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "200":
+          description: flow user state updated
+          content:
+            text/plain:
+              schema:
+                type: string
+    get:
+      summary: get flow user state at a given key
+      operationId: getFlowUserState
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: flow user state updated
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/flow/resume/{id}:
     post:
       summary: resume a job for a suspended flow as an owner
@@ -8256,6 +8301,8 @@ components:
           type: integer
         delete_after_use:
           type: boolean
+        visible_to_runner_only:
+          type: boolean
       required:
         - hash
         - path
@@ -8342,6 +8389,8 @@ components:
           type: string
         concurrency_key:
           type: string
+        visible_to_runner_only:
+          type: boolean
       required:
         - path
         - summary
@@ -9670,6 +9719,8 @@ components:
           type: boolean
         timeout:
           type: number
+        visible_to_runner_only:
+          type: boolean
       required:
         - path
         - edited_by
@@ -9694,6 +9745,8 @@ components:
               type: boolean
             timeout:
               type: number
+            visible_to_runner_only:
+              type: boolean
           required:
             - path
 

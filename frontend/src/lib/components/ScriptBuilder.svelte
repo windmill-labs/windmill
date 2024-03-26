@@ -241,7 +241,8 @@
 					restart_unless_cancelled: script.restart_unless_cancelled,
 					delete_after_use: script.delete_after_use,
 					timeout: script.timeout,
-					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key
+					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
+					visible_to_runner_only: script.visible_to_runner_only
 				}
 			})
 
@@ -365,7 +366,8 @@
 						timeout: script.timeout,
 						concurrency_key: emptyString(script.concurrency_key)
 							? undefined
-							: script.concurrency_key
+							: script.concurrency_key,
+						visible_to_runner_only: script.visible_to_runner_only
 					}
 				})
 			}
@@ -875,6 +877,31 @@
 										</svelte:fragment>
 									</Section>
 								{/if}
+								<Section label="Runs visibility">
+									<svelte:fragment slot="header">
+										<Tooltip>
+											When this option is enabled, manual executions of this script are invisible to
+											users other than the user running it, including the owner(s). This setting can
+											be overridden when this script is run manually from the advanced menu.
+										</Tooltip>
+									</svelte:fragment>
+									<div class="flex gap-2 shrink flex-col">
+										<Toggle
+											size="sm"
+											checked={Boolean(script.visible_to_runner_only)}
+											on:change={() => {
+												if (script.visible_to_runner_only) {
+													script.visible_to_runner_only = undefined
+												} else {
+													script.visible_to_runner_only = true
+												}
+											}}
+											options={{
+												right: 'Make runs invisible to others'
+											}}
+										/>
+									</div>
+								</Section>
 								{#if !isCloudHosted()}
 									<Section label="Custom env variables">
 										<svelte:fragment slot="header">
