@@ -159,6 +159,7 @@
 		'gdrive',
 		'gmail',
 		'gcal',
+		'gforms',
 		'gcloud',
 		'gworkspace',
 		'basecamp',
