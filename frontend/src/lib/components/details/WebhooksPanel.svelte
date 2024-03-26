@@ -184,6 +184,9 @@ done`
 
 <UserSettings
 	bind:this={userSettings}
+	on:tokenCreated={(e) => {
+		token = e.detail
+	}}
 	newTokenLabel={`webhook-${generateRandomString(4)}`}
 	{scopes}
 />
