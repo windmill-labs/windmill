@@ -107,6 +107,13 @@ mount {
     is_bind: true
 }
 
+mount {
+    src: "{JOB_DIR}/result2.out"
+    dst: "/tmp/result2.out"
+    rw: true
+    is_bind: true
+}
+
 iface_no_lo: true
 
 mount {
