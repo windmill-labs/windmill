@@ -366,34 +366,34 @@
 						</div>
 					</div>
 					<div class="flex w-96">
-						<input
-							type="text"
-							bind:this={input}
-							bind:value={funcDesc}
-							on:keypress={({ key }) => {
-								if (key === 'Enter' && funcDesc.length > 0) {
-									onGenerate(() => close(input || null))
-								}
-							}}
-							placeholder={mode === 'edit'
-								? 'Describe the changes you want'
-								: 'Describe what the script should do'}
-						/>
+						<textarea
+						  bind:this={input}
+						  bind:value={funcDesc}
+						  on:keydown={({ key, shiftKey }) => {
+							if (key === 'Enter' && !shiftKey && funcDesc.length > 0) {
+							  onGenerate(() => close(input || null));
+							  return false;
+							}
+						  }}
+						  placeholder={mode === 'edit'
+							? 'Describe the changes you want'
+							: 'Describe what the script should do'}
+						></textarea>
 						<Button
-							size="xs"
-							color="light"
-							buttonType="button"
-							btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
-							title="Generate code from prompt"
-							aria-label="Generate"
-							on:click={() => {
-								onGenerate(() => close(input || null))
-							}}
-							disabled={funcDesc.length <= 0}
-							iconOnly
-							startIcon={{ icon: Wand2 }}
+						  size="xs"
+						  color="light"
+						  buttonType="button"
+						  btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+						  title="Generate code from prompt"
+						  aria-label="Generate"
+						  on:click={() => {
+							onGenerate(() => close(input || null))
+						  }}
+						  disabled={funcDesc.length <= 0}
+						  iconOnly
+						  startIcon={{ icon: Wand2 }}
 						/>
-					</div>
+					  </div>											
 					{#if promptHistory.length > 0}
 						<div class="w-96 flex flex-col gap-1">
 							{#each promptHistory as p}

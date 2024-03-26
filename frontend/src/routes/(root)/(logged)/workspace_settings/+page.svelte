@@ -1046,7 +1046,7 @@
 					<div class="text-tertiary text-xs">
 						Connect your Windmill workspace to your S3 bucket or your Azure Blob storage.
 						<a
-							href="https://www.windmill.dev/docs/core_concepts/persistent_storage#connect-your-windmill-workspace-to-your-s3-bucket-or-your-azure-blob-storage"
+							href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
 							target="_blank"
 							class="text-blue-500">Learn more</a
 						>.
