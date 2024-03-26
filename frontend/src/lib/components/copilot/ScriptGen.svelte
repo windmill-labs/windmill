@@ -46,7 +46,7 @@
 	// state
 	let funcDesc = '';
 	let genLoading: boolean = false
-	let input: HTMLTextAreaElement | null = null;
+	let input;
 	let generatedCode = writable<string>('')
 	let dbSchema: DBSchema | undefined = undefined
 	let abortController: AbortController | undefined = undefined
@@ -208,6 +208,15 @@
 	$: lang && getPromptHistory()
 
 	$: $generatedCode && updateScroll()
+
+	function autoResize(event) {
+    const maxLinesHeight = 100; // Adjust this value based on your font size and line-height to fit 5 lines
+    event.target.style.height = 'auto'; // Reset height to recalibrate
+    const newHeight = Math.min(event.target.scrollHeight, maxLinesHeight); // Calculate new height, but not exceed max
+    event.target.style.height = newHeight + 'px'; // Set new height
+    event.target.style.overflowY = newHeight >= maxLinesHeight ? 'scroll' : 'hidden'; // Show scrollbar if at max height
+  }
+
 </script>
 
 {#if genLoading}
@@ -365,35 +374,36 @@
 							GPT-4 Turbo<Bot size={14} />
 						</div>
 					</div>
-					<div class="flex w-96">
-					<textarea
-						bind:this={input}
-						bind:value={funcDesc}
-						on:keydown={({ key, shiftKey }) => {
-						if (key === 'Enter' && !shiftKey && funcDesc.length > 0) {
-							onGenerate(() => close(input || null));
-							return false; // Prevents the default action of inserting a new line
-						}
-						}}
-						placeholder={mode === 'edit'
-						? 'Describe the changes you want'
-						: 'Describe what the script should do'}
-					></textarea>
-					<Button
-						size="xs"
-						color="light"
-						buttonType="button"
-						btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
-						title="Generate code from prompt"
-						aria-label="Generate"
-						on:click={() => {
-						onGenerate(() => close(input || null))
-						}}
-						disabled={funcDesc.length <= 0}
-						iconOnly
-						startIcon={{ icon: Wand2 }}
-					/>
-					</div>											
+					<div class="flex w-96 items-start">
+						<textarea
+						  bind:this={input}
+						  bind:value={funcDesc}
+						  on:input={autoResize}
+						  on:keydown={({ key, shiftKey }) => {
+							if (key === 'Enter' && !shiftKey && funcDesc.length > 0) {
+							  onGenerate();
+							  return false;
+							}
+						  }}
+						  placeholder={mode === 'edit' ? 'Describe the changes you want' : 'Describe what the script should do'}
+						  rows="1"
+						  class="textarea-resize-none overflow-hidden"
+						></textarea>
+						<Button
+						  size="xs"
+						  color="light"
+						  buttonType="button"
+						  btnClasses="fixed-height-btn !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+						  title="Generate code from prompt"
+						  aria-label="Generate"
+						  on:click={() => {
+							onGenerate(() => close(input || null))
+						  }}
+						  disabled={funcDesc.length <= 0}
+						  iconOnly
+						  startIcon={{ icon: Wand2 }}
+						/>
+					  </div>															  
 					{#if promptHistory.length > 0}
 						<div class="w-96 flex flex-col gap-1">
 							{#each promptHistory as p}
