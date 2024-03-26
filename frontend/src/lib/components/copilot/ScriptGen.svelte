@@ -32,6 +32,7 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '../Popover.svelte'
+	import { onDestroy } from 'svelte'
 
 	// props
 	export let iconOnly: boolean = false
@@ -223,6 +224,10 @@
 			input.style.overflowY = newHeight >= maxLinesHeight ? 'scroll' : 'hidden' // Show scrollbar if at max height
 		}
 	}
+
+	onDestroy(() => {
+		abortController?.abort()
+	})
 </script>
 
 {#if genLoading}
