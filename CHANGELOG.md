@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.297.1](https://github.com/windmill-labs/windmill/compare/v1.297.0...v1.297.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* fix approval steps handling of default args ([3388ab4](https://github.com/windmill-labs/windmill/commit/3388ab41ddaaf1a30b27292db11e650257990aa1))
+
 ## [1.297.0](https://github.com/windmill-labs/windmill/compare/v1.296.1...v1.297.0) (2024-03-26)
 
 
