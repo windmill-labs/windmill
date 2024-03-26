@@ -44,5 +44,3 @@ Open-source developer platform to turn scripts into workflows and UIs. Open-sour
 ![go vs python vs deno vs bun vs bash (8 workers)](./go_vs_python_vs_deno_vs_bun_vs_bash_8workers.svg)
 
 ![bun vs dedicated vs noop](./bun_vs_dedicated_vs_noop.svg)
-![bun vs dedicated vs noop (4 workers)](./bun_vs_dedicated_vs_noop_4workers.svg)
-![bun vs dedicated vs noop (8 workers)](./bun_vs_dedicated_vs_noop_8workers.svg)
