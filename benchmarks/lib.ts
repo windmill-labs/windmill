@@ -16,13 +16,16 @@ export async function login(email: string, password: string): Promise<string> {
 async function waitForDeployment(workspace: string, hash: string) {
   const maxTries = 20;
   for (let i = 0; i < maxTries; i++) {
-    const resp = await windmill.ScriptService.getScriptDeploymentStatus({
-      workspace,
-      hash,
-    });
-    if (resp.lock !== null) {
-      return;
-    }
+    try {
+      const resp = await windmill.ScriptService.getScriptDeploymentStatus({
+        workspace,
+        hash,
+      });
+
+      if (resp.lock !== null) {
+        return;
+      }
+    } catch (err) {}
     await sleep(0.5);
   }
   throw new Error("Script did not deploy in time");
@@ -88,11 +91,11 @@ export async function createBenchScript(
     scriptContent =
       'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
     language = "deno";
-  }  else if (scriptPattern === "nativets") {
+  } else if (scriptPattern === "nativets") {
     scriptContent =
       'export async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
     language = "nativets";
-  }  else {
+  } else {
     throw new Error(
       "Could not create script for script pattern " + scriptPattern
     );
