@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.296.1](https://github.com/windmill-labs/windmill/compare/v1.296.0...v1.296.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* **backend:** update chrono dependency ([703c118](https://github.com/windmill-labs/windmill/commit/703c11891a18ced5a8da4365426cf80614fc230c))
+
 ## [1.296.0](https://github.com/windmill-labs/windmill/compare/v1.295.4...v1.296.0) (2024-03-26)
 
 
