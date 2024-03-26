@@ -876,6 +876,7 @@ def get_flow_user_state(key: str) -> Any:
     """
     return _client.get_flow_user_state(key)
 
+@init_global_client
 def set_flow_user_state(key: str, value: Any) -> None:
     """
     Set the user state of a flow at a given key
