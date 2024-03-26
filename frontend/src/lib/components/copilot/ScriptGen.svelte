@@ -298,7 +298,7 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
-					propagateEvent
+					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
 						: () => {
@@ -328,7 +328,7 @@
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? undefined : { icon: Wand2 }}
-					propagateEvent
+					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
 						: () => {
