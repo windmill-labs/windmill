@@ -91,6 +91,15 @@ jobs:
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           --no-warm-up -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_dedicated.json
+      - name: Push changes
+        run: |
+          pwd
+          git pull origin benchmarks
+          git add .
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Update benchmarks"
+          git push
 
   benchmark_4workers:
     runs-on: ubicloud-standard-8
