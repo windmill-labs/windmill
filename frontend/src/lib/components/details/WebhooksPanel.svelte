@@ -16,7 +16,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from './ClipboardPanel.svelte'
-	import { copyToClipboard } from '$lib/utils'
+	import { copyToClipboard, generateRandomString } from '$lib/utils'
 
 	let userSettings: UserSettings
 
@@ -182,7 +182,11 @@ done`
 	}
 </script>
 
-<UserSettings bind:this={userSettings} {scopes} />
+<UserSettings
+	bind:this={userSettings}
+	newTokenLabel={`webhook-${generateRandomString(4)}`}
+	{scopes}
+/>
 
 <div class="p-2 flex flex-col w-full gap-4">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}

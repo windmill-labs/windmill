@@ -219,6 +219,7 @@ pub struct ApiAuthed {
     // (folder name, can write, is owner)
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
+    pub username_override: Option<String>,
 }
 
 impl From<ApiAuthed> for Authed {
@@ -232,6 +233,12 @@ impl From<ApiAuthed> for Authed {
             folders: value.folders,
             scopes: value.scopes,
         }
+    }
+}
+
+impl ApiAuthed {
+    pub fn display_username(&self) -> &str {
+        self.username_override.as_ref().unwrap_or(&self.username)
     }
 }
 

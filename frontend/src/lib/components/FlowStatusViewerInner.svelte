@@ -225,7 +225,6 @@
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
-			logOffset = 0
 			$localModuleStates = {}
 			$localDurationStatuses = {}
 			flowTimeline?.reset()
