@@ -14,7 +14,6 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { writable } from 'svelte/store'
-	import { WindmillIcon } from '../icons'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { sleep } from '$lib/utils'
@@ -309,6 +308,9 @@
 										mode = 'edit'
 									}
 								}
+								setTimeout(() => {
+									autoResize()
+								}, 0)
 						  }}
 					bind:element={button}
 					iconOnly
@@ -327,7 +329,7 @@
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
-					startIcon={genLoading ? undefined : { icon: Wand2 }}
+					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
 					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
@@ -339,18 +341,14 @@
 										mode = 'edit'
 									}
 								}
+								setTimeout(() => {
+									autoResize()
+								}, 0)
 						  }}
 					bind:element={button}
 					{iconOnly}
 				>
 					{#if genLoading}
-						<WindmillIcon
-							white={true}
-							class="mr-1 text-white"
-							height="16px"
-							width="20px"
-							spin="veryfast"
-						/>
 						Stop
 					{:else}
 						AI Gen
