@@ -301,7 +301,7 @@
 									<div
 										class="whitespace-nowrap col-span-3 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
 									>
-										<TimeAgo date={i.created_at ?? ''} />
+										<TimeAgo date={i.started_at ?? ''} />
 									</div>
 									<div class="col-span-2">
 										<a

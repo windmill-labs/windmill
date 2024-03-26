@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import bash from 'svelte-highlight/languages/bash'
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -16,7 +16,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from './ClipboardPanel.svelte'
-	import { copyToClipboard } from '$lib/utils'
+	import { copyToClipboard, generateRandomString } from '$lib/utils'
 
 	let userSettings: UserSettings
 
@@ -182,7 +182,14 @@ done`
 	}
 </script>
 
-<UserSettings bind:this={userSettings} {scopes} />
+<UserSettings
+	bind:this={userSettings}
+	on:tokenCreated={(e) => {
+		token = e.detail
+	}}
+	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+	{scopes}
+/>
 
 <div class="p-2 flex flex-col w-full gap-4">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}

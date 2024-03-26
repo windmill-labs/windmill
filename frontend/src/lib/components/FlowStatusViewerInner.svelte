@@ -199,7 +199,6 @@
 	}
 
 	let errorCount = 0
-	let logOffset = 0
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
@@ -226,7 +225,6 @@
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
-			logOffset = 0
 			$localModuleStates = {}
 			$localDurationStatuses = {}
 			flowTimeline?.reset()
