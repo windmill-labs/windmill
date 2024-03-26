@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.295.4](https://github.com/windmill-labs/windmill/compare/v1.295.3...v1.295.4) (2024-03-26)
+
+
+### Bug Fixes
+
+* use webhook id as username ([d0edc75](https://github.com/windmill-labs/windmill/commit/d0edc75da9e159da6d4cf672ba0a32b141142761))
+
 ## [1.295.3](https://github.com/windmill-labs/windmill/compare/v1.295.2...v1.295.3) (2024-03-25)
 
 
