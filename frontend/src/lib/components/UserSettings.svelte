@@ -23,12 +23,12 @@
 	import type { Writable } from 'svelte/store'
 
 	export let scopes: string[] | undefined = undefined
+	export let newTokenLabel: string | undefined = undefined
+	export let newToken: string | undefined = undefined
 
 	let newPassword: string | undefined
 	let passwordError: string | undefined
 	let tokens: TruncatedToken[]
-	let newToken: string | undefined
-	let newTokenLabel: string | undefined
 	let newTokenExpiration: number | undefined
 	let displayCreateToken = scopes != undefined
 	let login_type = 'none'
