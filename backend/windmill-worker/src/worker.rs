@@ -1313,7 +1313,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         if let Err(e) =
             queue_init_bash_maybe(db, same_worker_tx.clone(), &worker_name, rsmq.clone()).await
         {
+            killpill_tx.send(()).unwrap_or_default();
             tracing::error!("Error queuing init bash script for worker {worker_name}: {e}");
+            return;
         }
     }
 
