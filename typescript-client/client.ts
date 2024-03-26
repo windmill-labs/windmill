@@ -332,7 +332,6 @@ export async function setState(state: any): Promise<void> {
   await setResource(state, undefined, "state");
 }
 
-
 /**
  * Set a flow user state 
  * @param key key of the state 
@@ -370,11 +369,11 @@ export async function setFlowUserState(
 export async function getFlowUserState(
   key: string,
   errorIfNotPossible?: boolean
-): Promise<void> {
+): Promise<any> {
   !clientSet && setClient();
   const workspace = getWorkspace();
   try {
-    await JobService.getFlowUserState({
+    return await JobService.getFlowUserState({
       workspace,
       id: await getRootJobId(),
       key,
@@ -387,7 +386,6 @@ export async function getFlowUserState(
     }
   }
 }
-
 
 // /**
 //  * Set the shared state
