@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.296.0](https://github.com/windmill-labs/windmill/compare/v1.295.4...v1.296.0) (2024-03-26)
+
+
+### Features
+
+* add set_flow_user_states and get_flow_user_states api and sdk support ([ef1ce83](https://github.com/windmill-labs/windmill/commit/ef1ce8327923120a851adce920f2f029e7e64f48))
+* differentiate benchmark graphs by nb of workers ([#3463](https://github.com/windmill-labs/windmill/issues/3463)) ([f8fa220](https://github.com/windmill-labs/windmill/commit/f8fa220dc7c2d0242c24a57a7873f7cb21966ff6))
+* gforms oauth ([#3466](https://github.com/windmill-labs/windmill/issues/3466)) ([195b378](https://github.com/windmill-labs/windmill/commit/195b378396275cb77138d829274505cd0ba41181))
+
+
+### Bug Fixes
+
+* improve git sync for script renames ([5fdfa28](https://github.com/windmill-labs/windmill/commit/5fdfa28cb979211fb44519ae223255062881c3a1))
+* replace token in webhook panel after creation ([339d17f](https://github.com/windmill-labs/windmill/commit/339d17ff48dba1441a701bfc53c1d22701deba13))
+
 ## [1.295.4](https://github.com/windmill-labs/windmill/compare/v1.295.3...v1.295.4) (2024-03-26)
 
 
