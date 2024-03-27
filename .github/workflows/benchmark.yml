@@ -34,24 +34,18 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
-      - uses: actions/checkout@v4
-        with:
-          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
-      - name: Push changes
-        run: |
-          pwd
-          git pull origin benchmarks
-          git add .
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git commit -m "Update single worker benchmarks"
-          git push
+      - name: Save benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark_results
+          path: |
+            *.json
 
   benchmark_dedicated:
     runs-on: ubicloud-standard-8
@@ -81,24 +75,18 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
-      - uses: actions/checkout@v4
-        with:
-          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_suite.ts
           --no-warm-up -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_dedicated.json
-      - name: Push changes
-        run: |
-          pwd
-          git pull origin benchmarks
-          git add .
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git commit -m "Update dedicated worker benchmarks"
-          git push
+      - name: Save benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark_results
+          path: |
+            *.json
 
   benchmark_4workers:
     runs-on: ubicloud-standard-8
@@ -161,9 +149,6 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
-      - uses: actions/checkout@v4
-        with:
-          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
@@ -171,15 +156,12 @@ jobs:
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
           --workers 4
-      - name: Push changes
-        run: |
-          pwd
-          git pull origin benchmarks
-          git add .
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git commit -m "Update 4 workers benchmarks"
-          git push
+      - name: Save benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark_results
+          path: |
+            *.json
 
   benchmark_8workers:
     runs-on: ubicloud-standard-8
@@ -285,9 +267,6 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
-      - uses: actions/checkout@v4
-        with:
-          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
@@ -295,15 +274,12 @@ jobs:
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
           --workers 8
-      - name: Push changes
-        run: |
-          pwd
-          git pull origin benchmarks
-          git add .
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git commit -m "Update 8 workers benchmarks"
-          git push
+      - name: Save benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark_results
+          path: |
+            *.json
 
   benchmark_graphs:
     runs-on: ubicloud
@@ -319,6 +295,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: benchmarks
+      - name: Download benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark_results
       - name: graphs
         run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_graphs.ts
@@ -326,10 +306,10 @@ jobs:
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/graphs_config.json
       - name: Push changes
         run: |
+          ls -la
           pwd
-          git pull origin benchmarks
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git commit -m "Update graphs"
+          git commit -m "Update benchmarks"
           git push
