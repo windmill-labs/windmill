@@ -22,7 +22,7 @@
 
 	let lastJobId: string | undefined = undefined
 	async function getDefaultArgs() {
-		let jobId = job.flow_status?.modules?.[approvalStep]?.job
+		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
 		if (jobId === lastJobId) {
 			return
 		}
@@ -98,13 +98,13 @@
 					>
 				</div>
 
-				{#if job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
+				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 					<div class="w-full border rounded-lg p-2">
 						<LightweightSchemaForm
 							bind:args={default_payload}
 							{defaultValues}
 							schema={mergeSchema(
-								job.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
+								job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
 								enum_payload
 							)}
 						/>

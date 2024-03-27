@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job, ScriptService, Script, type WorkflowStatus } from '$lib/gen'
-	import { canWrite, copyToClipboard, displayDate, emptyString, truncateHash } from '$lib/utils'
+	import { JobService, Job, ScriptService, Script, type WorkflowStatus, NewScript } from '$lib/gen'
+	import {
+		canWrite,
+		copyToClipboard,
+		displayDate,
+		emptyString,
+		encodeState,
+		truncateHash
+	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
@@ -20,7 +27,8 @@
 		XCircle,
 		Code2,
 		ClipboardCopy,
-		MoreVertical
+		MoreVertical,
+		GitBranch
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -226,6 +234,25 @@
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
+
+	function forkPreview() {
+		if (job?.job_kind == 'flowpreview') {
+			const state = {
+				flow: { value: job?.raw_flow },
+				path: job?.script_path + '_fork'
+			}
+			window.open(`/flows/add#${encodeState(state)}`)
+		} else {
+			let n: NewScript = {
+				path: job?.script_path + '_fork',
+				summary: 'Fork of preview of ' + job?.script_path,
+				language: job?.language as NewScript.language,
+				description: '',
+				content: job?.raw_code ?? ''
+			}
+			window.open(`/scripts/add#${encodeState(n)}`)
+		}
+	}
 </script>
 
 {#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
@@ -359,6 +386,17 @@
 						</svelte:fragment>
 					</ButtonDropdown>
 				</div>
+			{/if}
+			{#if job?.job_kind === 'flowpreview' || job?.job_kind === 'preview'}
+				<Button
+					color="dark"
+					size="md"
+					variant="border"
+					startIcon={{ icon: GitBranch }}
+					on:click={forkPreview}
+				>
+					Fork {job?.job_kind == 'flowpreview' ? 'flow' : 'code'} preview
+				</Button>
 			{/if}
 			{#if persistentScriptDefinition !== undefined}
 				<Button

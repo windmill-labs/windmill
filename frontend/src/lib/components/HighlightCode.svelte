@@ -56,7 +56,7 @@
 
 <div class="relative overflow-x-auto">
 	<Button
-		wrapperClasses="absolute top-2 right-2"
+		wrapperClasses="absolute top-2 right-2 z-20"
 		on:click={() => copyToClipboard(code)}
 		color="light"
 		size="xs2"

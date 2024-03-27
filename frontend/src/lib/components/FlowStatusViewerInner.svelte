@@ -157,7 +157,12 @@
 		} else if ($retryStatus[jobId ?? ''] != undefined) {
 			delete $retryStatus[jobId ?? '']
 		}
-		$suspendStatus[jobId ?? ''] = job?.flow_status?.modules?.[job?.flow_status.step]?.count
+		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
+		if (jobStatus && jobStatus.count != undefined) {
+			$suspendStatus[jobId ?? ''] = { nb: jobStatus.count, job: job! }
+		} else if ($suspendStatus[jobId ?? ''] != undefined) {
+			delete $suspendStatus[jobId ?? '']
+		}
 	}
 
 	function updateInnerModules() {
@@ -452,6 +457,17 @@
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
 					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
+				{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}
+					<div class="flex gap-2 flex-col">
+						{#each Object.values($suspendStatus) as suspendCount (suspendCount.job.id)}
+							<div>
+								<div class="text-sm">
+									Flow suspended, waiting for {suspendCount.nb} events
+								</div>
+								<FlowStatusWaitingForEvents job={suspendCount.job} {workspaceId} {isOwner} />
+							</div>
+						{/each}
+					</div>
 				{:else if job.logs}
 					<div
 						class="text-xs p-4 bg-surface-secondary overflow-auto max-h-80 border border-tertiary-inverse"
@@ -648,9 +664,9 @@
 								{/if}
 							{/each}
 							{#each Object.values($suspendStatus) as count}
-								{#if count}
+								{#if count.nb}
 									<span class="text-sm">
-										Flow suspended, waiting for {count} events
+										Flow suspended, waiting for {count.nb} events
 									</span>
 								{/if}
 							{/each}
