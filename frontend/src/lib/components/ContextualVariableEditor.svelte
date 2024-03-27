@@ -5,10 +5,10 @@
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import autosize from 'svelte-autosize'
 	import { sendUserToast } from '$lib/toast'
 	import Section from './Section.svelte'
 	import { Save } from 'lucide-svelte'
+	import autosize from '$lib/autosize'
 
 	const dispatch = createEventDispatcher()
 
@@ -58,7 +58,7 @@
 				</Section>
 			{/if}
 			<Section label="Value">
-				<textarea rows="4" type="text" use:autosize bind:value placeholder="Variable value" />
+				<textarea rows="4" use:autosize bind:value placeholder="Variable value" />
 			</Section>
 		</div>
 		<svelte:fragment slot="actions">

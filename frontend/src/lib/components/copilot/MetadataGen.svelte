@@ -6,7 +6,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import type { FlowValue } from '$lib/gen'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'

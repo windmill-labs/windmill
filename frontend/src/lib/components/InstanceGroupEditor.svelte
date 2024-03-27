@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GroupService, type InstanceGroup } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import TableCustom from './TableCustom.svelte'
@@ -39,7 +39,6 @@
 		<div class="flex flex-col gap-1">
 			<textarea
 				rows="2"
-				type="text"
 				use:autosize
 				bind:value={instance_group.summary}
 				placeholder="Summary of the group"

@@ -72,12 +72,12 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
-	import autosize from 'svelte-autosize'
 	import WhitelistIp from './WhitelistIp.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import autosize from '$lib/autosize'
 
 	export let newPageOAuth = false
 
@@ -543,7 +543,7 @@
 			</div>
 
 			<h2 class="mt-4 mb-2">Description</h2>
-			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
+			<textarea autocomplete="off" use:autosize bind:value={description} />
 		{:else}
 			<Path
 				initialPath=""

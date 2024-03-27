@@ -9,7 +9,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import TableCustom from './TableCustom.svelte'
@@ -108,7 +108,6 @@
 			<textarea
 				disabled={!can_write}
 				rows="2"
-				type="text"
 				use:autosize
 				bind:value={group.summary}
 				placeholder="Summary of the group"

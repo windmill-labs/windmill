@@ -10,7 +10,7 @@
 	import TabSelectInput from './TabSelectInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Settings } from 'lucide-svelte'
 	import AgGridWizard from '$lib/components/wizards/AgGridWizard.svelte'

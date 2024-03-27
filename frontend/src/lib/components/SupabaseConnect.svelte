@@ -8,7 +8,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { oauthStore, workspaceStore } from '$lib/stores'
 	import Password from './Password.svelte'
@@ -163,7 +163,7 @@
 			<Password required bind:password />
 
 			<h3 class="mt-6 mb-2">Description</h3>
-			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
+			<textarea autocomplete="off" use:autosize bind:value={description} />
 
 			<div class="mt-12" />
 			<p class="my-1 text-sm text-secondary"
