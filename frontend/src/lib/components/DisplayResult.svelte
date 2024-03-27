@@ -98,6 +98,9 @@
 		}
 
 		if (result !== undefined) {
+			if (typeof result === 'string') {
+				return 'plain'
+			}
 			try {
 				let keys = result && typeof result == 'object' ? Object.keys(result) : []
 				is_render_all =
@@ -238,12 +241,15 @@
 </script>
 
 {#if is_render_all}
-	<div class="flex flex-col w-full">
-		<div class="mb-2 text-tertiary text-sm">
-			as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={globalForceJson} />
-		</div>
+	<div class="flex flex-col w-full gap-6">
+		{#if !noControls}
+			<div class="mb-2 text-tertiary text-sm">
+				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={globalForceJson} />
+			</div>
+		{/if}
 		{#each result['render_all'] as res}
 			<svelte:self
+				{noControls}
 				result={res}
 				{requireHtmlApproval}
 				{filename}
@@ -256,7 +262,11 @@
 		{/each}</div
 	>
 {:else}
-	<div class="inline-highlight relative grow min-h-[200px]">
+	<div
+		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
+			? ''
+			: 'min-h-[200px]'}"
+	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full pb-1">
 				<div class="text-tertiary text-sm flex items-center">
@@ -497,7 +507,7 @@
 					</div>
 				</div>
 			{:else if !forceJson && resultKind == 'markdown'}
-				<div class="prose dark:prose-invert">
+				<div class="prose-xs dark:prose-invert">
 					<Markdown md={result?.md ?? result?.markdown} />
 				</div>
 			{:else if !forceJson && isTableDisplay && richRender}
@@ -557,12 +567,23 @@
 					code={toJsonStr(result).replace(/\\n/g, '\n')}
 				/>
 			{/if}
+		{:else if typeof result == 'string' && resultKind == 'plain'}
+			<div class="h-full text-xs">
+				<pre>{result}</pre>
+				{#if !noControls}
+					<div class="flex">
+						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+						</Button>
+					</div>
+				{/if}
+			</div>
 		{:else}
 			<div class="text-tertiary text-sm">No result: {toJsonStr(result)}</div>
 		{/if}
 	</div>
 
-	{#if !disableExpand}
+	{#if !disableExpand && !noControls}
 		<Portal>
 			<Drawer bind:this={jsonViewer} size="900px">
 				<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
@@ -590,6 +611,7 @@
 						</Button>
 					</svelte:fragment>
 					<svelte:self
+						{noControls}
 						{result}
 						{requireHtmlApproval}
 						{filename}

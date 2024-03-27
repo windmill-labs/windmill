@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { Map, View, Feature } from 'ol'
+	import { Fill, Stroke, Style, Text } from 'ol/style.js'
 	import { useGeographic } from 'ol/proj'
 	import { OSM, Vector as VectorSource } from 'ol/source'
 	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer'
 	import { Point } from 'ol/geom'
 	import { defaults as defaultControls } from 'ol/control'
+	import CircleStyle from 'ol/style/Circle'
 
 	interface Marker {
 		lon: number
@@ -62,16 +64,30 @@
 					features: [
 						new Feature({
 							geometry: new Point([+m.lon, +m.lat]),
+							label: m.title,
 							name: m.title
 						})
 					]
 				}),
-				style: {
-					'circle-radius': m.radius ?? 7,
-					'circle-fill-color': m.color ?? '#dc2626',
-					'circle-stroke-width': m.strokeWidth ?? 3,
-					'circle-stroke-color': m.strokeColor ?? '#fca5a5'
-				}
+				style: new Style({
+					image: new CircleStyle({
+						radius: m.radius ?? 5,
+						fill: new Fill({
+							color: m.color ?? '#dc2626'
+						}),
+						stroke: new Stroke({
+							color: m.strokeColor ?? '#fca5a5',
+							width: m.strokeWidth ?? 3
+						})
+					}),
+					text: new Text({
+						text: m.title,
+						offsetY: -15,
+						fill: new Fill({
+							color: '#000'
+						})
+					})
+				})
 			})
 		})
 	}
