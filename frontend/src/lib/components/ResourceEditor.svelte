@@ -185,6 +185,8 @@
 				{:else if description == undefined || description == ''}
 					<div class="text-sm text-tertiary">No description provided</div>
 				{:else}
+					<div class="mt-2" />
+
 					<GfmMarkdown md={description} />
 				{/if}
 				<div class="flex w-full justify-between max-w-lg items-center mt-4">

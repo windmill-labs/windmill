@@ -78,6 +78,10 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
+	import Required from './Required.svelte'
+	import Toggle from './Toggle.svelte'
+	import { Pen } from 'lucide-svelte'
+	import GfmMarkdown from './GfmMarkdown.svelte'
 
 	export let newPageOAuth = false
 
@@ -101,6 +105,7 @@
 		| [string, { img?: string; instructions: string[]; key?: string }][]
 		| undefined = undefined
 	let args: any = {}
+	let renderDescription = true
 
 	$: linkedSecretCandidates = apiTokenApps[resourceType]?.linkedSecret
 		? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
@@ -519,7 +524,7 @@
 					</div>
 				{/if}
 			{:else if !emptyString(resourceTypeInfo?.description)}
-				<h3 class="mt-6 mb-2">{resourceTypeInfo?.name} description</h3>
+				<h4 class="mt-8 mb-2">{resourceTypeInfo?.name} description</h4>
 				<div class="text-sm">
 					<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
 				</div>
@@ -528,8 +533,25 @@
 				<WhitelistIp />
 			{/if}
 
-			<h2 class="mt-4">Value</h2>
-			<div class="mt-4">
+			<h4 class="mt-8 inline-flex items-center gap-4"
+				>Resource description <Required required={false} />
+				<div class="flex gap-1 items-center">
+					<Toggle size="xs" bind:checked={renderDescription} />
+					<Pen size={14} />
+				</div>
+			</h4>
+			{#if renderDescription}
+				<div>
+					<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
+					<textarea use:autosize bind:value={description} placeholder={'Resource description'} />
+				</div>
+			{:else if description == undefined || description == ''}
+				<div class="text-sm text-tertiary">No description provided</div>
+			{:else}
+				<div class="mt-2" />
+				<GfmMarkdown md={description} />
+			{/if}
+			<div class="mt-12">
 				{#key resourceTypeInfo}
 					<ApiConnectForm
 						{linkedSecret}
@@ -541,9 +563,6 @@
 					/>
 				{/key}
 			</div>
-
-			<h2 class="mt-4 mb-2">Description</h2>
-			<textarea autocomplete="off" use:autosize bind:value={description} />
 		{:else}
 			<Path
 				initialPath=""
