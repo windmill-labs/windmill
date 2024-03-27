@@ -1,6 +1,6 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.76-slim-bookworm
-ARG PYTHON_IMAGE=python:3.11.4-slim-bookworm
+ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
 
 FROM ${DEBIAN_IMAGE} as nsjail
 
