@@ -43,7 +43,7 @@ jobs:
       - name: Save benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark_results
+          name: benchmark_single
           path: |
             *.json
 
@@ -84,7 +84,7 @@ jobs:
       - name: Save benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark_results
+          name: benchmark_dedicated
           path: |
             *.json
 
@@ -159,7 +159,7 @@ jobs:
       - name: Save benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark_results
+          name: benchmark_4workers
           path: |
             *.json
 
@@ -277,7 +277,7 @@ jobs:
       - name: Save benchmark results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark_results
+          name: benchmark_8workers
           path: |
             *.json
 
@@ -298,7 +298,7 @@ jobs:
       - name: Download benchmark results
         uses: actions/download-artifact@v4
         with:
-          name: benchmark_results
+          merge-multiple: true
       - name: graphs
         run: deno run --unstable -A -r
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_graphs.ts
