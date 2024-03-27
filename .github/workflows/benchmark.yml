@@ -50,11 +50,10 @@ jobs:
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git commit -m "Update benchmarks"
+          git commit -m "Update single worker benchmarks"
           git push
 
   benchmark_dedicated:
-    needs: benchmark_single
     runs-on: ubicloud-standard-8
     services:
       postgres:
@@ -98,7 +97,7 @@ jobs:
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git commit -m "Update benchmarks"
+          git commit -m "Update dedicated worker benchmarks"
           git push
 
   benchmark_4workers:
@@ -179,7 +178,7 @@ jobs:
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git commit -m "Update benchmarks"
+          git commit -m "Update 4 workers benchmarks"
           git push
 
   benchmark_8workers:
@@ -303,5 +302,34 @@ jobs:
           git add .
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git commit -m "Update benchmarks"
+          git commit -m "Update 8 workers benchmarks"
+          git push
+
+  benchmark_graphs:
+    runs-on: ubicloud
+    needs:
+      - benchmark_single
+      - benchmark_dedicated
+      - benchmark_4workers
+      - benchmark_8workers
+    steps:
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+      - uses: actions/checkout@v4
+        with:
+          ref: benchmarks
+      - name: graphs
+        run: deno run --unstable -A -r
+          https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/benchmark_graphs.ts
+          -c
+          https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/graphs_config.json
+      - name: Push changes
+        run: |
+          pwd
+          git pull origin benchmarks
+          git add .
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Update graphs"
           git push

@@ -1,56 +1,42 @@
-{
-  "benchmarks": [
-    {
-      "graph_title": "noop throughput benchmark",
-      "kind": "noop",
-      "jobs": 90000
-    },
-    {
-      "graph_title": "flow throughput benchmark",
-      "kind": "2steps",
-      "jobs": 250
-    },
-    {
-      "graph_title": "deno throughput benchmark",
-      "kind": "deno",
-      "jobs": 500
-    },
-    {
-      "graph_title": "bun throughput benchmark",
-      "kind": "bun",
-      "jobs": 500
-    },
-    {
-      "graph_title": "python throughput benchmark",
-      "kind": "python",
-      "jobs": 500
-    },
-    {
-      "graph_title": "go throughput benchmark",
-      "kind": "go",
-      "jobs": 2000
-    },
-    {
-      "graph_title": "bash throughput benchmark",
-      "kind": "bash",
-      "jobs": 2000
-    },
-    {
-      "graph_title": "nativets throughput benchmark",
-      "kind": "nativets",
-      "jobs": 2000
-    }
-  ],
-  "extra_graphs": [
-    {
-      "graph_title": "go vs python vs deno vs bun vs bash vs nativets",
-      "kinds": [
-        "go",
-        "python",
-        "deno",
-        "bun",
-        "bash"
-      ]
-    }
-  ]
-}
+[
+  {
+    "graph_title": "noop throughput benchmark",
+    "kind": "noop",
+    "jobs": 90000
+  },
+  {
+    "graph_title": "flow throughput benchmark",
+    "kind": "2steps",
+    "jobs": 250
+  },
+  {
+    "graph_title": "deno throughput benchmark",
+    "kind": "deno",
+    "jobs": 500
+  },
+  {
+    "graph_title": "bun throughput benchmark",
+    "kind": "bun",
+    "jobs": 500
+  },
+  {
+    "graph_title": "python throughput benchmark",
+    "kind": "python",
+    "jobs": 500
+  },
+  {
+    "graph_title": "go throughput benchmark",
+    "kind": "go",
+    "jobs": 2000
+  },
+  {
+    "graph_title": "bash throughput benchmark",
+    "kind": "bash",
+    "jobs": 2000
+  },
+  {
+    "graph_title": "nativets throughput benchmark",
+    "kind": "nativets",
+    "jobs": 2000
+  }
+]

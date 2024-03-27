@@ -4,24 +4,12 @@ import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upg
 
 import { main as runBenchmark } from "./benchmark_oneoff.ts";
 
-import { drawGraph, drawGraphMulti } from "./graph.ts";
 import { VERSION } from "./lib.ts";
 
 type Config = {
-  benchmarks: [
-    {
-      graph_title: string;
-      kind: string;
-      jobs: number;
-    }
-  ];
-  extra_graphs?: [
-    {
-      graph_title: string;
-      kinds: string[];
-    }
-  ];
-};
+  kind: string;
+  jobs: number;
+}[];
 
 async function warmUp(
   host: string,
@@ -74,7 +62,7 @@ async function main({
 
   try {
     const config = await getConfig(configPath);
-    for (const benchmark of config.benchmarks) {
+    for (const benchmark of config) {
       try {
         console.log(
           "%cRunning benchmark " + benchmark.kind,
@@ -110,59 +98,12 @@ async function main({
         }
         data.push(stat);
         await Deno.writeTextFile(jsonFilePath, JSON.stringify(data, null, 4));
-        const svg = drawGraph(
-          data.slice(-10).map((d) => ({ ...d, date: new Date(d.ts) })),
-          benchmark.graph_title +
-            (workers > 1 ? ` (${workers} workers)` : " (single worker)")
-        );
-        await Deno.writeTextFile(`${benchmarkName}_benchmark.svg`, svg);
       } catch (err) {
         console.error("Failed to run benchmark", benchmark.kind, err);
       }
     }
-
-    for (const extraGraph of config.extra_graphs || []) {
-      const data: {
-        value: number;
-        ts: number;
-        date: Date;
-        kind: string;
-      }[] = [];
-      for (const kind of extraGraph.kinds) {
-        const benchmarkName = kind + (workers > 1 ? `_${workers}workers` : "");
-        try {
-          const existing = await Deno.readTextFile(
-            `${benchmarkName}_benchmark.json`
-          );
-          const existingData = JSON.parse(existing)
-            .map((d: { value: number; ts: number }) => ({
-              ...d,
-              date: new Date(d.ts),
-              kind,
-            }))
-            .slice(-10);
-          data.push(...existingData);
-        } catch (err) {
-          console.log("Error while loading", kind, "benchmark data", err);
-        }
-      }
-      const svg = drawGraphMulti(
-        data,
-        extraGraph.graph_title +
-          (workers > 1 ? ` (${workers} workers)` : " (single worker)")
-      );
-      await Deno.writeTextFile(
-        `${extraGraph.kinds.join("_vs_")}${
-          workers > 1 ? `_${workers}workers` : ""
-        }.svg`,
-        svg
-      );
-    }
-
-    Deno.exit(0); // JSDOM from drawGraph doesn't exit cleanly
   } catch (err) {
     console.error(`Failed to read config file ${configPath}: ${err}`);
-    Deno.exit(0); // JSDOM from drawGraph doesn't exit cleanly
   }
 }
 
