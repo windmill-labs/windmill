@@ -221,6 +221,13 @@
 				</div>
 			{/if}
 			{#if flowModule.suspend?.resume_form}
+				<Toggle
+					bind:checked={flowModule.suspend.hide_cancel}
+					size="xs"
+					options={{
+						right: 'Hide cancel button on approval page'
+					}}
+				/>
 				<SchemaEditor bind:schema={flowModule.suspend.resume_form.schema} />
 			{/if}
 		</div>

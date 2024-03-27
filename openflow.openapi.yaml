@@ -135,6 +135,8 @@ components:
               $ref: "#/components/schemas/InputTransform"
             self_approval_disabled:
               type: boolean
+            hide_cancel:
+              type: boolean
         priority:
           type: number
 

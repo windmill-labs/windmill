@@ -203,6 +203,8 @@ pub struct Suspend {
     pub user_groups_required: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub self_approval_disabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hide_cancel: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

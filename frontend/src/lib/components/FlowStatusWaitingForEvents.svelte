@@ -3,6 +3,7 @@
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import DisplayResult from './DisplayResult.svelte'
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
@@ -14,6 +15,7 @@
 	let default_payload: object = {}
 	let enum_payload: object = {}
 	let resumeUrl: string | undefined = undefined
+	let description: any = undefined
 
 	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
 
@@ -35,6 +37,7 @@
 			id: jobId
 		})
 		const args = job_result?.default_args ?? {}
+		description = job_result?.description
 		defaultValues = JSON.parse(JSON.stringify(args))
 		default_payload = args
 
@@ -45,6 +48,9 @@
 
 <div class="w-full h-full mt-2 text-sm text-tertiary">
 	<p>Waiting to be resumed</p>
+	{#if description != undefined}
+		<DisplayResult noControls result={description} />
+	{/if}
 	<div>
 		{#if isOwner || resumeUrl}
 			<div class="flex flex-row gap-2 mt-2">

@@ -17,6 +17,7 @@
 	import { Alert } from '$lib/components/common'
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
@@ -37,6 +38,7 @@
 	let error: string | undefined = undefined
 	let default_payload: any = {}
 	let enum_payload: object = {}
+	let description: any = undefined
 
 	setLicense()
 
@@ -80,6 +82,7 @@
 			workspace: job?.workspace_id ?? '',
 			id: jobId
 		})
+		description = job_result?.description
 		default_payload = job_result?.default_args ?? {}
 		enum_payload = job_result?.enums ?? {}
 	}
@@ -203,6 +206,10 @@
 			<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
 		{/if}
 
+		{#if description != undefined}
+			<DisplayResult noControls result={description} />
+		{/if}
+
 		{#if schema}
 			{#if emptyString($enterpriseLicense)}
 				<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
@@ -217,13 +224,18 @@
 		{/if}
 
 		<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-			<Button
-				btnClasses="grow"
-				color="red"
-				on:click|once={cancel}
-				size="md"
-				disabled={completed || alreadyResumed}>Deny</Button
-			>
+			{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
+				<Button
+					btnClasses="grow"
+					color="red"
+					on:click|once={cancel}
+					size="md"
+					disabled={completed || alreadyResumed}>Deny</Button
+				>
+			{:else}
+				<div />
+			{/if}
+
 			<Button
 				btnClasses="grow"
 				color="green"

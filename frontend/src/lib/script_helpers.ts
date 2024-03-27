@@ -277,21 +277,61 @@ func main() (interface{}, error) {
 export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "npm:windmill-client@^1.158.2"
 
 export async function main(approver?: string) {
-  return wmill.getResumeUrls(approver)
+  const urls = await wmill.getResumeUrls(approver)
+  // send the urls to their intended recipients
+
+
+  // if the resumeUrls are part of the response, they will be available to any persons having access
+  // to the run page and allowed to be approved from there, even from non owners of the flow
+  // self-approval is disablable in the suspend options
+  return {
+	 ...urls,
+	 default_args: {},
+	 enums: {},
+	 description: undefined
+  }
+}`
+
+export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
+
+export async function main(approver?: string) {
+  const urls = await wmill.getResumeUrls(approver)
+  // send the urls to their intended recipients
+
+
+  // if the resumeUrls are part of the response, they will be available to any persons having access
+  // to the run page and allowed to be approved from there, even from non owners of the flow
+  // self-approval is disablable in the suspend options
+  return {
+    	...urls,
+		default_args: {},
+		enums: {},
+		description: undefined
+		// supports all formats from rich display rendering such as simple strings,
+		// but also markdown, html, images, tables, maps, render_all, etc...
+		// https://www.windmill.dev/docs/core_concepts/rich_display_rendering
+  }
 }`
 
 export const PYTHON_INIT_CODE_APPROVAL = `import wmill
 
 def main():
   urls = wmill.get_resume_urls()
-  return urls
+  # send the urls to their intended recipients
+
+  # if the get_resume_urls are part of the response, they will be available to any persons having access
+  # to the run page and allowed to be approved from there, even from non owners of the flow
+  # self-approval is disablable in the suspend options
+  return { 
+    **urls, 
+    "default_args": {}, 
+    "enums": {}, 
+    "description": None,
+    # supports all formats from rich display rendering such as simple strings,
+    # but also markdown, html, images, tables, maps, render_all, etc...
+    # https://www.windmill.dev/docs/core_concepts/rich_display_rendering
+  }
 `
-
-export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
-
-export async function main(approver?: string) {
-  return wmill.getResumeUrls(approver)
-}`
 
 export const DOCKER_INIT_CODE = `# shellcheck shell=bash
 # Bash script that calls docker as a client to the host daemon
