@@ -1398,9 +1398,9 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
 name = "chrono"
-version = "0.4.35"
+version = "0.4.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eaf5903dcbc0a39312feb77df2ff4c76387d591b9fc7b04a238dcf8bb62639a"
+checksum = "8a0d04d43504c61aa6c7531f1871dd0d418d91130162063b789da00fd7057a5e"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -4474,7 +4474,7 @@ dependencies = [
  "thiserror",
  "time",
  "uuid 1.8.0",
- "zstd 0.13.0",
+ "zstd 0.13.1",
 ]
 
 [[package]]
@@ -5189,9 +5189,9 @@ dependencies = [
 
 [[package]]
 name = "platforms"
-version = "3.3.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "626dec3cac7cc0e1577a2ec3fc496277ec2baa084bebad95bb6fdbfae235f84c"
+checksum = "db23d408679286588f4d4644f965003d056e3dd5abcaaa938116871d7ce2fee7"
 
 [[package]]
 name = "pmutil"
@@ -5257,7 +5257,7 @@ dependencies = [
  "streaming-iterator",
  "strength_reduce",
  "version_check",
- "zstd 0.13.0",
+ "zstd 0.13.1",
 ]
 
 [[package]]
@@ -5369,7 +5369,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
- "zstd 0.13.0",
+ "zstd 0.13.1",
 ]
 
 [[package]]
@@ -5450,7 +5450,7 @@ dependencies = [
  "simdutf8",
  "snap",
  "streaming-decompression",
- "zstd 0.13.0",
+ "zstd 0.13.1",
 ]
 
 [[package]]
@@ -5612,20 +5612,6 @@ name = "portable-atomic"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7170ef9988bc169ba16dd36a7fa041e5c4cbeb6a35b76d4c03daded371eae7c0"
-
-[[package]]
-name = "postgres"
-version = "0.19.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7915b33ed60abc46040cbcaa25ffa1c7ec240668e0477c4f3070786f5916d451"
-dependencies = [
- "bytes",
- "fallible-iterator",
- "futures-util",
- "log",
- "tokio",
- "tokio-postgres",
-]
 
 [[package]]
 name = "postgres-native-tls"
@@ -6525,15 +6511,15 @@ dependencies = [
 
 [[package]]
 name = "rust_decimal"
-version = "1.34.3"
+version = "1.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b39449a79f45e8da28c57c341891b69a183044b29518bb8f86dbac9df60bb7df"
+checksum = "1790d1c4c0ca81211399e0e0af16333276f375209e71a37b67698a373db5b47a"
 dependencies = [
  "arrayvec",
  "borsh",
  "bytes",
  "num-traits",
- "postgres",
+ "postgres-types",
  "rand 0.8.5",
  "rkyv",
  "serde",
@@ -6671,9 +6657,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "868e20fada228fefaf6b652e00cc73623d54f8171e7352c18bb281571f2d92da"
+checksum = "ecd36cc4259e3e4514335c4a138c6b43171a8d61d8f5c9348f9fc7529416f247"
 
 [[package]]
 name = "rustls-tokio-stream"
@@ -9629,7 +9615,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9666,7 +9652,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9744,7 +9730,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9762,7 +9748,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9775,7 +9761,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9811,7 +9797,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9826,7 +9812,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9834,7 +9820,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9845,7 +9831,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9857,7 +9843,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9868,7 +9854,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9879,7 +9865,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9896,7 +9882,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9907,7 +9893,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9925,7 +9911,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.12",
@@ -9943,7 +9929,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9976,7 +9962,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.297.1"
+version = "1.298.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10364,11 +10350,11 @@ dependencies = [
 
 [[package]]
 name = "zstd"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bffb3309596d527cfcba7dfc6ed6052f1d39dfbd7c867aa2e865e4a449c10110"
+checksum = "2d789b1514203a1120ad2429eae43a7bd32b90976a7bb8a05f7ec02fa88cc23a"
 dependencies = [
- "zstd-safe 7.0.0",
+ "zstd-safe 7.1.0",
 ]
 
 [[package]]
@@ -10383,18 +10369,18 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "7.0.0"
+version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43747c7422e2924c11144d5229878b98180ef8b06cca4ab5af37afc8a8d8ea3e"
+checksum = "1cd99b45c6bc03a018c8b8a86025678c87e55526064e38f9df301989dce7ec0a"
 dependencies = [
  "zstd-sys",
 ]
 
 [[package]]
 name = "zstd-sys"
-version = "2.0.9+zstd.1.5.5"
+version = "2.0.10+zstd.1.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e16efa8a874a0481a574084d34cc26fdb3b99627480f785888deb6386506656"
+checksum = "c253a4914af5bafc8fa8c86ee400827e83cf6ec01195ec1f1ed8441bf00d65aa"
 dependencies = [
  "cc",
  "pkg-config",
