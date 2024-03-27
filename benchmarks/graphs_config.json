@@ -1,0 +1,227 @@
+[
+  {
+    "graph_title": "noop throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "noop",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "noop",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "noop",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "single dedicated worker throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "dedicated",
+        "workers": 1,
+        "label": "dedicated"
+      }
+    ]
+  },
+  {
+    "graph_title": "flow throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "2steps",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "2steps",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "2steps",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "deno throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "deno",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "deno",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "deno",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "bun throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "bun",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "bun",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "bun",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "python throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "python",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "python",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "python",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "go throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "go",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "go",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "go",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "bash throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "bash",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "bash",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "bash",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "nativets throughput benchmark",
+    "benchmarks": [
+      {
+        "kind": "nativets",
+        "workers": 1,
+        "label": "1 worker"
+      },
+      {
+        "kind": "nativets",
+        "workers": 4,
+        "label": "4 workers"
+      },
+      {
+        "kind": "nativets",
+        "workers": 8,
+        "label": "8 workers"
+      }
+    ]
+  },
+  {
+    "graph_title": "go vs python vs deno vs bun vs bash vs nativets",
+    "benchmarks": [
+      {
+        "kind": "go",
+        "workers": 1,
+        "label": "go"
+      },
+      {
+        "kind": "python",
+        "workers": 1,
+        "label": "python"
+      },
+      {
+        "kind": "deno",
+        "workers": 1,
+        "label": "deno"
+      },
+      {
+        "kind": "bun",
+        "workers": 1,
+        "label": "bun"
+      },
+      {
+        "kind": "bash",
+        "workers": 1,
+        "label": "bash"
+      },
+      {
+        "kind": "nativets",
+        "workers": 1,
+        "label": "nativets"
+      }
+    ]
+  },
+  {
+    "graph_title": "bun vs dedicated vs noop",
+    "benchmarks": [
+      {
+        "kind": "bun",
+        "workers": 1,
+        "label": "bun"
+      },
+      {
+        "kind": "dedicated",
+        "workers": 1,
+        "label": "dedicated"
+      },
+      {
+        "kind": "noop",
+        "workers": 1,
+        "label": "noop"
+      }
+    ]
+  }
+]

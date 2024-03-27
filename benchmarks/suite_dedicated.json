@@ -1,24 +1,12 @@
-{
-  "benchmarks": [
-    {
-      "graph_title": "warmup",
-      "kind": "dedicated",
-      "jobs": 50000
-    },
-    {
-      "graph_title": "dedicated throughput benchmark",
-      "kind": "dedicated",
-      "jobs": 90000
-    }
-  ],
-  "extra_graphs": [
-    {
-      "graph_title": "bun vs dedicated vs noop",
-      "kinds": [
-        "bun",
-        "dedicated",
-        "noop"
-      ]
-    }
-  ]
-}
+[
+  {
+    "graph_title": "warmup",
+    "kind": "dedicated",
+    "jobs": 50000
+  },
+  {
+    "graph_title": "dedicated throughput benchmark",
+    "kind": "dedicated",
+    "jobs": 90000
+  }
+]
