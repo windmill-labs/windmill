@@ -96,8 +96,10 @@ async function main({
           benchmark.kind + (workers > 1 ? `_${workers}workers` : "");
         const jsonFilePath = `${benchmarkName}_benchmark.json`;
         try {
-          const existing = await Deno.readTextFile(jsonFilePath);
-          data = JSON.parse(existing);
+          const remotePath =
+            "https://raw.githubusercontent.com/windmill-labs/windmill/benchmarks/" +
+            jsonFilePath;
+          data = await fetch(remotePath).then((r) => r.json());
         } catch (_) {
           console.log("No existing data file found, creating new one.");
         }
