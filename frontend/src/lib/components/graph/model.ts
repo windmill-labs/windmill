@@ -1,4 +1,4 @@
-import type { FlowStatusModule } from '$lib/gen'
+import type { FlowStatusModule, Job } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 import type { UserNodeType } from './svelvet/types'
 import type { FlowState } from '../flows/flowState'
@@ -41,7 +41,7 @@ export type DurationStatus = {
 export type FlowStatusViewerContext = {
 	flowStateStore?: Writable<FlowState>
 	retryStatus: Writable<Record<string, number | undefined>>
-	suspendStatus: Writable<Record<string, number | undefined>>
+	suspendStatus: Writable<Record<string, { nb: number; job: Job }>>
 }
 export type GraphModuleState = {
 	type: FlowStatusModule.type

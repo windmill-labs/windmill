@@ -53,6 +53,11 @@
 		}
 
 		let state = initialState ? decodeState(initialState) : undefined
+		const initialStateQuery = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
+
+		if (initialStateQuery) {
+			state = decodeState(initialStateQuery)
+		}
 		if ($importFlowStore) {
 			flow = $importFlowStore
 			$importFlowStore = undefined
