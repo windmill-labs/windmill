@@ -1,4 +1,4 @@
-import { JobService, Preview } from '$lib/gen'
+import { JobService, Preview, ResourceService } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 import {
 	buildClientSchema,
@@ -64,6 +64,10 @@ export async function loadTableMetaData(
 	let code: string = ''
 
 	if (resourceType === 'mysql') {
+		const resourceObj = await ResourceService.getResourceValue({
+			workspace,
+			path: resource.split(':')[1]
+		})
 		code = `
 	SELECT 
 			COLUMN_NAME as field,
@@ -76,7 +80,9 @@ export async function loadTableMetaData(
 	FROM 
 			INFORMATION_SCHEMA.COLUMNS
 	WHERE 
-			TABLE_NAME = '${table}'
+			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
+			table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
+		}'
 	ORDER BY 
 			ORDINAL_POSITION;
 	`
@@ -105,7 +111,9 @@ export async function loadTableMetaData(
 		 FROM pg_catalog.pg_enum e
 		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
 	FROM pg_catalog.pg_attribute a
-	WHERE a.attrelid = (SELECT oid FROM pg_catalog.pg_class WHERE relname = '${table}') 
+	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
+		table.split('.').reverse()[0]
+	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
 		AND a.attnum > 0 AND NOT a.attisdropped
 	ORDER BY a.attnum;
 	
@@ -138,7 +146,9 @@ ORDER BY
 		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
 	from information_schema.columns
-	where table_name = '${table}'
+	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
+			table.split('.').reverse()[1] ?? 'PUBLIC'
+		}'
 	order by ORDINAL_POSITION;
 	`
 	} else if (resourceType === 'bigquery') {
@@ -151,7 +161,7 @@ ORDER BY
     IS_NULLABLE as IsNullable,
     false as IsEnum
 FROM
-    test_dataset.INFORMATION_SCHEMA.COLUMNS c
+    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
     LEFT JOIN
     test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
     on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
@@ -674,34 +684,75 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 	return r ?? []
 }
 
-export function getTablesByResource(
+export async function getTablesByResource(
 	schema: Partial<Record<string, DBSchema>>,
-	dbType: DbType | undefined
-): string[] {
+	dbType: DbType | undefined,
+	resourcePath: string,
+	workspace: string
+): Promise<string[]> {
 	const s = Object.values(schema)?.[0]
 	switch (dbType) {
-		case 'postgresql':
-		case 'mysql':
-		case 'ms_sql_server':
-		case 'snowflake':
-			return Object.entries(s?.schema ?? {}).reduce((acc: string[], [k, v]) => {
-				acc.push(...Object.keys(v ?? {}))
-				return acc
-			}, [])
-
-		case 'bigquery': {
+		case 'ms_sql_server': {
 			const paths: string[] = []
 			for (const key in s?.schema) {
-				if (s?.schema.hasOwnProperty(key)) {
-					const subObj = s?.schema[key]
-					for (const subKey in subObj) {
-						if (subObj.hasOwnProperty(subKey)) {
-							paths.push(`${key}.${subKey}`)
-						}
+				for (const subKey in s.schema[key]) {
+					if (key === 'dbo') {
+						paths.push(`${subKey}`)
 					}
 				}
 			}
-
+			return paths
+		}
+		case 'mysql': {
+			const resourceObj = await ResourceService.getResourceValue({
+				workspace,
+				path: resourcePath
+			})
+			const paths: string[] = []
+			for (const key in s?.schema) {
+				for (const subKey in s.schema[key]) {
+					if (key === resourceObj?.database) {
+						paths.push(`${subKey}`)
+					} else {
+						paths.push(`${key}.${subKey}`)
+					}
+				}
+			}
+			return paths
+		}
+		case 'snowflake': {
+			const paths: string[] = []
+			for (const key in s?.schema) {
+				for (const subKey in s.schema[key]) {
+					if (key === 'PUBLIC') {
+						paths.push(`${subKey}`)
+					} else {
+						paths.push(`${key}.${subKey}`)
+					}
+				}
+			}
+			return paths
+		}
+		case 'postgresql': {
+			const paths: string[] = []
+			for (const key in s?.schema) {
+				for (const subKey in s.schema[key]) {
+					if (key === 'public') {
+						paths.push(`${subKey}`)
+					} else {
+						paths.push(`${key}.${subKey}`)
+					}
+				}
+			}
+			return paths
+		}
+		case 'bigquery': {
+			const paths: string[] = []
+			for (const key in s?.schema) {
+				for (const subKey in s.schema[key]) {
+					paths.push(`${key}.${subKey}`)
+				}
+			}
 			return paths
 		}
 

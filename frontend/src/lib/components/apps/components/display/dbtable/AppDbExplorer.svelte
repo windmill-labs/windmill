@@ -249,7 +249,12 @@
 				{
 					table: {
 						selectOptions: dbSchemas
-							? getTablesByResource(dbSchemas, resolvedConfig?.type?.selected)
+							? await getTablesByResource(
+									dbSchemas,
+									resolvedConfig?.type?.selected,
+									resource.split(':')[1],
+									$workspaceStore!
+							  )
 							: [],
 						loading: false
 					}

@@ -28,7 +28,7 @@ function makeSnowflakeSelectQuery(
 	const filteredColumns = buildVisibleFieldList(columnDefs, 'snowflake')
 	const selectClause = filteredColumns.join(', ')
 
-	query += `SELECT ${selectClause} FROM "${table}"`
+	query += `SELECT ${selectClause} FROM ${table}`
 
 	const quicksearchCondition = [
 		'LENGTH(?) = 0',
@@ -119,7 +119,7 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				', '
 			)}) LIKE CONCAT('%', :quicksearch, '%'))`
 
-			query += `SELECT ${selectClause} FROM \`${table}\``
+			query += `SELECT ${selectClause} FROM ${table}`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
 			query += ` ORDER BY ${orderBy}`
 			query += ` LIMIT :limit OFFSET :offset`
@@ -144,7 +144,7 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 
 			query += `SELECT ${filteredColumns
 				.map((column) => `${column}::text`)
-				.join(', ')} FROM "${table}"\n`
+				.join(', ')} FROM ${table}\n`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}\n`
 			query += ` ORDER BY ${orderBy}\n`
 			query += ` LIMIT $1::INT OFFSET $2::INT`
@@ -179,7 +179,8 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 					if (
 						column.datatype === 'JSON' ||
 						column.datatype.startsWith('STRUCT') ||
-						column.datatype.startsWith('ARRAY')
+						column.datatype.startsWith('ARRAY') ||
+						column.datatype === 'GEOGRAPHY'
 					) {
 						return `
 (CASE WHEN @order_by = '${column.field}' AND @is_desc = false THEN TO_JSON_STRING(${column.field}) END) ASC,
@@ -197,11 +198,12 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 					if (
 						def?.datatype === 'JSON' ||
 						def?.datatype.startsWith('STRUCT') ||
-						def?.datatype.startsWith('ARRAY')
+						def?.datatype.startsWith('ARRAY') ||
+						def?.datatype === 'GEOGRAPHY'
 					) {
 						return `TO_JSON_STRING(${col})`
 					}
-					return `${col}`
+					return `CAST(${col} AS STRING)`
 				})
 				.join(',')
 			quicksearchCondition = ` (@quicksearch = '' OR REGEXP_CONTAINS(CONCAT(${searchClause}), '(?i)' || @quicksearch))`
