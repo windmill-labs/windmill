@@ -25,6 +25,7 @@
 	import ParqetTableRenderer from './ParqetTableRenderer.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import MapResult from './MapResult.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -51,6 +52,7 @@
 		| 's3object-list'
 		| 'plain'
 		| 'markdown'
+		| 'map'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -130,6 +132,8 @@
 						return 'table-col'
 					} else if (keys.length == 1 && keys[0] == 'html') {
 						return 'html'
+					} else if (keys.length == 1 && keys[0] == 'map') {
+						return 'map'
 					} else if (keys.length == 1 && keys[0] == 'file') {
 						return 'file'
 					} else if (
@@ -338,6 +342,15 @@
 							</div>
 						</div>
 					{/if}
+				</div>
+			{:else if !forceJson && resultKind == 'map'}
+				<div class="h-full">
+					<MapResult
+						lat={result.map.lat}
+						lon={result.map.lon}
+						zoom={result.map.zoom}
+						markers={result.map.markers}
+					/>
 				</div>
 			{:else if !forceJson && resultKind == 'png'}
 				<div class="h-full">
