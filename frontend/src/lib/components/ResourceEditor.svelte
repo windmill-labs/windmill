@@ -8,15 +8,16 @@
 	import Required from './Required.svelte'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import autosize from 'svelte-autosize'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
-	import { Save } from 'lucide-svelte'
+	import { Pen, Save } from 'lucide-svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import autosize from '$lib/autosize'
+	import GfmMarkdown from './GfmMarkdown.svelte'
 
 	let path = ''
 	let initialPath = ''
@@ -33,6 +34,7 @@
 	let linkedVars: string[] = []
 	let drawer: Drawer
 	let resourceTypeInfo: ResourceType | undefined = undefined
+	let renderDescription = true
 
 	let rawCode: string | undefined = undefined
 
@@ -57,6 +59,7 @@
 		linkedVars = Object.entries(args)
 			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
 			.map(([k, _]) => k)
+		renderDescription = false
 	}
 
 	async function editResource(): Promise<void> {
@@ -154,10 +157,35 @@
 					/>
 				</div>
 				{#if !emptyString(resourceTypeInfo?.description)}
-					<h3 class="mt-4 mb-2">{resourceTypeInfo?.name} description</h3>
+					<h4 class="mt-4 mb-2">{resourceTypeInfo?.name} description</h4>
 					<div class="text-sm">
 						<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
 					</div>
+				{/if}
+				<h4 class="mt-4 inline-flex items-center gap-4"
+					>Resource description <Required required={false} />
+					{#if can_write}
+						<div class="flex gap-1 items-center">
+							<Toggle size="xs" bind:checked={renderDescription} />
+							<Pen size={14} />
+						</div>
+					{/if}</h4
+				>
+
+				{#if can_write && renderDescription}
+					<div>
+						<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
+						<textarea
+							disabled={!can_write}
+							use:autosize
+							bind:value={description}
+							placeholder={DESCRIPTION_PLACEHOLDER}
+						/>
+					</div>
+				{:else if description == undefined || description == ''}
+					<div class="text-sm text-tertiary">No description provided</div>
+				{:else}
+					<GfmMarkdown md={description} />
 				{/if}
 				<div class="flex w-full justify-between max-w-lg items-center mt-4">
 					<Toggle
@@ -204,14 +232,6 @@
 						</div>
 					{/if}
 				</div>
-				<h3 class="mt-4">Description <Required required={false} /> </h3>
-				<textarea
-					type="text"
-					disabled={!can_write}
-					use:autosize
-					bind:value={description}
-					placeholder={DESCRIPTION_PLACEHOLDER}
-				/>
 			</div>
 		</div>
 		<svelte:fragment slot="actions">

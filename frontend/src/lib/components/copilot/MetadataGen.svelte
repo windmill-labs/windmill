@@ -6,7 +6,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import type { FlowValue } from '$lib/gen'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
@@ -223,7 +223,7 @@ Generate a description for the flow below:
 	}}
 >
 	<div
-		class={'absolute left-[0.5rem] top-[0.3rem] flex flex-row  gap-2 items-start  pointer-events-none'}
+		class={'absolute left-[0.5rem] top-[1.4rem] flex flex-row  gap-2 items-start  pointer-events-none'}
 	>
 		{#if active}
 			<span
@@ -262,16 +262,19 @@ Generate a description for the flow below:
 		{/if}
 	</div>
 	{#if elementType === 'textarea'}
-		<textarea
-			bind:this={el}
-			bind:value={content}
-			use:autosize
-			{...elementProps}
-			placeholder={!active ? elementProps.placeholder : ''}
-			class={active ? '!indent-[3.5rem]' : ''}
-			on:focus={() => (focused = true)}
-			on:blur={() => (focused = false)}
-		/>
+		<div>
+			<div class="flex flex-row-reverse text-2xs text-tertiary -mt-4">GH Markdown</div>
+			<textarea
+				bind:this={el}
+				bind:value={content}
+				use:autosize
+				{...elementProps}
+				placeholder={!active ? elementProps.placeholder : ''}
+				class={active ? '!indent-[3.5rem]' : ''}
+				on:focus={() => (focused = true)}
+				on:blur={() => (focused = false)}
+			/>
+		</div>
 	{:else}
 		<input
 			bind:this={el}

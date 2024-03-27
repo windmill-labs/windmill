@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.298.0](https://github.com/windmill-labs/windmill/compare/v1.297.1...v1.298.0) (2024-03-27)
+
+
+### Features
+
+* add map support in renderer ([240ae93](https://github.com/windmill-labs/windmill/commit/240ae9374885fbc9a679d6c3d18a58f08c344756))
+* approval steps description ([810136a](https://github.com/windmill-labs/windmill/commit/810136a4a405855801c94de66ec8916979701c67))
+
+
+### Bug Fixes
+
+* display approval step at top level regardless of depth ([57a0530](https://github.com/windmill-labs/windmill/commit/57a0530434b06c38a7862537b36ab61f46cdf183))
+* fix clean cache deleting config ([1edf493](https://github.com/windmill-labs/windmill/commit/1edf493e6d76cc4abe9d2e5c8846946a3da6d730))
+
 ## [1.297.1](https://github.com/windmill-labs/windmill/compare/v1.297.0...v1.297.1) (2024-03-26)
 
 

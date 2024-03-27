@@ -8,7 +8,6 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import autosize from 'svelte-autosize'
 	import Toggle from './Toggle.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -17,6 +16,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
 	import { Save } from 'lucide-svelte'
+	import autosize from '$lib/autosize'
 
 	const dispatch = createEventDispatcher()
 
@@ -191,7 +191,6 @@
 							<textarea
 								disabled={!can_write}
 								rows="4"
-								type="text"
 								use:autosize
 								bind:value={variable.value}
 								placeholder="Update variable value"
@@ -223,7 +222,6 @@
 			<Section label="Description">
 				<textarea
 					rows="4"
-					type="text"
 					use:autosize
 					bind:value={variable.description}
 					placeholder="Used for X"
