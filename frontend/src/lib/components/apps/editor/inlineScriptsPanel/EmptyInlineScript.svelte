@@ -229,8 +229,10 @@ state.foo += 1
 // you may also just reassign as next statement 'state.foo = state.foo'
 
 // you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
-// Inputs and display components support settings their value directly (setValue)
+// Inputs and display components support settings their value directly
+// setValue('a', "Bar") 
 // Tables support setting their selected index (setSelectedIndex)
+// all helpers can be found at https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts-helpers
 
 return state.foo`,
 							language: 'frontend',
