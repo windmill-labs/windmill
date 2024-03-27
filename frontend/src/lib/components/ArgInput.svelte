@@ -3,7 +3,6 @@
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import autosize from 'svelte-autosize'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
@@ -28,6 +27,7 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
+	import autosize from '$lib/autosize'
 
 	export let label: string = ''
 	export let value: any
@@ -638,7 +638,6 @@
 									}}
 									use:autosize
 									on:keydown={onKeyDown}
-									type="text"
 									{disabled}
 									class={twMerge(
 										'w-full',

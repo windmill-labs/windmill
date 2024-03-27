@@ -49,7 +49,7 @@
 		Trash
 	} from 'lucide-svelte'
 	import { onMount } from 'svelte'
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import Portal from 'svelte-portal'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
@@ -415,7 +415,6 @@
 			<label>
 				<div class="mb-1 font-semibold text-secondary">Description</div>
 				<textarea
-					type="text"
 					use:autosize
 					autocomplete="off"
 					bind:value={editResourceType.description}
@@ -471,12 +470,7 @@
 			</label>
 			<label>
 				<div class="mb-1 font-semibold text-secondary">Description</div>
-				<textarea
-					type="text"
-					use:autosize
-					autocomplete="off"
-					bind:value={newResourceType.description}
-				/></label
+				<textarea use:autosize autocomplete="off" bind:value={newResourceType.description} /></label
 			>
 			<div>
 				<div class="flex justify-between w-full items-center">

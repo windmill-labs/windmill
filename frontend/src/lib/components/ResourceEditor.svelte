@@ -8,7 +8,6 @@
 	import Required from './Required.svelte'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import autosize from 'svelte-autosize'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -17,6 +16,7 @@
 	import TestConnection from './TestConnection.svelte'
 	import { Save } from 'lucide-svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import autosize from '$lib/autosize'
 
 	let path = ''
 	let initialPath = ''
@@ -206,7 +206,6 @@
 				</div>
 				<h3 class="mt-4">Description <Required required={false} /> </h3>
 				<textarea
-					type="text"
 					disabled={!can_write}
 					use:autosize
 					bind:value={description}
