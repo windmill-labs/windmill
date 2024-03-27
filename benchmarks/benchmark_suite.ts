@@ -9,6 +9,7 @@ import { VERSION } from "./lib.ts";
 type Config = {
   kind: string;
   jobs: number;
+  noSave?: boolean;
 }[];
 
 async function warmUp(
@@ -78,6 +79,10 @@ async function main({
           kind: benchmark.kind,
           jobs: benchmark.jobs,
         });
+
+        if (benchmark.noSave) {
+          continue;
+        }
 
         if (!result) {
           throw new Error("No result returned");

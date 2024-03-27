@@ -1,11 +1,10 @@
 [
   {
-    "graph_title": "warmup",
     "kind": "dedicated",
-    "jobs": 50000
+    "jobs": 50000,
+    "noSave": true
   },
   {
-    "graph_title": "dedicated throughput benchmark",
     "kind": "dedicated",
     "jobs": 90000
   }
