@@ -34,6 +34,9 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
+      - uses: actions/checkout@v4
+        with:
+          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
@@ -75,6 +78,9 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
+      - uses: actions/checkout@v4
+        with:
+          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
@@ -149,6 +155,9 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
+      - uses: actions/checkout@v4
+        with:
+          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
@@ -267,6 +276,9 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
+      - uses: actions/checkout@v4
+        with:
+          ref: benchmarks
       - name: benchmark
         timeout-minutes: 20
         run: deno run --unstable -A -r
