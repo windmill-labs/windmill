@@ -34,6 +34,7 @@
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let hideAsJson: boolean = false
+	export let noControls: boolean = false
 
 	let resultKind:
 		| 'json'
@@ -288,7 +289,7 @@
 				</div>
 				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
 					<slot name="copilot-fix" />
-					{#if !disableExpand}
+					{#if !disableExpand && !noControls}
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
 							><ClipboardCopy size={16} /></button
 						>
@@ -542,11 +543,13 @@
 				{/if}
 			{:else if typeof result == 'string' && result.length > 0}
 				<pre class="text-sm">{result}</pre>
-				<div class="flex">
-					<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
-						<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-					</Button>
-				</div>
+				{#if !noControls}
+					<div class="flex">
+						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+						</Button>
+					</div>
+				{/if}
 			{:else}
 				<Highlight
 					class={forceJson ? '' : 'h-full w-full'}
