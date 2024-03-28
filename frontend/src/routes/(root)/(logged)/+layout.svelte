@@ -19,6 +19,7 @@
 		starStore,
 		superadmin,
 		usageStore,
+		workspaceUsageStore,
 		userStore,
 		workspaceStore,
 		type UserExt,
@@ -117,6 +118,7 @@
 	async function loadUsage() {
 		if (isCloudHosted()) {
 			$usageStore = await UserService.getUsage()
+			$workspaceUsageStore = await WorkspaceService.getUsage({ workspace: $workspaceStore! })
 		}
 	}
 
