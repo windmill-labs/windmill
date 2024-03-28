@@ -21,7 +21,6 @@ use axum::{
     http::{request::Parts, Request, Uri},
     response::{IntoResponse, Response},
 };
-use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
@@ -440,24 +439,6 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     Ok(result)
 }
 
-fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
-    modules
-        .into_iter()
-        .filter_map(|m| match m {
-            FlowStatusModule::Success { job, flow_jobs, .. }
-            | FlowStatusModule::Failure { job, flow_jobs, .. } => {
-                if let Some(flow_jobs) = flow_jobs {
-                    Some(flow_jobs)
-                } else {
-                    Some(vec![job])
-                }
-            }
-            _ => None,
-        })
-        .flatten()
-        .collect::<Vec<_>>()
-}
-
 lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
 }
@@ -487,30 +468,6 @@ pub async fn add_completed_job<
     }
 
     let is_flow = queued_job.is_flow();
-    let duration = if is_flow {
-        let jobs = queued_job.parse_flow_status().map(|s| {
-            let mut modules = s.modules;
-            modules.extend([s.failure_module.module_status]);
-            flatten_jobs(modules)
-        });
-        if let Some(jobs) = jobs {
-            sqlx::query_scalar!(
-                "SELECT SUM(duration_ms) as duration FROM completed_job WHERE id = ANY($1)",
-                jobs.as_slice()
-            )
-            .fetch_one(db)
-            .await
-            .ok()
-            .flatten()
-            .map(|x| x.to_i64())
-            .flatten()
-        } else {
-            tracing::warn!("Could not parse flow status");
-            None
-        }
-    } else {
-        None
-    };
 
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id;
@@ -556,8 +513,8 @@ pub async fn add_completed_job<
                    , tag
                    , priority
                 )
-            VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), COALESCE($25, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $26, $27, $28, $29, $30)
+            VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()), (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000, $7, $8, $9,\
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11 RETURNING duration_ms",
         queued_job.workspace_id,
         queued_job.id,
@@ -583,7 +540,6 @@ pub async fn add_completed_job<
         queued_job.is_flow_step,
         skipped,
         queued_job.language.clone() as Option<ScriptLang>,
-        duration as Option<i64>,
         queued_job.email,
         queued_job.visible_to_owner,
         if mem_peak > 0 { Some(mem_peak) } else { None },
