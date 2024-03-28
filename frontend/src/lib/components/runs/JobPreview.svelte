@@ -62,10 +62,7 @@
 				</Badge>
 			{/if}
 			{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-				<DurationMs
-					flow={job.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
-					duration_ms={job.duration_ms}
-				/>
+				<DurationMs duration_ms={job.duration_ms} />
 			{/if}
 			{#if job?.['mem_peak']}
 				<Badge large>
