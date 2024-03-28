@@ -50,24 +50,20 @@
 	{#if panes.length == 0}
 		<span class="text-xs text-tertiary">No panes</span>
 	{/if}
-	<div class="w-full flex gap-2 flex-col mt-2">
+	<div class="w-full flex gap-2 flex-col">
 		{#each panes as value, index (index)}
-			<div class="w-full flex flex-row gap-2 items-center relative">
+			<div class="w-full flex flex-row gap-1 items-center relative">
 				<input on:keydown|stopPropagation type="number" bind:value />
 
-				<div class="absolute top-1 right-1">
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						on:click={() => {
-							deleteSubgrid(index)
-						}}
-						iconOnly
-						btnClasses="!text-red-500"
-						startIcon={{ icon: Trash }}
-					/>
-				</div>
+				<Button
+					size="xs"
+					color="light"
+					on:click={() => {
+						deleteSubgrid(index)
+					}}
+					iconOnly
+					startIcon={{ icon: Trash }}
+				/>
 			</div>
 		{/each}
 		<Button
