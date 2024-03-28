@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CompletedJob, Job, JobService, Preview, type WorkflowStatus } from '$lib/gen'
+	import { CompletedJob, Job, JobService, OpenAPI, Preview, type WorkflowStatus } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -211,12 +211,10 @@
 									<button
 										class="text-xs"
 										on:click|preventDefault={async () => {
-											const logs = (
-												await JobService.getCompletedJob({
-													workspace: $workspaceStore ?? 'NO_W',
-													id
-												})
-											).logs
+											const logs = await (
+												await fetch(OpenAPI.BASE + `/w/${$workspaceStore}/jobs_u/get_logs/${id}`)
+											).text()
+											console.log(logs)
 											openDrawer({ mode: 'plain', content: String(logs), title: `Logs for ${id}` })
 										}}
 									>
