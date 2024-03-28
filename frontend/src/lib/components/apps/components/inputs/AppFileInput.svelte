@@ -14,7 +14,7 @@
 	export let customCss: ComponentCustomCSS<'fileinputcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	let acceptedFileTypes: string[] | undefined = undefined
 	let allowMultiple: boolean | undefined = undefined
@@ -38,6 +38,14 @@
 	}
 
 	let css = initCss($app.css?.fileinputcomponent, customCss)
+
+	let fileInput: FileInput | undefined = undefined
+
+	$componentControl[id] = {
+		clearFiles: () => {
+			fileInput?.clearFiles()
+		}
+	}
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -71,6 +79,7 @@
 {#if render}
 	<div class="w-full h-full p-1">
 		<FileInput
+			bind:this={fileInput}
 			accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}
 			multiple={allowMultiple}
 			convertTo="base64"
