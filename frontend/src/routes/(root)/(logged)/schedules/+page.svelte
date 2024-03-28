@@ -314,7 +314,7 @@
 											{@html marked}
 										</span>
 									{:else}
-										{summary ?? script_path}
+										{summary || script_path}
 									{/if}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
