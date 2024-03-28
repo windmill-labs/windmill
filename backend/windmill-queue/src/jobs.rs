@@ -21,7 +21,6 @@ use axum::{
     http::{request::Parts, Request, Uri},
     response::{IntoResponse, Response},
 };
-use bigdecimal::ToPrimitive;
 use chrono::{DateTime, Duration, Utc};
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
@@ -438,24 +437,6 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     )
     .await?;
     Ok(result)
-}
-
-fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
-    modules
-        .into_iter()
-        .filter_map(|m| match m {
-            FlowStatusModule::Success { job, flow_jobs, .. }
-            | FlowStatusModule::Failure { job, flow_jobs, .. } => {
-                if let Some(flow_jobs) = flow_jobs {
-                    Some(flow_jobs)
-                } else {
-                    Some(vec![job])
-                }
-            }
-            _ => None,
-        })
-        .flatten()
-        .collect::<Vec<_>>()
 }
 
 lazy_static::lazy_static! {
