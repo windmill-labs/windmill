@@ -110,34 +110,42 @@
 					<Pane>
 						{#if previewJob != undefined && 'result' in previewJob}
 							<div class="relative w-full h-full p-2">
-								<DisplayResult
-									workspaceId={previewJob?.workspace_id}
-									jobId={previewJob?.id}
-									result={previewJob.result}
-								>
-									<svelte:fragment slot="copilot-fix">
-										{#if lang && editor && diffEditor && args && previewJob?.result?.error}
-											<ScriptFix
-												error={JSON.stringify(previewJob.result.error)}
-												{lang}
-												{editor}
-												{diffEditor}
-												{args}
-											/>
-										{/if}
-									</svelte:fragment>
-								</DisplayResult>
+								<div class="relative">
+									<DisplayResult
+										workspaceId={previewJob?.workspace_id}
+										jobId={previewJob?.id}
+										result={previewJob.result}>
+										<svelte:fragment slot="copilot-fix">
+											{#if lang && editor && diffEditor && args && previewJob?.result?.error}
+												<ScriptFix
+													error={JSON.stringify(previewJob.result.error)}
+													{lang}
+													{editor}
+													{diffEditor}
+													{args}
+												/>
+											{/if}
+										</svelte:fragment>
+									</DisplayResult>
+								</div>
 							</div>
 						{:else}
-							<div class="text-sm text-tertiary p-2">
-								{#if previewIsLoading}
-									<Loader2 class="animate-spin" />
-								{:else}
-									Test to see the result here
-								{/if}
+							<div class="text-sm text-tertiary p-2 flex justify-between items-center">
+								<span>
+									{#if previewIsLoading}
+										<Loader2 class="animate-spin" />
+									{:else}
+										Test to see the result here
+									{/if}
+								</span>
+								<button
+									class="px-4 py-2 text-xs font-normal"
+									on:click={() => window.open('https://www.windmill.dev/docs/core_concepts/rich_display_rendering', '_blank')}>
+									Rich Display
+								</button>
 							</div>
 						{/if}
-					</Pane>
+					</Pane>					
 				</Splitpanes>
 			</SplitPanesWrapper>
 		{/if}
