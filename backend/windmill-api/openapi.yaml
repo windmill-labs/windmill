@@ -1958,7 +1958,7 @@ paths:
   /w/{workspace}/workspaces/usage:
     get:
       summary: get usage
-      operationId: getUsage
+      operationId: getWorkspaceUsage
       tags:
         - workspace
       parameters:
