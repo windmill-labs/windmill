@@ -43,7 +43,7 @@ WORKDIR /windmill
 ENV SQLX_OFFLINE=true
 ENV CARGO_INCREMENTAL=1
 
-FROM node:20-alpine as frontend
+FROM node:21-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
