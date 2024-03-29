@@ -1955,6 +1955,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/LargeFileStorage"
 
+  /w/{workspace}/workspaces/usage:
+    get:
+      summary: get usage
+      operationId: getWorkspaceUsage
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: usage
+          content:
+            text/plain:
+              schema:
+                type: number
+
   /w/{workspace}/users/list:
     get:
       summary: list users
