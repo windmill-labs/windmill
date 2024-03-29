@@ -167,6 +167,7 @@
 		(schemaStripped = stripSchema(fields, $stateId))
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
+		console.log('Strip schema', inputs)
 		if (inputs === undefined) {
 			return emptySchema()
 		}
@@ -665,6 +666,7 @@
 			: 'invisible h-0 overflow-hidden'}"
 		style={wrapperStyle}
 	>
+		<!-- {Object.keys(schemaStripped?.properties ?? {}).length > 0} -->
 		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm
