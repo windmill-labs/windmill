@@ -31,7 +31,8 @@
 	const plans = {
 		Free: [
 			'Users use their individual global free-tier quotas when doing executions in this workspace',
-			'<b>1 000</b> free global executions per-user per month'
+			'<b>1 000</b> free global executions per-user per month',
+			'<b>1 000</b> free executions per workspace per month'
 		],
 		Team: [
 			`<b>$10/mo</b> per seat`,

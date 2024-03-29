@@ -2590,17 +2590,15 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     #[cfg(feature = "enterprise")]
     if *CLOUD_HOSTED {
-        let premium_workspace = sqlx::query_scalar!(
-            "SELECT premium FROM workspace WHERE id = $1",
-            workspace_id
-        )
-        .fetch_one(_db)
-        .await
-        .map_err(|e| {
-            Error::InternalErr(format!(
-                "fetching if {workspace_id} is premium and overquota: {e}"
-            ))
-        })?;
+        let premium_workspace =
+            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
+                .fetch_one(_db)
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "fetching if {workspace_id} is premium and overquota: {e}"
+                    ))
+                })?;
 
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
@@ -2617,7 +2615,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 .fetch_one(_db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?;
-            
+
             let user_usage = if !premium_workspace {
                 Some(sqlx::query_scalar!(
                     "INSERT INTO usage (id, is_workspace, month_, usage)
@@ -2686,7 +2684,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                 )));
                 }
-                if workspace_usage > MAX_FREE_EXECS
+                if workspace_id != "demo"
+                    && workspace_usage > MAX_FREE_EXECS
                     && !matches!(job_payload, JobPayload::Dependencies { .. })
                     && !matches!(job_payload, JobPayload::FlowDependencies { .. })
                     && !matches!(job_payload, JobPayload::AppDependencies { .. })
@@ -2707,11 +2706,13 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 )));
                 }
 
-                let in_queue_workspace =
-                    sqlx::query_scalar!("SELECT COUNT(id) FROM queue WHERE workspace_id = $1", workspace_id)
-                        .fetch_one(_db)
-                        .await?
-                        .unwrap_or(0);
+                let in_queue_workspace = sqlx::query_scalar!(
+                    "SELECT COUNT(id) FROM queue WHERE workspace_id = $1",
+                    workspace_id
+                )
+                .fetch_one(_db)
+                .await?
+                .unwrap_or(0);
 
                 if in_queue_workspace > MAX_FREE_EXECS.into() {
                     return Err(error::Error::BadRequest(format!(

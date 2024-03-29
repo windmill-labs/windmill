@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-	import { userStore, usageStore, workspaceUsageStore, isPremiumStore } from '$lib/stores'
+	import {
+		userStore,
+		usageStore,
+		workspaceUsageStore,
+		isPremiumStore,
+		workspaceStore
+	} from '$lib/stores'
 	import Menu from '../common/menu/MenuV2.svelte'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
@@ -105,9 +111,11 @@
 					<div class="w-full bg-gray-200 h-1">
 						<div class="bg-blue-400 h-1" style="width: {Math.min($usageStore, 1000) / 10}%" />
 					</div>
-					<span class="text-secondary block w-full text-left px-4 py-2 text-sm"
-						>{$workspaceUsageStore}/1000 workspace execs</span
-					>
+					{#if $workspaceStore != 'demo'}
+						<span class="text-secondary block w-full text-left px-4 py-2 text-xs"
+							>{$workspaceUsageStore}/1000 free workspace execs</span
+						>
+					{/if}
 					<div class="w-full bg-gray-200 h-1">
 						<div
 							class="bg-blue-400 h-1"
