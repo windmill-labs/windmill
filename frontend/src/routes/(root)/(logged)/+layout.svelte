@@ -125,7 +125,7 @@
 
 	async function loadHubBaseUrl() {
 		$hubBaseUrlStore =
-			(await SettingService.getGlobal({ key: 'hub_base_url' })) ?? 'https://hub.windmill.dev'
+			(await SettingService.getGlobal({ key: 'hub_base_url' })) || 'https://hub.windmill.dev'
 	}
 
 	async function loadFavorites() {

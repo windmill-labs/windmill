@@ -24,7 +24,7 @@ async function pull(opts: GlobalOptions) {
   const hubBaseUrl =
     (await SettingService.getGlobal({
       key: "hubBaseUrl",
-    })) ?? "https://hub.windmill.dev";
+    })) || "https://hub.windmill.dev";
 
   const headers = {
     Accept: "application/json",
