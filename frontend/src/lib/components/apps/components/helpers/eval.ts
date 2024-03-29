@@ -141,7 +141,6 @@ export async function eval_like(
 			validateAll?: () => void
 			clearFiles?: () => void
 			showToast?: (message: string, error?: boolean) => void
-			recompute?: () => void
 		}
 	>,
 	worldStore: World | undefined,
