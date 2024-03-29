@@ -69,6 +69,8 @@ lazy_static::lazy_static! {
 
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("https://hub.windmill.dev".to_string()));
 }
 
 pub async fn shutdown_signal(

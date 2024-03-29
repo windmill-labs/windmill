@@ -11,6 +11,7 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
 	import { cleanExpr } from '$lib/utils'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
@@ -34,7 +35,7 @@
 					<a
 						rel="noreferrer"
 						target="_blank"
-						href={scriptPathToHref(stepDetail?.value?.path ?? '')}
+						href={scriptPathToHref(stepDetail?.value?.path ?? '', $hubBaseUrlStore)}
 						class=""
 					>
 						<IconedPath path={stepDetail?.value?.path ?? ''} />
@@ -52,7 +53,7 @@
 							class="w-full h-full text-sm"
 							title="embedded script from hub"
 							frameborder="0"
-							src="https://hub.windmill.dev/embed/script/{stepDetail.value?.path?.substring(4)}"
+							src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
 						/>
 					</div>
 				{/if}
@@ -116,7 +117,7 @@
 					<a
 						rel="noreferrer"
 						target="_blank"
-						href={scriptPathToHref(stepDetail?.value?.path ?? '')}
+						href={scriptPathToHref(stepDetail?.value?.path ?? '', $hubBaseUrlStore)}
 						class=""
 					>
 						<IconedPath path={stepDetail?.value?.path ?? ''} />
@@ -166,7 +167,7 @@
 						class="w-full grow text-sm"
 						title="embedded script from hub"
 						frameborder="0"
-						src="https://hub.windmill.dev/embed/script/{stepDetail.value?.path?.substring(4)}"
+						src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
 					/>
 				</div>
 			{:else}

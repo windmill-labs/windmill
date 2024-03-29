@@ -1,21 +1,19 @@
 #[cfg(feature = "embedding")]
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
-#[cfg(feature = "embedding")]
 use anyhow::{anyhow, Error, Result};
+#[cfg(feature = "embedding")]
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use windmill_common::HUB_BASE_URL;
 
 use axum::Router;
 
 #[cfg(feature = "embedding")]
 use axum::{
     extract::{Path, Query},
-    Json, 
+    Json,
 };
-
 
 #[cfg(feature = "embedding")]
-use axum::{
-    routing::get, Extension
-};
+use axum::{routing::get, Extension};
 #[cfg(feature = "embedding")]
 use candle_core::{Device, Tensor};
 #[cfg(feature = "embedding")]
@@ -45,7 +43,6 @@ use windmill_common::utils::http_get_from_hub;
 use windmill_common::error::JsonResult;
 
 #[cfg(feature = "embedding")]
-
 use crate::{resources::ResourceType, HTTP_CLIENT};
 
 #[cfg(feature = "embedding")]
@@ -88,7 +85,6 @@ async fn query_hub_scripts(
     }
 }
 
-
 #[cfg(feature = "embedding")]
 #[derive(Deserialize)]
 struct ResourceTypesQuery {
@@ -122,7 +118,6 @@ async fn query_resource_types(
         ))
     }
 }
-
 
 #[cfg(feature = "embedding")]
 #[derive(Deserialize, Debug, Clone)]
@@ -301,7 +296,7 @@ impl EmbeddingsDb {
                 tracing::warn!("Failed to get scripts embeddings from bucket, trying hub...");
                 http_get_from_hub(
                     &HTTP_CLIENT,
-                    "https://hub.windmill.dev/scripts/embeddings",
+                    &format!("{}/scripts/embeddings", *HUB_BASE_URL.read().await),
                     false,
                     None,
                     pg_db,
@@ -348,7 +343,7 @@ impl EmbeddingsDb {
             tracing::warn!("Failed to get resource types embeddings from bucket, trying hub...");
             http_get_from_hub(
                 &HTTP_CLIENT,
-                "https://hub.windmill.dev/resource_types/embeddings",
+                &format!("{}/resource_types/embeddings", *HUB_BASE_URL.read().await),
                 false,
                 None,
                 pg_db,
@@ -618,13 +613,12 @@ pub fn global_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) 
     }
 }
 
-
 #[cfg(not(feature = "embedding"))]
 pub fn workspaced_service(_embeddings_db: Option<()>) -> Router {
-        Router::new()
+    Router::new()
 }
 
 #[cfg(not(feature = "embedding"))]
 pub fn global_service(_embeddings_db: Option<()>) -> Router {
-        Router::new()
+    Router::new()
 }

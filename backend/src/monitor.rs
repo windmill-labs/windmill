@@ -24,8 +24,8 @@ use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
@@ -37,7 +37,7 @@ use windmill_common::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
     },
-    BASE_URL, DB, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    BASE_URL, DB, HUB_BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -134,6 +134,10 @@ pub async fn initial_load(
 
     if let Err(e) = reload_base_url_setting(db).await {
         tracing::error!("Error reloading base url: {:?}", e)
+    }
+
+    if let Err(e) = reload_hub_base_url_setting(db).await {
+        tracing::error!("Error reloading hub base url: {:?}", e)
     }
 
     #[cfg(feature = "parquet")]
@@ -1023,5 +1027,32 @@ async fn cancel_zombie_flow_job(
     .execute(&mut *ntx)
     .await?;
     ntx.commit().await?;
+    Ok(())
+}
+
+pub async fn reload_hub_base_url_setting(db: &DB) -> error::Result<()> {
+    let hub_base_url = load_value_from_global_settings(db, HUB_BASE_URL_SETTING).await?;
+
+    let base_url = if let Some(q) = hub_base_url {
+        if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
+            if v != "" {
+                v
+            } else {
+                "https://hub.windmill.dev".to_string()
+            }
+        } else {
+            tracing::error!(
+                "Could not parse hub_base_url setting as a string, found: {:#?}",
+                &q
+            );
+            "https://hub.windmill.dev".to_string()
+        }
+    } else {
+        "https://hub.windmill.dev".to_string()
+    };
+
+    let mut l = HUB_BASE_URL.write().await;
+    *l = base_url;
+
     Ok(())
 }

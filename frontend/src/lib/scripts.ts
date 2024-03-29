@@ -79,9 +79,9 @@ export async function loadSchemaFlow(path: string): Promise<Schema> {
 	return flow.schema as any
 }
 
-export function scriptPathToHref(path: string): string {
+export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	if (path.startsWith('hub/')) {
-		return 'https://hub.windmill.dev/from_version/' + path.substring(4)
+		return hubBaseUrl + '/from_version/' + path.substring(4)
 	} else {
 		return `/scripts/get/${path}?workspace=${get(workspaceStore)}`
 	}

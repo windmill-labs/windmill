@@ -7,6 +7,7 @@
 		OpenAPI,
 		RawAppService,
 		ScriptService,
+		SettingService,
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
@@ -22,7 +23,8 @@
 		userStore,
 		workspaceStore,
 		type UserExt,
-		defaultScripts
+		defaultScripts,
+		hubBaseUrlStore
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
@@ -112,12 +114,18 @@
 		loadFavorites()
 		loadUsage()
 		syncTutorialsTodos()
+		loadHubBaseUrl()
 	}
 
 	async function loadUsage() {
 		if (isCloudHosted()) {
 			$usageStore = await UserService.getUsage()
 		}
+	}
+
+	async function loadHubBaseUrl() {
+		$hubBaseUrlStore =
+			(await SettingService.getGlobal({ key: 'hub_base_url' })) ?? 'https://hub.windmill.dev'
 	}
 
 	async function loadFavorites() {

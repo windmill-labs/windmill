@@ -21,6 +21,11 @@ async function pull(opts: GlobalOptions) {
     key: "uid",
   });
 
+  const hubBaseUrl =
+    (await SettingService.getGlobal({
+      key: "hubBaseUrl",
+    })) ?? "https://hub.windmill.dev";
+
   const headers = {
     Accept: "application/json",
     "X-email": userInfo.email,
@@ -40,20 +45,17 @@ async function pull(opts: GlobalOptions) {
     created_by: string;
     created_at: Date;
     comments: never[];
-  }[] = await fetch("https://hub.windmill.dev/resource_types/list", {
+  }[] = await fetch(hubBaseUrl + "/resource_types/list", {
     headers,
   })
     .then((r) => r.json())
     .then((list: { id: number; name: string }[]) =>
       list.map((x) =>
-        fetch(
-          "https://hub.windmill.dev/resource_types/" + x.id + "/" + x.name,
-          {
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        )
+        fetch(hubBaseUrl + "/resource_types/" + x.id + "/" + x.name, {
+          headers: {
+            Accept: "application/json",
+          },
+        })
       )
     )
     .then((x) => Promise.all(x))

@@ -31,6 +31,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
+use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
@@ -167,7 +168,10 @@ async fn list_flows(
 async fn list_hub_flows(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        "https://hub.windmill.dev/searchFlowData?approved=true",
+        &format!(
+            "{}/searchFlowData?approved=true",
+            *HUB_BASE_URL.read().await
+        ),
         None,
         &db,
     )
@@ -199,7 +203,7 @@ pub async fn get_hub_flow_by_id(
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("https://hub.windmill.dev/flows/{id}/json"),
+        &format!("{}/flows/{}/json", *HUB_BASE_URL.read().await, id),
         false,
         None,
         &db,
