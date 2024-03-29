@@ -236,7 +236,7 @@ declare function invalidate(id: string, key: number, error: string): void;
 
 /** validate all form's properties
  * @param id component's id
- */
+ */	
 declare function validateAll(id: string, key: number): void;
 
 /** Clear the files of a file input component
@@ -251,6 +251,11 @@ declare function showToast(message: string, error: boolean): void;
 `
 		: ''
 }
+
+/** refresg the component
+ * @param id component's id
+ */
+declare function refresh(id: string): void;
 
 /** The iterator within the context of a list */
 declare const iter: {index: number, value: any};
