@@ -74,41 +74,16 @@
 			<Pane size={frontendJob ? 70 : 50} minSize={10} class="text-sm text-tertiary">
 				{#if frontendJob}
 					<pre class="overflow-x-auto break-words relative h-full px-2"
-						><DisplayResult result={frontendJob}>
-                    
-                                                        <!-- <svelte:fragment slot="copilot-fix">
-                                                            {#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
-                                                                    <ScriptFix
-                                                                        error={JSON.stringify(testJob.result.error)}
-                                                                        {lang}
-                                                                        {editor}
-                                                                        {diffEditor}
-                                                                        args={stepArgs}
-                                                                    />
-                                                                {/if}
-                                                        </svelte:fragment> -->
-                                                    </DisplayResult>
-                                                </pre>
+						><DisplayResult result={frontendJob} /></pre
+					>
 				{:else if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<pre class="overflow-x-auto break-words relative h-full px-2"
 						><DisplayResult
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
-							result={testJob.result}>
-                            
-																<!-- <svelte:fragment slot="copilot-fix">
-																	{#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
-																			<ScriptFix
-																				error={JSON.stringify(testJob.result.error)}
-																				{lang}
-																				{editor}
-																				{diffEditor}
-																				args={stepArgs}
-																			/>
-																		{/if}
-																</svelte:fragment> -->
-															</DisplayResult>
-														</pre>
+							result={testJob.result}
+						/></pre
+					>
 				{:else}
 					<div class="p-2">
 						{#if testIsLoading}
