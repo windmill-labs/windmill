@@ -82,12 +82,6 @@ const validateAll = {
 	example: 'validateAll(id: string, key: string)'
 }
 
-const refresh = {
-	title: 'refresh',
-	description: 'Refresh the data of a Database Studio',
-	example: 'refresh(id: string)'
-}
-
 export function getComponentControl(type: keyof typeof components): Array<ComponentFunction> {
 	switch (type) {
 		case 'tabscomponent':
@@ -133,7 +127,7 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'tablecomponent':
 			return [setSelectedIndex]
 		case 'dbexplorercomponent':
-			return [refresh]
+			return [recompute]
 		default:
 			if (components[type].initialData['componentInput']) {
 				return [recompute]

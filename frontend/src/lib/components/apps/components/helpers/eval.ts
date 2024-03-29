@@ -25,7 +25,7 @@ function create_context_function_template(
 ) {
 	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
-return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, refresh) {
+return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast) {
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
@@ -60,8 +60,7 @@ type WmFunctor = (
 	invalidate,
 	validateAll,
 	clearFiles,
-	showToast,
-	refresh
+	showToast
 ) => Promise<any>
 
 let functorCache: Record<number, WmFunctor> = {}
@@ -142,7 +141,6 @@ export async function eval_like(
 			validateAll?: () => void
 			clearFiles?: () => void
 			showToast?: (message: string, error?: boolean) => void
-			refresh?: () => void
 		}
 	>,
 	worldStore: World | undefined,
@@ -223,9 +221,6 @@ export async function eval_like(
 		},
 		(message, error) => {
 			sendUserToast(message, error)
-		},
-		(id) => {
-			controlComponents[id]?.refresh?.()
 		}
 	)
 }

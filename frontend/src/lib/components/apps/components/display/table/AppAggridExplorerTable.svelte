@@ -31,7 +31,7 @@
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
-	export let refresh: () => void = () => {}
+	export let recompute: () => void = () => {}
 
 	const { app, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -229,8 +229,8 @@
 							setSelectedIndex: (index) => {
 								e.api.getRowNode(index.toString())?.setSelected(true)
 							},
-							refresh: () => {
-								refresh()
+							recompute: () => {
+								recompute()
 							}
 						}
 						api = e.api
