@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		isPremiumStore,
+		superadmin,
+		userStore,
+		userWorkspaces,
+		workspaceStore,
+		workspaceUsageStore
+	} from '$lib/stores'
 	import { Building, Plus, Settings } from 'lucide-svelte'
 
 	import Menu from '../common/menu/MenuV2.svelte'
@@ -10,6 +17,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import MenuButton from './MenuButton.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import { isCloudHosted } from '$lib/cloud'
 
 	export let isCollapsed: boolean = false
 
@@ -103,6 +111,31 @@
 			</div>
 		{/if}
 	</div>
+	{#if isCloudHosted() && !$isPremiumStore}
+		<div class="py-1" role="none">
+			{#if $workspaceStore != 'demo'}
+				<span class="text-secondary block w-full text-left px-4 py-2 text-xs"
+					>{$workspaceUsageStore}/1000 free workspace execs</span
+				>
+			{/if}
+			<div class="w-full bg-gray-200 h-1">
+				<div class="bg-blue-400 h-1" style="width: {Math.min($workspaceUsageStore, 1000) / 10}%" />
+			</div>
+			{#if $userStore?.is_admin}
+				<button
+					type="button"
+					class="text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+					role="menuitem"
+					tabindex="-1"
+					on:click={() => {
+						goto('/workspace_settings?tab=premium')
+					}}
+				>
+					Upgrade
+				</button>
+			{/if}
+		</div>
+	{/if}
 	{#if $enterpriseLicense}
 		<MultiplayerMenu />
 	{/if}
