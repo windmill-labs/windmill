@@ -31,7 +31,6 @@
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
-	export let recompute: () => void = () => {}
 
 	const { app, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -228,9 +227,6 @@
 							agGrid: { api: e.api, columnApi: e.columnApi },
 							setSelectedIndex: (index) => {
 								e.api.getRowNode(index.toString())?.setSelected(true)
-							},
-							recompute: () => {
-								recompute()
 							}
 						}
 						api = e.api

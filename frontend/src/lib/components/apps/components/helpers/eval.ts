@@ -141,6 +141,7 @@ export async function eval_like(
 			validateAll?: () => void
 			clearFiles?: () => void
 			showToast?: (message: string, error?: boolean) => void
+			recompute?: () => void
 		}
 	>,
 	worldStore: World | undefined,
@@ -184,6 +185,13 @@ export async function eval_like(
 			controlComponents[id]?.setTab?.(index)
 		},
 		(id) => {
+			// Check for the existence of sub-runnables:
+			// For example a_count for Database Studio
+
+			if (runnableComponents[`${id}_count`]?.cb) {
+				runnableComponents[`${id}_count`]?.cb?.forEach((f) => f())
+			}
+
 			runnableComponents[id]?.cb?.forEach((f) => f())
 		},
 		(id) => {
