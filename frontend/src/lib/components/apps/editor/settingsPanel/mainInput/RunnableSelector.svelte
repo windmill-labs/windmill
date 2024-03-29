@@ -46,7 +46,7 @@
 			type: 'runnableByPath',
 			path,
 			runType: 'script',
-			schema,
+			schema: schema.schema,
 			name: defaultIfEmptyString(schema.summary, path)
 		} as const
 
