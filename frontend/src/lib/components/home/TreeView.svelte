@@ -51,7 +51,9 @@
 				</div>
 
 				<div>
-					{#if depth === 0}f/{/if}{item.folderName}
+					<span class="whitespace-nowrap"
+						>{#if depth === 0}f/{/if}{item.folderName}</span
+					>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
 						({pluralize(item.items.length, ' item')})
 					</div>

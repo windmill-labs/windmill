@@ -51,7 +51,7 @@
 			{/if}
 		{/each}
 	</div>
-	{#if groupedItems.length > 30 && nbDisplayed < groupedItems.length}
+	{#if groupedItems.length > 15 && nbDisplayed < groupedItems.length}
 		<span class="text-xs"
 			>{nbDisplayed} root nodes out of {groupedItems.length}
 			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
