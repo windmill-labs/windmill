@@ -113,7 +113,7 @@ lazy_static::lazy_static! {
 #[cfg(feature = "enterprise")]
 const MAX_FREE_EXECS: i32 = 1000;
 #[cfg(feature = "enterprise")]
-const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
+const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
 const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
