@@ -117,10 +117,13 @@
 				<span class="text-secondary block w-full text-left px-4 py-2 text-xs"
 					>{$workspaceUsageStore}/1000 free workspace execs</span
 				>
+				<div class="w-full bg-gray-200 h-1">
+					<div
+						class="bg-blue-400 h-1"
+						style="width: {Math.min($workspaceUsageStore, 1000) / 10}%"
+					/>
+				</div>
 			{/if}
-			<div class="w-full bg-gray-200 h-1">
-				<div class="bg-blue-400 h-1" style="width: {Math.min($workspaceUsageStore, 1000) / 10}%" />
-			</div>
 			{#if $userStore?.is_admin}
 				<button
 					type="button"
