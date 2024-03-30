@@ -167,7 +167,6 @@
 		(schemaStripped = stripSchema(fields, $stateId))
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
-		console.log('Strip schema', inputs)
 		if (inputs === undefined) {
 			return emptySchema()
 		}
@@ -179,6 +178,8 @@
 			console.warn('Error loading schema')
 			return emptySchema()
 		}
+		// schema.order = Object.keys(fields)
+		// console.log(schema.order)
 
 		// Remove hidden static inputs
 		Object.keys(inputs ?? {}).forEach((key: string) => {

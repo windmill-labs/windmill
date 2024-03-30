@@ -40,6 +40,9 @@
 			let { schema } = await getScriptByPath(x.path)
 			if (!deepEqual(x.schema, schema)) {
 				x.schema = schema
+				if (!x.schema.order) {
+					x.schema.order = Object.keys(x.schema.properties ?? {})
+				}
 				fields = computeFields(schema, false, fields)
 			}
 		} catch (e) {
@@ -53,6 +56,9 @@
 			const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
 			if (!deepEqual(x.schema, schema)) {
 				x.schema = schema
+				if (!x.schema.order) {
+					x.schema.order = Object.keys(x.schema.properties ?? {})
+				}
 				fields = computeFields(schema, false, fields)
 			}
 		} catch (e) {
