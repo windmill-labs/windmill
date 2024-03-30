@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.299.0](https://github.com/windmill-labs/windmill/compare/v1.298.0...v1.299.0) (2024-03-30)
+
+
+### Features
+
+* add workspace free-tier usage ([#3489](https://github.com/windmill-labs/windmill/issues/3489)) ([b4ffb50](https://github.com/windmill-labs/windmill/commit/b4ffb500ba5c58932d9fe508186f8fbced3f3b71))
+* **frontend:** add a refresh component control to the DB Studio ([#3490](https://github.com/windmill-labs/windmill/issues/3490)) ([d713566](https://github.com/windmill-labs/windmill/commit/d71356695f981c5861ad9cb20223e1b096d1a34d))
+* **frontend:** Add support for clearFiles in the file input component ([#3483](https://github.com/windmill-labs/windmill/issues/3483)) ([f9a5bce](https://github.com/windmill-labs/windmill/commit/f9a5bcee4c0bf75b07ac7e15a19c420db81eb738))
+* support gh markdown for script, flows, resource descriptions ([6cb2d20](https://github.com/windmill-labs/windmill/commit/6cb2d20b423cfd9a4af072a561bf8583a54d153b))
+
+
+### Bug Fixes
+
+* benchmark action single push ([#3480](https://github.com/windmill-labs/windmill/issues/3480)) ([b3ed678](https://github.com/windmill-labs/windmill/commit/b3ed6782f612091af881dc5b49ca9bba814e5a26))
+* db studio multiple schemas support ([#3479](https://github.com/windmill-labs/windmill/issues/3479)) ([6489697](https://github.com/windmill-labs/windmill/commit/64896971bb17186b68a0f98e1a40eb1e585d3352))
+* **frontend:** Fix the pane delete button ([#3482](https://github.com/windmill-labs/windmill/issues/3482)) ([7b3b96e](https://github.com/windmill-labs/windmill/commit/7b3b96ea088720af96db0aa0da3395f44725181e))
+* make submit form order static ([951758f](https://github.com/windmill-labs/windmill/commit/951758ffb631b313d0f033bb40dbe4f16383dfb7))
+* show script path when schedule summary is empty ([#3487](https://github.com/windmill-labs/windmill/issues/3487)) ([3c38491](https://github.com/windmill-labs/windmill/commit/3c384910c16a7bfa3c8c9aade8ca8f602ac093b8))
+* show start to finish time for flows instead of cumulative ([#3486](https://github.com/windmill-labs/windmill/issues/3486)) ([e3a636a](https://github.com/windmill-labs/windmill/commit/e3a636ab178ea6d1d6a49040325081ebb23fa3e7))
+* tree view show more ([a61b14c](https://github.com/windmill-labs/windmill/commit/a61b14cfd40544b2934f8472bdd82c4242bda1bc))
+
 ## [1.298.0](https://github.com/windmill-labs/windmill/compare/v1.297.1...v1.298.0) (2024-03-27)
 
 
