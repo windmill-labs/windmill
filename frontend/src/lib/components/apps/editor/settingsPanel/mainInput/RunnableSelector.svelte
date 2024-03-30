@@ -36,7 +36,11 @@
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
 	): Promise<{ schema: Schema; summary: string | undefined }> {
-		return loadSchema(workspace, path, runType) ?? emptySchema()
+		const schema = await loadSchema(workspace, path, runType)
+		if (!schema.schema.order) {
+			schema.schema.order = Object.keys(schema.schema.properties ?? {})
+		}
+		return schema ?? { schema: emptySchema(), summary: undefined }
 	}
 
 	async function pickScript(path: string) {
