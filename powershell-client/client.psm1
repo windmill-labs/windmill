@@ -12,71 +12,40 @@ function Connect-Windmill {
 
 function Get-WindmillVariable {
     param(
-        [Parameter(Mandatory = $true)]
         [string] $Path
     )
 
-    if ($null -eq $global:WindmillConnection) {
-        throw "Please connect to Windmill using Connect-Windmill first."
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
     }
 
     return $global:WindmillConnection.GetVariable($Path)
 }
 
+function Set-WindmillVariable {
+    param(
+        [string] $Path,
+        [string] $Value,
+        [switch] $Secret
+    )
+
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    $global:WindmillConnection.SetVariable($Path, $Value, $Secret)
+}
+
 function Get-WindmillResource {
     param(
-        [Parameter(Mandatory = $true)]
         [string] $Path
     )
 
-    if ($null -eq $global:WindmillConnection) {
-        throw "Please connect to Windmill using Connect-Windmill first."
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
     }
 
     return $global:WindmillConnection.GetResource($Path)
-}
-
-function Get-WindmillVersion {
-  if ($null -eq $global:WindmillConnection) {
-      throw "Please connect to Windmill using Connect-Windmill first."
-  }
-
-  return $global:WindmillConnection.Version
-}
-
-function Get-WindmillUser {
-  if ($null -eq $global:WindmillConnection) {
-      throw "Please connect to Windmill using Connect-Windmill first."
-  }
-
-  return $global:WindmillConnection.GetWindmillUser()
-}
-
-function Get-WindmillWorkspace {
-  if ($null -eq $global:WindmillConnection) {
-      throw "Please connect to Windmill using Connect-Windmill first."
-  }
-
-  return $global:WindmillConnection.Workspace
-}
-
-function Get-WindmillRootJobId {
-  param(
-    [Parameter(Mandatory=$false)]
-    [String] $JobId
-  )
-
-  return $global:WindmillConnection.GetRootJobId($JobId)
-}
-
-function Get-WindmillResult {
-  param(
-    [Parameter(Mandatory=$true)]
-    [String] $JobId,
-    [switch] $AssertResultIsNotNull
-  )
-
-  return $global:WindmillConnection.GetResult($JobId, $AssertResultIsNotNull)
 }
 
 class Windmill {
@@ -103,52 +72,45 @@ class Windmill {
         }
     }
 
-    [object] SendRequest(
-        [string] $Method,
-        [string] $Endpoint
-    ) {
-        $url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
-        try {
-            return Invoke-RestMethod -Method $Method -Uri $url -Headers $this.Headers
-        } catch {
-            $StatusCode = $_.Exception.Response.StatusCode.value__ 
-            $Text = $_.ErrorDetails.Message
-            $ErrMsg = "$url : $StatusCode, $Text"
-            Write-Error $ErrMsg
-            throw $_.Exception
+    [Object] Get([string] $Endpoint, [boolean] $RaiseForStatus = $true) {
+        $Url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
+        $Response = Invoke-WebRequest -Uri $Url -Method "GET" -Headers $this.Headers -SkipHttpErrorCheck
+        
+        if ($RaiseForStatus -and -not $Response.BaseResponse.IsSuccessStatusCode) {
+            throw "Request failed with status code $($Response.StatusCode)"
         }
+
+        return $Response
+    }
+
+    [Object] Post([string] $Endpoint, [Object] $Body = $null, [boolean] $RaiseForStatus = $true) {
+        $Url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
+        $Response = Invoke-WebRequest -Uri $Url -Method "POST" -Headers $this.Headers -Body ($Body | ConvertTo-Json) -SkipHttpErrorCheck -ContentType "application/json"
+        if ($RaiseForStatus -and -not $Response.BaseResponse.IsSuccessStatusCode) {
+            throw "Request failed with status code $($Response.StatusCode)"
+        }
+
+        return $Response
     }
 
     [string] GetVariable([string] $Path) {
-        return $this.SendRequest("GET", "/w/$($this.Workspace)/variables/get_value/$Path")
+        $response = $this.Get("/w/$($this.Workspace)/variables/get_value/$Path", $true)
+        return $response.Content | ConvertFrom-Json
+    }
+
+    [void] SetVariable([string] $Path, [string] $Value, [boolean] $Secret) {
+        $response = $this.Get("/w/$($this.Workspace)/variables/get_value/$Path", $false)
+
+            if ($response.StatusCode -eq 404) {
+                $this.Post("/w/$($this.Workspace)/variables/create", @{ "path" = $Path; "value" = $Value; "is_secret" = $Secret; "description" = "" }, $true)
+                return
+            } else {
+                $this.Post("/w/$($this.Workspace)/variables/update/$Path", @{ "value" = $Value }, $true)
+            }
     }
 
     [PSCustomObject] GetResource([string] $Path) {
-        return $this.SendRequest("GET", "/w/$($this.Workspace)/resources/get_value_interpolated/$Path")
-    }
-
-    [string] Version() {
-      return $this.SendRequest("GET", "/version").text
-    }
-
-    [PSCustomObject]GetWindmillUser() {
-      return $this.SendRequest("GET", "users/whoami")
-    }
-
-    [string] GetRootJobId([string] $JobId) {
-      if (-not $JobId) {
-        $JobId = $env:WM_JOB_ID
-      }
-
-        return $this.SendRequest("GET", "/w/$($this.Workspace)/jobs_u/get_root_job_id/$JobId")
-    }
-
-    [PSCustomObject] GetResult([string] $JobId, [boolean] $AssertResultIsNotNull) {
-      $result = $this.SendRequest("GET", "w/$($this.Workspace)/jobs_u/completed/get_result/$JobId")
-      if ($AssertResultIsNotNull -and -not $result) {
-        throw "result is null for $JobId"
-      }
-
-      return $result
+        $response = $this.Get("/w/$($this.Workspace)/resources/get/$Path", $true)
+        return $response.Content | ConvertFrom-Json
     }
 }
