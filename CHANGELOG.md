@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.299.1](https://github.com/windmill-labs/windmill/compare/v1.299.0...v1.299.1) (2024-03-31)
+
+
+### Bug Fixes
+
+* fix audit issue with webhook triggered scripts ([4ba1f6c](https://github.com/windmill-labs/windmill/commit/4ba1f6ccdf62c3e778e1e1cbad1bdc3072bb8c17))
+
 ## [1.299.0](https://github.com/windmill-labs/windmill/compare/v1.298.0...v1.299.0) (2024-03-30)
 
 
