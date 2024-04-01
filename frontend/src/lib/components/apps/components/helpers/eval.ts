@@ -141,7 +141,6 @@ export async function eval_like(
 			validateAll?: () => void
 			clearFiles?: () => void
 			showToast?: (message: string, error?: boolean) => void
-			onRecompute?: () => void
 		}
 	>,
 	worldStore: World | undefined,
@@ -193,7 +192,6 @@ export async function eval_like(
 			}
 
 			runnableComponents[id]?.cb?.forEach((f) => f())
-			controlComponents[id]?.onRecompute?.()
 		},
 		(id) => {
 			return controlComponents[id]?.agGrid

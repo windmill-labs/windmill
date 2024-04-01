@@ -38,6 +38,7 @@
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
+	import { CancelablePromise } from '$lib/gen'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -108,7 +109,7 @@
 		}, 1000)
 	}
 
-	const { app, worldStore, mode, selectedComponent } =
+	const { app, worldStore, mode, selectedComponent, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -200,6 +201,19 @@
 			}
 		})
 	}
+
+	function addOnRecomputeCallback() {
+		$runnableComponents[id].cb = [
+			...$runnableComponents[id].cb,
+			() =>
+				new CancelablePromise((resolve) => {
+					aggrid?.clearRows()
+					resolve()
+				})
+		]
+	}
+
+	$: $runnableComponents[id]?.cb && addOnRecomputeCallback()
 
 	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
@@ -647,7 +661,6 @@
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
-					onRecompute={() => aggrid?.clearRows?.()}
 				/>
 			{/key}
 		{/if}
