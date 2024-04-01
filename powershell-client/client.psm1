@@ -199,6 +199,7 @@ class Windmill {
     }
 
     [PSCustomObject] WaitJob([string] $JobId, [datetime] $Until, $AssertResultIsNotNull = $false) {
+        # TODO: Add cleanup
         while ((Get-Date) -lt $Until) {
             $response = $this.Get("/w/$($this.Workspace)/jobs_u/completed/get_result_maybe/$JobId", $false)
             $job = $response.Content | ConvertFrom-Json
