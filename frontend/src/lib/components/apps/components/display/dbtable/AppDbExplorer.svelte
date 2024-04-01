@@ -647,6 +647,7 @@
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
+					onRecompute={() => aggrid?.clearRows?.()}
 				/>
 			{/key}
 		{/if}
