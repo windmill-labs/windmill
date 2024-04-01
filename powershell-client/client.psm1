@@ -99,6 +99,21 @@ function Get-WindmillUser {
     return $global:WindmillConnection.Whoami()
 }
 
+function Start-WindmillScript {
+    param(
+        [string] $Path = $null,
+        [string] $Hash = $null,
+        [Hashtable] $Arguments = @{},
+        [int] $ScheduledInSecs = $null
+    )
+
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.RunScriptAsync($Path, $Hash, $Arguments, $ScheduledInSecs)
+}
+
 class Windmill {
     [string] $BaseUrl
     [string] $Token
@@ -123,7 +138,24 @@ class Windmill {
         }
     }
 
-    [Object] Get([string] $Endpoint, [boolean] $RaiseForStatus = $true) {
+    [String] AddQueryParams([String] $Endpoint, [Hashtable] $QueryParams) {
+        $url = $Endpoint
+
+        if ($QueryParams.Count -gt 0) {
+            $url += '?'
+
+            $QueryParams.GetEnumerator() | ForEach-Object {
+                $url += "$($_.Key)=$($_.Value)&"
+            }
+
+            # Remove the trailing '&'
+            $url = $url.TrimEnd('&')
+        }
+
+        return $url
+    }
+
+    [Object] Get([string] $Endpoint, [boolean] $RaiseForStatus) {
         $Url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
         $Response = Invoke-WebRequest -Uri $Url -Method "GET" -Headers $this.Headers -SkipHttpErrorCheck
         
@@ -134,7 +166,7 @@ class Windmill {
         return $Response
     }
 
-    [Object] Post([string] $Endpoint, [Object] $Body = $null, [boolean] $RaiseForStatus = $true) {
+    [Object] Post([string] $Endpoint, [Object] $Body, [boolean] $RaiseForStatus) {
         $Url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
         $Response = Invoke-WebRequest -Uri $Url -Method "POST" -Headers $this.Headers -Body ($Body | ConvertTo-Json) -SkipHttpErrorCheck -ContentType "application/json"
         if ($RaiseForStatus -and -not $Response.BaseResponse.IsSuccessStatusCode) {
@@ -160,7 +192,7 @@ class Windmill {
             }
     }
 
-    [PSCustomObject] GetResult([string] $JobId, [boolean] $AssertResultIsNotNull = $true) {
+    [PSCustomObject] GetResult([string] $JobId, [boolean] $AssertResultIsNotNull) {
         $response = $this.Get("/w/$($this.Workspace)/jobs_u/completed/get_result/$JobId", $true)
         $result = $response.Content | ConvertFrom-Json
         if ($AssertResultIsNotNull -and -not $result) {
@@ -194,11 +226,11 @@ class Windmill {
         return $result
     }
 
-    [void] CancelJob([string] $JobId, [string] $Reason = $null) {
+    [void] CancelJob([string] $JobId, [string] $Reason) {
         $this.Post("/w/$($this.Workspace)/jobs_u/queue/cancel/$JobId", @{ "reason" = $Reason }, $true)
     }
 
-    [PSCustomObject] WaitJob([string] $JobId, [datetime] $Until, $AssertResultIsNotNull = $false) {
+    [PSCustomObject] WaitJob([string] $JobId, [datetime] $Until, $AssertResultIsNotNull) {
         # TODO: Add cleanup
         while ((Get-Date) -lt $Until) {
             $response = $this.Get("/w/$($this.Workspace)/jobs_u/completed/get_result_maybe/$JobId", $false)
@@ -223,5 +255,38 @@ class Windmill {
         }
 
         throw "Job $JobId did not complete before $Until"
+    }
+
+    [PSCustomObject] RunScriptAsync([string] $Path, [string] $Hash, [Hashtable] $Arguments, [int] $ScheduledInSecs) {
+        $params = @{}
+
+        if ($Path -and $Hash) {
+            throw "Path and Hash are mutually exclusive"
+        }
+
+        if ($ScheduledInSecs -ne $null) {
+            $params["scheduled_in_secs"] = $ScheduledInSecs
+        }
+
+        if ($env:WM_JOB_ID) {
+            $params["parent_job"] = $env:WM_JOB_ID
+        }
+        if ($env:WM_ROOT_FLOW_JOB_ID) {
+            $params["root_job"] = $env:WM_ROOT_FLOW_JOB_ID
+        }
+
+        if ($Path) {
+            $endpoint = "/w/$($this.Workspace)/jobs/run/p/$Path"
+        } elseif ($Hash) {
+            $endpoint = "/w/$($this.Workspace)/jobs/run/h/$Hash"
+        } else {
+            throw "Path or Hash must be provided"
+        }
+
+        if ($params) {
+            $endpoint = $this.AddQueryParams($endpoint, $params)
+        }
+
+        return $this.Post($endpoint, ($Arguments | ConvertTo-Json), $true).Content
     }
 }
