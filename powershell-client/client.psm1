@@ -193,4 +193,34 @@ class Windmill {
         $result = $response.Content | ConvertFrom-Json
         return $result
     }
+
+    [void] CancelJob([string] $JobId, [string] $Reason = $null) {
+        $this.Post("/w/$($this.Workspace)/jobs_u/queue/cancel/$JobId", @{ "reason" = $Reason }, $true)
+    }
+
+    [PSCustomObject] WaitJob([string] $JobId, [datetime] $Until, $AssertResultIsNotNull = $false) {
+        while ((Get-Date) -lt $Until) {
+            $response = $this.Get("/w/$($this.Workspace)/jobs_u/completed/get_result_maybe/$JobId", $false)
+            $job = $response.Content | ConvertFrom-Json
+            Write-Host $job
+            if ($job.completed) {
+                if ($job.success) {
+                    if ($AssertResultIsNotNull -and -not $job.result) {
+                        throw "result is null for job $JobId"
+                    }
+                    
+                    return $job.result
+                }
+                else {
+                    $err = $job.result.error
+                    throw "Job $JobId failed with error: $err"
+                }
+
+            }
+
+            Start-Sleep -Milliseconds 500
+        }
+
+        throw "Job $JobId did not complete before $Until"
+    }
 }
