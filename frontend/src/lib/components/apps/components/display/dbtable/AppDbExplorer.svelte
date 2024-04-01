@@ -206,7 +206,11 @@
 		$runnableComponents[id].cb = [
 			...$runnableComponents[id].cb,
 			() =>
-				new CancelablePromise((resolve) => {
+				new CancelablePromise(async (resolve) => {
+					console.trace('RAN')
+
+					await dbExplorerCount?.computeCount(true)
+
 					aggrid?.clearRows()
 					resolve()
 				})
@@ -542,6 +546,7 @@
 	let state: any = undefined
 	let insertRowRunnable: InsertRowRunnable
 	let deleteRow: DeleteRow
+	let dbExplorerCount: DbExplorerCount | undefined = undefined
 
 	function onDelete(e) {
 		const data = { ...e.detail }
@@ -595,6 +600,7 @@
 <UpdateCell {id} bind:this={updateCell} />
 {#if render}
 	<DbExplorerCount
+		bind:this={dbExplorerCount}
 		renderCount={refreshCount}
 		{id}
 		{quicksearch}

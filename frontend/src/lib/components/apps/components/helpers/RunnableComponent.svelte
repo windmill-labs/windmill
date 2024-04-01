@@ -25,7 +25,6 @@
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
-	import { set } from 'lodash'
 
 	// Component props
 	export let id: string
@@ -540,18 +539,12 @@
 		undefined
 
 	onMount(() => {
-		cancellableRun = (
-			inlineScript?: InlineScript,
-			setRunnableJobEditorPanel?: boolean,
-			dynamicArgsOverride?: Record<string, any>
-		) => {
+		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 			let rejectCb: (err: Error) => void
 			let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
 				rejectCb = reject
 				donePromise = resolve
-				executeComponent(true, inlineScript, setRunnableJobEditorPanel, dynamicArgsOverride).catch(
-					reject
-				)
+				executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)
 			})
 			p.cancel = () => {
 				resultJobLoader?.cancelJob()

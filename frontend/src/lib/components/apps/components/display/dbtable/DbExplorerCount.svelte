@@ -44,11 +44,12 @@
 
 	$: table && renderCount != undefined && quicksearch != undefined && computeCount()
 
-	async function computeCount() {
+	export async function computeCount(forceCompute?: boolean | undefined) {
 		if (
 			lastTableCount === table &&
 			renderCount == renderCountLast &&
-			quicksearch == quicksearchLast
+			quicksearch == quicksearchLast &&
+			!forceCompute
 		)
 			return
 		if (table != undefined && resource !== undefined) {
@@ -61,6 +62,8 @@
 
 	async function getCount(resource: string, table: string, quicksearch: string) {
 		input = getCountInput(resource, table, resourceType as DbType, localColumnDefs, whereClause)
+
+		console.log('DbExplorerCount: input', input)
 
 		await tick()
 
