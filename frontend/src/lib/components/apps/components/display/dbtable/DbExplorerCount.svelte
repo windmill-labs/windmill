@@ -63,8 +63,6 @@
 	async function getCount(resource: string, table: string, quicksearch: string) {
 		input = getCountInput(resource, table, resourceType as DbType, localColumnDefs, whereClause)
 
-		console.log('DbExplorerCount: input', input)
-
 		await tick()
 
 		if (runnableComponent) {

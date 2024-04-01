@@ -259,7 +259,6 @@ export type AppViewerContext = {
 				validateAll?: () => void
 				clearFiles?: () => void
 				showToast?: (message: string, error?: boolean) => void
-				onRecompute?: () => void
 			}
 		>
 	>
