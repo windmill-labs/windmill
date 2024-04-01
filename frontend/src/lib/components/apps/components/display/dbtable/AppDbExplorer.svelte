@@ -207,8 +207,6 @@
 			...$runnableComponents[id].cb,
 			() =>
 				new CancelablePromise(async (resolve) => {
-					console.trace('RAN')
-
 					await dbExplorerCount?.computeCount(true)
 
 					aggrid?.clearRows()
