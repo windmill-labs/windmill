@@ -2343,12 +2343,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 
 | Format      | Result | Description |
 | ----------- | ----------- | ----------- |
-| DD 				| 01, 02, ..., 31 | Day of the month |
-| D 				| 1, 2, ..., 31 | Day of the month |
+| dd 				| 01, 02, ..., 31 | Day of the month |
+| d 				| 1, 2, ..., 31 | Day of the month |
 | MM 				| 01, 02, ..., 12 | Month |
 | MMM 				| Jan, Feb, ..., Dec | Month |
 | MMMM 				| January, February, ..., December | Month |
-| YYYY 				| 2021, 2022, ... | Year |
+| yyyy 				| 2021, 2022, ... | Year |
 `,
 
 					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
