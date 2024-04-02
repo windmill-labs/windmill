@@ -287,24 +287,41 @@ impl EmbeddingsDb {
         self.db
             .create_collection("resource_types".to_string(), 384, Distance::Cosine)?;
 
-        let response = HTTP_CLIENT
-            .get("https://bucket.windmillhub.com/embeddings/scripts_embeddings.json")
-            .send()
-            .await;
-        let response =
-            if response.is_err() || response.as_ref().unwrap().error_for_status_ref().is_err() {
-                tracing::warn!("Failed to get scripts embeddings from bucket, trying hub...");
+        let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+        let response = match hub_base_url.as_str() {
+            "https://hub.windmill.dev" => {
+                let response = HTTP_CLIENT
+                    .get("https://bucket.windmillhub.com/embeddings/scripts_embeddings.json")
+                    .send()
+                    .await;
+
+                if response.is_err() || response.as_ref().unwrap().error_for_status_ref().is_err() {
+                    tracing::warn!("Failed to get scripts embeddings from bucket, trying hub...");
+                    http_get_from_hub(
+                        &HTTP_CLIENT,
+                        &format!("{}/scripts/embeddings", hub_base_url),
+                        false,
+                        None,
+                        pg_db,
+                    )
+                    .await?
+                } else {
+                    response.unwrap()
+                }
+            }
+            _ => {
                 http_get_from_hub(
                     &HTTP_CLIENT,
-                    &format!("{}/scripts/embeddings", *HUB_BASE_URL.read().await),
+                    &format!("{}/scripts/embeddings", hub_base_url),
                     false,
                     None,
                     pg_db,
                 )
                 .await?
-            } else {
-                response.unwrap()
-            };
+            }
+        };
+
         if response.error_for_status_ref().is_err() {
             return Err(anyhow!(
                 "Failed to get scripts embeddings from hub with error code: {}",
@@ -333,25 +350,40 @@ impl EmbeddingsDb {
             self.db.insert_into_collection("scripts", embedding)?;
         }
 
-        let response = HTTP_CLIENT
-            .get("https://bucket.windmillhub.com/embeddings/resource_types_embeddings.json")
-            .send()
-            .await;
-        let response = if response.is_err()
-            || response.as_ref().unwrap().error_for_status_ref().is_err()
-        {
-            tracing::warn!("Failed to get resource types embeddings from bucket, trying hub...");
-            http_get_from_hub(
-                &HTTP_CLIENT,
-                &format!("{}/resource_types/embeddings", *HUB_BASE_URL.read().await),
-                false,
-                None,
-                pg_db,
-            )
-            .await?
-        } else {
-            response.unwrap()
+        let response = match hub_base_url.as_str() {
+            "https://hub.windmill.dev" => {
+                let response = HTTP_CLIENT
+                    .get("https://bucket.windmillhub.com/embeddings/resource_types_embeddings.json")
+                    .send()
+                    .await;
+                if response.is_err() || response.as_ref().unwrap().error_for_status_ref().is_err() {
+                    tracing::warn!(
+                        "Failed to get resource types embeddings from bucket, trying hub..."
+                    );
+                    http_get_from_hub(
+                        &HTTP_CLIENT,
+                        &format!("{}/resource_types/embeddings", hub_base_url),
+                        false,
+                        None,
+                        pg_db,
+                    )
+                    .await?
+                } else {
+                    response.unwrap()
+                }
+            }
+            _ => {
+                http_get_from_hub(
+                    &HTTP_CLIENT,
+                    &format!("{}/resource_types/embeddings", hub_base_url),
+                    false,
+                    None,
+                    pg_db,
+                )
+                .await?
+            }
         };
+
         if response.error_for_status_ref().is_err() {
             return Err(anyhow!(
                 "Failed to get resource types embeddings from hub with error code: {}",
