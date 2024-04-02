@@ -2393,19 +2393,19 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy HH:mm',
 					markdownTooltip: `### Output format				
 See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 
 | Format      | Result | Description |
 | ----------- | ----------- | ----------- |
-| DD 				| 01, 02, ..., 31 | Day of the month |
-| D 				| 1, 2, ..., 31 | Day of the month |
+| dd 				| 01, 02, ..., 31 | Day of the month |
+| d 				| 1, 2, ..., 31 | Day of the month |
 | MM 				| 01, 02, ..., 12 | Month |
 | MMM 				| Jan, Feb, ..., Dec | Month |
 | MMMM 				| January, February, ..., December | Month |
-| YYYY 				| 2021, 2022, ... | Year |
+| yyyy 				| 2021, 2022, ... | Year |
 | HH 				| 00, 01, ..., 23 | Hours |
 | mm 				| 00, 01, ..., 59 | Minutes |
 | ss 				| 00, 01, ..., 59 | Seconds |
