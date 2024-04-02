@@ -17,6 +17,7 @@
 	import FlowInputsFlow from './FlowInputsFlow.svelte'
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
+	import FlowWhileLoop from './FlowWhileLoop.svelte'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
@@ -66,6 +67,8 @@
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
+	{:else if flowModule.value.type === 'whileloopflow'}
+		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} />
 	{:else if flowModule.value.type === 'branchone'}
 		<FlowBranchesOneWrapper {noEditor} {previousModule} bind:flowModule {enableAi} />
 	{:else if flowModule.value.type === 'branchall'}
@@ -147,7 +150,7 @@
 			{enableAi}
 		/>
 	{/if}
-{:else if flowModule.value.type === 'forloopflow'}
+{:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
 	{#each flowModule.value.modules as submodule, index (index)}
 		<svelte:self
 			{noEditor}

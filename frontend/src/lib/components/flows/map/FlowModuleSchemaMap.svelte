@@ -5,6 +5,7 @@
 		createBranchAll,
 		createBranches,
 		createLoop,
+		createWhileLoop,
 		deleteFlowStateById,
 		emptyModule,
 		pickScript
@@ -47,6 +48,7 @@
 		kind:
 			| 'script'
 			| 'forloop'
+			| 'whileloop'
 			| 'branchone'
 			| 'branchall'
 			| 'flow'
@@ -65,6 +67,8 @@
 				module.id,
 				!disableAi && $copilotInfo.exists_openai_resource_path
 			)
+		} else if (kind == 'whileloop') {
+			;[module, state] = await createWhileLoop(module.id)
 		} else if (kind == 'branchone') {
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {
@@ -93,7 +97,7 @@
 			return modules
 		}
 		return modules.map((mod) => {
-			if (mod.value.type == 'forloopflow') {
+			if (mod.value.type == 'forloopflow' || mod.value.type == 'whileloopflow') {
 				mod.value.modules = removeAtId(mod.value.modules, id)
 			} else if (mod.value.type == 'branchall') {
 				mod.value.branches = mod.value.branches.map((branch) => {

@@ -17,8 +17,9 @@
 	export let job: Job | undefined = undefined
 	export let modules: FlowModule[]
 	export let previewArgs: Record<string, any> = {}
+	export let whileLoop = false
 
-	const schema: Schema = {
+	export const forloopSchema: Schema = {
 		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,
 		properties: {
 			iter: {
@@ -29,6 +30,22 @@
 					},
 					value: {
 						type: 'object'
+					}
+				}
+			}
+		},
+		required: [],
+		type: 'object'
+	}
+
+	export const whileLoopSchema: Schema = {
+		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,
+		properties: {
+			iter: {
+				type: 'object',
+				properties: {
+					index: {
+						type: 'number'
 					}
 				}
 			}
@@ -140,7 +157,7 @@
 				noVariablePicker
 				compact
 				class="py-4 max-w-3xl"
-				{schema}
+				schema={whileLoop ? whileLoopSchema : forloopSchema}
 				bind:args={previewArgs}
 			/>
 		</div>
