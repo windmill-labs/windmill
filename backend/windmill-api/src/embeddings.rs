@@ -2,6 +2,7 @@
 use anyhow::{anyhow, Error, Result};
 #[cfg(feature = "embedding")]
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+#[cfg(feature = "embedding")]
 use windmill_common::HUB_BASE_URL;
 
 use axum::Router;
@@ -13,7 +14,7 @@ use axum::{
 };
 
 #[cfg(feature = "embedding")]
-use axum::{routing::get, Extension};
+use axum::routing::get;
 #[cfg(feature = "embedding")]
 use candle_core::{Device, Tensor};
 #[cfg(feature = "embedding")]
@@ -46,6 +47,12 @@ use windmill_common::error::JsonResult;
 use crate::{resources::ResourceType, HTTP_CLIENT};
 
 #[cfg(feature = "embedding")]
+lazy_static::lazy_static! {
+    pub static ref EMBEDDINGS_DB: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
+    pub static ref MODEL_INSTANCE: Arc<RwLock<Option<Arc<ModelInstance>>>> = Arc::new(RwLock::new(None));
+}
+
+#[cfg(feature = "embedding")]
 #[derive(Deserialize)]
 struct HubScriptsQuery {
     text: String,
@@ -68,9 +75,8 @@ pub struct HubScriptResult {
 #[cfg(feature = "embedding")]
 async fn query_hub_scripts(
     Query(query): Query<HubScriptsQuery>,
-    Extension(embeddings_db): Extension<Arc<RwLock<Option<EmbeddingsDb>>>>,
 ) -> JsonResult<Vec<HubScriptResult>> {
-    let embeddings_db = embeddings_db.read().await;
+    let embeddings_db = EMBEDDINGS_DB.read().await;
 
     if let Some(embeddings_db) = embeddings_db.as_ref() {
         let results = embeddings_db
@@ -102,9 +108,8 @@ pub struct ResourceTypeResult {
 async fn query_resource_types(
     Query(query): Query<ResourceTypesQuery>,
     Path(w_id): Path<String>,
-    Extension(embeddings_db): Extension<Arc<RwLock<Option<EmbeddingsDb>>>>,
 ) -> JsonResult<Vec<ResourceTypeResult>> {
-    let embeddings_db = embeddings_db.read().await;
+    let embeddings_db = EMBEDDINGS_DB.read().await;
 
     if let Some(embeddings_db) = embeddings_db.as_ref() {
         let results = embeddings_db
@@ -581,9 +586,7 @@ fn normalize_l2(v: &Tensor) -> Result<Tensor> {
 }
 
 #[cfg(feature = "embedding")]
-pub fn load_embeddings_db(db: &Pool<Postgres>) -> Arc<RwLock<Option<EmbeddingsDb>>> {
-    let embeddings_db: Arc<RwLock<Option<EmbeddingsDb>>> = Arc::new(RwLock::new(None));
-
+pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
     let disable_embedding = std::env::var("DISABLE_EMBEDDING")
         .ok()
         .map(|x| x.parse::<bool>().unwrap_or(false))
@@ -591,24 +594,14 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> Arc<RwLock<Option<EmbeddingsDb
 
     if !disable_embedding {
         let db_clone = db.clone();
-        let embeddings_clone: Arc<RwLock<Option<EmbeddingsDb>>> = embeddings_db.clone();
         tokio::spawn(async move {
             let model_instance = ModelInstance::new().await;
-
             if let Ok(model_instance) = model_instance {
-                let model_instance = Arc::new(model_instance);
+                let mut model_instance_lock = MODEL_INSTANCE.write().await;
+                *model_instance_lock = Some(Arc::new(model_instance));
+                drop(model_instance_lock);
                 loop {
-                    tracing::info!("Creating embeddings DB...");
-                    let new_embeddings_db =
-                        EmbeddingsDb::new(&db_clone, model_instance.clone()).await;
-                    if let Err(e) = new_embeddings_db.as_ref() {
-                        tracing::error!("Failed to create embeddings db: {}", e);
-                    } else {
-                        let mut embeddings_db = embeddings_clone.write().await;
-                        *embeddings_db = new_embeddings_db.ok();
-                        tracing::info!("Created embeddings DB");
-                    }
-
+                    update_embeddings_db(&db_clone).await;
                     tokio::time::sleep(std::time::Duration::from_secs(3600 * 24)).await;
                 }
             } else {
@@ -619,38 +612,41 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> Arc<RwLock<Option<EmbeddingsDb
             }
         });
     }
-
-    embeddings_db
 }
 
 #[cfg(feature = "embedding")]
-pub fn workspaced_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) -> Router {
-    if let Some(embeddings_db) = embeddings_db {
-        Router::new()
-            .route("/query_resource_types", get(query_resource_types))
-            .layer(Extension(embeddings_db))
+pub async fn update_embeddings_db(db: &Pool<Postgres>) -> () {
+    if let Some(model_instance) = MODEL_INSTANCE.read().await.as_ref() {
+        tracing::info!("Creating embeddings DB...");
+        let new_embeddings_db = EmbeddingsDb::new(&db, model_instance.clone()).await;
+        if let Err(e) = new_embeddings_db.as_ref() {
+            tracing::error!("Failed to create embeddings db: {}", e);
+        } else {
+            let mut embeddings_db = EMBEDDINGS_DB.write().await;
+            *embeddings_db = new_embeddings_db.ok();
+            tracing::info!("Created embeddings DB");
+        }
     } else {
-        Router::new()
+        tracing::error!("Could not update embeddings DB, model instance not initialized");
     }
 }
 
 #[cfg(feature = "embedding")]
-pub fn global_service(embeddings_db: Option<Arc<RwLock<Option<EmbeddingsDb>>>>) -> Router {
-    if let Some(embeddings_db) = embeddings_db {
-        Router::new()
-            .route("/query_hub_scripts", get(query_hub_scripts))
-            .layer(Extension(embeddings_db))
-    } else {
-        Router::new()
-    }
+pub fn workspaced_service() -> Router {
+    Router::new().route("/query_resource_types", get(query_resource_types))
+}
+
+#[cfg(feature = "embedding")]
+pub fn global_service() -> Router {
+    Router::new().route("/query_hub_scripts", get(query_hub_scripts))
 }
 
 #[cfg(not(feature = "embedding"))]
-pub fn workspaced_service(_embeddings_db: Option<()>) -> Router {
+pub fn workspaced_service() -> Router {
     Router::new()
 }
 
 #[cfg(not(feature = "embedding"))]
-pub fn global_service(_embeddings_db: Option<()>) -> Router {
+pub fn global_service() -> Router {
     Router::new()
 }

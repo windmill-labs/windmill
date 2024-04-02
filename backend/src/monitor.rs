@@ -14,6 +14,9 @@ use tokio::{
     join,
     sync::{mpsc, RwLock},
 };
+
+#[cfg(feature = "embedding")]
+use windmill_api::embeddings::update_embeddings_db;
 use windmill_api::{
     oauth2_ee::{build_oauth_clients, OAuthClient},
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
@@ -1052,6 +1055,19 @@ pub async fn reload_hub_base_url_setting(db: &DB) -> error::Result<()> {
     };
 
     let mut l = HUB_BASE_URL.write().await;
+    #[cfg(feature = "embedding")]
+    if *l != base_url {
+        let disable_embedding = std::env::var("DISABLE_EMBEDDING")
+            .ok()
+            .map(|x| x.parse::<bool>().unwrap_or(false))
+            .unwrap_or(false);
+        if !disable_embedding {
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                update_embeddings_db(&db_clone).await;
+            });
+        }
+    }
     *l = base_url;
 
     Ok(())
