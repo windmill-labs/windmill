@@ -301,7 +301,13 @@
 	function updateCellValue(rowIndex: number, columnIndex: number, newCellValue: string) {
 		if (result && rowIndex < result.length) {
 			const updatedRow = { ...result[rowIndex] }
-			const columnName = $table.getAllLeafColumns()?.[columnIndex]?.columnDef?.['accessorKey']
+			const columnName = $table?.getAllLeafColumns()?.[columnIndex]?.columnDef?.['accessorKey']
+
+			if (!columnName) {
+				sendUserToast(`Column name for index ${columnIndex} is not defined.`, true)
+				return
+			}
+
 			updatedRow[columnName] = newCellValue
 			result[rowIndex] = updatedRow
 			outputs?.result.set([result])
