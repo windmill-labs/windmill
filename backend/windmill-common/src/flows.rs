@@ -240,6 +240,8 @@ pub struct FlowModule {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continue_on_error: Option<bool>,
 }
 
 impl FlowModule {
@@ -391,6 +393,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             timeout: None,
             priority: None,
             delete_after_use: None,
+            continue_on_error: None,
         });
     }
 }
