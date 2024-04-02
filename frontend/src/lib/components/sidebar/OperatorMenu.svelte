@@ -9,7 +9,8 @@
 		Sun,
 		Code2,
 		LayoutDashboard,
-		Building
+		Building,
+		Calendar
 	} from 'lucide-svelte'
 
 	import Menu from '../common/menu/MenuV2.svelte'
@@ -36,7 +37,8 @@
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: Home },
-		{ label: 'Runs', href: '/runs', icon: Play }
+		{ label: 'Runs', href: '/runs', icon: Play },
+		{ label: 'Schedules', href: '/schedules', icon: Calendar }
 	]
 </script>
 
