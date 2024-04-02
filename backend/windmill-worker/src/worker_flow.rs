@@ -152,6 +152,7 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
 pub struct SkipIfStopped {
     pub skip_if_stopped: Option<bool>,
     pub stop_early_expr: Option<String>,
+    pub continue_on_error: Option<bool>,
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
@@ -232,24 +233,27 @@ pub async fn update_flow_status_after_job_completion_internal<
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let (mut stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
+        let (mut stop_early, skip_if_stop_early, continue_on_error) = if let Some(se) =
+            stop_early_override
+        {
             //do not stop early if module is a flow step
             let flow_job = get_queued_job(&flow, w_id, db)
                 .await?
                 .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
             let module = get_module(&flow_job, module_index);
             if module.is_some_and(|x| matches!(x.value, FlowModuleValue::Flow { .. })) {
-                (false, false)
+                (false, false, false)
             } else {
-                (true, se)
+                (true, se, false)
             }
         } else if is_failure_step {
-            (false, false)
+            (false, false, false)
         } else {
             let row = sqlx::query(
             "SELECT 
                     raw_flow->'modules'->$1::int->'stop_after_if'->>'expr' as stop_early_expr,
                     (raw_flow->'modules'->$1::int->'stop_after_if'->>'skip_if_stopped')::bool as skip_if_stopped,
+                    (raw_flow->'modules'->$1::int->'continue_on_error')::bool as continue_on_error,
                     args 
                 FROM queue
                 WHERE id = $2"
@@ -280,7 +284,11 @@ pub async fn update_flow_status_after_job_completion_internal<
                 } else {
                     false
                 };
-            (stop_early, r.skip_if_stopped.unwrap_or(false))
+            (
+                stop_early,
+                r.skip_if_stopped.unwrap_or(false),
+                r.continue_on_error.unwrap_or(false),
+            )
         };
 
         let skip_branch_failure = match module_status {
@@ -457,8 +465,27 @@ pub async fn update_flow_status_after_job_completion_internal<
                         }),
                     )
                 } else {
+                    let inc = if continue_on_error {
+                        let retry = sqlx::query_scalar!(
+                            "SELECT raw_flow->'modules'->$2::int->'retry' FROM queue WHERE id = $1",
+                            flow,
+                            old_status.step
+                        )
+                        .fetch_optional(&mut tx)
+                        .await?
+                        .flatten();
+
+                        let retry = retry
+                            .map(|x| serde_json::from_value::<Retry>(x).ok())
+                            .flatten()
+                            .unwrap_or_default();
+                        tracing::error!("UPDATE FLOW STATUS 2: {retry:#?} ");
+                        next_retry(&retry, &old_status.retry).is_none()
+                    } else {
+                        false
+                    };
                     (
-                        false,
+                        inc,
                         Some(FlowStatusModule::Failure {
                             id: module_status.id(),
                             job: job_id_for_status.clone(),
@@ -546,7 +573,9 @@ pub async fn update_flow_status_after_job_completion_internal<
             _ => result.to_owned(),
         };
 
-        if matches!(&new_status, Some(FlowStatusModule::Success { .. })) {
+        if old_status.retry.fail_count > 0
+            && matches!(&new_status, Some(FlowStatusModule::Success { .. }))
+        {
             sqlx::query(
                 "UPDATE queue
                 SET flow_status = flow_status - 'retry'
@@ -579,7 +608,9 @@ pub async fn update_flow_status_after_job_completion_internal<
             _ if flow_job.canceled => false,
             true => !is_last_step,
             false if unrecoverable => false,
-            false if skip_branch_failure || skip_loop_failures => !is_last_step,
+            false if skip_branch_failure || skip_loop_failures || continue_on_error => {
+                !is_last_step
+            }
             false
                 if next_retry(
                     &module.and_then(|m| m.retry.clone()).unwrap_or_default(),
@@ -1634,10 +1665,17 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
     };
 
+    let retry = if matches!(&status_module, FlowStatusModule::Failure { .. },) {
+        let retry = &module.retry.clone().unwrap_or_default();
+        next_retry(retry, &status.retry)
+    } else {
+        None
+    };
     let get_args_from_id = match &status_module {
-        FlowStatusModule::Failure { job, .. } => {
-            let retry = &module.retry.clone().unwrap_or_default();
-            if let Some((fail_count, retry_in)) = next_retry(retry, &status.retry) {
+        FlowStatusModule::Failure { job, .. }
+            if retry.as_ref().is_some() || !module.continue_on_error.is_some_and(|x| x) =>
+        {
+            if let Some((fail_count, retry_in)) = retry {
                 tracing::debug!(
                     retry_in_seconds = retry_in.as_secs(),
                     fail_count = fail_count,
