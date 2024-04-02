@@ -202,6 +202,8 @@
 		})
 	}
 
+	let isCallbackAdded = false
+
 	function addOnRecomputeCallback() {
 		$runnableComponents[id].cb = [
 			...$runnableComponents[id].cb,
@@ -213,9 +215,10 @@
 					resolve()
 				})
 		]
+		isCallbackAdded = true
 	}
 
-	$: $runnableComponents[id]?.cb && addOnRecomputeCallback()
+	$: $runnableComponents[id]?.cb && !isCallbackAdded && addOnRecomputeCallback()
 
 	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource

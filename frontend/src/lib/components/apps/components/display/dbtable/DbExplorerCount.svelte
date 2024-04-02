@@ -45,13 +45,16 @@
 	$: table && renderCount != undefined && quicksearch != undefined && computeCount()
 
 	export async function computeCount(forceCompute?: boolean | undefined) {
-		if (
-			lastTableCount === table &&
-			renderCount == renderCountLast &&
-			quicksearch == quicksearchLast &&
-			!forceCompute
-		)
-			return
+		if (!forceCompute) {
+			if (
+				lastTableCount === table &&
+				renderCount == renderCountLast &&
+				quicksearch == quicksearchLast
+			) {
+				return
+			}
+		}
+
 		if (table != undefined && resource !== undefined) {
 			renderCountLast = renderCount
 			lastTableCount = table
