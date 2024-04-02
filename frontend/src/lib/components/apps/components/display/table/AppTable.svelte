@@ -301,7 +301,7 @@
 	function updateCellValue(rowIndex: number, columnIndex: number, newCellValue: string) {
 		if (result && rowIndex < result.length) {
 			const updatedRow = { ...result[rowIndex] }
-			const columnName = Object.keys(updatedRow)[columnIndex]
+			const columnName = $table.getAllLeafColumns()?.[columnIndex]?.columnDef?.['accessorKey']
 			updatedRow[columnName] = newCellValue
 			result[rowIndex] = updatedRow
 			outputs?.result.set([result])
