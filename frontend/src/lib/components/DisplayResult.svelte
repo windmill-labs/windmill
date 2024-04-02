@@ -99,6 +99,9 @@
 
 		if (result !== undefined) {
 			if (typeof result === 'string') {
+				length = 0
+				largeObject = false
+				is_render_all = false
 				return 'plain'
 			}
 			try {
@@ -270,7 +273,7 @@
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full pb-1">
 				<div class="text-tertiary text-sm flex items-center">
-					{#if (resultKind && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson) || isTableDisplay}
+					{#if (resultKind && typeof result == 'object' && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson) || isTableDisplay}
 						<ToggleButtonGroup
 							class="h-6"
 							selected={isTableDisplay
@@ -306,9 +309,7 @@
 						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
 					{/if}
 				</div>
-			</div>
-
-			{#if !forceJson && resultKind == 'table-col'}
+			</div>{#if !forceJson && resultKind == 'table-col'}
 				{@const data = 'table-col' in result ? result['table-col'] : result}
 				<AutoDataTable objects={transform(data)} />
 			{:else if !forceJson && resultKind == 'table-row'}
@@ -392,9 +393,19 @@
 						src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 					/>
 				</div>
-			{:else if !forceJson && resultKind == 'plain'}
-				<div class="h-full text-2xs">
-					<pre>{result?.['result']}</pre>
+			{:else if !forceJson && resultKind == 'plain'}<div class="h-full text-2xs"
+					><pre>{typeof result == 'string' ? result : result?.['result']}</pre>{#if !noControls}
+						<div class="flex">
+							<Button
+								on:click={() =>
+									copyToClipboard(typeof result == 'string' ? result : result?.['result'])}
+								color="light"
+								size="xs"
+							>
+								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+							</Button>
+						</div>
+					{/if}
 				</div>
 			{:else if !forceJson && resultKind == 'file'}
 				<div>
@@ -552,9 +563,7 @@
 					<ObjectViewer json={result} />
 				{/if}
 			{:else if typeof result == 'string' && result.length > 0}
-				<pre class="text-sm">{result}</pre>
-				{#if !noControls}
-					<div class="flex">
+				<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
 						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
 							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
 						</Button>

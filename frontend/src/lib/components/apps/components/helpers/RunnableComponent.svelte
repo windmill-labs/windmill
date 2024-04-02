@@ -178,6 +178,8 @@
 			console.warn('Error loading schema')
 			return emptySchema()
 		}
+		// schema.order = Object.keys(fields)
+		// console.log(schema.order)
 
 		// Remove hidden static inputs
 		Object.keys(inputs ?? {}).forEach((key: string) => {
@@ -665,6 +667,7 @@
 			: 'invisible h-0 overflow-hidden'}"
 		style={wrapperStyle}
 	>
+		<!-- {Object.keys(schemaStripped?.properties ?? {}).length > 0} -->
 		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm

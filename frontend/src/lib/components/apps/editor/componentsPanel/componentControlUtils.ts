@@ -126,6 +126,8 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 			return [setValue, validate, validateAll, invalidate]
 		case 'tablecomponent':
 			return [setSelectedIndex]
+		case 'dbexplorercomponent':
+			return [recompute]
 		default:
 			if (components[type].initialData['componentInput']) {
 				return [recompute]

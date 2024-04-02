@@ -162,7 +162,8 @@
 			'started_at',
 			'success_times',
 			'success_result',
-			'success_started_at'
+			'success_started_at',
+			'email'
 		]).then((schema) => (customHandlerSchema = schema))
 
 	$: handlerPath &&
@@ -180,6 +181,7 @@
 			'success_times',
 			'success_result',
 			'success_started_at',
+			'email',
 			'slack'
 		]).then((schema) => (slackHandlerSchema = schema))
 </script>
