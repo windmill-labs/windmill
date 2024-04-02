@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.300.0](https://github.com/windmill-labs/windmill/compare/v1.299.1...v1.300.0) (2024-04-02)
+
+
+### Features
+
+* **frontend:** Add an onRecompute callback to handle recompute side … ([#3493](https://github.com/windmill-labs/windmill/issues/3493)) ([3afa975](https://github.com/windmill-labs/windmill/commit/3afa97527090a82e1754db4d92322c940a532d35))
+
+
+### Bug Fixes
+
+* date-fns tooltip format info ([#3496](https://github.com/windmill-labs/windmill/issues/3496)) ([e4bca00](https://github.com/windmill-labs/windmill/commit/e4bca0021047db00c05a68a5238215ca66ba5a25))
+* **frontend:** Fix updateCellValue ([#3497](https://github.com/windmill-labs/windmill/issues/3497)) ([e4d8de8](https://github.com/windmill-labs/windmill/commit/e4d8de80ef9569bdfe06f8fbc93c8c6fa93e472c))
+* **typescript-client:** improve setFlowUserState undefined value ([ba679c6](https://github.com/windmill-labs/windmill/commit/ba679c64b7f15e42b8bede0d1b5cf03554049d6e))
+
 ## [1.299.1](https://github.com/windmill-labs/windmill/compare/v1.299.0...v1.299.1) (2024-03-31)
 
 
