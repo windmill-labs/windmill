@@ -38,6 +38,7 @@
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
+	import { CancelablePromise } from '$lib/gen'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -108,7 +109,7 @@
 		}, 1000)
 	}
 
-	const { app, worldStore, mode, selectedComponent } =
+	const { app, worldStore, mode, selectedComponent, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -200,6 +201,24 @@
 			}
 		})
 	}
+
+	let isCallbackAdded = false
+
+	function addOnRecomputeCallback() {
+		$runnableComponents[id].cb = [
+			...$runnableComponents[id].cb,
+			() =>
+				new CancelablePromise(async (resolve) => {
+					await dbExplorerCount?.computeCount(true)
+
+					aggrid?.clearRows()
+					resolve()
+				})
+		]
+		isCallbackAdded = true
+	}
+
+	$: $runnableComponents[id]?.cb && !isCallbackAdded && addOnRecomputeCallback()
 
 	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
@@ -528,6 +547,7 @@
 	let state: any = undefined
 	let insertRowRunnable: InsertRowRunnable
 	let deleteRow: DeleteRow
+	let dbExplorerCount: DbExplorerCount | undefined = undefined
 
 	function onDelete(e) {
 		const data = { ...e.detail }
@@ -581,6 +601,7 @@
 <UpdateCell {id} bind:this={updateCell} />
 {#if render}
 	<DbExplorerCount
+		bind:this={dbExplorerCount}
 		renderCount={refreshCount}
 		{id}
 		{quicksearch}
