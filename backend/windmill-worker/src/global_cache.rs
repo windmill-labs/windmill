@@ -72,6 +72,9 @@ pub async fn build_tar_and_push(
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
     use object_store::path::Path;
     use tokio::fs::metadata;
@@ -100,10 +103,9 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
         .open(&target)
         .await
         .unwrap();
-
-    file.write_all(&object.unwrap().bytes().await.unwrap())
-        .await
-        .unwrap();
+    let bytes = object.unwrap().bytes().await.unwrap();
+    tracing::info!("{tar_path} checksum: {}", X25.checksum(&bytes));
+    file.write_all(&bytes).await.unwrap();
 
     if metadata(&target).await.is_err() {
         tracing::info!(
