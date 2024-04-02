@@ -2351,7 +2351,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 | yyyy 				| 2021, 2022, ... | Year |
 `,
 
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy'
 				}
 			}
