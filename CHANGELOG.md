@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.301.0](https://github.com/windmill-labs/windmill/compare/v1.300.0...v1.301.0) (2024-04-02)
+
+
+### Features
+
+* while loop as new flow primitive ([ff26c8e](https://github.com/windmill-labs/windmill/commit/ff26c8e42dbd212e75bb094cd34b8848d5e39fb6))
+
+
+### Bug Fixes
+
+* add access to the schedules page to operators ([648accd](https://github.com/windmill-labs/windmill/commit/648accd268b7ccbc27e3d6f1051540138ae5525e))
+* date-fns tooltip info again ([#3498](https://github.com/windmill-labs/windmill/issues/3498)) ([71d98b9](https://github.com/windmill-labs/windmill/commit/71d98b9025b622eddb894fd77d90f99f805a8bdc))
+
 ## [1.300.0](https://github.com/windmill-labs/windmill/compare/v1.299.1...v1.300.0) (2024-04-02)
 
 
