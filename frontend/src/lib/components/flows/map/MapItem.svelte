@@ -41,7 +41,7 @@
 		insert: {
 			modules: FlowModule[]
 			index: number
-			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'move'
+			detail: 'script' | 'forloop' | 'whileloop' | 'branchone' | 'branchall' | 'move'
 			script?: { path: string; summary: string; hash: string | undefined }
 		}
 		select: string
@@ -124,13 +124,13 @@
 		{/if}
 
 		<div class={moving == mod.id ? 'opacity-50' : ''}>
-			{#if mod.value.type === 'forloopflow'}
+			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					label={mod.summary ||
-						`For loop ${mod.value.parallel ? '(parallel)' : ''} ${
-							mod.value.skip_failures ? '(skip failures)' : ''
-						}`}
+						`${mod.value.type == 'forloopflow' ? 'For' : 'While'} loop ${
+							mod.value.parallel ? '(parallel)' : ''
+						} ${mod.value.skip_failures ? '(skip failures)' : ''}`}
 					id={mod.id}
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
@@ -165,7 +165,7 @@
 					on:click={() => dispatch('select', mod.id)}
 					id={mod.id}
 					{...itemProps}
-					label={mod.summary || `Run all branches${ mod.value.parallel ? ' (parallel)' : ''}`}
+					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
 				>
 					<div slot="icon">

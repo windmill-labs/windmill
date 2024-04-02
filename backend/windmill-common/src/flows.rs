@@ -316,6 +316,11 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         parallelism: Option<u16>,
     },
+    WhileloopFlow {
+        modules: Vec<FlowModule>,
+        #[serde(default = "default_false")]
+        skip_failures: bool,
+    },
     BranchOne {
         branches: Vec<BranchOneModules>,
         default: Vec<FlowModule>,

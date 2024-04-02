@@ -3,16 +3,13 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
 	import { Button, Drawer, Tab, TabContent, Tabs, Alert } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { getStepPropPicker } from '../previousResults'
 	import { enterpriseLicense } from '$lib/stores'
 
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
@@ -21,36 +18,18 @@
 	import type { Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
-	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
 
-	const { previewArgs, flowStateStore, flowStore } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let mod: FlowModule
-	export let parentModule: FlowModule | undefined
 	export let previousModule: FlowModule | undefined
 	export let noEditor: boolean
-	export let enableAi = false
 
-	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'early-stop'
-
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		parentModule,
-		previousModule,
-		mod.id,
-		$flowStore,
-		$previewArgs,
-		false
-	)
 
 	let previewOpen = false
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
-
-	let iteratorFieldFocused = false
-	let iteratorGen: IteratorGen | undefined = undefined
 
 	$: previewIterationArgs = $flowStateStore[mod.id]?.previewArgs ?? {}
 </script>
@@ -77,19 +56,14 @@
 		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
 			<Pane size={60} minSize={20} class="p-4">
 				{#if !noEditor}
-					<Alert
-						type="info"
-						title="For loops"
-						documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
-						class="mb-4"
-						size="xs"
-					>
-						Add steps inside the loop and specify an iterator expression that defines the sequence
-						over which your subsequent steps will iterate.
+					<Alert type="info" title="While loops" class="mb-4" size="xs">
+						Add steps inside the while loop but have one of them use early stop/break in their
+						Advanced settings to break out of the while loop (otherwise it will loop forever and you
+						will have to cancel the flow manually)
 					</Alert>
 				{/if}
 
-				{#if mod.value.type === 'forloopflow'}
+				{#if mod.value.type === 'whileloopflow'}
 					<div class="flex flex-row gap-8 mt-2 mb-6">
 						<div>
 							<div class="mb-2 text-sm font-bold"
@@ -107,57 +81,9 @@
 								}}
 							/>
 						</div>
-						<div>
-							<div class="mb-2 text-sm font-bold">Run in parallel</div>
-							<Toggle
-								bind:checked={mod.value.parallel}
-								options={{
-									right: 'All iterations run in parallel'
-								}}
-							/>
-						</div>
-						<div>
-							<div class="mb-2 text-sm font-bold"
-								>Parallelism <Tooltip
-									>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
-								>
-							</div>
-							<input
-								type="number"
-								disabled={!mod.value.parallel}
-								bind:value={mod.value.parallelism}
-							/>
-						</div>
 					</div>
 
 					<div class="my-2 flex flex-row gap-2 items-center">
-						<div class="text-sm font-bold whitespace-nowrap">
-							Iterator expression
-							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
-								List to iterate over.
-							</Tooltip>
-						</div>
-						{#if enableAi}
-							<IteratorGen
-								bind:this={iteratorGen}
-								focused={iteratorFieldFocused}
-								arg={mod.value.iterator}
-								on:showExpr={(e) => {
-									editor?.setSuggestion(e.detail)
-								}}
-								on:setExpr={(e) => {
-									if (mod.value.type === 'forloopflow') {
-										mod.value.iterator = {
-											type: 'javascript',
-											expr: e.detail
-										}
-									}
-									editor?.setCode('')
-									editor?.insertAtCursor(e.detail)
-								}}
-								pickableProperties={stepPropPicker.pickableProperties}
-							/>
-						{/if}
 						<div class="flex w-full justify-end">
 							<Button
 								on:click={() => (previewOpen = true)}
@@ -167,47 +93,6 @@
 							>
 						</div>
 					</div>
-
-					{#if mod.value.iterator.type == 'javascript'}
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<div
-							class="border w-full"
-							id="flow-editor-iterator-expression"
-							on:keyup={iteratorGen?.onKeyUp}
-						>
-							<PropPickerWrapper
-								notSelectable
-								pickableProperties={stepPropPicker.pickableProperties}
-								on:select={({ detail }) => {
-									editor?.insertAtCursor(detail)
-									editor?.focus()
-								}}
-								noPadding
-							>
-								<SimpleEditor
-									bind:this={editor}
-									on:focus={() => {
-										iteratorFieldFocused = true
-									}}
-									on:blur={() => {
-										iteratorFieldFocused = false
-									}}
-									autofocus
-									lang="javascript"
-									bind:code={mod.value.iterator.expr}
-									class="small-editor"
-									shouldBindKey={false}
-									extraLib={stepPropPicker.extraLib}
-								/>
-							</PropPickerWrapper>
-						</div>
-					{:else}
-						<Button
-							on:click={() => {
-								if (mod.value.type === 'forloopflow') mod.value.iterator.type = 'javascript'
-							}}
-						/>
-					{/if}
 				{/if}
 			</Pane>
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">

@@ -102,6 +102,20 @@ export async function createLoop(
 	return [loopFlowModule, flowModuleState]
 }
 
+export async function createWhileLoop(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const loopFlowModule: FlowModule = {
+		id,
+		value: {
+			type: 'whileloopflow',
+			modules: [],
+			skip_failures: false
+		}
+	}
+
+	const flowModuleState = await loadFlowModuleState(loopFlowModule)
+	return [loopFlowModule, flowModuleState]
+}
+
 export async function createBranches(id: string): Promise<[FlowModule, FlowModuleState]> {
 	const branchesFlowModules: FlowModule = {
 		id,

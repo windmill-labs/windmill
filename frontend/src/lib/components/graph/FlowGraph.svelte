@@ -221,7 +221,7 @@
 	): GraphItem | undefined {
 		const type = module.value.type
 		const parentIds = getParentIds(parent)
-		if (type === 'forloopflow') {
+		if (type === 'forloopflow' || type == 'whileloopflow') {
 			//@ts-ignore
 			return flowModuleToLoop(modules, module, parent, loopDepth)
 		} else if (type === 'branchone') {
@@ -358,7 +358,7 @@
 
 	function flowModuleToLoop(
 		modules: FlowModule[],
-		module: FlowModule & { value: { type: 'forloopflow' } },
+		module: FlowModule & { value: { type: 'forloopflow' | 'whileloopflow' } },
 		parent: NestedNodes | string | undefined,
 		loopDepth: number
 	): Loop {
