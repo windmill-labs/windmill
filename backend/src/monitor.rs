@@ -139,7 +139,7 @@ pub async fn initial_load(
         tracing::error!("Error reloading base url: {:?}", e)
     }
 
-    if let Err(e) = reload_hub_base_url_setting(db).await {
+    if let Err(e) = reload_hub_base_url_setting(db, server_mode).await {
         tracing::error!("Error reloading hub base url: {:?}", e)
     }
 
@@ -1033,7 +1033,7 @@ async fn cancel_zombie_flow_job(
     Ok(())
 }
 
-pub async fn reload_hub_base_url_setting(db: &DB) -> error::Result<()> {
+pub async fn reload_hub_base_url_setting(db: &DB, server_mode: bool) -> error::Result<()> {
     let hub_base_url = load_value_from_global_settings(db, HUB_BASE_URL_SETTING).await?;
 
     let base_url = if let Some(q) = hub_base_url {
@@ -1055,17 +1055,19 @@ pub async fn reload_hub_base_url_setting(db: &DB) -> error::Result<()> {
     };
 
     let mut l = HUB_BASE_URL.write().await;
-    #[cfg(feature = "embedding")]
-    if *l != base_url {
-        let disable_embedding = std::env::var("DISABLE_EMBEDDING")
-            .ok()
-            .map(|x| x.parse::<bool>().unwrap_or(false))
-            .unwrap_or(false);
-        if !disable_embedding {
-            let db_clone = db.clone();
-            tokio::spawn(async move {
-                update_embeddings_db(&db_clone).await;
-            });
+    if server_mode {
+        #[cfg(feature = "embedding")]
+        if *l != base_url {
+            let disable_embedding = std::env::var("DISABLE_EMBEDDING")
+                .ok()
+                .map(|x| x.parse::<bool>().unwrap_or(false))
+                .unwrap_or(false);
+            if !disable_embedding {
+                let db_clone = db.clone();
+                tokio::spawn(async move {
+                    update_embeddings_db(&db_clone).await;
+                });
+            }
         }
     }
     *l = base_url;

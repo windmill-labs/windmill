@@ -499,7 +499,7 @@ Windmill Community Edition {GIT_VERSION}
                                                     }
                                                 },
                                                 HUB_BASE_URL_SETTING => {
-                                                    if let Err(e) = reload_hub_base_url_setting(&db).await {
+                                                    if let Err(e) = reload_hub_base_url_setting(&db, server_mode).await {
                                                         tracing::error!(error = %e, "Could not reload hub base url setting");
                                                     }
                                                 },
