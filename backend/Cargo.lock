@@ -9981,6 +9981,7 @@ dependencies = [
  "bytes",
  "chrono",
  "const_format",
+ "crc",
  "deno_ast",
  "deno_console",
  "deno_core",
