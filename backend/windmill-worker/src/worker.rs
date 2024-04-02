@@ -1863,6 +1863,22 @@ async fn spawn_dedicated_workers_for_flow(
                 .await;
                 workers.extend(w);
             }
+            FlowModuleValue::WhileloopFlow { modules, .. } => {
+                let w = spawn_dedicated_workers_for_flow(
+                    &modules,
+                    path,
+                    w_id,
+                    killpill_tx.clone(),
+                    killpill_rx,
+                    db,
+                    worker_dir,
+                    base_internal_url,
+                    worker_name,
+                    job_completed_tx,
+                )
+                .await;
+                workers.extend(w);
+            }
             FlowModuleValue::BranchOne { branches, default } => {
                 for modules in branches
                     .iter()

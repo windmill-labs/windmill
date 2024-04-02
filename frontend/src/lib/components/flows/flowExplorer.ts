@@ -3,7 +3,7 @@ import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
 type ModuleBranches = FlowModule[][]
 
 export function getSubModules(flowModule: FlowModule): ModuleBranches {
-	if (flowModule.value.type === 'forloopflow') {
+	if (flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow') {
 		return [flowModule.value.modules]
 	} else if (flowModule.value.type === 'branchall') {
 		return flowModule.value.branches.map((branch) => branch.modules)
