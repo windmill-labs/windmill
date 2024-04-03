@@ -119,7 +119,7 @@
 				</div>
 
 				<div>
-					u/{item.username}
+					<span class="whitespace-nowrap">u/{item.username}</span>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap"
 						>({pluralize(item.items.length, ' item')})</div
 					>
