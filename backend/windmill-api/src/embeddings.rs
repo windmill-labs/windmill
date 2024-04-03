@@ -2,6 +2,7 @@
 use anyhow::{anyhow, Error, Result};
 #[cfg(feature = "embedding")]
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use windmill_common::DEFAULT_HUB_BASE_URL;
 #[cfg(feature = "embedding")]
 use windmill_common::HUB_BASE_URL;
 
@@ -295,7 +296,7 @@ impl EmbeddingsDb {
         let hub_base_url = HUB_BASE_URL.read().await.clone();
 
         let response = match hub_base_url.as_str() {
-            "https://hub.windmill.dev" => {
+            DEFAULT_HUB_BASE_URL => {
                 let response = HTTP_CLIENT
                     .get("https://bucket.windmillhub.com/embeddings/scripts_embeddings.json")
                     .send()
@@ -356,7 +357,7 @@ impl EmbeddingsDb {
         }
 
         let response = match hub_base_url.as_str() {
-            "https://hub.windmill.dev" => {
+            DEFAULT_HUB_BASE_URL => {
                 let response = HTTP_CLIENT
                     .get("https://bucket.windmillhub.com/embeddings/resource_types_embeddings.json")
                     .send()

@@ -40,7 +40,7 @@ use windmill_common::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
     },
-    BASE_URL, DB, HUB_BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    BASE_URL, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -1041,17 +1041,17 @@ pub async fn reload_hub_base_url_setting(db: &DB, server_mode: bool) -> error::R
             if v != "" {
                 v
             } else {
-                "https://hub.windmill.dev".to_string()
+                DEFAULT_HUB_BASE_URL.to_string()
             }
         } else {
             tracing::error!(
                 "Could not parse hub_base_url setting as a string, found: {:#?}",
                 &q
             );
-            "https://hub.windmill.dev".to_string()
+            DEFAULT_HUB_BASE_URL.to_string()
         }
     } else {
-        "https://hub.windmill.dev".to_string()
+        DEFAULT_HUB_BASE_URL.to_string()
     };
 
     let mut l = HUB_BASE_URL.write().await;
