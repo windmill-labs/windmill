@@ -23,6 +23,6 @@ RUN make
 
 FROM ghcr.io/windmill-labs/windmill-ee:dev as downloader
 
-RUN apt-get update && apt-get install -y libprotobuf-dev
+RUN apt-get update && apt-get install -y libprotobuf-dev libnl-route-3-dev
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
