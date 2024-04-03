@@ -10,19 +10,13 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  verify_ee_image_vulnerabilities:
     runs-on: ubicloud
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Setup Docker buildx
-        uses: docker/setup-buildx-action@v2.5.0
-        with:
-          driver-opts: |
-            image=moby/buildkit:v0.10.6
-
       # Login against a Docker registry except on PR
       # https://github.com/docker/login-action
       - name: Log into registry ${{ env.REGISTRY }}
@@ -35,7 +29,7 @@ jobs:
         id: docker-scout
         uses: docker/scout-action@v1
         with:
-          command: quickview,cves,recommendation
+          command: quickview
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
           only-severities: critical,high
           write-comment: false
