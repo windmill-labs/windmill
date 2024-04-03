@@ -120,7 +120,7 @@ ARG WITH_HELM=true
 
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc xmlsec1 \
+    && apt-get install -y ca-certificates wget curl git jq libnl-route-3-dev unzip build-essential unixodbc xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
