@@ -17,20 +17,11 @@ jobs:
       packages: write
 
     steps:
-      # Login against a Docker registry except on PR
-      # https://github.com/docker/login-action
-      - name: Log into docker
-        uses: docker/login-action@v2.1.0
+      - name: Scan Docker image 🐳
+        uses: snyk/actions/docker@master
+        continue-on-error: true
         with:
-          username: windmilllabs
-          password: ${{ secrets.DOCKER_PAT }}
-
-      - name: Docker Scout
-        id: docker-scout
-        uses: docker/scout-action@v1
-        with:
-          command: quickview,cves
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
-          only-severities: critical,high
-          write-comment: false
-          github-token: ${{ secrets.GITHUB_TOKEN }} # to be able to write the comment
+          args: --severity-threshold=high
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
