@@ -147,52 +147,6 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
-  build_ee_reports_privately:
-    needs: [build_ee]
-    runs-on: ubicloud
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v2
-
-      - uses: depot/setup-action@v1
-
-      - name: Docker meta
-        id: meta-ee-public
-        uses: docker/metadata-action@v4
-        with:
-          images: |
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
-
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      - name: Build and push publicly ee reports
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          file: "./docker/DockerfileReports"
-          tags: |
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
-
   # disabled until we make it 100% reliable and add more meaningful tests
   # playwright:
   #   runs-on: [self-hosted, new]
@@ -431,6 +385,52 @@ jobs:
           platforms: linux/amd64
           push: true
           file: "./docker/DockerfileNsjail"
+          tags: |
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+  build_ee_reports_privately:
+    needs: [build_ee_nsjail]
+    runs-on: ubicloud
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
+
+      - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
+
+      - name: Login to ECR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.ECR_REGISTRY }}
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Build and push publicly ee reports
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          file: "./docker/DockerfileReports"
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
