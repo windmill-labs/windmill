@@ -811,8 +811,10 @@
 
 					<br /><br />
 
-					The script or flow is permissioned as group "slack" that will be automatically created
-					after connection to Slack.
+					<span class="font-bold text-xs">
+						The script or flow is permissioned as group "slack" that will be automatically created
+						after connection to Slack.
+					</span>
 
 					<br /><br />
 
