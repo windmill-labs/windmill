@@ -1,0 +1,42 @@
+name: Docker Scout, verify images
+
+on:
+  schedule:
+    - cron: "0 0 */1 * *"
+  workflow_dispatch:
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubicloud
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v2.5.0
+        with:
+          driver-opts: |
+            image=moby/buildkit:v0.10.6
+
+      # Login against a Docker registry except on PR
+      # https://github.com/docker/login-action
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v2.1.0
+        with:
+          username: windmilllabs
+          password: ${{ secrets.DOCKER_PAT }}
+
+      - name: Docker Scout
+        id: docker-scout
+        uses: docker/scout-action@v1
+        with:
+          command: quickview,cves,recommendation
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+          only-severities: critical,high
+          write-comment: false
+          github-token: ${{ secrets.GITHUB_TOKEN }} # to be able to write the comment

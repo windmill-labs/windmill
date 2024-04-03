@@ -419,6 +419,22 @@ jobs:
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
 
+  # docker_scout_ee:
+  #   runs-on: ubicloud
+  #   needs: [tag_latest_ee]
+  #   steps:
+  #     - name: Docker Scout
+  #       id: docker-scout
+  #       uses: docker/scout-action@v1
+  #       with:
+  #         dockerhub-
+  #         command: cves,recommendations,compare
+  #         to-latest: true
+  #         ignore-base: true
+  #         ignore-unchanged: true
+  #         only-fixed: true
+
+
   build_ee_cuda:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     needs: [build_ee]
