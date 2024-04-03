@@ -2,30 +2,6 @@ ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.76-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
 
-FROM ${DEBIAN_IMAGE} as nsjail
-
-WORKDIR /nsjail
-
-ARG nsjail=""
-
-RUN  if [ "$nsjail" = "true" ]; then apt-get -y update \
-    && apt-get install -y \
-    bison=2:3.8.* \
-    flex=2.6.* \
-    g++=4:12.2.* \
-    gcc=4:12.2.* \
-    git=1:2.39.* \
-    libprotobuf-dev=3.21.* \
-    libnl-route-3-dev=3.7.* \
-    make=4.3-4.1 \
-    pkg-config=1.8.* \
-    protobuf-compiler=3.21.*; fi
-
-
-RUN if [ "$nsjail" = "true" ]; then git clone -b master --single-branch https://github.com/google/nsjail.git . \
-    && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
-RUN if [ "$nsjail" = "true" ]; then make; else touch nsjail; fi
-
 FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
@@ -120,7 +96,7 @@ ARG WITH_HELM=true
 
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc xmlsec1 \
+    && apt-get install -y ca-certificates wget curl git jq libnl-route-3-dev unzip build-essential unixodbc xmlsec1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
@@ -186,11 +162,7 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
-ARG nsjail=""
-
-RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
-    && apt-get install -y \
-    curl nodejs npm; fi
+RUN apt-get -y update && apt-get install -y curl nodejs npm
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\"\nwmill \"github.com/windmill-labs/windmill-go-client\")\nfunc main() { v := wmill.GetStatePath()\n fmt.Println(v) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
@@ -204,8 +176,6 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 
 COPY --from=downloader --chmod=755 /deno /usr/bin/deno
-
-COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 COPY --from=oven/bun:1.1.0 /usr/local/bin/bun /usr/bin/bun
 

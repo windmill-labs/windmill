@@ -1,4 +1,4 @@
-name: Verify image with docker
+name: Verify image with Snyk
 
 on:
   schedule:
