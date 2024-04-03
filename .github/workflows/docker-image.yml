@@ -390,7 +390,6 @@ jobs:
   #         only-fixed: true
 
   build_ee_nsjail:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     needs: [build_ee]
     runs-on: ubicloud
     steps:
