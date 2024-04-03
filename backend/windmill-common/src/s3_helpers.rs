@@ -377,7 +377,7 @@ pub async fn build_s3_client_from_settings(
         region,
         access_key,
         secret_key,
-        use_ssl: !settings.allow_http.unwrap_or(false),
+        use_ssl: !settings.allow_http.unwrap_or(true),
         path_style: None,
         port: None,
         token: None,
