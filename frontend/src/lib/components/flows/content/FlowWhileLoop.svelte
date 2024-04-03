@@ -48,7 +48,7 @@
 </Drawer>
 
 <div class="h-full flex flex-col">
-	<FlowCard {noEditor} title="For loop">
+	<FlowCard {noEditor} title="While loop">
 		<div slot="header" class="grow">
 			<input bind:value={mod.summary} placeholder={'Summary'} />
 		</div>
@@ -56,10 +56,10 @@
 		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
 			<Pane size={60} minSize={20} class="p-4">
 				{#if !noEditor}
-					<Alert type="info" title="While loops" class="mb-4" size="xs">
+					<Alert type="info" title="While loops" class="mb-4" size="xs" documentationLink="https://www.windmill.dev/docs/flows/while_loops">
 						Add steps inside the while loop but have one of them use early stop/break in their
-						Advanced settings to break out of the while loop (otherwise it will loop forever and you
-						will have to cancel the flow manually)
+						Advanced settings (or do it at the loop level that will watch the last step) to break out of the while loop (otherwise it will loop forever and you
+						will have to cancel the flow manually).
 					</Alert>
 				{/if}
 
@@ -68,7 +68,7 @@
 						<div>
 							<div class="mb-2 text-sm font-bold"
 								>Skip failures <Tooltip
-									documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+									documentationLink="https://www.windmill.dev/docs/flows/while_loops"
 									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
 									the error will be collected as the result of the iteration. Regardless of this
 									setting, if an error handler is defined, it will process the error.</Tooltip
