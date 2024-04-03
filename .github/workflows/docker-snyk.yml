@@ -12,10 +12,7 @@ env:
 jobs:
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
-    permissions:
-      contents: read
-      packages: write
-      actions: write
+    permissions: write-all
 
     steps:
       - uses: actions/checkout@v3
