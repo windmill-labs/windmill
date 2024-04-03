@@ -8,6 +8,10 @@ on:
   push:
     branches: [main]
     tags: ["*"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "Dockerfile"
 
 concurrency:
   group: ${{ github.ref }}
@@ -433,7 +437,6 @@ jobs:
   #         ignore-base: true
   #         ignore-unchanged: true
   #         only-fixed: true
-
 
   build_ee_cuda:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
