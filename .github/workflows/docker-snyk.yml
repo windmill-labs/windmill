@@ -17,11 +17,18 @@ jobs:
       packages: write
 
     steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Scan Docker image
         uses: snyk/actions/docker@master
         continue-on-error: true
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
-          args: --severity-threshold=high
+          args: --severity-threshold=high --file=Dockerfile
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
