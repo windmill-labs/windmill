@@ -149,7 +149,6 @@ jobs:
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
   build_ee_reports_privately:
-    if: github.event_name != 'pull_request'
     needs: [build_ee]
     runs-on: ubicloud
     steps:
@@ -390,7 +389,6 @@ jobs:
 
   tag_latest:
     runs-on: ubicloud
-    if: github.event_name != 'pull_request'
     needs: [run_integration_test]
     steps:
       - uses: actions/checkout@v3
@@ -410,8 +408,6 @@ jobs:
   tag_latest_ee:
     runs-on: ubicloud
     needs: [run_integration_test]
-    if: github.event_name != 'pull_request'
-
     steps:
       - uses: actions/checkout@v3
         with:
