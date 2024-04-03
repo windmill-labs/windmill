@@ -2,6 +2,7 @@
 use anyhow::{anyhow, Error, Result};
 #[cfg(feature = "embedding")]
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+#[cfg(feature = "embedding")]
 use windmill_common::DEFAULT_HUB_BASE_URL;
 #[cfg(feature = "embedding")]
 use windmill_common::HUB_BASE_URL;
