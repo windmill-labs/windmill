@@ -643,7 +643,12 @@ async fn compact_logs(
             .unwrap_or(0);
 
     let (excess_prev_logs, current_logs) = if extra_split {
-        let (excess_prev_logs, current_logs) = nlogs.split_at(excess_size as usize);
+        let split_idx = nlogs
+            .char_indices()
+            .nth(excess_size_modulo)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let (excess_prev_logs, current_logs) = nlogs.split_at(split_idx);
         (excess_prev_logs, current_logs.to_string())
     } else {
         ("", nlogs.to_string())
