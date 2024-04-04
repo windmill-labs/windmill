@@ -96,8 +96,9 @@ ARG WITH_HELM=true
 
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1 \
+    && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1  software-properties-common \
     && rm -rf /var/lib/apt/lists/*
+
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
     if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && \
@@ -126,22 +127,6 @@ RUN if [ "$WITH_KUBECTL" = "true" ]; then \
     install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
     else echo 'Building the image without kubectl'; fi
 
-RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    case "$arch" in \
-    'amd64') \
-    zip='awscli-exe-linux-x86_64.zip'; \
-    ;; \
-    'arm64') \
-    zip='awscli-exe-linux-aarch64.zip'; \
-    ;; \
-    *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
-    esac; \
-    apt-get update && apt install unzip && curl "https://awscli.amazonaws.com/$zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    ./aws/install && rm awscliv2.zip
-
-
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -162,7 +147,8 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
-RUN apt-get -y update && apt-get install -y curl nodejs npm
+RUN curl -sL https://deb.nodesource.com/setup_20.x | sudo bash - 
+RUN apt-get -y update && apt-get install -y curl nodejs awscli
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
