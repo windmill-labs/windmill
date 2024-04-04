@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.303.3](https://github.com/windmill-labs/windmill/compare/v1.303.2...v1.303.3) (2024-04-04)
+
+
+### Bug Fixes
+
+* improve multiselect for approval steps ([18e7e94](https://github.com/windmill-labs/windmill/commit/18e7e9449e82582ddffc325ce8aeab88635cf7bc))
+
 ## [1.303.2](https://github.com/windmill-labs/windmill/compare/v1.303.1...v1.303.2) (2024-04-04)
 
 
