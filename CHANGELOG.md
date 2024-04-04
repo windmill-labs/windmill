@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.303.1](https://github.com/windmill-labs/windmill/compare/v1.303.0...v1.303.1) (2024-04-04)
+
+
+### Bug Fixes
+
+* improve chars splitting for logs with utf-8 chars ([2e3b6f6](https://github.com/windmill-labs/windmill/commit/2e3b6f66e3f22ea8e68531abb36fe0ca6424c766))
+
 ## [1.303.0](https://github.com/windmill-labs/windmill/compare/v1.302.0...v1.303.0) (2024-04-04)
 
 
