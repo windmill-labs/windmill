@@ -157,7 +157,7 @@ ENV TZ=Etc/UTC
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
-COPY --from=frontend /frontend/build /static_frontend
+COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 
