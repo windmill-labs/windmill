@@ -328,7 +328,7 @@ jobs:
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
     needs: [tag_latest_ee]
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    # if: ${{ startsWith(github.ref, 'refs/tags/') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
