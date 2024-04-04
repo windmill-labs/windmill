@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.303.0](https://github.com/windmill-labs/windmill/compare/v1.302.0...v1.303.0) (2024-04-04)
+
+
+### Features
+
+* private hub ([#3491](https://github.com/windmill-labs/windmill/issues/3491)) ([1d7bab0](https://github.com/windmill-labs/windmill/commit/1d7bab075bf4cfe614694575c3aba8c784f5f148))
+
+
+### Bug Fixes
+
+* update awscli & nodejs ([74e0f21](https://github.com/windmill-labs/windmill/commit/74e0f21903d858edcf8396930d51b7d29668cc02))
+
 ## [1.302.0](https://github.com/windmill-labs/windmill/compare/v1.301.0...v1.302.0) (2024-04-04)
 
 
