@@ -14,7 +14,7 @@ use std::{
 use crate::{
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB,
+    DB, HUB_BASE_URL,
 };
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
@@ -353,7 +353,7 @@ pub async fn get_hub_script_by_path(
 
     let content = http_get_from_hub(
         http_client,
-        &format!("https://hub.windmill.dev/raw/{path}.ts"),
+        &format!("{}/raw/{}.ts", *HUB_BASE_URL.read().await, path),
         true,
         None,
         db,
@@ -377,7 +377,7 @@ pub async fn get_full_hub_script_by_path(
 
     let value = http_get_from_hub(
         http_client,
-        &format!("https://hub.windmill.dev/raw2/{path}"),
+        &format!("{}/raw2/{}", *HUB_BASE_URL.read().await, path),
         true,
         None,
         db,

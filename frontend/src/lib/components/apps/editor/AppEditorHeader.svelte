@@ -628,7 +628,7 @@
 		// 	displayName: 'Publish to Hub',
 		// 	icon: faGlobe,
 		// 	action: () => {
-		// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+		// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary, $hubBaseUrlStore))
 		// 		window.open(url.toString(), '_blank')
 		// 	}
 		// },

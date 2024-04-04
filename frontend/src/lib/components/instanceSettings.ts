@@ -110,6 +110,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Private hub base url',
+			description: 'Base url of your private hub instance',
+			key: 'hub_base_url',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'SSO/OAuth': [],

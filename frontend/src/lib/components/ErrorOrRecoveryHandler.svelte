@@ -15,6 +15,7 @@
 		type Flow
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
 
@@ -221,7 +222,7 @@
 		<div class="text-xs">
 			Example of error handler scripts can be found on <a
 				target="_blank"
-				href="https://hub.windmill.dev/failures"
+				href="{$hubBaseUrlStore}/failures"
 			>
 				Windmill Hub</a
 			>
