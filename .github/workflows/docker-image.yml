@@ -17,10 +17,7 @@ concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  id-token: write
-  packages: write
+permissions: write-all
 
 jobs:
   build:
@@ -327,6 +324,33 @@ jobs:
         run: |
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+
+  verify_ee_image_vulnerabilities:
+    runs-on: ubicloud
+    needs: [tag_latest_ee]
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Analyze for critical and high CVEs
+        id: docker-scout-cves
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          only-severities: critical,high
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+          sarif-file: sarif.output.json
+          summary: true
+          dockerhub-user: windmilllabs
+          dockerhub-password: ${{ secrets.DOCKER_PAT }}
+
+      - name: Upload SARIF result
+        id: upload-sarif
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: sarif.output.json
 
   # docker_scout_ee:
   #   runs-on: ubicloud
