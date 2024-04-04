@@ -1,4 +1,4 @@
-name: Verify image with Snyk
+name: Verify image for vulnerabilities
 
 on:
   schedule:
