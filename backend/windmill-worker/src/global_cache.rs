@@ -84,30 +84,25 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
 
     let start = Instant::now();
     let tar_path = format!("tar/pip/{folder_name}.tar");
-    let target = format!("{ROOT_CACHE_DIR}/{tar_path}.single");
 
     let object = client
         .get(&Path::from(format!("tar/pip/{folder_name}.tar")))
         .await;
     if let Err(e) = object {
-        tracing::info!("Failed to put tar to s3: {tar_path}. Error: {:?}", e);
+        tracing::info!("Failed to pull tar from s3: {tar_path}. Error: {:?}", e);
         return Err(error::Error::ExecutionErr(format!(
-            "Failed to put tar to s3: {tar_path}"
+            "Failed to pull tar from s3: {tar_path}"
         )));
     }
 
-    use tokio::io::AsyncWriteExt;
-    let mut file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open(&target)
-        .await
-        .unwrap();
     let bytes = object.unwrap().bytes().await.unwrap();
-    tracing::info!("{tar_path} checksum: {}", X25.checksum(&bytes));
-    file.write_all(&bytes).await.unwrap();
+    tracing::info!(
+        "{tar_path} checksum: {}, len: {}",
+        X25.checksum(&bytes),
+        bytes.len()
+    );
 
-    if metadata(&target).await.is_err() {
+    if bytes.len() == 0 {
         tracing::info!(
             "piptar {folder_name} not found in bucket. Took {:?}ms",
             start.elapsed().as_millis()
@@ -118,15 +113,11 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
     }
     // tracing::info!("B: {target} {folder}");
 
-    extract_pip_tar(&target, &folder).await.map_err(|e| {
+    extract_pip_tar(bytes, &folder).await.map_err(|e| {
         tracing::error!("Failed to extract piptar {folder_name}. Error: {:?}", e);
         e
     })?;
 
-    tokio::fs::remove_file(&target).await.map_err(|e| {
-        tracing::error!("Failed to remove piptar {folder_name}. Error: {:?}", e);
-        e
-    })?;
     tracing::info!(
         "Finished pulling and extracting {folder_name}. Took {:?}ms",
         start.elapsed().as_millis()
@@ -136,16 +127,14 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn extract_pip_tar(tar: &str, folder: &str) -> error::Result<()> {
+pub async fn extract_pip_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
+    use bytes::Buf;
     use tokio::fs::{self};
 
     let start: Instant = Instant::now();
     fs::create_dir_all(&folder).await?;
 
-    let mut ar = tar::Archive::new(
-        std::fs::File::open(tar)
-            .map_err(|e| error::Error::ExecutionErr(format!("Failed to open tar {tar}: {e}")))?,
-    );
+    let mut ar = tar::Archive::new(tar.reader());
 
     if let Err(e) = ar.unpack(folder) {
         tracing::info!("Failed to untar piptar. Error: {:?}", e);
