@@ -19,7 +19,14 @@
 		jobs.set([])
 	}}
 >
-	<ToggleButton label="Editor" value="dnd" icon={Pen} disabled={loading} />
+	<ToggleButton
+		label="Editor"
+		value="dnd"
+		icon={Pen}
+		disabled={loading}
+		iconProps={{ size: 16 }}
+		class="gap-2"
+	/>
 	<ToggleButton
 		label="Preview"
 		value="preview"
@@ -27,5 +34,7 @@
 		tooltip="Preview mode"
 		disabled={loading}
 		id="app-editor-preview-toggle"
+		iconProps={{ size: 16 }}
+		class="gap-2"
 	/>
 </ToggleButtonGroup>
