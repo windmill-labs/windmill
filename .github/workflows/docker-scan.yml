@@ -24,11 +24,13 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
-          format: "table"
+          format: "sarif"
           # output: "trivy-results.sarif"
           severity: "CRITICAL,HIGH"
-
-      # - name: Upload Trivy scan results to GitHub Security tab
-      #   uses: github/codeql-action/upload-sarif@v3
-      #   with:
-      #     sarif_file: "trivy-results.sarif"
+          scanners: "vuln"
+          limit-severities-for-sarif: true
+          output: "trivy-results.sarif"
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-results.sarif"
