@@ -10,7 +10,7 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, runFormStore, userStore, workspaceStore } from '$lib/stores'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -374,7 +374,8 @@
 							script.kind,
 							script.language,
 							script.schema,
-							script.lock ?? ''
+							script.lock ?? '',
+							$hubBaseUrlStore
 						).toString(),
 						'_blank'
 					)

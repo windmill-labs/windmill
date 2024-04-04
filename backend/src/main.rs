@@ -19,8 +19,8 @@ use windmill_api::HTTP_CLIENT;
 use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DISABLE_STATS_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
@@ -47,10 +47,10 @@ use windmill_worker::{
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_require_preexisting_user, load_tag_per_workspace_enabled,
     monitor_db, monitor_pool, reload_base_url_setting, reload_bunfig_install_scopes_setting,
-    reload_extra_pip_index_url_setting, reload_job_default_timeout_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting, reload_server_config,
-    reload_worker_config,
+    reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
+    reload_job_default_timeout_setting, reload_license_key, reload_npm_config_registry_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
+    reload_server_config, reload_worker_config,
 };
 
 #[cfg(feature = "parquet")]
@@ -498,7 +498,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         tracing::error!(error = %e, "Could not send killpill to server");
                                                     }
                                                 },
-                                                DISABLE_STATS_SETTING => {},
+                                                HUB_BASE_URL_SETTING => {
+                                                    if let Err(e) = reload_hub_base_url_setting(&db, server_mode).await {
+                                                        tracing::error!(error = %e, "Could not reload hub base url setting");
+                                                    }
+                                                },
                                                 a @_ => {
                                                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                 }

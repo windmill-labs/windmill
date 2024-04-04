@@ -26,7 +26,7 @@ use serde::Deserialize;
 use tokio::time::timeout;
 use windmill_common::{
     error::{self, to_anyhow, JsonResult, Result},
-    global_settings::{AUTOMATE_USERNAME_CREATION_SETTING, ENV_SETTINGS},
+    global_settings::{AUTOMATE_USERNAME_CREATION_SETTING, ENV_SETTINGS, HUB_BASE_URL_SETTING},
     server::Smtp,
 };
 
@@ -147,7 +147,6 @@ pub async fn test_s3_bucket(
     Ok("Tested blob storage successfully".to_string())
 }
 
-
 #[derive(Deserialize)]
 pub struct TestKey {
     pub license_key: String,
@@ -251,6 +250,7 @@ pub async fn get_global_setting(
     if !key.starts_with("default_error_handler_")
         && !key.starts_with("default_recovery_handler_")
         && key != AUTOMATE_USERNAME_CREATION_SETTING
+        && key != HUB_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
     }
