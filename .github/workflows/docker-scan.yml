@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: "0 0 */1 * *"
   workflow_dispatch:
+  push:
+    branches:
+      - main
 env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: ghcr.io
