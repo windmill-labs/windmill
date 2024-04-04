@@ -1,5 +1,5 @@
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use crate::{PIP_CACHE_DIR, ROOT_CACHE_DIR};
+use crate::PIP_CACHE_DIR;
 
 // #[cfg(feature = "enterprise")]
 // use rand::Rng;
@@ -72,12 +72,8 @@ pub async fn build_tar_and_push(
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
     use object_store::path::Path;
-    use tokio::fs::metadata;
     let folder_name = folder.split("/").last().unwrap();
 
     tracing::info!("Attempting to pull piptar {folder_name} from bucket");
@@ -85,9 +81,7 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
     let start = Instant::now();
     let tar_path = format!("tar/pip/{folder_name}.tar");
 
-    let object = client
-        .get(&Path::from(format!("tar/pip/{folder_name}.tar")))
-        .await;
+    let object = client.get(&Path::from(tar_path.clone())).await;
     if let Err(e) = object {
         tracing::info!("Failed to pull tar from s3: {tar_path}. Error: {:?}", e);
         return Err(error::Error::ExecutionErr(format!(
@@ -95,12 +89,18 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
         )));
     }
 
-    let bytes = object.unwrap().bytes().await.unwrap();
-    tracing::info!(
-        "{tar_path} checksum: {}, len: {}",
-        X25.checksum(&bytes),
-        bytes.len()
-    );
+    let bytes = object.unwrap().bytes().await;
+    if bytes.is_err() {
+        tracing::info!(
+            "Failed to read tar from s3: {tar_path}. Error: {:?}",
+            bytes.err()
+        );
+        return Err(error::Error::ExecutionErr(format!(
+            "Failed to read tar from s3: {tar_path}"
+        )));
+    }
+    let bytes = bytes.unwrap();
+    tracing::info!("{tar_path} len: {}", bytes.len());
 
     if bytes.len() == 0 {
         tracing::info!(
