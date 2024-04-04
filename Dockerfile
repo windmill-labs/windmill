@@ -147,7 +147,7 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
-RUN curl -sL https://deb.nodesource.com/setup_20.x | sudo bash - 
+RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl nodejs awscli
 
 # go build is slower the first time it is ran, so we prewarm it in the build
