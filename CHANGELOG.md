@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.302.0](https://github.com/windmill-labs/windmill/compare/v1.301.0...v1.302.0) (2024-04-04)
+
+
+### Features
+
+* slack team connected to multiple workspaces ([#3500](https://github.com/windmill-labs/windmill/issues/3500)) ([a8bf075](https://github.com/windmill-labs/windmill/commit/a8bf0750a475f16e7efd47e9a7fd120a19d52189))
+
+
+### Bug Fixes
+
+* build ([#3504](https://github.com/windmill-labs/windmill/issues/3504)) ([285aec4](https://github.com/windmill-labs/windmill/commit/285aec4ffdf00d6616e75749df7d080705bee54c))
+* fix char excess size module for logs truncation ([826757b](https://github.com/windmill-labs/windmill/commit/826757b33ab9ded921e98f06f0921bf3c9916e8b))
+* improve locking ([281cd7b](https://github.com/windmill-labs/windmill/commit/281cd7bc8b903b8809b840b8e55df0b962eef787))
+
 ## [1.301.0](https://github.com/windmill-labs/windmill/compare/v1.300.0...v1.301.0) (2024-04-02)
 
 
