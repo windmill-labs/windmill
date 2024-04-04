@@ -303,6 +303,11 @@
 				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
+						<button
+							class="px-4 py-2 text-xs font-normal"
+							on:click={() => window.open('https://www.windmill.dev/docs/core_concepts/rich_display_rendering', '_blank')}>
+							Rich Display
+						</button>
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
 							><ClipboardCopy size={16} /></button
 						>
