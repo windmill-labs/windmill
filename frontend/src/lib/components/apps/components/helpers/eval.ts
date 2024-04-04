@@ -140,6 +140,7 @@ export async function eval_like(
 			invalidate?: (key: string, error: string) => void
 			validateAll?: () => void
 			clearFiles?: () => void
+			showToast?: (message: string, error?: boolean) => void
 		}
 	>,
 	worldStore: World | undefined,

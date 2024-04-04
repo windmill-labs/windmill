@@ -112,7 +112,8 @@ pub fn workspaced_service() -> Router {
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/change_workspace_name", post(change_workspace_name))
-        .route("/change_workspace_id", post(change_workspace_id));
+        .route("/change_workspace_id", post(change_workspace_id))
+        .route("/usage", get(get_usage));
 
     #[cfg(feature = "stripe")]
     {
@@ -146,7 +147,6 @@ struct Workspace {
     owner: String,
     deleted: bool,
     premium: bool,
-    is_overquota: bool,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -415,6 +415,30 @@ async fn edit_slack_command(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
+
+    if es.slack_command_script.is_some() {
+        let exists_slack_command_with_team_id = sqlx::query_scalar!(
+            r#"
+                SELECT EXISTS (SELECT 1 
+                FROM workspace_settings 
+                WHERE workspace_id <> $1 
+                    AND slack_command_script IS NOT NULL
+                    AND slack_team_id IS NOT NULL 
+                    AND slack_team_id = (SELECT slack_team_id FROM workspace_settings WHERE workspace_id = $1))
+            "#,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?.unwrap_or(false);
+
+        if exists_slack_command_with_team_id {
+            return Err(Error::BadRequest(
+                "A workspace connected to the same slack team already has a command script. Please remove it first."
+                    .to_string(),
+            ));
+        }
+    }
+
     sqlx::query!(
         "UPDATE workspace_settings SET slack_command_script = $1 WHERE workspace_id = $2",
         es.slack_command_script,
@@ -2801,11 +2825,13 @@ async fn change_workspace_id(
 
     // duplicate workspace with new id name
     sqlx::query!(
-        "INSERT INTO workspace SELECT $1, $2, owner, deleted, premium, is_overquota FROM workspace WHERE id = $3",
+        "INSERT INTO workspace SELECT $1, $2, owner, deleted, premium FROM workspace WHERE id = $3",
         &rw.new_id,
         &rw.new_name,
         &old_id
-    ).execute(&mut *tx).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         "UPDATE account SET workspace_id = $1 WHERE workspace_id = $2",
@@ -3081,4 +3107,19 @@ async fn change_workspace_id(
         "updated workspace from {} to {}",
         &old_id, &rw.new_id
     ))
+}
+
+async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
+    let usage = sqlx::query_scalar!(
+        "
+    SELECT usage.usage FROM usage 
+    WHERE is_workspace = true 
+    AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
+    AND id = $1",
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(0);
+    Ok(usage.to_string())
 }

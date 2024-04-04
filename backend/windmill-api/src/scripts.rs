@@ -44,6 +44,7 @@ use windmill_common::{
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
+    HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
@@ -290,7 +291,7 @@ async fn get_top_hub_scripts(
 
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        "https://hub.windmill.dev/scripts/top",
+        &format!("{}/scripts/top", *HUB_BASE_URL.read().await),
         Some(query_params),
         &db,
     )

@@ -29,7 +29,8 @@
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
-		workspaceStore
+		workspaceStore,
+		hubBaseUrlStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
@@ -799,10 +800,8 @@
 
 				<div class="prose text-2xs text-tertiary">
 					Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
-					connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/"
-						>script</a
-					>
-					and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
+					connection, templates for a <a href="{$hubBaseUrlStore}/scripts/slack/1405/">script</a>
+					and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.
 
 					<br /><br />
 
@@ -811,8 +810,10 @@
 
 					<br /><br />
 
-					The script or flow is permissioned as group "slack" that will be automatically created
-					after connection to Slack.
+					<span class="font-bold text-xs">
+						The script or flow is permissioned as group "slack" that will be automatically created
+						after connection to Slack.
+					</span>
 
 					<br /><br />
 

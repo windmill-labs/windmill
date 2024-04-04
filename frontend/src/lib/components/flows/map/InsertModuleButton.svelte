@@ -90,6 +90,18 @@
 
 					For Loop
 				</button>
+				<button
+					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"
+					on:pointerdown={() => {
+						close()
+						dispatch('new', 'whileloop')
+					}}
+					role="menuitem"
+				>
+					<Repeat size={14} />
+
+					While Loop
+				</button>
 
 				<button
 					class="w-full text-left py-2 px-3 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center"

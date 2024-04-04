@@ -784,7 +784,16 @@
 			</Button>
 		{/if}
 
-		<Button color="light" size="xs" on:click={() => (openClean = true)} btnClasses="text-red-400">
+		<Button
+			color="light"
+			size="xs"
+			on:click={() => {
+				loadNConfig()
+
+				openClean = true
+			}}
+			btnClasses="text-red-400"
+		>
 			clean cache
 		</Button>
 	{:else if config}

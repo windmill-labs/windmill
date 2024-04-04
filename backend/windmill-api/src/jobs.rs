@@ -662,21 +662,29 @@ async fn get_logs_from_store(
 ) -> Option<error::Result<Body>> {
     if log_offset > 0 {
         if let Some(file_index) = log_file_index {
+            tracing::debug!("Getting logs from store: {file_index:?}");
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+                tracing::debug!("object store client present, streaming from there");
+
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
-                    for file in file_index {
-                        let file = os.get(&object_store::path::Path::from(file)).await;
+                    for file_p in file_index {
+                        let file_p_2 = file_p.clone();
+                        let file = os.get(&object_store::path::Path::from(file_p)).await;
                         if let Ok(file) = file {
                             if let Ok(bytes) = file.bytes().await {
                                 yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
                             }
+                        } else {
+                            tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
                         }
                     }
 
                     yield Ok(bytes::Bytes::from(logs))
                 };
                 return Some(Ok(Body::from_stream(stream)));
+            } else {
+                tracing::debug!("object store client not present, cannot stream logs from store");
             }
         }
     }

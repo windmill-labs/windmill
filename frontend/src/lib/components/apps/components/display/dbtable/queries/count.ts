@@ -34,7 +34,7 @@ function makeCountQuery(
 			} else {
 				quicksearchCondition += ` (:quicksearch = '' OR 1 = 1)`
 			}
-			query += `SELECT COUNT(*) as count FROM \`${table}\``
+			query += `SELECT COUNT(*) as count FROM ${table}`
 			break
 		case 'postgresql':
 			if (filteredColumns.length > 0) {
@@ -44,7 +44,7 @@ function makeCountQuery(
 			} else {
 				quicksearchCondition += `($1 = '' OR 1 = 1)`
 			}
-			query += `SELECT COUNT(*) as count FROM "${table}"`
+			query += `SELECT COUNT(*) as count FROM ${table}`
 			break
 		case 'ms_sql_server':
 			if (filteredColumns.length > 0) {

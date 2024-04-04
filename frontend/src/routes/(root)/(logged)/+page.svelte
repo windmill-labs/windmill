@@ -12,6 +12,7 @@
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -82,8 +83,7 @@
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button
-				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
-					0}"
+				href="{$hubBaseUrlStore}/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ?? 0}"
 				variant="contained"
 				color="light"
 				size="xs"
@@ -119,7 +119,7 @@
 	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button
-				href="https://hub.windmill.dev/flows/{flowViewerFlow?.flow?.id}"
+				href="{$hubBaseUrlStore}/flows/{flowViewerFlow?.flow?.id}"
 				variant="contained"
 				color="light"
 				size="xs"
@@ -157,7 +157,7 @@
 	<DrawerContent title="Hub app" on:close={appViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button
-				href="https://hub.windmill.dev/apps/{appViewerApp?.app?.id}"
+				href="{$hubBaseUrlStore}/apps/{appViewerApp?.app?.id}"
 				variant="contained"
 				color="light"
 				size="xs"
@@ -271,7 +271,7 @@
 							<Button
 								startIcon={{ icon: ExternalLink }}
 								target="_blank"
-								href="https://hub.windmill.dev"
+								href={$hubBaseUrlStore}
 								variant="border"
 								color="light"
 							>
@@ -283,7 +283,7 @@
 							<Button
 								startIcon={{ icon: ExternalLink }}
 								target="_blank"
-								href="https://hub.windmill.dev"
+								href={$hubBaseUrlStore}
 								variant="border"
 								color="light"
 								>Hub
@@ -294,7 +294,7 @@
 							<Button
 								startIcon={{ icon: ExternalLink }}
 								target="_blank"
-								href="https://hub.windmill.dev"
+								href={$hubBaseUrlStore}
 								variant="border"
 								color="light">Hub</Button
 							>

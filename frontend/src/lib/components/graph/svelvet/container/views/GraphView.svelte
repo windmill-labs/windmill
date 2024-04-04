@@ -141,6 +141,7 @@
 <div class="zoomable" id={`zoomable-${canvasId}`}>
 	<!-- This is the container that holds GraphView and we have disabled right click functionality to prevent a sticking behavior -->
 	<div id="graphview-container">
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div class={`Nodes Nodes-${canvasId}`} on:contextmenu|preventDefault>
 			<!-- This container is transformed by d3zoom -->
 			<div class={`Node Node-${canvasId}`}>
@@ -175,6 +176,7 @@
 		</div>
 	</div>
 	<!-- rendering dots on the background depending on the zoom level -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<svg
 		class={`Edges Edges-${canvasId}`}
 		viewBox="0 0 {$widthStore} {$heightStore}"

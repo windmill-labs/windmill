@@ -4,7 +4,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import type { SchemaProperty } from '$lib/common'
-	import autosize from 'svelte-autosize'
+	import autosize from '$lib/autosize'
 	import Toggle from './Toggle.svelte'
 	import Range from './Range.svelte'
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
@@ -425,7 +425,6 @@
 									dispatch('focus')
 								}}
 								use:autosize
-								type="text"
 								class="col-span-10 {valid && error == ''
 									? ''
 									: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"

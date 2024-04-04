@@ -635,14 +635,20 @@ async fn compact_logs(
     let extra_split = modulo < nlogs_len;
     let excess_size_modulo = if extra_split { nlogs_len - modulo } else { 0 };
     let excess_size = excess_size_modulo
-        + nlogs[excess_size_modulo..]
+        + nlogs
             .chars()
+            .skip(excess_size_modulo)
             .find_position(|x| x.is_line_break())
             .map(|(i, _)| i + 1)
             .unwrap_or(0);
 
     let (excess_prev_logs, current_logs) = if extra_split {
-        let (excess_prev_logs, current_logs) = nlogs.split_at(excess_size as usize);
+        let split_idx = nlogs
+            .char_indices()
+            .nth(excess_size_modulo)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let (excess_prev_logs, current_logs) = nlogs.split_at(split_idx);
         (excess_prev_logs, current_logs.to_string())
     } else {
         ("", nlogs.to_string())
@@ -715,18 +721,16 @@ async fn default_disk_log_storage(
                     e
                 })
                 .ok();
-            let created = tokio::fs::File::create(&path)
-                .await;
+            let created = tokio::fs::File::create(&path).await;
             if let Err(e) = created {
                 tracing::error!("Could not create logs file {path}: {e:?}",);
-                return
+                return;
             }
             if let Err(e) = tokio::fs::write(&path, prev_logs).await {
                 tracing::error!("Could not write to logs file {path}: {e:?}");
             } else {
                 tracing::info!("Logs length of {job_id} has exceeded a threshold. Previous logs have been saved to disk at {path}");
             }
-
         }
     }
 }

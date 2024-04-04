@@ -12,7 +12,6 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
 	import {
@@ -44,6 +43,7 @@
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -340,9 +340,7 @@
 						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
 							<div class="flex flex-col gap-2 mb-8">
 								{#if !emptyString(flow?.description)}
-									<div class=" break-words whitespace-pre-wrap text-sm mb-4 !text-secondary">
-										<Urlize text={defaultIfEmptyString(flow?.description, 'No description')} />
-									</div>
+									<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
 								{/if}
 							</div>
 

@@ -99,6 +99,11 @@
 			dispatch('change', files)
 		}
 	}
+
+	export function clearFiles() {
+		files = undefined
+		dispatchChange()
+	}
 </script>
 
 <button

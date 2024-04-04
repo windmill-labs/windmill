@@ -1611,7 +1611,7 @@ async fn update_workspace_user(
     )
     .await?;
 
-    Ok(format!("user {username} updated"))
+    Ok(format!("user {} updated", user_email))
 }
 
 async fn update_user(

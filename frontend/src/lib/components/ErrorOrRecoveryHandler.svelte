@@ -15,6 +15,7 @@
 		type Flow
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
+	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
 
@@ -161,7 +162,8 @@
 			'started_at',
 			'success_times',
 			'success_result',
-			'success_started_at'
+			'success_started_at',
+			'email'
 		]).then((schema) => (customHandlerSchema = schema))
 
 	$: handlerPath &&
@@ -179,6 +181,7 @@
 			'success_times',
 			'success_result',
 			'success_started_at',
+			'email',
 			'slack'
 		]).then((schema) => (slackHandlerSchema = schema))
 </script>
@@ -219,7 +222,7 @@
 		<div class="text-xs">
 			Example of error handler scripts can be found on <a
 				target="_blank"
-				href="https://hub.windmill.dev/failures"
+				href="{$hubBaseUrlStore}/failures"
 			>
 				Windmill Hub</a
 			>

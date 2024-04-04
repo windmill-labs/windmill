@@ -1,30 +1,6 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.76-slim-bookworm
-ARG PYTHON_IMAGE=python:3.11.4-slim-bookworm
-
-FROM ${DEBIAN_IMAGE} as nsjail
-
-WORKDIR /nsjail
-
-ARG nsjail=""
-
-RUN  if [ "$nsjail" = "true" ]; then apt-get -y update \
-    && apt-get install -y \
-    bison=2:3.8.* \
-    flex=2.6.* \
-    g++=4:12.2.* \
-    gcc=4:12.2.* \
-    git=1:2.39.* \
-    libprotobuf-dev=3.21.* \
-    libnl-route-3-dev=3.7.* \
-    make=4.3-4.1 \
-    pkg-config=1.8.* \
-    protobuf-compiler=3.21.*; fi
-
-
-RUN if [ "$nsjail" = "true" ]; then git clone -b master --single-branch https://github.com/google/nsjail.git . \
-    && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
-RUN if [ "$nsjail" = "true" ]; then make; else touch nsjail; fi
+ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
@@ -100,8 +76,8 @@ SHELL ["/bin/bash", "-c"]
 RUN apt update -y
 RUN apt install -y unzip curl
 
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.42.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
+RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.42.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
 
 
 RUN unzip deno.zip && rm deno.zip
@@ -111,8 +87,8 @@ FROM ${PYTHON_IMAGE}
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.3.5
 ARG POWERSHELL_DEB_VERSION=7.3.5-1
-ARG KUBECTL_VERSION=1.27.2
-ARG HELM_VERSION=3.12.0
+ARG KUBECTL_VERSION=1.28.7
+ARG HELM_VERSION=3.14.3
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -120,8 +96,9 @@ ARG WITH_HELM=true
 
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential unixodbc xmlsec1 \
+    && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1  software-properties-common \
     && rm -rf /var/lib/apt/lists/*
+
 
 RUN if [ "$WITH_POWERSHELL" = "true" ]; then \
     if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update -y && apt install libicu-dev -y && wget -O 'pwsh.deb' "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell_${POWERSHELL_DEB_VERSION}.deb_amd64.deb" && \
@@ -150,22 +127,6 @@ RUN if [ "$WITH_KUBECTL" = "true" ]; then \
     install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
     else echo 'Building the image without kubectl'; fi
 
-RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
-    case "$arch" in \
-    'amd64') \
-    zip='awscli-exe-linux-x86_64.zip'; \
-    ;; \
-    'arm64') \
-    zip='awscli-exe-linux-aarch64.zip'; \
-    ;; \
-    *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
-    esac; \
-    apt-get update && apt install unzip && curl "https://awscli.amazonaws.com/$zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
-    ./aws/install && rm awscliv2.zip
-
-
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -186,14 +147,11 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
-ARG nsjail=""
-
-RUN if [ "$nsjail" = "true" ]; then apt-get -y update \
-    && apt-get install -y \
-    curl nodejs npm; fi
+RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
+RUN apt-get -y update && apt-get install -y curl nodejs awscli
 
 # go build is slower the first time it is ran, so we prewarm it in the build
-RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\"\nwmill \"github.com/windmill-labs/windmill-go-client\")\nfunc main() { v := wmill.GetStatePath()\n fmt.Println(v) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
+RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
 
 ENV TZ=Etc/UTC
 
@@ -205,9 +163,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=downloader --chmod=755 /deno /usr/bin/deno
 
-COPY --from=nsjail /nsjail/nsjail /bin/nsjail
-
-COPY --from=oven/bun:1.0.29 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.0 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/

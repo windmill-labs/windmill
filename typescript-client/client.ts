@@ -344,6 +344,9 @@ export async function setFlowUserState(
   errorIfNotPossible?: boolean
 ): Promise<void> {
   !clientSet && setClient();
+  if (value === undefined) {
+    value = null;
+  }
   const workspace = getWorkspace();
   try {
     await JobService.setFlowUserState({

@@ -99,6 +99,9 @@
 
 		if (result !== undefined) {
 			if (typeof result === 'string') {
+				length = 0
+				largeObject = false
+				is_render_all = false
 				return 'plain'
 			}
 			try {
@@ -268,51 +271,45 @@
 			: 'min-h-[200px]'}"
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
-		<div class="flex justify-between items-center w-full pb-1">
-			<div class="text-tertiary text-sm flex items-center">
-				{#if (resultKind && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson) || isTableDisplay}
-					<ToggleButtonGroup
-						class="h-6"
-						selected={isTableDisplay
-							? richRender
-								? 'table'
-								: 'json'
-							: forceJson
-							? 'json'
-							: 'pretty'}
-						on:selected={(ev) => {
-							if (isTableDisplay) {
-								richRender = ev.detail === 'table'
-							}
-							forceJson = ev.detail === 'json'
-						}}
-					>
-						{#if resultKind && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson}
-							<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
-						{/if}
-						{#if isTableDisplay}
-							<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
-						{/if}
-						<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
-					</ToggleButtonGroup>
-				{/if}
-			</div>
-			<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
-				<slot name="copilot-fix" />
-				{#if !disableExpand && !noControls}
-					<button
-						class="px-4 py-2 text-xs font-normal"
-						on:click={() => window.open('https://www.windmill.dev/docs/core_concepts/rich_display_rendering', '_blank')}>
-						Rich Display
-					</button>
-					<button on:click={() => copyToClipboard(toJsonStr(result))}
-						><ClipboardCopy size={16} /></button
-					>
-					<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
-				{/if}
-			</div>
-		</div>
-			{#if !forceJson && resultKind == 'table-col'}
+			<div class="flex justify-between items-center w-full pb-1">
+				<div class="text-tertiary text-sm flex items-center">
+					{#if (resultKind && typeof result == 'object' && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson) || isTableDisplay}
+						<ToggleButtonGroup
+							class="h-6"
+							selected={isTableDisplay
+								? richRender
+									? 'table'
+									: 'json'
+								: forceJson
+								? 'json'
+								: 'pretty'}
+							on:selected={(ev) => {
+								if (isTableDisplay) {
+									richRender = ev.detail === 'table'
+								}
+								forceJson = ev.detail === 'json'
+							}}
+						>
+							{#if resultKind && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson}
+								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+							{/if}
+							{#if isTableDisplay}
+								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
+							{/if}
+							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+						</ToggleButtonGroup>
+					{/if}
+				</div>
+				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
+					<slot name="copilot-fix" />
+					{#if !disableExpand && !noControls}
+						<button on:click={() => copyToClipboard(toJsonStr(result))}
+							><ClipboardCopy size={16} /></button
+						>
+						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+					{/if}
+				</div>
+			</div>{#if !forceJson && resultKind == 'table-col'}
 				{@const data = 'table-col' in result ? result['table-col'] : result}
 				<AutoDataTable objects={transform(data)} />
 			{:else if !forceJson && resultKind == 'table-row'}
@@ -396,9 +393,19 @@
 						src="data:image/gif;base64,{contentOrRootString(result.gif)}"
 					/>
 				</div>
-			{:else if !forceJson && resultKind == 'plain'}
-				<div class="h-full text-2xs">
-					<pre>{result?.['result']}</pre>
+			{:else if !forceJson && resultKind == 'plain'}<div class="h-full text-2xs"
+					><pre>{typeof result == 'string' ? result : result?.['result']}</pre>{#if !noControls}
+						<div class="flex">
+							<Button
+								on:click={() =>
+									copyToClipboard(typeof result == 'string' ? result : result?.['result'])}
+								color="light"
+								size="xs"
+							>
+								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+							</Button>
+						</div>
+					{/if}
 				</div>
 			{:else if !forceJson && resultKind == 'file'}
 				<div>
@@ -556,9 +563,7 @@
 					<ObjectViewer json={result} />
 				{/if}
 			{:else if typeof result == 'string' && result.length > 0}
-				<pre class="text-sm">{result}</pre>
-				{#if !noControls}
-					<div class="flex">
+				<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
 						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
 							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
 						</Button>

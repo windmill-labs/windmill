@@ -10,7 +10,7 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, runFormStore, userStore, workspaceStore } from '$lib/stores'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -30,7 +30,6 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	import { sendUserToast } from '$lib/toast'
-	import Urlize from '$lib/components/Urlize.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
@@ -67,6 +66,7 @@
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -374,7 +374,8 @@
 							script.kind,
 							script.language,
 							script.schema,
-							script.lock ?? ''
+							script.lock ?? '',
+							$hubBaseUrlStore
 						).toString(),
 						'_blank'
 					)
@@ -561,9 +562,7 @@
 						{/if}
 
 						{#if !emptyString(script.description)}
-							<div class="py-2 mb-8 !text-secondary">
-								<Urlize text={defaultIfEmptyString(script.description, 'No description')} />
-							</div>
+							<GfmMarkdown md={defaultIfEmptyString(script?.description, 'No description')} />
 						{/if}
 					</div>
 

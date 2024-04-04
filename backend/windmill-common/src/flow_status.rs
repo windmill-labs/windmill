@@ -137,8 +137,12 @@ pub enum FlowStatusModule {
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
         #[serde(default = "default_false")]
         parallel: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        #[serde(default = "default_false")]
+        while_loop: bool,
     },
     Success {
         id: String,

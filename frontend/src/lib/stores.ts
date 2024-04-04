@@ -33,6 +33,7 @@ export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
 export const workerTags = writable<string[] | undefined>(undefined)
 export const usageStore = writable<number>(0)
+export const workspaceUsageStore = writable<number>(0)
 export const runFormStore = writable<any>()
 export const oauthStore = writable<TokenResponse | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)
@@ -46,6 +47,7 @@ export const starStore = writable(1)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
+export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
 export const userWorkspaces: Readable<
 	Array<{
 		id: string
