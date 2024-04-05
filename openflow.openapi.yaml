@@ -419,6 +419,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FlowStatusModule"
+        user_states:
+          additionalProperties: true
         failure_module:
           allOf:
             - $ref: "#/components/schemas/FlowStatusModule"

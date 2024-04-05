@@ -12,6 +12,7 @@
 	import Row from './table/Row.svelte'
 
 	export let args: any
+	export let argLabel: string | undefined = undefined
 
 	let jsonViewer: Drawer
 	let runLocally: Drawer
@@ -27,8 +28,8 @@ ${Object.entries(args)
 	.join('\n')}
 
 	main(${Object.keys(args)
-			.map((x) => `${x} = ${x}`)
-			.join(', ')})
+		.map((x) => `${x} = ${x}`)
+		.join(', ')})
 `
 	}
 
@@ -51,7 +52,7 @@ ${Object.entries(args)
 	<DataTable size="sm">
 		<Head>
 			<tr>
-				<Cell head first>Argument</Cell>
+				<Cell head first>{argLabel ?? 'Arg'}</Cell>
 				<Cell head last>Value</Cell>
 			</tr>
 			<svelte:fragment slot="headerAction">
