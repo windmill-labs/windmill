@@ -10119,6 +10119,8 @@ components:
           type: string
         use_individual_branch:
           type: boolean
+        group_by_folder:
+          type: boolean
         exclude_types_override:
           type: array
           items:
