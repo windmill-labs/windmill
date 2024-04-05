@@ -288,7 +288,7 @@
 							<Cell head first={true} last={false}>
 								<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
 							</Cell>
-							{#each Object.keys(data[0].rowData ?? {}) ?? [] as key, index}
+							{#each Object.keys(data?.[0]?.rowData ?? {}) ?? [] as key, index}
 								<Cell head last={index == Object.keys(objects[0] ?? {}).length - 1}>
 									<div class="flex flex-row gap-1 items-center">
 										{key}
