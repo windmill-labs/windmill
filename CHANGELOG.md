@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.303.4](https://github.com/windmill-labs/windmill/compare/v1.303.3...v1.303.4) (2024-04-05)
+
+
+### Bug Fixes
+
+* prevent operators from loading secrets through toggle ([72f4247](https://github.com/windmill-labs/windmill/commit/72f424798386ab011e2d618a1010ef77a06435a1))
+
 ## [1.303.3](https://github.com/windmill-labs/windmill/compare/v1.303.2...v1.303.3) (2024-04-04)
 
 
