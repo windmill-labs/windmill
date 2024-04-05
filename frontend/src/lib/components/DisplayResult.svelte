@@ -110,11 +110,11 @@
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
 				// Check if the result is an image
-				if (['png', 'svg', 'jpeg'].includes(keys[0]) && keys.length == 1) {
+				if (['png', 'svg', 'jpeg', 'html'].includes(keys[0]) && keys.length == 1) {
 					// Check if the image is too large (10mb)
 					largeObject = roughSizeOfObject(result) > 10000000
 
-					return keys[0] as 'png' | 'svg' | 'jpeg'
+					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html'
 				}
 
 				let length = roughSizeOfObject(result)
@@ -524,7 +524,7 @@
 			{:else if !forceJson && isTableDisplay && richRender}
 				<AutoDataTable objects={result} />
 			{:else if largeObject}
-				{#if result && typeof result == 'object' && 'filename' in result && 'file' in result}
+				{#if result && typeof result == 'object' && 'file' in result}
 					<div
 						><a
 							download={result.filename ?? result.file?.filename ?? 'windmill.file'}
@@ -558,9 +558,9 @@
 							</a>
 						</Alert>
 					</div>
-				{/if}
-				{#if result && result != 'WINDMILL_TOO_BIG'}
-					<ObjectViewer json={result} />
+					{#if result && result != 'WINDMILL_TOO_BIG'}
+						<ObjectViewer json={result} />
+					{/if}
 				{/if}
 			{:else if typeof result == 'string' && result.length > 0}
 				<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
