@@ -155,7 +155,7 @@
 					<Toggle
 						on:change={() => edit && loadVariable(initialPath)}
 						bind:checked={variable.is_secret}
-						disabled={$userStore?.operator}
+						disabled={edit && $userStore?.operator}
 						options={{ right: 'Secret' }}
 					/>
 					{#if variable.is_secret}
