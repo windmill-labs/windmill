@@ -6,6 +6,36 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Continue on error with error as step`s return',
+		href: 'https://www.windmill.dev/changelog/continue-on-error',
+		date: '2024-04-02'
+	},
+	{
+		label: 'While Loops',
+		href: 'https://www.windmill.dev/changelog/while-loops',
+		date: '2024-04-02'
+	},
+	{
+		label: 'Approval Steps Improvements',
+		href: 'https://www.windmill.dev/changelog/approval-steps-improvements',
+		date: '2024-03-27'
+	},
+	{
+		label: 'Map Support in Result Renderer',
+		href: 'https://www.windmill.dev/changelog/map-support-renderer',
+		date: '2024-03-27'
+	},
+	{
+		label: 'Markdown support in descriptions',
+		href: 'https://www.windmill.dev/changelog/markdown-support-descriptions',
+		date: '2024-03-27'
+	},
+	{
+		label: 'Custom Flow States',
+		href: 'https://www.windmill.dev/changelog/custom-flow-states',
+		date: '2024-03-26'
+	},
+	{
 		label: 'Custom Contextual Variables',
 		href: 'https://www.windmill.dev/changelog/custom-contextual-variables',
 		date: '2024-03-23'

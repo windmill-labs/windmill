@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.303.4](https://github.com/windmill-labs/windmill/compare/v1.303.3...v1.303.4) (2024-04-05)
+
+
+### Bug Fixes
+
+* prevent operators from loading secrets through toggle ([72f4247](https://github.com/windmill-labs/windmill/commit/72f424798386ab011e2d618a1010ef77a06435a1))
+
+## [1.303.3](https://github.com/windmill-labs/windmill/compare/v1.303.2...v1.303.3) (2024-04-04)
+
+
+### Bug Fixes
+
+* improve multiselect for approval steps ([18e7e94](https://github.com/windmill-labs/windmill/commit/18e7e9449e82582ddffc325ce8aeab88635cf7bc))
+
+## [1.303.2](https://github.com/windmill-labs/windmill/compare/v1.303.1...v1.303.2) (2024-04-04)
+
+
+### Bug Fixes
+
+* improve global cache deps ([0b3e6b9](https://github.com/windmill-labs/windmill/commit/0b3e6b9f1cb08265dec5573741f5911e09f79884))
+
+## [1.303.1](https://github.com/windmill-labs/windmill/compare/v1.303.0...v1.303.1) (2024-04-04)
+
+
+### Bug Fixes
+
+* improve chars splitting for logs with utf-8 chars ([2e3b6f6](https://github.com/windmill-labs/windmill/commit/2e3b6f66e3f22ea8e68531abb36fe0ca6424c766))
+
 ## [1.303.0](https://github.com/windmill-labs/windmill/compare/v1.302.0...v1.303.0) (2024-04-04)
 
 
