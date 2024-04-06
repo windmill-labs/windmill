@@ -792,6 +792,7 @@ pub struct RunJobQuery {
     job_id: Option<Uuid>,
     tag: Option<String>,
     timeout: Option<i32>,
+    cache_ttl: Option<i32>,
 }
 
 impl RunJobQuery {
@@ -2888,13 +2889,16 @@ pub async fn run_wait_result_script_by_hash(
         tag,
         concurrent_limit,
         concurrency_time_window_s,
-        cache_ttl,
+        mut cache_ttl,
         language,
         dedicated_worker,
         priority,
         delete_after_use,
         timeout,
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
+    if let Some(run_query_cache_ttl) = run_query.cache_ttl {
+        cache_ttl = Some(run_query_cache_ttl);
+    }
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let tag = run_query.tag.clone().or(tag);
@@ -3409,7 +3413,7 @@ pub async fn run_job_by_hash(
         tag,
         concurrent_limit,
         concurrency_time_window_s,
-        cache_ttl,
+        mut cache_ttl,
         language,
         dedicated_worker,
         priority,
@@ -3417,7 +3421,9 @@ pub async fn run_job_by_hash(
         timeout,
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
-
+    if let Some(run_query_cache_ttl) = run_query.cache_ttl {
+        cache_ttl = Some(run_query_cache_ttl);
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(tag);
 
