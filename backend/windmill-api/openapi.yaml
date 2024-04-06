@@ -8015,7 +8015,7 @@ components:
       schema:
         type: string
     CacheTtl:
-      name: tag
+      name: cache_ttl
       description: Override the cache time to live (in seconds). Can not be used to disable caching, only override with a new cache ttl
       in: query
       schema:
