@@ -149,12 +149,12 @@
 			}
 		},
 		{
-			element: '#flow-editor-action-script > button:nth-child(1)',
+			element: '#flow-editor-action-script-bun',
 			popover: {
 				title: 'Typescript',
 				description: "Let's pick an action to add to your flow",
 				onNextClick: () => {
-					clickButtonBySelector('#flow-editor-action-script > button > div > button:nth-child(1)')
+					clickButtonBySelector('#flow-editor-action-script-bun')
 
 					setTimeout(() => {
 						driver.moveNext()
