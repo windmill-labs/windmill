@@ -15,7 +15,18 @@
 	export let workspaceId: string | undefined = undefined
 	export let refreshLog: boolean = false
 
-	$: jobId && logs == undefined && getLogs()
+	let lastJobId: string | undefined = undefined
+
+	$: jobId != lastJobId && diffJobId()
+
+	async function diffJobId() {
+		if (jobId != lastJobId) {
+			lastJobId = jobId
+			logs = undefined
+			logOffset = 0
+			getLogs()
+		}
+	}
 
 	let logOffset = 0
 	async function getLogs() {
@@ -23,7 +34,7 @@
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspaceId ?? $workspaceStore!,
 				id: jobId,
-				running: loading,
+				running: loading ?? false,
 				logOffset: logOffset == 0 ? (logs?.length ? logs?.length + 1 : 0) : logOffset
 			})
 			logs = (logs ?? '').concat(getUpdate.new_logs ?? '')
