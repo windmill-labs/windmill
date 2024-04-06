@@ -6190,6 +6190,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/ArgsFilter"
         - name: path
           description: filter by path
           in: query
