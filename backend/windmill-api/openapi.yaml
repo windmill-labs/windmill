@@ -3890,6 +3890,7 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
@@ -3953,6 +3954,7 @@ paths:
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -3982,6 +3984,7 @@ paths:
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -5039,6 +5042,7 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
@@ -8007,6 +8011,12 @@ components:
     WorkerTag:
       name: tag
       description: Override the tag to use
+      in: query
+      schema:
+        type: string
+    CacheTtl:
+      name: tag
+      description: Override the cache time to live (in seconds). Can not be used to disable caching, only override with a new cache ttl
       in: query
       schema:
         type: string
