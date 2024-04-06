@@ -68,9 +68,7 @@ export function evalValue(
 	return v
 }
 
-export function cleanInputs(
-	flow: OpenFlow | any
-): OpenFlow & {
+export function cleanInputs(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
 	ws_error_handler_muted?: boolean
 	dedicated_worker?: boolean
