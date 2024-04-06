@@ -107,11 +107,6 @@ lazy_static::lazy_static! {
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
-    pub static ref HTTP_CLIENT_11: reqwest_11::Client = reqwest_11::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
-        .build().unwrap();
-
     pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),

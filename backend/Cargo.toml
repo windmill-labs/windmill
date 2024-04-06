@@ -143,7 +143,6 @@ urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
 reqwest = { version = "^0.12", features = ["json", "stream"] }
-reqwest_11 = { package = "reqwest", version = "0.11" }
 time = "0.3.16"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
