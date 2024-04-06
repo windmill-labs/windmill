@@ -116,6 +116,7 @@ pub async fn update_flow_status_after_job_completion<
         {
             Ok(j) => j,
             Err(e) => {
+                tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e}", nrec.flow,&nrec.job_id_for_status);
                 update_flow_status_after_job_completion_internal(
                     db,
                     client,
@@ -322,8 +323,17 @@ pub async fn update_flow_status_after_job_completion_internal<
                             flow
                         )
                         .fetch_one(&mut tx)
-                        .await?
+                        .await.map_err(|e| {
+                            Error::InternalErr(format!(
+                                "error while fetching iterator index: {e}"
+                            ))
+                        })?
                         .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
+                        tracing::info!(
+                            "parallel iteration {job_id_for_status} of flow {flow} update nindex: {nindex} len: {len}",
+                            nindex = nindex,
+                            len = itered.len()
+                        );
                         (nindex, itered.len() as i32)
                     }
                     (_, Some(BranchAllStatus { len, .. })) => {
@@ -336,7 +346,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                             flow
                         )
                         .fetch_one(&mut tx)
-                        .await?
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!(
+                                "error while fetching branchall index: {e}"
+                            ))
+                        })?
                         .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
                         (nindex, *len as i32)
                     }
@@ -351,7 +366,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                             jobs.as_slice()
                         )
                         .fetch_all(&mut tx)
-                        .await?
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!(
+                                "error while fetching sucess from completed_jobs: {e}"
+                            ))
+                        })?
                         .into_iter()
                         .all(|x| x)
                     {
@@ -375,13 +395,20 @@ pub async fn update_flow_status_after_job_completion_internal<
                     let r = sqlx::query_scalar!(
                         "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 RETURNING last_ping",
                         flow,
-                    ).fetch_optional(db).await?;
+                    ).fetch_optional(db).await.map_err(|e| {
+                        Error::InternalErr(format!(
+                            "error while deleting parallel_monitor_lock: {e}"
+                        ))
+                    })?;
                     if r.is_some() {
                         tracing::info!(
                             "parallel flow has removed lock on its parent, last ping was {:?}",
                             r.unwrap()
                         );
                     }
+                    tracing::info!(
+                        "parallel iteration {job_id_for_status} of flow {flow} has finished",
+                    );
 
                     (true, Some(new_status))
                 } else {
@@ -389,11 +416,14 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                     if parallelism.is_some() {
                         sqlx::query!(
-                            "UPDATE queue SET suspend = suspend - 1 WHERE parent_job = $1",
+                            "UPDATE queue SET suspend = suspend - 1 WHERE parent_job = $1 AND suspend > 0",
                             flow
                         )
                         .execute(db)
-                        .await?;
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error decreasing suspend: {e}"))
+                        })?;
                     }
 
                     sqlx::query!(
@@ -476,7 +506,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                             old_status.step
                         )
                         .fetch_optional(&mut tx)
-                        .await?
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error while getting retry fromn step: {e}"))
+                        })?
                         .flatten();
 
                         let retry = retry
@@ -510,7 +543,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                 flow
             )
             .execute(&mut tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!("error while setting flow index for {flow}: {e}"))
+            })?;
             old_status.step + 1
         } else {
             old_status.step
@@ -528,7 +564,11 @@ pub async fn update_flow_status_after_job_completion_internal<
                     flow
                 )
                 .fetch_one(&mut tx)
-                .await?;
+                .await.map_err(|e| {
+                    Error::InternalErr(format!(
+                        "error while fetching failure module: {e}"
+                    ))
+                })?;
 
                 sqlx::query!(
                     "UPDATE queue
@@ -541,7 +581,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                     flow
                 )
                 .execute(&mut tx)
-                .await?;
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "error while setting flow status in failure step: {e}"
+                    ))
+                })?;
             } else {
                 sqlx::query!(
                     "UPDATE queue
@@ -552,7 +597,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                     flow
                 )
                 .execute(&mut tx)
-                .await?;
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!("error while setting new flow status: {e}"))
+                })?;
 
                 if let Some(job_result) = new_status.job_result() {
                     sqlx::query!(
@@ -564,7 +612,11 @@ pub async fn update_flow_status_after_job_completion_internal<
                         flow
                     )
                     .execute(&mut tx)
-                    .await?;
+                    .await.map_err(|e| {
+                        Error::InternalErr(format!(
+                            "error while setting leaf jobs: {e}"
+                        ))
+                    })?;
                 }
             }
         }
@@ -600,7 +652,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .root_job
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
-        tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
+        tracing::info!(id = %flow_job.id, root_id = %job_root, worker_name = %worker_name, "update flow status");
 
         let module = get_module(&flow_job, module_index);
 
@@ -795,6 +847,8 @@ pub async fn update_flow_status_after_job_completion_internal<
         }
 
         if let Some(parent_job) = flow_job.parent_job {
+            tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, worker_name = %worker_name, "subflow is finished, updating parent flow status");
+
             return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
                 flow: parent_job,
                 job_id_for_status: flow,
