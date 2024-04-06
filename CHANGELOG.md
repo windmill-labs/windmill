@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.304.1](https://github.com/windmill-labs/windmill/compare/v1.304.0...v1.304.1) (2024-04-06)
+
+
+### Bug Fixes
+
+* remove reqwest_11 ([8cdae1a](https://github.com/windmill-labs/windmill/commit/8cdae1ac965f8bbb03fff1fb68b2d2ee3c1f744f))
+
 ## [1.304.0](https://github.com/windmill-labs/windmill/compare/v1.303.4...v1.304.0) (2024-04-06)
 
 
