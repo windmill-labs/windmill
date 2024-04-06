@@ -119,7 +119,7 @@
 
 				let length = roughSizeOfObject(result)
 				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = length > 10000
+				largeObject = length > 100000
 
 				if (largeObject) {
 					return 'json'
