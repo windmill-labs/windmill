@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.304.0](https://github.com/windmill-labs/windmill/compare/v1.303.4...v1.304.0) (2024-04-06)
+
+
+### Features
+
+* add overridable cache_ttl in api of job triggers ([21a7ee4](https://github.com/windmill-labs/windmill/commit/21a7ee4c33c483d39cc6d7020623ee11fc9f1cbd))
+* git sync group changes by folder ([#3517](https://github.com/windmill-labs/windmill/issues/3517)) ([08231c0](https://github.com/windmill-labs/windmill/commit/08231c02d282410a7939e358a49cad2f4696dacd))
+
+
+### Bug Fixes
+
+* add args filter to schedule list ([f9d8dde](https://github.com/windmill-labs/windmill/commit/f9d8dde61cc527d5f9553f3981485a8c345dc1aa))
+* fix lightweight arg input min size ([78b8c3e](https://github.com/windmill-labs/windmill/commit/78b8c3edc9e28a07d8557c0d34208f773539fa72))
+* **frontend:** Fix simple flow tutorial ([#3518](https://github.com/windmill-labs/windmill/issues/3518)) ([139bc38](https://github.com/windmill-labs/windmill/commit/139bc38ddcc0988a1485f9d53535631626cab7fa))
+* improve list static input ([d61d6f5](https://github.com/windmill-labs/windmill/commit/d61d6f520bd52df23f020cd12cbaf666cfe0097b))
+* make autodatatable more resilient ([fba1ea7](https://github.com/windmill-labs/windmill/commit/fba1ea7d547791cfa6dfd62b51db9ba567cfa243))
+* make autodatatable more resilient ([632c9fb](https://github.com/windmill-labs/windmill/commit/632c9fb2aab2fc073e5526b2c9f7d363bae063b4))
+* make date time input more resilient ([2ec1add](https://github.com/windmill-labs/windmill/commit/2ec1add494afa1a56c62ae430429912a095dd85c))
+* parallel flow with parallelism constraint could deadlock ([9131d5c](https://github.com/windmill-labs/windmill/commit/9131d5cc4088ca66383ca9e4e10fedae0e9e661f))
+* remove information in approval page of a flow ([3175456](https://github.com/windmill-labs/windmill/commit/31754569bae3355d58d20eea2749ad203a92a6dd))
+* show flow user states in flow state preview ([7c4eece](https://github.com/windmill-labs/windmill/commit/7c4eece009717e4188eeb8b1dedd094589dc2bdf))
+
 ## [1.303.4](https://github.com/windmill-labs/windmill/compare/v1.303.3...v1.303.4) (2024-04-05)
 
 
