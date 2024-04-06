@@ -3,7 +3,7 @@ import type { FlowModule } from '$lib/gen/models/FlowModule'
 export function dfs<T>(modules: FlowModule[], f: (x: FlowModule) => T): T[] {
 	let result: T[] = []
 	for (const module of modules) {
-		if (module.value.type == 'forloopflow') {
+		if (module.value.type == 'forloopflow' || module.value.type == 'whileloopflow') {
 			result = result.concat(f(module))
 			result = result.concat(dfs(module.value.modules, f))
 		} else if (module.value.type == 'branchone') {
