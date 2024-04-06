@@ -9707,7 +9707,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -9744,7 +9744,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9821,7 +9821,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9839,7 +9839,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "chrono",
  "serde",
@@ -9852,7 +9852,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9888,7 +9888,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9903,7 +9903,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -9911,7 +9911,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9922,7 +9922,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9934,7 +9934,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9945,7 +9945,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9956,7 +9956,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9973,7 +9973,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9984,7 +9984,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10002,7 +10002,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "getrandom 0.2.13",
@@ -10020,7 +10020,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10053,7 +10053,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.304.1"
+version = "1.304.2"
 dependencies = [
  "anyhow",
  "async-recursion",
