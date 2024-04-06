@@ -23,7 +23,6 @@
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
-	import { startsWith } from 'lodash'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
