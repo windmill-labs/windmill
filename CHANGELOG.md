@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.304.2](https://github.com/windmill-labs/windmill/compare/v1.304.1...v1.304.2) (2024-04-06)
+
+
+### Bug Fixes
+
+* **frontend:** Fix selectFirstRowByDefault on AgGrids ([#3450](https://github.com/windmill-labs/windmill/issues/3450)) ([a52d6b3](https://github.com/windmill-labs/windmill/commit/a52d6b30b21bbf8d42cef1cb760b082181163fa2))
+
 ## [1.304.1](https://github.com/windmill-labs/windmill/compare/v1.304.0...v1.304.1) (2024-04-06)
 
 
