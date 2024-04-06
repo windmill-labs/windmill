@@ -194,44 +194,43 @@
 			<input class="w-full" type="text" bind:value={summary} placeholder="Summary" />
 			<div class="pb-2" />
 		{/if}
-		<div class="flex flex-row">
-			<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
-				{#each langs as [label, lang] (lang)}
-					{#if displayLang(lang, kind)}
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							{label}
-							lang={lang == 'docker' ? Script.language.BASH : lang}
-							on:click={() => {
-								if (lang == 'docker') {
-									if (isCloudHosted()) {
-										sendUserToast(
-											'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-											true,
-											[
-												{
-													label: 'Learn more',
-													callback: () => {
-														window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-													}
+		<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
+			{#each langs as [label, lang] (lang)}
+				{#if displayLang(lang, kind)}
+					<FlowScriptPicker
+						id={`flow-editor-action-script-${lang}`}
+						disabled={noEditor && (summary == undefined || summary == '')}
+						{label}
+						lang={lang == 'docker' ? Script.language.BASH : lang}
+						on:click={() => {
+							if (lang == 'docker') {
+								if (isCloudHosted()) {
+									sendUserToast(
+										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+										true,
+										[
+											{
+												label: 'Learn more',
+												callback: () => {
+													window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
 												}
-											]
-										)
-										return
-									}
+											}
+										]
+									)
+									return
 								}
-								console.log(lang, kind)
-								dispatch('new', {
-									language: lang == 'docker' ? Script.language.BASH : lang,
-									kind,
-									subkind: lang == 'docker' ? 'docker' : 'flow',
-									summary
-								})
-							}}
-						/>
-					{/if}
-				{/each}
-			</div>
+							}
+							console.log(lang, kind)
+							dispatch('new', {
+								language: lang == 'docker' ? Script.language.BASH : lang,
+								kind,
+								subkind: lang == 'docker' ? 'docker' : 'flow',
+								summary
+							})
+						}}
+					/>
+				{/if}
+			{/each}
 		</div>
 
 		<h3 class="mb-2 mt-6"
