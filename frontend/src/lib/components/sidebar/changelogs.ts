@@ -57,7 +57,7 @@ const changelogs: Changelog[] = [
 	},
 	{
 		label: 'Workflow as Code',
-		href: 'https://www.windmill.dev/changelog/workflows_as_code',
+		href: 'https://www.windmill.dev/changelog/workflows-as-code',
 		date: '2024-03-04'
 	},
 	{
