@@ -5234,6 +5234,8 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/Tag"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -5336,6 +5338,8 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/Tag"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -5385,6 +5389,8 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
           in: query
