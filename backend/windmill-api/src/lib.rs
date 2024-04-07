@@ -279,7 +279,8 @@ pub async fn run_server(
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
-                .route("/openapi.yaml", get(openapi)),
+                .route("/openapi.yaml", get(openapi))
+                .route("/openapi.json", get(openapi_json)),
         )
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
@@ -365,6 +366,10 @@ async fn ee_license() -> String {
 
 async fn openapi() -> &'static str {
     include_str!("../openapi-deref.yaml")
+}
+
+async fn openapi_json() -> &'static str {
+    include_str!("../openapi-deref.json")
 }
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
