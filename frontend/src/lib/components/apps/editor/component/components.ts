@@ -2343,15 +2343,15 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 
 | Format      | Result | Description |
 | ----------- | ----------- | ----------- |
-| DD 				| 01, 02, ..., 31 | Day of the month |
-| D 				| 1, 2, ..., 31 | Day of the month |
+| dd 				| 01, 02, ..., 31 | Day of the month |
+| d 				| 1, 2, ..., 31 | Day of the month |
 | MM 				| 01, 02, ..., 12 | Month |
 | MMM 				| Jan, Feb, ..., Dec | Month |
 | MMMM 				| January, February, ..., December | Month |
-| YYYY 				| 2021, 2022, ... | Year |
+| yyyy 				| 2021, 2022, ... | Year |
 `,
 
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy'
 				}
 			}
@@ -2380,32 +2380,32 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 					value: '',
 					fieldType: 'datetime',
 					tooltip:
-						'The minimum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+						'The minimum date and time that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
 				},
 				maxDateTime: {
 					type: 'static',
 					value: '',
 					fieldType: 'datetime',
 					tooltip:
-						'The maximum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+						'The maximum date and time that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
 				},
 				outputFormat: {
 					type: 'static',
 					value: undefined,
 					fieldType: 'text',
-					documentationLink: 'https://date-fns.org/v1.29.0/docs/format',
+					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy HH:mm',
 					markdownTooltip: `### Output format				
 See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 
 | Format      | Result | Description |
 | ----------- | ----------- | ----------- |
-| DD 				| 01, 02, ..., 31 | Day of the month |
-| D 				| 1, 2, ..., 31 | Day of the month |
+| dd 				| 01, 02, ..., 31 | Day of the month |
+| d 				| 1, 2, ..., 31 | Day of the month |
 | MM 				| 01, 02, ..., 12 | Month |
 | MMM 				| Jan, Feb, ..., Dec | Month |
 | MMMM 				| January, February, ..., December | Month |
-| YYYY 				| 2021, 2022, ... | Year |
+| yyyy 				| 2021, 2022, ... | Year |
 | HH 				| 00, 01, ..., 23 | Hours |
 | mm 				| 00, 01, ..., 59 | Minutes |
 | ss 				| 00, 01, ..., 59 | Seconds |
@@ -2436,14 +2436,14 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: '',
 					fieldType: 'time',
 					tooltip:
-						'The minimum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+						'The minimum time that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
 				},
 				maxTime: {
 					type: 'static',
 					value: '',
 					fieldType: 'time',
 					tooltip:
-						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+						'The maximum time that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
 				},
 				defaultValue: {
 					type: 'static',

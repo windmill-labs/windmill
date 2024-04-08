@@ -13,7 +13,6 @@
 	export let job: Job
 
 	let default_payload: object = {}
-	let enum_payload: object = {}
 	let resumeUrl: string | undefined = undefined
 	let description: any = undefined
 
@@ -22,9 +21,11 @@
 	let defaultValues = {}
 	$: job && getDefaultArgs()
 
+	let schema = {}
 	let lastJobId: string | undefined = undefined
 	async function getDefaultArgs() {
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
+
 		if (jobId === lastJobId) {
 			return
 		}
@@ -41,8 +42,11 @@
 		defaultValues = JSON.parse(JSON.stringify(args))
 		default_payload = args
 
-		enum_payload = job_result?.enums ?? {}
 		resumeUrl = job_result?.['resume']
+		schema = mergeSchema(
+			job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
+			job_result?.enums ?? {}
+		)
 	}
 </script>
 
@@ -106,14 +110,7 @@
 
 				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 					<div class="w-full border rounded-lg p-2">
-						<LightweightSchemaForm
-							bind:args={default_payload}
-							{defaultValues}
-							schema={mergeSchema(
-								job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
-								enum_payload
-							)}
-						/>
+						<LightweightSchemaForm bind:args={default_payload} {defaultValues} {schema} />
 					</div>
 				{/if}
 				<Tooltip

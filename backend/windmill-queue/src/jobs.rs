@@ -467,8 +467,6 @@ pub async fn add_completed_job<
         ));
     }
 
-    let is_flow = queued_job.is_flow();
-
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
@@ -691,7 +689,7 @@ pub async fn add_completed_job<
     );
 
     #[cfg(feature = "enterprise")]
-    if *CLOUD_HOSTED && !is_flow && _duration > 1000 {
+    if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
         let additional_usage = _duration / 1000;
         let w_id = &queued_job.workspace_id;
         let premium_workspace =
@@ -1003,7 +1001,7 @@ pub async fn send_error_to_workspace_handler<
     ).bind(&w_id)
     .fetch_optional(&mut *tx)
     .await
-    .context("sending error to global handler")?
+    .context("fetching error handler info from workspace_settings")?
     .ok_or_else(|| Error::InternalErr(format!("no workspace settings for id {w_id}")))?;
 
     if is_canceled && error_handler_muted_on_cancel {
@@ -2993,6 +2991,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     timeout: None,
                     priority: None,
                     delete_after_use: None,
+                    continue_on_error: None,
                 }],
                 same_worker: false,
                 failure_module: None,
@@ -3520,6 +3519,7 @@ async fn restarted_flows_resolution(
                                 len: branches.len(),
                             }),
                             parallel: parallel,
+                            while_loop: false,
                         });
                     }
                     FlowModuleValue::ForloopFlow { parallel, .. } => {
@@ -3552,6 +3552,7 @@ async fn restarted_flows_resolution(
                             branch_chosen: None,
                             branchall: None,
                             parallel: parallel,
+                            while_loop: false,
                         });
                     }
                     _ => {

@@ -43,8 +43,6 @@
 	setLicense()
 
 	onMount(() => {
-		getJob()
-		timeout = setInterval(getJob, 1000)
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
 			timeout && clearInterval(timeout)
@@ -62,6 +60,8 @@
 				console.log('Caught unhandled promise rejection without message', event)
 			}
 		}
+		getJob()
+		timeout = setInterval(getJob, 1000)
 	})
 
 	onDestroy(() => {
@@ -190,9 +190,12 @@
 				{/if}
 			</div>
 		</div>
-		<h2 class="mt-4 mb-2">Flow arguments</h2>
+		{#if !completed}
+			<h2 class="mt-4 mb-2">Flow arguments</h2>
 
-		<JobArgs args={job?.args} />
+			<JobArgs args={job?.args} />
+		{/if}
+
 		<div class="mt-8">
 			{#if approver}
 				<p>Approving as: <b>{approver}</b></p>
@@ -210,7 +213,7 @@
 			<DisplayResult noControls result={description} />
 		{/if}
 
-		{#if schema}
+		{#if schema && !completed}
 			{#if emptyString($enterpriseLicense)}
 				<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
 			{:else}
@@ -223,27 +226,29 @@
 			{/if}
 		{/if}
 
-		<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-			{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
+		{#if !completed}
+			<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
+				{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
+					<Button
+						btnClasses="grow"
+						color="red"
+						on:click|once={cancel}
+						size="md"
+						disabled={completed || alreadyResumed}>Deny</Button
+					>
+				{:else}
+					<div />
+				{/if}
+
 				<Button
 					btnClasses="grow"
-					color="red"
-					on:click|once={cancel}
+					color="green"
+					on:click|once={resume}
 					size="md"
-					disabled={completed || alreadyResumed}>Deny</Button
+					disabled={completed || alreadyResumed || !valid}>Approve</Button
 				>
-			{:else}
-				<div />
-			{/if}
-
-			<Button
-				btnClasses="grow"
-				color="green"
-				on:click|once={resume}
-				size="md"
-				disabled={completed || alreadyResumed || !valid}>Approve</Button
-			>
-		</div>
+			</div>
+		{/if}
 		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && $userStore.is_admin}
 			<div class="mt-2">
 				<Alert type="warning" title="Warning">
@@ -258,7 +263,7 @@
 				>Flow run details (require auth)</a
 			>
 		</div>
-		{#if job && job.raw_flow}
+		{#if job && job.raw_flow && !completed}
 			<h2 class="mt-10">Flow details</h2>
 			<div class="border border-gray-700">
 				<FlowGraph

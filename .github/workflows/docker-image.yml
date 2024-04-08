@@ -8,15 +8,16 @@ on:
   push:
     branches: [main]
     tags: ["*"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "Dockerfile"
 
 concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  id-token: write
-  packages: write
+permissions: write-all
 
 jobs:
   build:
@@ -136,7 +137,6 @@ jobs:
           push: true
           build-args: |
             features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect
-            nsjail=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -144,52 +144,68 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
-  build_ee_reports_privately:
-    needs: [build_ee]
+  build_ee_312:
     runs-on: ubicloud
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
-
       - uses: depot/setup-action@v1
 
       - name: Docker meta
-        id: meta-ee-public
+        id: meta-ee-public-py312
         uses: docker/metadata-action@v4
         with:
           images: |
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-py312
+          flavor: |
+            latest=false
           tags: |
-            type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
 
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
+      - name: Login to registry
         uses: docker/login-action@v2
         with:
-          registry: ${{ env.ECR_REGISTRY }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push publicly ee reports
+      - name: Substitute EE code
+        run: |
+          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - name: Build and push publicly ee
         uses: depot/build-push-action@v1
         with:
           context: .
           platforms: linux/amd64
           push: true
-          file: "./docker/DockerfileReports"
+          build-args: |
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect
+            PYTHON_IMAGE=python:3.12.2-slim-bookworm
           tags: |
-            ${{ steps.meta-ee-public.outputs.tags }}
+            ${{ steps.meta-ee-public-py312.outputs.tags }}
           labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
+            ${{ steps.meta-ee-public-py312.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
-
   # disabled until we make it 100% reliable and add more meaningful tests
   # playwright:
   #   runs-on: [self-hosted, new]
@@ -311,54 +327,6 @@ jobs:
   #           ${{ steps.extract.outputs.destination }}/*
   #           ${{ steps.extract-ee.outputs.destination }}/*
 
-  publish_ecr_s3:
-    needs: [build_ee]
-    runs-on: ubicloud
-    if: github.event_name != 'pull_request'
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      - name: Push image to ECR
-        if: github.event_name != 'pull_request'
-        id: push_ecr
-        run: |
-          git_hash=$(git rev-parse --short "$GITHUB_SHA")
-          docker buildx imagetools create \
-            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
-          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
-
-      - uses: shrink/actions-docker-extract@v3
-        if: github.event_name != 'pull_request'
-        id: extract
-        with:
-          image: |-
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
-          path: "/static_frontend/."
-
-      - uses: reggionick/s3-deploy@v3
-        if: github.event_name != 'pull_request'
-        with:
-          folder: ${{ steps.extract.outputs.destination }}
-          bucket: windmill-frontend
-          bucket-region: us-east-1
-
   run_integration_test:
     runs-on: ubicloud
     needs: [build_ee]
@@ -418,6 +386,190 @@ jobs:
         run: |
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
           docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+
+  verify_ee_image_vulnerabilities:
+    runs-on: ubicloud
+    needs: [tag_latest_ee]
+    # if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Analyze for critical and high CVEs
+        id: docker-scout-cves
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          only-severities: critical,high
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+          sarif-file: sarif.output.json
+          summary: true
+          dockerhub-user: windmilllabs
+          dockerhub-password: ${{ secrets.DOCKER_PAT }}
+
+      - name: Upload SARIF result
+        id: upload-sarif
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: sarif.output.json
+
+  # docker_scout_ee:
+  #   runs-on: ubicloud
+  #   needs: [tag_latest_ee]
+  #   steps:
+  #     - name: Docker Scout
+  #       id: docker-scout
+  #       uses: docker/scout-action@v1
+  #       with:
+  #         dockerhub-
+  #         command: cves,recommendations,compare
+  #         to-latest: true
+  #         ignore-base: true
+  #         ignore-unchanged: true
+  #         only-fixed: true
+
+  build_ee_nsjail:
+    needs: [build_ee]
+    runs-on: ubicloud
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
+
+      - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail
+          flavor: |
+            latest=false
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
+
+      - name: Login to registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push publicly ee
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          file: "./docker/DockerfileNsjail"
+          tags: |
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+  build_ee_reports_privately:
+    needs: [build_ee_nsjail]
+    runs-on: ubicloud
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
+
+      - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta-ee-public
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
+
+      - name: Login to ECR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.ECR_REGISTRY }}
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Build and push publicly ee reports
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          file: "./docker/DockerfileReports"
+          tags: |
+            ${{ steps.meta-ee-public.outputs.tags }}
+          labels: |
+            ${{ steps.meta-ee-public.outputs.labels }}
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
+
+  publish_ecr_s3:
+    needs: [build_ee_nsjail]
+    runs-on: ubicloud
+    if: github.event_name != 'pull_request'
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to ECR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.ECR_REGISTRY }}
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Push image to ECR
+        if: github.event_name != 'pull_request'
+        id: push_ecr
+        run: |
+          git_hash=$(git rev-parse --short "$GITHUB_SHA")
+          docker buildx imagetools create \
+            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail:main
+          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
+
+      - uses: shrink/actions-docker-extract@v3
+        if: github.event_name != 'pull_request'
+        id: extract
+        with:
+          image: |-
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
+          path: "/static_frontend/."
+
+      - uses: reggionick/s3-deploy@v3
+        if: github.event_name != 'pull_request'
+        with:
+          folder: ${{ steps.extract.outputs.destination }}
+          bucket: windmill-frontend
+          bucket-region: us-east-1
 
   build_ee_cuda:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}

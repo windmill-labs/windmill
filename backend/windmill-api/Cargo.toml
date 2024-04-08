@@ -39,7 +39,6 @@ tower-http.workspace = true
 hyper.workspace = true
 itertools.workspace = true
 reqwest.workspace = true
-reqwest_11.workspace = true
 serde.workspace = true
 sqlx.workspace = true
 async-oauth2.workspace = true

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.299.0
+  version: 1.304.3
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -139,7 +139,8 @@ components:
               type: boolean
         priority:
           type: number
-
+        continue_on_error:
+          type: boolean
         retry:
           $ref: "#/components/schemas/Retry"
       required:
@@ -187,6 +188,7 @@ components:
         - $ref: "#/components/schemas/PathScript"
         - $ref: "#/components/schemas/PathFlow"
         - $ref: "#/components/schemas/ForloopFlow"
+        - $ref: "#/components/schemas/WhileloopFlow"
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
@@ -197,6 +199,7 @@ components:
           script: "#/components/schemas/PathScript"
           flow: "#/components/schemas/PathFlow"
           forloopflow: "#/components/schemas/ForloopFlow"
+          whileloopflow: "#/components/schemas/WhileloopFlow"
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
           identity: "#/components/schemas/Identity"
@@ -310,6 +313,28 @@ components:
         - skip_failures
         - type
 
+    WhileloopFlow:
+      type: object
+      properties:
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        skip_failures:
+          type: boolean
+        type:
+          type: string
+          enum:
+            - forloopflow
+        parallel:
+          type: boolean
+        parallelism:
+          type: integer
+      required:
+        - modules
+        - skip_failures
+        - type
+
     BranchOne:
       type: object
       properties:
@@ -394,6 +419,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FlowStatusModule"
+        user_states:
+          additionalProperties: true
         failure_module:
           allOf:
             - $ref: "#/components/schemas/FlowStatusModule"

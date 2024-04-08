@@ -29,7 +29,8 @@
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
-		workspaceStore
+		workspaceStore,
+		hubBaseUrlStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
@@ -109,6 +110,7 @@
 			script_path: string
 			git_repo_resource_path: string
 			use_individual_branch: boolean
+			group_by_folder: boolean
 		}[]
 		include_type: GitSyncTypeMap
 	}
@@ -269,7 +271,8 @@
 				exclude_types_override: exclude_types_override,
 				script_path: elmt.script_path,
 				git_repo_resource_path: `$res:${elmt.git_repo_resource_path.replace('$res:', '')}`,
-				use_individual_branch: elmt.use_individual_branch
+				use_individual_branch: elmt.use_individual_branch,
+				group_by_folder: elmt.group_by_folder
 			}
 		})
 
@@ -482,6 +485,7 @@
 						git_repo_resource_path: settings.git_repo_resource_path.replace('$res:', ''),
 						script_path: settings.script_path,
 						use_individual_branch: settings.use_individual_branch ?? false,
+						group_by_folder: settings.group_by_folder ?? false,
 						exclude_types_override: {
 							scripts: (settings.exclude_types_override?.indexOf('script') ?? -1) >= 0,
 							flows: (settings.exclude_types_override?.indexOf('flow') ?? -1) >= 0,
@@ -799,10 +803,8 @@
 
 				<div class="prose text-2xs text-tertiary">
 					Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
-					connection, templates for a <a href="https://hub.windmill.dev/scripts/slack/1405/"
-						>script</a
-					>
-					and <a href="https://hub.windmill.dev/flows/28/">flow</a> are available.
+					connection, templates for a <a href="{$hubBaseUrlStore}/scripts/slack/1405/">script</a>
+					and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.
 
 					<br /><br />
 
@@ -811,8 +813,10 @@
 
 					<br /><br />
 
-					The script or flow is permissioned as group "slack" that will be automatically created
-					after connection to Slack.
+					<span class="font-bold text-xs">
+						The script or flow is permissioned as group "slack" that will be automatically created
+						after connection to Slack.
+					</span>
 
 					<br /><br />
 
@@ -1368,7 +1372,7 @@
 							{/if}
 						</div>
 
-						<div class="flex mt-5 mb-1 gap-1">
+						<div class="flex flex-col mt-5 mb-1 gap-4">
 							{#if gitSyncSettings}
 								<Toggle
 									disabled={emptyString(gitSyncRepository.git_repo_resource_path)}
@@ -1377,6 +1381,17 @@
 										right: 'Create one branch per deployed object',
 										rightTooltip:
 											"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
+									}}
+								/>
+
+								<Toggle
+									disabled={emptyString(gitSyncRepository.git_repo_resource_path) ||
+										!gitSyncRepository.use_individual_branch}
+									bind:checked={gitSyncRepository.group_by_folder}
+									options={{
+										right: 'Group deployed objects by folder',
+										rightTooltip:
+											'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
 									}}
 								/>
 							{/if}
@@ -1474,9 +1489,10 @@
 							gitSyncSettings.repositories = [
 								...gitSyncSettings.repositories,
 								{
-									script_path: 'hub/8720/sync-script-to-git-repo-windmill',
+									script_path: 'hub/8753/sync-script-to-git-repo-windmill',
 									git_repo_resource_path: '',
 									use_individual_branch: false,
+									group_by_folder: false,
 									exclude_types_override: {
 										scripts: false,
 										flows: false,

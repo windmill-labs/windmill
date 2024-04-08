@@ -223,7 +223,9 @@ Generate a description for the flow below:
 	}}
 >
 	<div
-		class={'absolute left-[0.5rem] top-[1.4rem] flex flex-row  gap-2 items-start  pointer-events-none'}
+		class="absolute left-[0.5rem] {elementType === 'textarea'
+			? 'top-[1.3rem]'
+			: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
 	>
 		{#if active}
 			<span

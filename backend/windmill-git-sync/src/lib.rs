@@ -15,7 +15,7 @@ pub mod git_sync_ee;
 pub use git_sync_ee::handle_deployment_metadata;
 pub type DB = Pool<Postgres>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DeployedObject {
     Script { hash: ScriptHash, path: String, parent_path: Option<String> },
     Flow { path: String, parent_path: Option<String> },
@@ -47,7 +47,7 @@ impl DeployedObject {
 
     pub fn get_ignore_regex_filter(&self) -> bool {
         match self {
-            DeployedObject::User { .. } | DeployedObject::Group { .. } => true,
+            Self::User { .. } | Self::Group { .. } | Self::ResourceType { .. } => true,
             _ => false,
         }
     }

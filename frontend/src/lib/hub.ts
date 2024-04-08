@@ -9,9 +9,10 @@ export function scriptToHubUrl(
 	kind: Script.kind,
 	language: Script.language,
 	schema: Schema | any,
-	lock: string | undefined
+	lock: string | undefined,
+	hubBaseUrl: string
 ): URL {
-	const url = new URL('https://hub.windmill.dev/scripts/add')
+	const url = new URL(hubBaseUrl + '/scripts/add')
 	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
 
 	return url
@@ -37,8 +38,8 @@ export async function loadHubApps() {
 	}
 }
 
-export function flowToHubUrl(flow: Flow): URL {
-	const url = new URL('https://hub.windmill.dev/flows/add')
+export function flowToHubUrl(flow: Flow, hubBaseUrl: string): URL {
+	const url = new URL(hubBaseUrl + '/flows/add')
 	const openFlow = {
 		value: flow.value,
 		summary: flow.summary,
@@ -49,8 +50,8 @@ export function flowToHubUrl(flow: Flow): URL {
 	return url
 }
 
-export function appToHubUrl(staticApp: any): URL {
-	const url = new URL('https://hub.windmill.dev/apps/add')
+export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
+	const url = new URL(hubBaseUrl + '/apps/add')
 	url.searchParams.append('app', encodeState(staticApp))
 	return url
 }

@@ -46,6 +46,8 @@ pub mod tracing_init;
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 4;
 
+pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
+
 lazy_static::lazy_static! {
     pub static ref METRICS_PORT: u16 = std::env::var("METRICS_PORT")
     .ok()
@@ -69,6 +71,8 @@ lazy_static::lazy_static! {
 
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
 }
 
 pub async fn shutdown_signal(

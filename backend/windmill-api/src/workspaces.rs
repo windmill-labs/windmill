@@ -415,6 +415,30 @@ async fn edit_slack_command(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
+
+    if es.slack_command_script.is_some() {
+        let exists_slack_command_with_team_id = sqlx::query_scalar!(
+            r#"
+                SELECT EXISTS (SELECT 1 
+                FROM workspace_settings 
+                WHERE workspace_id <> $1 
+                    AND slack_command_script IS NOT NULL
+                    AND slack_team_id IS NOT NULL 
+                    AND slack_team_id = (SELECT slack_team_id FROM workspace_settings WHERE workspace_id = $1))
+            "#,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?.unwrap_or(false);
+
+        if exists_slack_command_with_team_id {
+            return Err(Error::BadRequest(
+                "A workspace connected to the same slack team already has a command script. Please remove it first."
+                    .to_string(),
+            ));
+        }
+    }
+
     sqlx::query!(
         "UPDATE workspace_settings SET slack_command_script = $1 WHERE workspace_id = $2",
         es.slack_command_script,
@@ -2805,7 +2829,9 @@ async fn change_workspace_id(
         &rw.new_id,
         &rw.new_name,
         &old_id
-    ).execute(&mut *tx).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         "UPDATE account SET workspace_id = $1 WHERE workspace_id = $2",
@@ -3083,10 +3109,7 @@ async fn change_workspace_id(
     ))
 }
 
-async fn get_usage(
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-) -> Result<String> {
+async fn get_usage(Extension(db): Extension<DB>, Path(w_id): Path<String>) -> Result<String> {
     let usage = sqlx::query_scalar!(
         "
     SELECT usage.usage FROM usage 

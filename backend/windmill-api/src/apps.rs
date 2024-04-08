@@ -39,6 +39,7 @@ use windmill_common::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
     variables::build_crypt,
+    HUB_BASE_URL,
 };
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -633,16 +634,12 @@ async fn create_app(
 async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, body) = query_elems_from_hub(
         &HTTP_CLIENT,
-        "https://hub.windmill.dev/searchUiData?approved=true",
+        &format!("{}/searchUiData?approved=true", *HUB_BASE_URL.read().await),
         None,
         &db,
     )
     .await?;
-    Ok::<_, Error>((
-        status_code,
-        headers,
-        body
-    ))
+    Ok::<_, Error>((status_code, headers, body))
 }
 
 pub async fn get_hub_app_by_id(
@@ -651,7 +648,7 @@ pub async fn get_hub_app_by_id(
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("https://hub.windmill.dev/apps/{id}/json"),
+        &format!("{}/apps/{}/json", *HUB_BASE_URL.read().await, id),
         false,
         None,
         &db,
