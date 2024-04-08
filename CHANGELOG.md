@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.304.3](https://github.com/windmill-labs/windmill/compare/v1.304.2...v1.304.3) (2024-04-08)
+
+
+### Bug Fixes
+
+* add resource types to list of ignored path filters for git sync ([fc0056f](https://github.com/windmill-labs/windmill/commit/fc0056f991d985e3a014ac50a7fe2ef73bb6b97a))
+* add resource types to list of ignored path filters for git sync ([acf80dc](https://github.com/windmill-labs/windmill/commit/acf80dc6a005ccd048ffc193841b3c599e93c50d))
+* improve CLI with visible_to_runner_only and priority ([c7f0f3f](https://github.com/windmill-labs/windmill/commit/c7f0f3f359ff57ea1f816dc5598a61d50c3ae263))
+
 ## [1.304.2](https://github.com/windmill-labs/windmill/compare/v1.304.1...v1.304.2) (2024-04-06)
 
 
