@@ -23,6 +23,7 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
+
 	let multiValues: Record<number, string[]> = initiateMultiValues()
 	let mounted = false
 	let isOpen: Record<string, boolean> = {}
@@ -75,7 +76,14 @@
 
 	function setTopColors() {
 		const styles = collectStyles()
-		const parsedStyles = styles.map((style) => parse(style) || {})
+		const parsedStyles = styles.map((style) => {
+			try {
+				return parse(style) || {}
+			} catch {
+				return {}
+			}
+		})
+
 		const usedColors: Record<string, number> = {}
 		parsedStyles.forEach((style) => {
 			Object.values(style).reduce((colors, v) => {
@@ -174,7 +182,7 @@
 	})
 </script>
 
-<div class="pb-2 pt-1">
+<div class="flex flex-col !divide-y">
 	{#each properties as property}
 		{#each Object.keys(property) as group (group)}
 			{@const prefix = `${componentType}_${componentProperty}_${group}`}
@@ -182,13 +190,13 @@
 				bind:isOpen={isOpen[prefix]}
 				title={group}
 				{prefix}
-				openByDefault={true}
-				wrapperClasses="!px-0 !pt-0"
-				toggleClasses="border-b !rounded-b-none !py-0
+				openByDefault={false}
+				wrapperClasses="!px-0 !py-0 "
+				toggleClasses=" !rounded-b-none !py-0
 				{isOpen[prefix] ? '!bg-surface-secondary hover:!bg-surface-hover' : ''}"
 			>
 				<svelte:fragment slot="title">
-					<span class="font-semibold text-tertiary capitalize">
+					<span class="font-medium text-xs text-tertiary capitalize">
 						{group}
 					</span>
 				</svelte:fragment>
