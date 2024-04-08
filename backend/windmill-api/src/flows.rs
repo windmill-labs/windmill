@@ -334,7 +334,7 @@ async fn create_flow(
         nf.draft_only,
         nf.tag,
         nf.dedicated_worker,
-        nf.visible_to_runner_only.unwrap_or(false),
+        nf.visible_to_runner_only,
     )
     .execute(&mut tx)
     .await?;
@@ -502,7 +502,7 @@ async fn update_flow(
         w_id,
         nf.tag,
         nf.dedicated_worker,
-        nf.visible_to_runner_only.unwrap_or(false),
+        nf.visible_to_runner_only,
     )
     .execute(&mut tx)
     .await?;
