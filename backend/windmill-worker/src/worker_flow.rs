@@ -415,15 +415,28 @@ pub async fn update_flow_status_after_job_completion_internal<
                     tx.commit().await?;
 
                     if parallelism.is_some() {
+                        let mut tx = db.begin().await?;
+
+                        // this ensure that the lock is taken in the same order and thus avoid deadlocks
+                        let _ = sqlx::query!(
+                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by id FOR UPDATE",
+                            job_id_for_status
+                        )
+                        .fetch_all(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e}"))
+                        })?;
                         sqlx::query!(
                             "UPDATE queue SET suspend = suspend - 1 WHERE parent_job = $1 AND suspend > 0",
                             flow
                         )
-                        .execute(db)
+                        .execute(&mut *tx)
                         .await
                         .map_err(|e| {
                             Error::InternalErr(format!("error decreasing suspend: {e}"))
                         })?;
+                        tx.commit().await?;
                     }
 
                     sqlx::query!(
