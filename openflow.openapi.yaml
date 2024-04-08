@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.303.4
+  version: 1.304.2
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -419,6 +419,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FlowStatusModule"
+        user_states:
+          additionalProperties: true
         failure_module:
           allOf:
             - $ref: "#/components/schemas/FlowStatusModule"

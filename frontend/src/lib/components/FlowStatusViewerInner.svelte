@@ -700,6 +700,9 @@
 						<Tabs bind:selected={rightColumnSelect}>
 							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
 							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
+								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
+							{/if}
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
@@ -778,6 +781,10 @@
 									{/if}
 								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
 									>{/if}
+							</div>
+						{:else if rightColumnSelect == 'user_states'}
+							<div class="p-2">
+								<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />
 							</div>
 						{/if}
 					</div>
