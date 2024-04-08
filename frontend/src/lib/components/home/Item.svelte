@@ -9,6 +9,7 @@
 	import MoveDrawer from '../MoveDrawer.svelte'
 	import ShareModal from '../ShareModal.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { ArrowBigUp } from 'lucide-svelte'
 
 	export let item
 	export let depth: number = 0
@@ -107,7 +108,11 @@
 			<Alert type="info" title="Bypass confirmation">
 				<div>
 					You can press
-					<Badge color="dark-gray">SHIFT</Badge>
+					<span
+						class="inline-flex border rounded-md p-1 bg-blue-100 border-blue-200 dark:bg-blue-800 dark:border-blue-900 text-xs"
+					>
+						<ArrowBigUp size={18} />
+					</span>
 					while removing to bypass confirmation.
 				</div>
 			</Alert>
