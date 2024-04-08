@@ -4,7 +4,7 @@
 	import RawAppRow from '../common/table/RawAppRow.svelte'
 	import ScriptRow from '../common/table/ScriptRow.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
-	import { Alert, Badge } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
 	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
 	import MoveDrawer from '../MoveDrawer.svelte'
 	import ShareModal from '../ShareModal.svelte'
