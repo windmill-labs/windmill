@@ -1,7 +1,11 @@
 import type { AppComponent } from '.'
 
 export function defaultCode(component: string, language: string): string | undefined {
-	return DEFAULT_CODES[component]?.[language]
+	let lang = language
+	if (language == 'bun') {
+		lang = 'deno'
+	}
+	return DEFAULT_CODES[component]?.[lang]
 }
 
 export const DEFAULT_CODES: Partial<
