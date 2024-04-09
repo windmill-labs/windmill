@@ -510,10 +510,21 @@
 										bind:seconds={$flowStore.value.concurrency_time_window_s}
 									/>
 								</Label>
-								<Label label="Custom concurrency key">
-									<div class="text-tertiary text-xs"
-										>Custom concurrency keys can only be set as the setting of a workspace script</div
-									>
+								<Label label="Custom concurrency key (optional)">
+									<svelte:fragment slot="header">
+										<Tooltip>
+											Concurrency keys are global, you can have them be workspace specific using the
+											variable `$workspace`. You can also use an argument's value using
+											`$args[name_of_arg]`</Tooltip
+										>
+									</svelte:fragment>
+									<input
+										type="text"
+										autofocus
+										disabled={!$enterpriseLicense}
+										bind:value={$flowStore.value.concurrency_key}
+										placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
+									/>
 								</Label>
 							</div>
 						</Section>
