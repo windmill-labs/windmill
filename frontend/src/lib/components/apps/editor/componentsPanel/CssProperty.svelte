@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { Copy, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
+	import { Code, Copy, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { fade } from 'svelte/transition'
+	import { slide } from 'svelte/transition'
 	import { addWhitespaceBeforeCapitals, copyToClipboard, sendUserToast } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
-	import Popover from '../../../Popover.svelte'
 	import type { ComponentCssProperty } from '../../types'
 	import { ccomponents, type TypedComponent } from '../component'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
@@ -15,6 +14,9 @@
 	import CssEval from './CssEval.svelte'
 	import parse from 'style-to-object'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -40,125 +42,125 @@
 				value.style = ''
 			}
 			parse(value.style)
+
 			isQuickMenuOpen = !isQuickMenuOpen
 		} catch {
 			sendUserToast('Invalid CSS: Rich editor cannot be toggled', true)
 		}
 	}
 
+	let richEditorOpen = false
+
 	let dynamicClass: boolean = value?.evalClass !== undefined
 	let render = 0
 </script>
 
 {#key render}
-	<div class=" border-b flex justify-between items-center p-2 text-xs leading-6 font-bold">
-		<div class="flex flex-col gap-1 w-full items-start">
-			<div class="flex flex-row h-8 items-center justify-between w-full">
-				<div class="capitalize">
-					{addWhitespaceBeforeCapitals(name)}
-				</div>
-				{#if shouldDisplayLeft}
+	<div class="flex justify-between items-center p-2 text-xs leading-6 font-bold w-full">
+		<div class="capitalize">
+			{addWhitespaceBeforeCapitals(name)}
+		</div>
+		<div class="flex flex-row items-center gap-1">
+			{#if shouldDisplayLeft}
+				<Popover placement="bottom" notClickable disappearTimeout={0}>
 					<Button
 						color="light"
 						size="xs2"
-						variant="border"
-						on:click={() => {
-							dispatch('left')
-						}}
-					>
-						<div class="flex flex-row gap-2 text-2xs items-center">
-							<MoveLeft size={14} />
-							Copy for this component
-						</div>
-					</Button>
-				{/if}
-				{#if shouldDisplayRight}
-					<Button
-						color="light"
-						size="xs2"
-						variant="border"
-						on:click={() => {
-							dispatch('right')
-						}}
-					>
-						<div class="flex flex-row gap-2 text-2xs items-center">
-							Copy for every {componentType ? ccomponents[componentType].name : 'component'}
-							<MoveRight size={14} />
-						</div>
-					</Button>
-				{/if}
-			</div>
-			{#if wmClass}
-				<Badge small>
-					<div class="flex flex-row gap-1 items-center">
-						{wmClass}
-						<Button
-							color="light"
-							size="xs2"
-							on:click={() => {
-								copyToClipboard(wmClass)
-							}}
-						>
-							<Copy size={14} />
-						</Button>
-					</div>
-				</Badge>
+						iconOnly
+						startIcon={{ icon: MoveLeft }}
+						on:click={() => dispatch('left')}
+					/>
+					<svelte:fragment slot="text">{'Copy for this component'}</svelte:fragment>
+				</Popover>
 			{/if}
+			{#if shouldDisplayRight}
+				<Popover placement="bottom" notClickable disappearTimeout={0}>
+					<Button
+						color="light"
+						size="xs2"
+						iconOnly
+						startIcon={{ icon: MoveRight }}
+						on:click={() => dispatch('right')}
+					/>
+					<svelte:fragment slot="text">
+						Copy for every {componentType ? ccomponents[componentType].name : 'component'}
+					</svelte:fragment>
+				</Popover>
+			{/if}
+			<Popover placement="bottom" notClickable disappearTimeout={0}>
+				<Button
+					color="light"
+					size="xs2"
+					iconOnly
+					startIcon={{ icon: Copy }}
+					on:click={() => copyToClipboard(wmClass)}
+				/>
+				<svelte:fragment slot="text">
+					Copy {wmClass}
+				</svelte:fragment>
+			</Popover>
 		</div>
 	</div>
 
 	{#if value}
-		<div class="p-2 flex flex-col">
+		<div class="p-2 flex flex-col gap-2">
 			{#if tooltip}
 				<div class="text-tertiary text-2xs py-2">{tooltip}</div>
 			{/if}
+
 			{#if value.style !== undefined || forceStyle}
 				<div class="pb-2">
 					<!-- svelte-ignore a11y-label-has-associated-control -->
-					<label class="block w-full">
-						<div class="flex flex-row justify-between items-center w-full h-8">
+					<div class="block w-full">
+						<div class="flex flex-row justify-between items-center w-full h-8 mb-1">
 							<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
-							{#if overriden}
-								<Badge color="red" small>Overriden by local</Badge>
-							{:else if overridding}
-								<Badge color="blue" small>Overriding global</Badge>
-							{/if}
-						</div>
 
-						<div class="flex gap-1">
-							<div class="relative grow">
-								<ClearableInput
-									bind:value={value.style}
-									type="textarea"
-									wrapperClass="h-full min-h-[72px]"
-									inputClass="h-full !text-xs  !rounded-none !p-2"
-								/>
-							</div>
-							<div class="flex flex-col gap-1">
+							<div class="flex flex-row gap-1">
+								{#if overriden}
+									<Badge color="red" small>Overriden by local</Badge>
+								{:else if overridding}
+									<Badge color="blue" small>Overriding global</Badge>
+								{/if}
 								{#if quickStyleProperties?.length}
-									<Popover placement="bottom" notClickable disappearTimeout={0}>
-										<Button
-											variant="border"
-											color="light"
-											size="xs"
-											btnClasses="!p-1 !w-[34px] !h-[34px] {isQuickMenuOpen
-												? '!bg-gray-200/60 hover:!bg-gray-200 focus:!bg-gray-200'
-												: ''}"
-											aria-label="{isQuickMenuOpen ? 'Close' : 'Open'} styling menu"
-											on:click={toggleQuickMenu}
-										>
-											<Paintbrush2 size={18} />
-										</Button>
-										<svelte:fragment slot="text">
-											{isQuickMenuOpen ? 'Close' : 'Open'} styling menu
-										</svelte:fragment>
-									</Popover>
+									<ToggleButtonGroup
+										bind:selected={richEditorOpen}
+										on:selected={() => {
+											if (richEditorOpen !== isQuickMenuOpen) {
+												toggleQuickMenu()
+												richEditorOpen = isQuickMenuOpen
+											}
+										}}
+									>
+										<ToggleButton
+											small
+											light
+											value={false}
+											icon={Code}
+											tooltip="Edit the CSS directly"
+										/>
+										<ToggleButton
+											small
+											light
+											value={true}
+											icon={Paintbrush2}
+											tooltip="Open the rich editor to style the component with a visual interface"
+										/>
+									</ToggleButtonGroup>
 								{/if}
 							</div>
 						</div>
-					</label>
+
+						<ClearableInput
+							bind:value={value.style}
+							type="textarea"
+							disabled={isQuickMenuOpen}
+							wrapperClass="h-full min-h-[72px]"
+							inputClass="h-full !text-xs !rounded-none !p-2 !shadow-none !border-gray-200 dark:!border-gray-600 "
+						/>
+					</div>
 					{#if quickStyleProperties?.length && isQuickMenuOpen}
-						<div transition:fade|local={{ duration: 200 }} class="w-full pt-1">
+						<div class="text-xs mb-1 font-medium">Rich editor</div>
+						<div transition:slide|local={{ duration: 200 }} class="w-full">
 							<QuickStyleMenu
 								bind:value={value.style}
 								properties={quickStyleProperties}
@@ -188,7 +190,7 @@
 			{#if value.class !== undefined || forceClass}
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
-					<div class="text-xs font-medium text-tertiary">
+					<div class="text-xs font-medium text-tertiary mb-1">
 						Tailwind classes
 						<Tooltip light documentationLink="https://tailwindcss.com/">
 							Use any tailwind classes to style your component
@@ -196,7 +198,7 @@
 					</div>
 					<div class="relative">
 						<SimpleEditor
-							class="h-24"
+							class="h-24 border !rounded-none"
 							lang="tailwindcss"
 							bind:code={value.class}
 							fixedOverflowWidgets={true}
@@ -222,27 +224,31 @@
 					{/if}
 				</label>
 			{/if}
-
-			<Toggle
-				options={{
-					right: 'Use dynamic class'
-				}}
-				size="xs"
-				bind:checked={dynamicClass}
-				on:change={(e) => {
-					if (e.detail && !value.evalClass) {
-						value.evalClass = {
-							type: 'evalv2',
-							expr: '',
-							connections: [],
-							fieldType: 'text'
+			<div class="flex flex-row justify-between items-center">
+				<div class="text-xs flex flex-row items-center justify-center">
+					Use dynamic class
+					<Tooltip light>
+						Eval an expression that return a list of class as string to dynamically add classes to
+						the component. The styling can then be dynamic using the global CSS Editor.
+					</Tooltip>
+				</div>
+				<Toggle
+					size="xs"
+					bind:checked={dynamicClass}
+					on:change={(e) => {
+						if (e.detail && !value.evalClass) {
+							value.evalClass = {
+								type: 'evalv2',
+								expr: '',
+								connections: [],
+								fieldType: 'text'
+							}
+						} else {
+							value.evalClass = undefined
 						}
-					} else {
-						value.evalClass = undefined
-					}
-				}}
-			/>
-
+					}}
+				/>
+			</div>
 			{#if value?.evalClass && dynamicClass}
 				<CssEval key={name} bind:evalClass={value.evalClass} />
 			{/if}

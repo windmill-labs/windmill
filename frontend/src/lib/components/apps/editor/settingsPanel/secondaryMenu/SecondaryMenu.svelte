@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition'
-	import { Badge } from '../../../../common'
 	import { secondaryMenuLeft, secondaryMenuRight } from './'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
@@ -34,11 +33,7 @@
 				class="flex justify-between {right ? '' : 'flex-row-reverse'} items-center gap-1 px-3 py-2"
 			>
 				<CloseButton on:close={() => secondaryMenu?.close()} />
-				{#if $selectedComponent}
-					<Badge color="blue">{$selectedComponent}</Badge>
-				{:else}
-					<div />
-				{/if}
+				<div class="text-xs font-bold"> Style Panel</div>
 			</div>
 			<div class="relative h-full overflow-y-auto">
 				{#if typeof $secondaryMenu.component === 'string'}

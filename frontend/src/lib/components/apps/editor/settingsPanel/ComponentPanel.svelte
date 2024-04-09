@@ -167,9 +167,9 @@
 			componentSettings.item.data.componentInput = appInput
 		}
 	}
-	
+
 	function isMac() {
-		return navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+		return navigator.platform.toUpperCase().indexOf('MAC') >= 0
 	}
 </script>
 
