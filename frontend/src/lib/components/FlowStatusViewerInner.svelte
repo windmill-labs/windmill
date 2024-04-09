@@ -219,7 +219,6 @@
 			await loadJobInProgress()
 
 			if (flowJobIds) {
-				console.log('flowJobIds', flowJobIds)
 				let common = {
 					iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
 					iteration_total: flowJobIds?.length
