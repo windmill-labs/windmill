@@ -414,6 +414,18 @@ pub async fn update_flow_status_after_job_completion_internal<
                 } else {
                     tx.commit().await?;
 
+                    sqlx::query!(
+                        "UPDATE queue
+                        SET last_ping = null
+                        WHERE id = $1",
+                        flow
+                    )
+                    .execute(db)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("error while setting last ping to null: {e}"))
+                    })?;
+
                     if parallelism.is_some() {
                         // this ensure that the lock is taken in the same order and thus avoid deadlocks
                         let ids = sqlx::query_scalar!(
@@ -439,18 +451,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                             })?;
                         }
                     }
-
-                    sqlx::query!(
-                        "UPDATE queue
-                        SET last_ping = null
-                        WHERE id = $1",
-                        flow
-                    )
-                    .execute(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("error while setting last ping to null: {e}"))
-                    })?;
 
                     let r = sqlx::query_scalar!(
                         "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 and job_id = $2 RETURNING last_ping",
