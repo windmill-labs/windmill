@@ -364,6 +364,8 @@
 				bind:panes={componentSettings.item.data.panes}
 				bind:component={componentSettings.item.data}
 			/>
+		{:else if componentSettings.item.data.type === 'aggridcomponent' && Array.isArray(componentSettings.item.data.actions)}
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{:else if componentSettings.item.data.type === 'menucomponent' && Array.isArray(componentSettings.item.data.menuItems)}

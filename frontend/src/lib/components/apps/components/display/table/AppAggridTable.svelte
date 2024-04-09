@@ -7,7 +7,7 @@
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
-	import { components } from '$lib/components/apps/editor/component'
+	import { components, type TableAction } from '$lib/components/apps/editor/component'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -26,6 +26,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
+	export let actions: TableAction[] = []
 
 	const { app, worldStore, selectedComponent, componentControl, darkMode } =
 		getContext<AppViewerContext>('AppViewerContext')
