@@ -114,6 +114,39 @@ function Start-WindmillScript {
     return $global:WindmillConnection.RunScriptAsync($Path, $Hash, $Arguments, $ScheduledInSecs)
 }
 
+function Start-WindmillFlow {
+    param(
+        [string] $Path = $null,
+        [Hashtable] $Arguments = @{},
+        [int] $ScheduledInSecs = $null
+    )
+
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.RunFlowAsync($Path, $Arguments, $ScheduledInSecs)
+}
+
+function Invoke-WindmillScript {
+    # Runs job and waits for it to complete
+    param(
+        [string] $Path = $null,
+        [string] $Hash = $null,
+        [Hashtable] $Arguments = @{},
+        [boolean] $AssertResultIsNotNull = $true,
+        [int] $Timeout = $null
+    )
+
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    $jobId = Start-WindmillScript -Path $Path -Hash $Hash -Arguments $Arguments
+    $until = if ($Timeout) { (Get-Date).AddSeconds($Timeout) } else { [DateTime]::MaxValue }
+    return $global:WindmillConnection.WaitJob($jobId, $until, $AssertResultIsNotNull)
+}
+
 class Windmill {
     [string] $BaseUrl
     [string] $Token
@@ -235,7 +268,6 @@ class Windmill {
         while ((Get-Date) -lt $Until) {
             $response = $this.Get("/w/$($this.Workspace)/jobs_u/completed/get_result_maybe/$JobId", $false)
             $job = $response.Content | ConvertFrom-Json
-            Write-Host $job
             if ($job.completed) {
                 if ($job.success) {
                     if ($AssertResultIsNotNull -and -not $job.result) {
@@ -287,6 +319,30 @@ class Windmill {
             $endpoint = $this.AddQueryParams($endpoint, $params)
         }
 
-        return $this.Post($endpoint, ($Arguments | ConvertTo-Json), $true).Content
+        return $this.Post($endpoint, $Arguments, $true).Content
+    }
+
+    [string] RunFlowAsync([string] $Path, [Hashtable] $Arguments, [int] $ScheduledInSecs) {
+        $params = @{}
+
+        if ($ScheduledInSecs -ne $null) {
+            $params["scheduled_in_secs"] = $ScheduledInSecs
+        }
+
+        # TODO: Figure out why this fails when we set parent_job (at least for HN Discord Feed)
+        # if ($env:WM_JOB_ID) {
+        #     $params["parent_job"] = $env:WM_JOB_ID
+        # }
+        if ($env:WM_ROOT_FLOW_JOB_ID) {
+            $params["root_job"] = $env:WM_ROOT_FLOW_JOB_ID
+        }
+
+        $endpoint = "/w/$($this.Workspace)/jobs/run/f/$Path"
+
+        if ($params) {
+            $endpoint = $this.AddQueryParams($endpoint, $params)
+        }
+
+        return $this.Post($endpoint, $Arguments, $true).Content
     }
 }
