@@ -427,7 +427,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         })?;
                         for id in ids {
                             sqlx::query!(
-                                "UPDATE queue SET suspend = suspend - 1 WHERE id = $1",
+                                "UPDATE queue SET suspend = suspend - 1 WHERE id = $1 AND suspend > 0",
                                 id
                             )
                             .execute(db)
