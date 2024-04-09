@@ -927,7 +927,7 @@ async fn handle_zombie_flows(
         r#"
         SELECT *
         FROM queue
-        WHERE running = true AND suspend = 0 AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview')
+        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview')
             AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
         "#,
     ).bind(FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str())
