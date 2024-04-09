@@ -313,6 +313,12 @@
 	) {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
+			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
+				$flowStateStore[modId] = {
+					...$flowStateStore[modId],
+					previewResult: jobLoaded.args
+				}
+			}
 			if ($flowStateStore?.[modId]) {
 				if (!childFlow) {
 					if (
