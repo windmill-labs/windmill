@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend FOR UPDATE",
+  "query": "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "a9da4176b6c2487bcb878dc11810b47ec58d43c6025892c57c107cd8ee6cb238"
+  "hash": "b8d97d300ffe6fae99f2396ae07cef03903752d17ce3fdadca47d86da75139aa"
 }
