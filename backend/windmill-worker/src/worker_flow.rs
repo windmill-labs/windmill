@@ -2607,6 +2607,7 @@ async fn compute_next_flow_transform(
                                         cache_ttl: None,
                                         priority: None,
                                         early_return: None,
+                                        concurrency_key: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
                                     restarted_from: None,
@@ -2705,6 +2706,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2756,6 +2758,7 @@ async fn compute_next_flow_transform(
                                                     cache_ttl: None,
                                                     priority: None,
                                                     early_return: None,
+                                                    concurrency_key: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2823,6 +2826,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",
@@ -2895,6 +2899,7 @@ async fn next_loop_iteration(
                         cache_ttl: None,
                         priority: None,
                         early_return: None,
+                        concurrency_key: None,
                     },
                     path: inner_path,
                     restarted_from: None,

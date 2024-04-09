@@ -1657,12 +1657,12 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
                 .unwrap_or_default();
         tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
-            job_uuid, job_script_path, job_custom_concurrent_limit,  job_concurrency_key, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
+            job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 
         let job_log_event = format!(
             "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds",
         );
-        let _ = append_logs(job_uuid, pulled_job.workspace_id, job_log_event, db);
+        let _ = append_logs(job_uuid, pulled_job.workspace_id, job_log_event, db).await;
         if rsmq.is_some() {
             // if let Some(ref mut rsmq) = tx.rsmq {
             // if using redis, only one message at a time can be poped from the queue. Process only this message and move to the next elligible job
@@ -1884,50 +1884,63 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 }
 
 async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> String {
-    if queued_job.is_flow() {
-        // custom concurrency keys are not yet supported for flows
-        queued_job.full_path_with_workspace()
-    } else {
-        let concurrency_key = sqlx::query_scalar!(
-            "SELECT concurrency_key FROM script WHERE hash = $1",
-            queued_job.script_hash.unwrap_or(ScriptHash(0)).0
+    let r = if queued_job.is_flow() {
+        sqlx::query_scalar!(
+            "SELECT value->>'concurrency_key' FROM flow WHERE path = $1 AND workspace_id = $2",
+            queued_job.script_path,
+            queued_job.workspace_id
         )
         .fetch_one(db)
-        .await;
-        match concurrency_key {
-            Ok(Some(custom_concurrency_key)) => {
-                let workspaced =
-                    custom_concurrency_key.replace("$workspace", queued_job.workspace_id.as_str());
-                if RE_ARG_TAG.is_match(&workspaced) {
-                    let mut interpolated = workspaced.clone();
-                    for cap in RE_ARG_TAG.captures_iter(&workspaced) {
-                        let arg_name = cap.get(1).unwrap().as_str();
-                        let arg_value = match queued_job.args.as_ref() {
-                            Some(Json(args_map_json)) => match args_map_json.get(arg_name) {
-                                Some(arg_value_raw) => {
-                                    serde_json::to_string(arg_value_raw).unwrap_or_default()
-                                }
-                                None => "".to_string(),
-                            },
+        .await
+    } else {
+        sqlx::query_scalar!(
+            "SELECT concurrency_key FROM script WHERE hash = $1 AND workspace_id = $2",
+            queued_job.script_hash.unwrap_or(ScriptHash(0)).0,
+            queued_job.workspace_id
+        )
+        .fetch_one(db)
+        .await
+    };
+    process_custom_concurrency_key(queued_job, r).await
+}
+
+async fn process_custom_concurrency_key(
+    queued_job: &QueuedJob,
+    concurrency_key: Result<Option<String>, sqlx::Error>,
+) -> String {
+    match concurrency_key {
+        Ok(Some(custom_concurrency_key)) => {
+            let workspaced =
+                custom_concurrency_key.replace("$workspace", queued_job.workspace_id.as_str());
+            if RE_ARG_TAG.is_match(&workspaced) {
+                let mut interpolated = workspaced.clone();
+                for cap in RE_ARG_TAG.captures_iter(&workspaced) {
+                    let arg_name = cap.get(1).unwrap().as_str();
+                    let arg_value = match queued_job.args.as_ref() {
+                        Some(Json(args_map_json)) => match args_map_json.get(arg_name) {
+                            Some(arg_value_raw) => {
+                                serde_json::to_string(arg_value_raw).unwrap_or_default()
+                            }
                             None => "".to_string(),
-                        };
-                        interpolated = interpolated
-                            .replace(format!("$args[{}]", arg_name).as_str(), arg_value.as_str());
-                    }
-                    interpolated
-                } else {
-                    workspaced
+                        },
+                        None => "".to_string(),
+                    };
+                    interpolated = interpolated
+                        .replace(format!("$args[{}]", arg_name).as_str(), arg_value.as_str());
                 }
+                interpolated
+            } else {
+                workspaced
             }
-            Ok(None) => queued_job.full_path_with_workspace(),
-            _ => {
-                tracing::warn!(
-                    "Unable to retrieve concurrency key for script {:?} | {:?}",
-                    queued_job.script_path,
-                    queued_job.script_hash
-                );
-                queued_job.full_path_with_workspace()
-            }
+        }
+        Ok(None) => queued_job.full_path_with_workspace(),
+        _ => {
+            tracing::warn!(
+                "Unable to retrieve concurrency key for script {:?} | {:?}",
+                queued_job.script_path,
+                queued_job.script_hash
+            );
+            queued_job.full_path_with_workspace()
         }
     }
 }
@@ -3000,6 +3013,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 skip_expr: None,
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 early_return: None,
+                concurrency_key: None,
                 priority: priority,
             };
             (
