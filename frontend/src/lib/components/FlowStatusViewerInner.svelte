@@ -118,25 +118,6 @@
 		)
 	}
 
-	if (flowJobIds) {
-		let common = {
-			iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
-			iteration_total: flowJobIds?.length
-		}
-		let modId = flowJobIds?.moduleId ?? ''
-		$localDurationStatuses[modId] = {
-			...($localDurationStatuses[modId] ?? { byJob: {} }),
-			...common
-		}
-		let prefixed = modId
-		globalDurationStatuses.forEach((x) =>
-			x.update((x) => {
-				x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
-				return x
-			})
-		)
-	}
-
 	function updateForloop(len: number) {
 		forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
 		lastSize = len
@@ -236,6 +217,26 @@
 			timeout && clearTimeout(timeout)
 			innerModules = []
 			await loadJobInProgress()
+
+			if (flowJobIds) {
+				console.log('flowJobIds', flowJobIds)
+				let common = {
+					iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
+					iteration_total: flowJobIds?.length
+				}
+				let modId = flowJobIds?.moduleId ?? ''
+				$localDurationStatuses[modId] = {
+					...($localDurationStatuses[modId] ?? { byJob: {} }),
+					...common
+				}
+				let prefixed = modId
+				globalDurationStatuses.forEach((x) =>
+					x.update((x) => {
+						x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
+						return x
+					})
+				)
+			}
 		}
 	}
 
