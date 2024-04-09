@@ -1338,6 +1338,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             None
         }
     };
+    let mut suspend_first_success = false;
 
     loop {
         #[cfg(feature = "benchmark")]
@@ -1427,19 +1428,20 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         r
                     }
                 },
-                (job, timer) = async {
+                (job, timer, suspend_first) = async {
                     let pull_time = Instant::now();
-                    let suspend_first = if last_checked_suspended.elapsed().as_secs() > 3 {
+                    let suspend_first = if suspend_first_success || last_checked_suspended.elapsed().as_secs() > 3 {
                         last_checked_suspended = Instant::now();
                         true
                     } else { false };
-                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time)).await
+                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time, suspend_first)).await
                 } => {
                     add_time!(timing, loop_start, "post pull");
                     // tracing::debug!("pulled job: {:?}", job.as_ref().ok().and_then(|x| x.as_ref().map(|y| y.id)));
                     let duration_pull_s = timer.elapsed().as_secs_f64();
                     let err_pull = job.is_ok();
                     let empty = job.as_ref().is_ok_and(|x| x.is_none());
+                    suspend_first_success = suspend_first && !empty;
                     if !agent_mode && duration_pull_s > 0.5 {
                         tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                         #[cfg(feature = "prometheus")]
