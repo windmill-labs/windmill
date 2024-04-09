@@ -34,6 +34,20 @@
 	{/each}
 {/if}
 
+{#if gridItem?.data?.type === 'aggridcomponent'}
+	{#each gridItem.data.actions as actionButton, index (index)}
+		{#if actionButton?.id === $selectedComponentInEditor || actionButton?.id + '_transformer' === $selectedComponentInEditor}
+			<InlineScriptEditorPanel
+				on:createScriptFromInlineScript
+				componentType={actionButton.type}
+				id={actionButton.id}
+				transformer={$selectedComponentInEditor?.endsWith('_transformer')}
+				bind:componentInput={actionButton.componentInput}
+			/>
+		{/if}
+	{/each}
+{/if}
+
 {#if gridItem?.data?.type === 'menucomponent'}
 	{#each gridItem.data.menuItems as actionButton, index (index)}
 		{#if actionButton?.id === $selectedComponentInEditor || actionButton?.id + '_transformer' === $selectedComponentInEditor}

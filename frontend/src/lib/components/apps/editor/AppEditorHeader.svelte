@@ -184,6 +184,9 @@
 					if (c.type === 'tablecomponent') {
 						r.push(...c.actionButtons.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
+					if (c.type === 'aggridcomponent') {
+						r.push(...c.actions.map((x) => ({ input: x.componentInput, id: x.id })))
+					}
 					if (c.type === 'menucomponent') {
 						r.push(...c.menuItems.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
