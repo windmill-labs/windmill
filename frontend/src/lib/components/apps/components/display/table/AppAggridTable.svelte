@@ -18,6 +18,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
+	import AppButton from '../../buttons/AppButton.svelte'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -148,14 +149,69 @@
 	function mountGrid() {
 		if (eGui) {
 			try {
+				let columnDefs =
+					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+						? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
+						: []
+
+				// Add the action column if actions are defined
+				if (actions.length > 0) {
+					columnDefs.push({
+						headerName: 'Action',
+						cellRenderer: () => {
+							const div = document.createElement('div')
+							div.className = 'flex justify-center'
+							actions.forEach((action, actionIndex) => {
+								const controls = {
+									left: () => {
+										if (actionIndex === 0) {
+											$selectedComponent = [id]
+											return true
+										} else if (actionIndex > 0) {
+											$selectedComponent = [actions[actionIndex - 1].id]
+											return true
+										}
+										return false
+									},
+									right: () => {
+										if (actionIndex === actions.length - 1) {
+											return id
+										} else if (actionIndex < actions.length - 1) {
+											$selectedComponent = [actions[actionIndex + 1].id]
+											return true
+										}
+										return false
+									}
+								}
+
+								if (action.type === 'buttoncomponent') {
+									new AppButton({
+										target: div,
+										props: {
+											id: action.id,
+											configuration: action.configuration,
+											componentInput: action.componentInput,
+											customCss: action.customCss,
+											extraKey: 'idx' + 12,
+											render,
+											noWFull: true,
+											preclickAction: async () => {
+												//toggleRow(row)
+											},
+											controls
+										}
+									})
+								}
+							})
+							return div
+						}
+					})
+				}
 				createGrid(
 					eGui,
 					{
 						rowData: value,
-						columnDefs:
-							Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-								? resolvedConfig?.columnDefs
-								: [],
+						columnDefs: columnDefs,
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						defaultColDef: {
