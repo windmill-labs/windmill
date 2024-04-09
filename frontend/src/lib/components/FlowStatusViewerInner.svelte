@@ -557,21 +557,25 @@
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
 				{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
+					{@const allToAdd = (flowJobIds?.length ?? 0) - (slicedListJobIds.length ?? 0)}
+
 					<p class="text-tertiary italic text-xs">
 						For performance reasons, only the last 20 items are shown by default <button
 							class="text-primary underline ml-4"
 							on:click={() => {
-								let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
-								if (r.iteration_from) {
-									r.iteration_from -= lenToAdd
-									$localDurationStatuses = $localDurationStatuses
-									globalDurationStatuses.forEach((x) => x.update((x) => x))
-								}
-								jobResults = [...new Array(lenToAdd), ...jobResults]
-								updateSlicedListJobIds()
+								loadPreviousIters(lenToAdd)
 							}}
 							>Load {lenToAdd} prior
 						</button>
+						{#if allToAdd > 0}
+							<button
+								class="text-primary underline ml-4"
+								on:click={() => {
+									loadPreviousIters(allToAdd)
+								}}
+								>Load {allToAdd} prior
+							</button>
+						{/if}
 					</p>
 				{/if}
 				{#each slicedListJobIds as loopJobId, j (loopJobId)}
