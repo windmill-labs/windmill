@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.304.4](https://github.com/windmill-labs/windmill/compare/v1.304.3...v1.304.4) (2024-04-09)
+
+
+### Bug Fixes
+
+* allow for longer approver names in flows ([f117539](https://github.com/windmill-labs/windmill/commit/f117539a54e5947832c1d435a4991274d103cef0))
+* **frontend:** Fix bypass confirmation shortcut ([#3527](https://github.com/windmill-labs/windmill/issues/3527)) ([db5abd3](https://github.com/windmill-labs/windmill/commit/db5abd37cda548e642fa825cd279a730a7af5c00))
+* **frontend:** Improve theme editor ([#3525](https://github.com/windmill-labs/windmill/issues/3525)) ([975055b](https://github.com/windmill-labs/windmill/commit/975055b90ff3e7bd0b8202920ca78fb9178663a7))
+* improve deadlocks for parallel branches with parallelism constraints ([0c824de](https://github.com/windmill-labs/windmill/commit/0c824de4cdfb3b6b609cce0e1678a58743ea24f4))
+* improve deadlocks for parallel branches with parallelism constraints ([8dd1175](https://github.com/windmill-labs/windmill/commit/8dd117528c793b828631d5f320bb28ce9c5e3a3f))
+* improve handling of very large iterator on frontend ([7e4b6c3](https://github.com/windmill-labs/windmill/commit/7e4b6c374415862954f4876b693a199aabcab45e))
+* improve order dragndrop for json editor in app ([1ab1fb7](https://github.com/windmill-labs/windmill/commit/1ab1fb7e4de9984c6408d1fe5ef332d8f242362b))
+* improve performance of for-loops with parralelism ([a4442d4](https://github.com/windmill-labs/windmill/commit/a4442d4d3d919383ac09df66f20d6c4f98c04a92))
+* improve performance of for-loops with parralelism ([29422f1](https://github.com/windmill-labs/windmill/commit/29422f156d8ca3e0ac03288bd11b31f505a492c1))
+
 ## [1.304.3](https://github.com/windmill-labs/windmill/compare/v1.304.2...v1.304.3) (2024-04-08)
 
 
