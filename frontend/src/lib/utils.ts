@@ -710,6 +710,7 @@ export function roughSizeOfObject(object: object | string) {
 			objectList.push(value)
 
 			for (var i in value) {
+				bytes += 2 * i.length
 				stack.push(value[i])
 			}
 		}
