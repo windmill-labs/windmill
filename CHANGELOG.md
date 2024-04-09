@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.305.0](https://github.com/windmill-labs/windmill/compare/v1.304.4...v1.305.0) (2024-04-09)
+
+
+### Features
+
+* flow concurrency limits support custom concurrency key ([a55aad3](https://github.com/windmill-labs/windmill/commit/a55aad30039d8bc44f4cbc9aa2fa3e220966ca80))
+
+
+### Bug Fixes
+
+* add ability to cancel flows directly from operator modal ([5272956](https://github.com/windmill-labs/windmill/commit/5272956153419f3eac7203a9b043ca63c2cf869b))
+
 ## [1.304.4](https://github.com/windmill-labs/windmill/compare/v1.304.3...v1.304.4) (2024-04-09)
 
 
