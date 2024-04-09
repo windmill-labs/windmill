@@ -1,13 +1,8 @@
 <script lang="ts">
-	import { Code, Copy, MoreVertical, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
+	import { Code, Copy, MoveLeft, MoveRight, Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { slide } from 'svelte/transition'
-	import {
-		addWhitespaceBeforeCapitals,
-		classNames,
-		copyToClipboard,
-		sendUserToast
-	} from '../../../../utils'
+	import { addWhitespaceBeforeCapitals, copyToClipboard, sendUserToast } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
 	import type { ComponentCssProperty } from '../../types'
 	import { ccomponents, type TypedComponent } from '../component'
@@ -19,10 +14,9 @@
 	import CssEval from './CssEval.svelte'
 	import parse from 'style-to-object'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
@@ -66,66 +60,45 @@
 		<div class="capitalize">
 			{addWhitespaceBeforeCapitals(name)}
 		</div>
-		<div>
-			<ButtonDropdown hasPadding={false}>
-				<svelte:fragment slot="buttonReplacement">
-					<Button nonCaptureEvent size="xs" color="light">
-						<div class="flex flex-row items-center w-min">
-							<MoreVertical size={14} />
-						</div>
-					</Button>
+		<div class="flex flex-row items-center gap-1">
+			{#if shouldDisplayLeft}
+				<Popover placement="bottom" notClickable disappearTimeout={0}>
+					<Button
+						color="light"
+						size="xs2"
+						iconOnly
+						startIcon={{ icon: MoveLeft }}
+						on:click={() => dispatch('left')}
+					/>
+					<svelte:fragment slot="text">{'Copy for this component'}</svelte:fragment>
+				</Popover>
+			{/if}
+			{#if shouldDisplayRight}
+				<Popover placement="bottom" notClickable disappearTimeout={0}>
+					<Button
+						color="light"
+						size="xs2"
+						iconOnly
+						startIcon={{ icon: MoveRight }}
+						on:click={() => dispatch('right')}
+					/>
+					<svelte:fragment slot="text">
+						Copy for every {componentType ? ccomponents[componentType].name : 'component'}
+					</svelte:fragment>
+				</Popover>
+			{/if}
+			<Popover placement="bottom" notClickable disappearTimeout={0}>
+				<Button
+					color="light"
+					size="xs2"
+					iconOnly
+					startIcon={{ icon: Copy }}
+					on:click={() => copyToClipboard(wmClass)}
+				/>
+				<svelte:fragment slot="text">
+					Copy {wmClass}
 				</svelte:fragment>
-				<svelte:fragment slot="items">
-					{#if shouldDisplayLeft}
-						<MenuItem
-							on:click={() => {
-								dispatch('left')
-							}}
-						>
-							<div
-								class={classNames(
-									'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-								)}
-							>
-								<svelte:component this={MoveLeft} size={14} />
-								Copy for this component
-							</div>
-						</MenuItem>
-					{/if}
-					{#if shouldDisplayRight}
-						<MenuItem
-							on:click={() => {
-								dispatch('right')
-							}}
-						>
-							<div
-								class={classNames(
-									'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-								)}
-							>
-								<svelte:component this={MoveRight} size={14} />
-								Copy for every {componentType ? ccomponents[componentType].name : 'component'}
-							</div>
-						</MenuItem>
-					{/if}
-					{#if wmClass}
-						<MenuItem
-							on:click={() => {
-								copyToClipboard(wmClass)
-							}}
-						>
-							<div
-								class={classNames(
-									'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-								)}
-							>
-								<svelte:component this={Copy} size={14} />
-								Copy {wmClass}
-							</div>
-						</MenuItem>
-					{/if}
-				</svelte:fragment>
-			</ButtonDropdown>
+			</Popover>
 		</div>
 	</div>
 
@@ -186,8 +159,8 @@
 						/>
 					</div>
 					{#if quickStyleProperties?.length && isQuickMenuOpen}
-						<div class="text-sm mb-1 font-medium">Styling menu</div>
-						<div transition:slide|local={{ duration: 200 }} class="w-full border">
+						<div class="text-xs mb-1 font-medium">Rich editor</div>
+						<div transition:slide|local={{ duration: 200 }} class="w-full">
 							<QuickStyleMenu
 								bind:value={value.style}
 								properties={quickStyleProperties}
@@ -252,7 +225,13 @@
 				</label>
 			{/if}
 			<div class="flex flex-row justify-between items-center">
-				<div class="text-xs"> Use dynamic class </div>
+				<div class="text-xs flex flex-row items-center justify-center">
+					Use dynamic class
+					<Tooltip light>
+						Eval an expression that return a list of class as string to dynamically add classes to
+						the component. The styling can then be dynamic using the global CSS Editor.
+					</Tooltip>
+				</div>
 				<Toggle
 					size="xs"
 					bind:checked={dynamicClass}

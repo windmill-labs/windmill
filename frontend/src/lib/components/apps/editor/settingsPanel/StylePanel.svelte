@@ -115,10 +115,10 @@
 
 {#if component}
 	{#key component?.id}
-		<div class="px-2 flex items-center gap-2 flex-row justify-between">
+		<div class="px-2 flex gap-1 flex-col w-full pb-4">
 			{#if !$cssEditorOpen}
 				<Button
-					color="blue"
+					color="light"
 					size="xs2"
 					variant="border"
 					on:click={() => {
@@ -136,19 +136,18 @@
 				<div />
 			{/if}
 
-			<div class="flex flex-row gap-2 items-center justify-">
-				{#if $enterpriseLicense !== undefined}
-					<Button
-						color="dark"
-						size="xs2"
-						on:click={() => {
-							migrationModal?.open()
-						}}
-					>
-						Convert to global CSS
-					</Button>
-				{/if}
-			</div>
+			{#if $enterpriseLicense !== undefined}
+				<Button
+					color="light"
+					size="xs2"
+					variant="border"
+					on:click={() => {
+						migrationModal?.open()
+					}}
+				>
+					Convert to global CSS
+				</Button>
+			{/if}
 		</div>
 
 		<Tabs bind:selected={tab}>
