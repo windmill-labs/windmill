@@ -18,7 +18,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
-	import AppButton from '../../buttons/AppButton.svelte'
+
+	import AppAggridTableActions from './AppAggridTableActions.svelte'
+
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -29,8 +31,9 @@
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 	export let actions: TableAction[] = []
 
-	const { app, worldStore, selectedComponent, componentControl, darkMode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const context = getContext<AppViewerContext>('AppViewerContext')
+
+	const { app, worldStore, selectedComponent, componentControl, darkMode } = context
 
 	const rowHeights = {
 		normal: 40,
@@ -146,6 +149,26 @@
 	$: loaded && eGui && mountGrid()
 
 	let state: any = undefined
+
+	function actionRenderer(rowIndex: number = -1, row: any = {}) {
+		const div = document.createElement('div')
+		div.classList.add('flex', 'flex-row', 'h-16')
+
+		new AppAggridTableActions({
+			target: div,
+			props: {
+				id: id,
+				actions,
+				rowIndex,
+				row,
+				render
+			},
+			context: new Map([['AppViewerContext', context]])
+		})
+
+		return div
+	}
+
 	function mountGrid() {
 		if (eGui) {
 			try {
@@ -158,55 +181,10 @@
 				if (actions.length > 0) {
 					columnDefs.push({
 						headerName: 'Action',
-						cellRenderer: () => {
-							const div = document.createElement('div')
-							div.className = 'flex justify-center'
-							actions.forEach((action, actionIndex) => {
-								const controls = {
-									left: () => {
-										if (actionIndex === 0) {
-											$selectedComponent = [id]
-											return true
-										} else if (actionIndex > 0) {
-											$selectedComponent = [actions[actionIndex - 1].id]
-											return true
-										}
-										return false
-									},
-									right: () => {
-										if (actionIndex === actions.length - 1) {
-											return id
-										} else if (actionIndex < actions.length - 1) {
-											$selectedComponent = [actions[actionIndex + 1].id]
-											return true
-										}
-										return false
-									}
-								}
-
-								if (action.type === 'buttoncomponent') {
-									new AppButton({
-										target: div,
-										props: {
-											id: action.id,
-											configuration: action.configuration,
-											componentInput: action.componentInput,
-											customCss: action.customCss,
-											extraKey: 'idx' + 12,
-											render,
-											noWFull: true,
-											preclickAction: async () => {
-												//toggleRow(row)
-											},
-											controls
-										}
-									})
-								}
-							})
-							return div
-						}
+						cellRenderer: (p) => actionRenderer(p.rowIndex, p.data)
 					})
 				}
+
 				createGrid(
 					eGui,
 					{
@@ -276,7 +254,7 @@
 	}
 
 	$: resolvedConfig && updateOptions()
-
+	$: actions && updateOptions()
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
@@ -315,12 +293,25 @@
 
 	function updateOptions() {
 		try {
+			const columnDefs =
+				Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+					? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
+					: []
+
+			// Add the action column if actions are defined
+			if (actions.length > 0) {
+				columnDefs.push({
+					headerName: 'Action',
+					cellRenderer: (p) => {
+						console.log(p.rowIndex, p.data.__index)
+						return actionRenderer(p.rowIndex, p.data)
+					}
+				})
+			}
+
 			api?.updateGridOptions({
 				rowData: value,
-				columnDefs:
-					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? resolvedConfig?.columnDefs
-						: undefined,
+				columnDefs: columnDefs,
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				defaultColDef: {

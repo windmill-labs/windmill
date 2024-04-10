@@ -135,6 +135,8 @@
 		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			preclickAction?.()
+
+			debugger
 			value = e.detail
 			if (recomputeIds) {
 				recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
