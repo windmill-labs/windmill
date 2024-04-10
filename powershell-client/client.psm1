@@ -147,11 +147,20 @@ function Invoke-WindmillScript {
     return $global:WindmillConnection.WaitJob($jobId, $until, $AssertResultIsNotNull)
 }
 
+function Stop-WindmillExecution {
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.StopExecution()
+}
+
 class Windmill {
     [string] $BaseUrl
     [string] $Token
     [string] $Workspace
     [Hashtable] $Headers
+    [string] $Path
 
     Windmill(
         [string] $BaseUrl = $null,
@@ -169,6 +178,8 @@ class Windmill {
         if (-not $this.Workspace) {
             throw "Workspace required as an argument or WM_WORKSPACE environment variable"
         }
+
+        $this.Path = $env:WM_JOB_PATH
     }
 
     [String] AddQueryParams([String] $Endpoint, [Hashtable] $QueryParams) {
@@ -199,9 +210,9 @@ class Windmill {
         return $Response
     }
 
-    [Object] Post([string] $Endpoint, [Object] $Body, [boolean] $RaiseForStatus) {
+    [Object] Post([string] $Endpoint, [Object] $Data, [boolean] $RaiseForStatus) {
         $Url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
-        $Response = Invoke-WebRequest -Uri $Url -Method "POST" -Headers $this.Headers -Body ($Body | ConvertTo-Json) -SkipHttpErrorCheck -ContentType "application/json"
+        $Response = Invoke-WebRequest -Uri $Url -Method "POST" -Headers $this.Headers -Body ($Data | ConvertTo-Json) -SkipHttpErrorCheck -ContentType "application/json"
         if ($RaiseForStatus -and -not $Response.BaseResponse.IsSuccessStatusCode) {
             throw "Request failed with status code $($Response.StatusCode)"
         }
@@ -259,8 +270,8 @@ class Windmill {
         return $result
     }
 
-    [void] CancelJob([string] $JobId, [string] $Reason) {
-        $this.Post("/w/$($this.Workspace)/jobs_u/queue/cancel/$JobId", @{ "reason" = $Reason }, $true)
+    [string] CancelJob([string] $JobId, [string] $Reason) {
+        return $this.Post("/w/$($this.Workspace)/jobs_u/queue/cancel/$JobId", @{ "reason" = $Reason }, $true)
     }
 
     [PSCustomObject] WaitJob([string] $JobId, [datetime] $Until, $AssertResultIsNotNull) {
@@ -344,5 +355,25 @@ class Windmill {
         }
 
         return $this.Post($endpoint, $Arguments, $true).Content
+    }
+
+    [Hashtable] StopExecution() {
+        $params = @{
+            "running" = "true"
+            "script_path_exact" = $this.Path
+        }
+        $endpoint = $this.AddQueryParams("/w/$($this.Workspace)/jobs/list", $params)
+        $jobs = $this.Get($endpoint, $true).Content | ConvertFrom-Json
+        $current_job_id = $env:WM_JOB_ID
+
+        $job_ids = $jobs | Where-Object { $_.id -ne $current_job_id } | Select-Object -ExpandProperty id
+
+        $result = @{}
+
+        foreach ($job_id in $job_ids) {
+            $result[$job_id] = $this.CancelJob($job_id, "Killed by Stop-WindmillExecution")
+        }
+
+        return $result
     }
 }
