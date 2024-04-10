@@ -20,6 +20,7 @@ members = [
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
+    "./parsers/windmill-sql-datatype-parser-wasm",
 ]
 
 [workspace.package]
