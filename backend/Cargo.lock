@@ -10052,6 +10052,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-sql-datatype-parser-wasm"
+version = "1.305.0"
+dependencies = [
+ "serde",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "windmill-parser",
+ "windmill-parser-sql",
+]
+
+[[package]]
 name = "windmill-worker"
 version = "1.305.0"
 dependencies = [

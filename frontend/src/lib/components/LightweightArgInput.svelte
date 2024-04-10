@@ -305,7 +305,7 @@
 										</button>
 									</div>
 								{/each}
-							{:else}
+							{:else if value != undefined}
 								List is not an array
 							{/if}
 						</div>
