@@ -25,11 +25,11 @@
 	let vegaEmbed
 	onMount(async () => {
 		//@ts-ignore
-		await import('https://cdn.jsdelivr.net/npm/vega@5.22.1')
+		await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/vega@5.22.1')
 		//@ts-ignore
-		await import('https://cdn.jsdelivr.net/npm/vega-lite@5.6.0')
+		await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/vega-lite@5.6.0')
 		//@ts-ignore
-		await import('https://cdn.jsdelivr.net/npm/vega-embed@6.21.0')
+		await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/vega-embed@6.21.0')
 
 		vegaEmbed = window['vegaEmbed']
 	})
