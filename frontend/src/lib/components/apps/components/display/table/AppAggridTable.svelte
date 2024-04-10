@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GridApi, createGrid } from 'ag-grid-community'
+	import { GridApi, createGrid, type ICellRendererComp } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -152,7 +152,7 @@
 
 	function actionRenderer(rowIndex: number = -1, row: any = {}) {
 		const div = document.createElement('div')
-		div.classList.add('flex', 'flex-row', 'h-16')
+		div.classList.add('flex', 'flex-row', 'items-center', 'w-full', 'h-full')
 
 		new AppAggridTableActions({
 			target: div,
@@ -181,7 +181,8 @@
 				if (actions.length > 0) {
 					columnDefs.push({
 						headerName: 'Action',
-						cellRenderer: (p) => actionRenderer(p.rowIndex, p.data)
+						cellRenderer: (p) => actionRenderer(p.rowIndex, p.data),
+						wrapText: true
 					})
 				}
 
@@ -302,10 +303,9 @@
 			if (actions.length > 0) {
 				columnDefs.push({
 					headerName: 'Action',
-					cellRenderer: (p) => {
-						console.log(p.rowIndex, p.data.__index)
-						return actionRenderer(p.rowIndex, p.data)
-					}
+					cellRenderer: (p: { rowIndex: number | undefined; data: any }) =>
+						actionRenderer(p.rowIndex, p.data),
+					autoHeight: true
 				})
 			}
 

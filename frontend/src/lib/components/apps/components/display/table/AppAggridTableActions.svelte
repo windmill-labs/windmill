@@ -8,7 +8,6 @@
 
 	import AppButton from '../../buttons/AppButton.svelte'
 	import { AppCheckbox, AppSelect } from '../..'
-	import Portal from 'svelte-portal'
 
 	export let id: string
 	export let render: boolean
@@ -23,83 +22,81 @@
 	const { selectedComponent } = context
 </script>
 
-<div id={`aggrid-action-${rowIndex}`} />
-
-<Portal target={`#aggrid-action-${rowIndex}`}>
-	<div class="flex flex-row relative">
-		{#each actions as action, actionIndex}
-			{@const controls = {
-				left: () => {
-					if (actionIndex === 0) {
-						$selectedComponent = [id]
-						return true
-					} else if (actionIndex > 0) {
-						$selectedComponent = [actions[actionIndex - 1].id]
-						return true
-					}
-					return false
-				},
-				right: () => {
-					if (actionIndex === actions.length - 1) {
-						return id
-					} else if (actionIndex < actions.length - 1) {
-						$selectedComponent = [actions[actionIndex + 1].id]
-						return true
-					}
-					return false
+<div class="flex flex-row h-full justify-center items-center gap-4 flex-wrap">
+	{#each actions as action, actionIndex}
+		{@const controls = {
+			left: () => {
+				if (actionIndex === 0) {
+					$selectedComponent = [id]
+					return true
+				} else if (actionIndex > 0) {
+					$selectedComponent = [actions[actionIndex - 1].id]
+					return true
 				}
-			}}
-			{#if action.type == 'buttoncomponent'}
-				<AppButton
-					noInitialize
-					extraKey={'idx' + rowIndex}
-					{render}
-					noWFull
-					preclickAction={async () => {
-						dispatch('toggleRow')
-					}}
-					id={action.id}
-					customCss={action.customCss}
-					configuration={action.configuration}
-					recomputeIds={action.recomputeIds}
-					extraQueryParams={{ row: row.original }}
-					componentInput={action.componentInput}
-					{controls}
-				/>
-			{:else if action.type == 'checkboxcomponent'}
-				<AppCheckbox
-					noInitialize
-					extraKey={'idx' + rowIndex}
-					{render}
-					id={action.id}
-					customCss={action.customCss}
-					configuration={action.configuration}
-					recomputeIds={action.recomputeIds}
-					onToggle={action.onToggle}
-					preclickAction={async () => {
-						dispatch('toggleRow')
-					}}
-					{controls}
-				/>
-			{:else if action.type == 'selectcomponent'}
-				<div class="w-40">
-					<AppSelect
-						noDefault
-						noInitialize
-						extraKey={'idx' + rowIndex}
-						{render}
-						id={action.id}
-						customCss={action.customCss}
-						configuration={action.configuration}
-						recomputeIds={action.recomputeIds}
-						onSelect={action.onSelect}
-						preclickAction={async () => {
-							dispatch('toggleRow')
-						}}
-						{controls}
-					/>
-				</div>
-			{/if}
-		{/each}
-	</div>
-</Portal>
+				return false
+			},
+			right: () => {
+				if (actionIndex === actions.length - 1) {
+					return id
+				} else if (actionIndex < actions.length - 1) {
+					$selectedComponent = [actions[actionIndex + 1].id]
+					return true
+				}
+				return false
+			}
+		}}
+		{#if action.type == 'buttoncomponent'}
+			<AppButton
+				noInitialize
+				extraKey={'idx' + rowIndex}
+				{render}
+				noWFull
+				preclickAction={async () => {
+					dispatch('toggleRow')
+				}}
+				id={action.id}
+				customCss={action.customCss}
+				configuration={action.configuration}
+				recomputeIds={action.recomputeIds}
+				extraQueryParams={{ row: row.original }}
+				componentInput={action.componentInput}
+				verticalAlignment="center"
+				{controls}
+			/>
+		{:else if action.type == 'checkboxcomponent'}
+			<AppCheckbox
+				noInitialize
+				extraKey={'idx' + rowIndex}
+				{render}
+				id={action.id}
+				customCss={action.customCss}
+				configuration={action.configuration}
+				recomputeIds={action.recomputeIds}
+				onToggle={action.onToggle}
+				preclickAction={async () => {
+					dispatch('toggleRow')
+				}}
+				verticalAlignment="center"
+				{controls}
+			/>
+		{:else if action.type == 'selectcomponent'}
+			<AppSelect
+				noDefault
+				noInitialize
+				extraKey={'idx' + rowIndex}
+				{render}
+				id={action.id}
+				customCss={action.customCss}
+				configuration={action.configuration}
+				recomputeIds={action.recomputeIds}
+				onSelect={action.onSelect}
+				preclickAction={async () => {
+					dispatch('toggleRow')
+				}}
+				usePortal
+				verticalAlignment="center"
+				{controls}
+			/>
+		{/if}
+	{/each}
+</div>

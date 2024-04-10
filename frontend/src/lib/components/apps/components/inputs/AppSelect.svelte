@@ -35,6 +35,7 @@
 		undefined
 	export let noDefault = false
 	export let onSelect: string[] | undefined = undefined
+	export let usePortal: boolean = false
 
 	const {
 		app,
@@ -235,6 +236,7 @@
 						$selectedComponent = [id]
 					}
 				}}
+				portal={usePortal}
 			>
 				<svelte:fragment slot="item" let:item
 					>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
