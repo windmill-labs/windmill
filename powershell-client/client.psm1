@@ -10,6 +10,14 @@ function Connect-Windmill {
     $global:WindmillConnection = [Windmill]::new($BaseUrl, $Token, $Workspace)
 }
 
+function Get-WindmillWorkspace {
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.Workspace
+}
+
 function Get-WindmillVariable {
     param(
         [string] $Path
@@ -153,6 +161,18 @@ function Stop-WindmillExecution {
     }
 
     return $global:WindmillConnection.StopExecution()
+}
+
+function Get-WindmillJob {
+    param(
+        [string] $JobId
+    )
+
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.GetJob($JobId)
 }
 
 class Windmill {
@@ -375,5 +395,10 @@ class Windmill {
         }
 
         return $result
+    }
+
+    [PSCustomObject] GetJob([string] $JobId) {
+        $response = $this.Get("/w/$($this.Workspace)/jobs_u/get/$JobId", $true)
+        return $response.Content | ConvertFrom-Json
     }
 }
