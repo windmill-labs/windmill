@@ -72,6 +72,7 @@
 	import { goto } from '$app/navigation'
 
 	export let initialPath: string = ''
+	export let pathStoreInit: string | undefined = undefined
 	export let newFlow: boolean
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
@@ -359,9 +360,9 @@
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 	const history = initHistory($flowStore)
-	const pathStore = writable<string>(initialPath)
+	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 
-	$: $pathStore = initialPath
+	$: initialPath && ($pathStore = initialPath)
 
 	const testStepStore = writable<Record<string, any>>({})
 
