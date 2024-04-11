@@ -67,7 +67,6 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { cloneDeep } from 'lodash'
 
 	export let initialPath: string = ''
@@ -984,14 +983,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<UnsavedConfirmationModal
-	{diffDrawer}
-	savedValue={savedFlow}
-	modifiedValue={{
-		...$flowStore,
-		path: $pathStore
-	}}
-/>
+<slot />
 
 {#key renderCount}
 	{#if !$userStore?.operator}
