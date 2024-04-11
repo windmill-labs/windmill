@@ -6,21 +6,34 @@ function toKebabCase(str: string): string {
 		.toLowerCase()
 }
 
-export async function loadIcon(name: string): Promise<any> {
-	let iconComponent: any
+export async function loadIcon(
+	name: string,
+	parent: HTMLElement,
+	size: number | undefined,
+	strokeWidth: number | undefined,
+	color: string | undefined
+): Promise<any> {
 	try {
 		if (name) {
-			iconComponent = (
-				await import(
-					`../../../../../node_modules/lucide-svelte/dist/svelte/icons/${toKebabCase(name)}.svelte`
-				)
-			).default
-			return iconComponent
+			await fetch(
+				`https://cdn.jsdelivr.net/npm/lucide-static@0.367.0/icons/${toKebabCase(name)}.svg`
+			)
+				.then((response) => response.text())
+				.then((svg) => (parent.innerHTML = svg))
+			let elem = parent.children?.[0]
+			if (elem) {
+				elem.setAttribute('width', size?.toString() ?? '24')
+				elem.setAttribute('height', size?.toString() ?? '24')
+				if (strokeWidth) {
+					elem.setAttribute('stroke-width', strokeWidth.toString())
+				}
+				if (color) {
+					elem.setAttribute('stroke', color)
+				}
+			}
 		} else {
-			iconComponent = undefined
 		}
 	} catch (error) {
 		console.error(error)
-		iconComponent = undefined
 	}
 }
