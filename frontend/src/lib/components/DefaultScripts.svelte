@@ -23,6 +23,7 @@
 		startIcon={{ icon: SettingsIcon }}
 		color="light"
 		size="xs2"
+		btnClasses="!text-tertiary"
 		variant="contained">defaults</Button
 	>
 {/if}

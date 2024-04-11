@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.304.3
+  version: 1.305.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -48,6 +48,8 @@ components:
           type: boolean
         concurrent_limit:
           type: number
+        concurrency_key:
+          type: string
         concurrency_time_window_s:
           type: number
         skip_expr:

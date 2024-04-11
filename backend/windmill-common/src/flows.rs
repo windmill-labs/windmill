@@ -105,6 +105,8 @@ pub struct FlowValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     // Priority at the flow level
     pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_key: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

@@ -662,18 +662,21 @@
 												bind:seconds={script.concurrency_time_window_s}
 											/>
 										</Label>
-										<Label label="Custom concurrency key">
+										<Label label="Custom concurrency key (optional)">
+											<svelte:fragment slot="header">
+												<Tooltip>
+													Concurrency keys are global, you can have them be workspace specific using
+													the variable `$workspace`. You can also use an argument's value using
+													`$args[name_of_arg]`</Tooltip
+												>
+											</svelte:fragment>
 											<input
+												disabled={!$enterpriseLicense}
 												type="text"
 												autofocus
 												bind:value={script.concurrency_key}
 												placeholder={`$workspace/script/${script.path}-$args[foo]`}
 											/>
-											<Tooltip
-												>Concurrency keys are global, you can have them be workspace specific using
-												the variable `$workspace`. You can also use an argument's value using
-												`$args[name_of_arg]`</Tooltip
-											>
 										</Label>
 									</div>
 								</Section>

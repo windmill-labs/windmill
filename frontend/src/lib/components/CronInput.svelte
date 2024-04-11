@@ -12,6 +12,7 @@
 	import CronBuilder from './CronBuilder.svelte'
 	import Label from './Label.svelte'
 	import CronGen from './copilot/CronGen.svelte'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	export let schedule: string
 	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
@@ -197,6 +198,8 @@
 		})
 		.flat()
 </script>
+
+<DarkModeObserver on:change={onThemeChange} />
 
 <div class="w-full flex space-x-8">
 	<div class="w-full flex flex-col gap-4">

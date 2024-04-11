@@ -180,6 +180,7 @@
 
 	let dragDisabled = true
 
+	let dragging = false
 	function handleConsider(e) {
 		const {
 			items: newItems,
@@ -207,9 +208,11 @@
 
 		const reorderedValues = items.map((item) => item.value)
 		componentInput.value = reorderedValues
+		dragging = false
 	}
 
 	function startDrag(e) {
+		dragging = true
 		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
 		e.preventDefault()
 		dragDisabled = false
@@ -290,6 +293,7 @@
 								bind:componentInput
 								bind:value={item.value}
 								on:remove={() => deleteElementByType(index)}
+								{dragging}
 							/>
 						</div>
 

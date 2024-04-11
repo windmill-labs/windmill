@@ -415,29 +415,29 @@ pub async fn update_flow_status_after_job_completion_internal<
                     tx.commit().await?;
 
                     if parallelism.is_some() {
-                        let mut tx = db.begin().await?;
-
                         // this ensure that the lock is taken in the same order and thus avoid deadlocks
                         let ids = sqlx::query_scalar!(
-                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend FOR UPDATE",
+                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend",
                             flow
                         )
-                        .fetch_all(&mut *tx)
+                        .fetch_all(db)
                         .await
                         .map_err(|e| {
                             Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e}"))
                         })?;
-                        sqlx::query!(
-                            "UPDATE queue SET suspend = suspend - 1 WHERE id = ANY($1)",
-                            ids.as_slice()
-                        )
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| {
-                            Error::InternalErr(format!("error decreasing suspend: {e}"))
-                        })?;
-
-                        tx.commit().await?;
+                        for id in ids {
+                            sqlx::query!(
+                                "UPDATE queue SET suspend = suspend - 1 WHERE id = $1 AND suspend > 0",
+                                id
+                            )
+                            .execute(db)
+                            .await
+                            .map_err(|e| {
+                                Error::InternalErr(format!(
+                                    "error decreasing suspend for {id}: {e}"
+                                ))
+                            })?;
+                        }
                     }
 
                     sqlx::query!(
@@ -2607,6 +2607,7 @@ async fn compute_next_flow_transform(
                                         cache_ttl: None,
                                         priority: None,
                                         early_return: None,
+                                        concurrency_key: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
                                     restarted_from: None,
@@ -2705,6 +2706,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2756,6 +2758,7 @@ async fn compute_next_flow_transform(
                                                     cache_ttl: None,
                                                     priority: None,
                                                     early_return: None,
+                                                    concurrency_key: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2823,6 +2826,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",
@@ -2895,6 +2899,7 @@ async fn next_loop_iteration(
                         cache_ttl: None,
                         priority: None,
                         early_return: None,
+                        concurrency_key: None,
                     },
                     path: inner_path,
                     restarted_from: None,

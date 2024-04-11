@@ -60,6 +60,7 @@
 	export let globalModuleStates: Writable<Record<string, GraphModuleState>>[]
 	export let globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
 	export let childFlow: boolean = false
+	export let reducedPolling = false
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
@@ -205,21 +206,17 @@
 			}
 		}
 		if (job?.type !== 'CompletedJob' && errorCount < 4) {
-			timeout = setTimeout(() => loadJobInProgress(), 500)
+			timeout = setTimeout(() => loadJobInProgress(), reducedPolling ? 5000 : 1000)
 		}
 	}
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
 			$localModuleStates = {}
-			$localDurationStatuses = {}
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)
 			innerModules = []
-			await loadJobInProgress()
-
 			if (flowJobIds) {
-				console.log('flowJobIds', flowJobIds)
 				let common = {
 					iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
 					iteration_total: flowJobIds?.length
@@ -236,7 +233,10 @@
 						return x
 					})
 				)
+			} else {
+				$localDurationStatuses = {}
 			}
+			await loadJobInProgress()
 		}
 	}
 
@@ -313,6 +313,12 @@
 	) {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
+			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
+				$flowStateStore[modId] = {
+					...$flowStateStore[modId],
+					previewResult: jobLoaded.args
+				}
+			}
 			if ($flowStateStore?.[modId]) {
 				if (!childFlow) {
 					if (
@@ -403,6 +409,31 @@
 	let flowTimeline: FlowTimeline
 
 	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
+
+	let slicedListJobIds: string[] = []
+
+	$: flowJobIds && !deepEqual(flowJobIds, lastFlowJobIds) && updateSlicedListJobIds()
+	let lastFlowJobIds: any = undefined
+	function updateSlicedListJobIds() {
+		lastFlowJobIds = flowJobIds
+		slicedListJobIds =
+			(flowJobIds?.flowJobs.length ?? 0) > 20
+				? flowJobIds?.flowJobs?.slice(
+						$localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0
+				  ) ?? []
+				: flowJobIds?.flowJobs ?? []
+	}
+
+	function loadPreviousIters(lenToAdd: number) {
+		let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
+		if (r.iteration_from) {
+			r.iteration_from -= lenToAdd
+			$localDurationStatuses = $localDurationStatuses
+			globalDurationStatuses.forEach((x) => x.update((x) => x))
+		}
+		jobResults = [...new Array(lenToAdd), ...jobResults]
+		updateSlicedListJobIds()
+	}
 </script>
 
 {#if job}
@@ -419,19 +450,24 @@
 			)}
 
 			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
+				{@const allToAdd = (flowJobIds?.length ?? 0) - (slicedListJobIds.length ?? 0)}
 				<p class="text-tertiary italic text-xs">
 					For performance reasons, only the last 20 items are shown by default <button
 						class="text-primary underline ml-4"
 						on:click={() => {
-							let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
-							if (r.iteration_from) {
-								r.iteration_from -= lenToAdd
-								$localDurationStatuses = $localDurationStatuses
-								globalDurationStatuses.forEach((x) => x.update((x) => x))
-							}
+							loadPreviousIters(lenToAdd)
 						}}
 						>Load {lenToAdd} prior
 					</button>
+					{#if allToAdd > 0}
+						<button
+							class="text-primary underline ml-4"
+							on:click={() => {
+								loadPreviousIters(allToAdd)
+							}}
+							>Load {allToAdd} prior
+						</button>
+					{/if}
 				</p>
 			{/if}
 			{#if render}
@@ -521,22 +557,28 @@
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
 				{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
+					{@const allToAdd = (flowJobIds?.length ?? 0) - (slicedListJobIds.length ?? 0)}
+
 					<p class="text-tertiary italic text-xs">
 						For performance reasons, only the last 20 items are shown by default <button
 							class="text-primary underline ml-4"
 							on:click={() => {
-								let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
-								if (r.iteration_from) {
-									r.iteration_from -= lenToAdd
-									$localDurationStatuses = $localDurationStatuses
-									globalDurationStatuses.forEach((x) => x.update((x) => x))
-								}
+								loadPreviousIters(lenToAdd)
 							}}
 							>Load {lenToAdd} prior
 						</button>
+						{#if allToAdd > 0}
+							<button
+								class="text-primary underline ml-4"
+								on:click={() => {
+									loadPreviousIters(allToAdd)
+								}}
+								>Load {allToAdd} prior
+							</button>
+						{/if}
 					</p>
 				{/if}
-				{#each (flowJobIds?.flowJobs.length ?? 0) > 20 ? flowJobIds?.flowJobs?.slice($localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0) ?? [] : flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
+				{#each slicedListJobIds as loopJobId, j (loopJobId)}
 					{#if render}
 						<Button
 							variant={forloop_selected === loopJobId ? 'contained' : 'border'}
@@ -566,12 +608,14 @@
 						</Button>
 					{/if}
 
+					<!-- <LogId id={loopJobId} /> -->
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
 							{childFlow}
 							globalModuleStates={[localModuleStates, ...globalModuleStates]}
 							globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 							render={forloop_selected == loopJobId && selected == 'sequence' && render}
+							reducedPolling={flowJobIds?.flowJobs.length && flowJobIds?.flowJobs.length > 20}
 							{workspaceId}
 							jobId={loopJobId}
 							on:jobsLoaded={(e) => innerJobLoaded(e.detail, j)}
