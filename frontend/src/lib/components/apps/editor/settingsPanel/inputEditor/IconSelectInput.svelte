@@ -87,6 +87,7 @@
 									{label === componentInput.value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
 						>
 							<img
+								class="dark:invert"
 								loading="lazy"
 								src="https://cdn.jsdelivr.net/npm/lucide-static@0.367.0/icons/{label}.svg"
 							/>
