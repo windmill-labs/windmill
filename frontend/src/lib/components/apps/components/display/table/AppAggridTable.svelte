@@ -182,7 +182,6 @@
 					columnDefs.push({
 						headerName: 'Action',
 						cellRenderer: (p) => actionRenderer(p.rowIndex, p.data),
-						minWidth: actions.length * 130,
 						autoHeight: true
 					})
 				}
@@ -306,8 +305,9 @@
 					headerName: 'Action',
 					cellRenderer: (p: { rowIndex: number | undefined; data: any }) =>
 						actionRenderer(p.rowIndex, p.data),
-					minWidth: actions.length * 130,
-					autoHeight: true
+					autoHeight: true,
+					cellStyle: { textAlign: 'center' },
+					cellClass: 'grid-cell-centered'
 				})
 			}
 

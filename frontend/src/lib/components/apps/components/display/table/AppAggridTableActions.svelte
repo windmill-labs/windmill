@@ -20,14 +20,12 @@
 	export let rowIndex: number
 	export let row: { original: Record<string, any> }
 
-	const context = getContext<AppViewerContext>('AppViewerContext')
-
 	const dispatch = createEventDispatcher()
-
-	const { selectedComponent, hoverStore, mode, connectingInput } = context
+	const { selectedComponent, hoverStore, mode, connectingInput } =
+		getContext<AppViewerContext>('AppViewerContext')
 </script>
 
-<div class="flex flex-row justify-center items-center gap-4 flex-wrap px-4 py-2">
+<div class="flex flex-row justify-center items-center gap-4 flex-wrap h-full my-0.5">
 	{#each actions as action, actionIndex}
 		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 		<!-- svelte-ignore missing-declaration -->
@@ -41,6 +39,13 @@
 			on:mouseout|stopPropagation={() => {
 				if ($hoverStore !== undefined) {
 					$hoverStore = undefined
+				}
+			}}
+			on:pointerdown|stopPropagation={() => {
+				if ($selectedComponent?.includes(action.id)) {
+					$selectedComponent = []
+				} else {
+					$selectedComponent = [action.id]
 				}
 			}}
 			class={twMerge(
@@ -167,7 +172,6 @@
 								dispatch('toggleRow')
 							}}
 							{controls}
-							usePortal
 						/>
 					</div>
 				{/if}
@@ -217,7 +221,6 @@
 						preclickAction={async () => {
 							dispatch('toggleRow')
 						}}
-						usePortal
 					/>
 				</div>
 			{/if}
