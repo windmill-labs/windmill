@@ -3,6 +3,7 @@
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
@@ -144,4 +145,11 @@
 	{flowStateStore}
 	{selectedId}
 	{loading}
-/>
+>
+	<UnsavedConfirmationModal
+		savedValue={{}}
+		modifiedValue={{
+			...$flowStore
+		}}
+	/></FlowBuilder
+>
