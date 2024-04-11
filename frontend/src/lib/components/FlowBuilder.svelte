@@ -67,11 +67,10 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { cloneDeep } from 'lodash'
-	import { goto } from '$app/navigation'
 
 	export let initialPath: string = ''
+	export let pathStoreInit: string | undefined = undefined
 	export let newFlow: boolean
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
@@ -84,6 +83,7 @@
 		  })
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let gotoEdit: (path: string, selected: string) => void
 
 	const dispatch = createEventDispatcher()
 
@@ -194,7 +194,8 @@
 				dispatch('saveInitial', $pathStore)
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				initialPath = $pathStore
-				goto(`/flows/edit/${$pathStore}?selected=${getSelectedId()}`)
+				// this is so we can use the flow builder outside of sveltekit
+				gotoEdit($pathStore, getSelectedId())
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -359,9 +360,9 @@
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 	const history = initHistory($flowStore)
-	const pathStore = writable<string>(initialPath)
+	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 
-	$: $pathStore = initialPath
+	$: initialPath && ($pathStore = initialPath)
 
 	const testStepStore = writable<Record<string, any>>({})
 
@@ -982,14 +983,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<UnsavedConfirmationModal
-	{diffDrawer}
-	savedValue={savedFlow}
-	modifiedValue={{
-		...$flowStore,
-		path: $pathStore
-	}}
-/>
+<slot />
 
 {#key renderCount}
 	{#if !$userStore?.operator}

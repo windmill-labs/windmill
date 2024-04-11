@@ -611,7 +611,8 @@ export const quickStyleProperties: Record<
 	aggridcomponent: {},
 	aggridcomponentee: {},
 	buttoncomponent: {
-		button: buttonDefaultProps
+		button: buttonDefaultProps,
+		container: containerDefaultProps
 	},
 	downloadcomponent: {
 		button: buttonDefaultProps

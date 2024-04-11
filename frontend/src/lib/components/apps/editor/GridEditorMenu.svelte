@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { getModifierKey } from '$lib/utils'
 
-	import { Copy, Scissors, Trash } from 'lucide-svelte'
+	import { Copy, Paintbrush2, Scissors, Trash } from 'lucide-svelte'
 	import ContextMenu from '$lib/components/ContextMenu.svelte'
 	import ComponentCallbacks from './component/ComponentCallbacks.svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import DeleteComponent from './settingsPanel/DeleteComponent.svelte'
 	import { findComponentSettings } from './appUtils'
+	import { secondaryMenuLeft } from './settingsPanel/secondaryMenu'
+	import StylePanel from './settingsPanel/StylePanel.svelte'
 
 	export let id: string
 	let componentCallbacks: ComponentCallbacks | undefined = undefined
@@ -39,6 +41,14 @@
 				},
 				icon: Copy,
 				shortcut: `${getModifierKey()}C`
+			},
+			{
+				label: 'Show style panel',
+				onClick: () => {
+					secondaryMenuLeft?.toggle(StylePanel, {})
+				},
+				icon: Paintbrush2,
+				disabled: $secondaryMenuLeft.isOpen
 			},
 
 			{

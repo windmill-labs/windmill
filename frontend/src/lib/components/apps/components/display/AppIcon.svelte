@@ -29,10 +29,12 @@
 
 	let iconComponent: any
 
-	$: handleIcon(resolvedConfig.icon)
+	$: handleIcon(resolvedConfig, iconComponent)
 
-	async function handleIcon(i?: string) {
-		iconComponent = i ? await loadIcon(i) : undefined
+	async function handleIcon(conf, comp) {
+		if (conf.icon && comp) {
+			await loadIcon(conf.icon, iconComponent, conf.size, conf.strokeWidth, conf.color)
+		}
 	}
 
 	let css = initCss($app.css?.iconcomponent, customCss)
@@ -66,12 +68,9 @@
 	class={twMerge(css?.container?.class, 'wm-icon-container')}
 	style={css?.container?.style ?? ''}
 >
-	{#if resolvedConfig.icon && iconComponent}
-		<svelte:component
-			this={iconComponent}
-			size={resolvedConfig.size || 24}
-			color={resolvedConfig.color || 'currentColor'}
-			strokeWidth={resolvedConfig.strokeWidth || 2}
+	{#if resolvedConfig.icon}
+		<div
+			bind:this={iconComponent}
 			class={twMerge(css?.icon?.class, 'wm-icon')}
 			style={css?.icon?.style ?? ''}
 		/>

@@ -371,9 +371,16 @@ export function insertNewGridItem(
 		let parent = findGridItemById(app.grid, app.subgrids, key)?.data
 		let subgrids = parent?.numberOfSubgrids
 		if (subgrids === undefined) {
-			throw Error(`Invalid subgrid selected, the parent has no subgrids: ${key}, parent: ${JSON.stringify(parent)}`)
+			throw Error(
+				`Invalid subgrid selected, the parent has no subgrids: ${key}, parent: ${JSON.stringify(
+					parent
+				)}`
+			)
 		}
-		if (focusedGrid?.subGridIndex && (focusedGrid?.subGridIndex < 0 || focusedGrid?.subGridIndex >= subgrids)) {
+		if (
+			focusedGrid?.subGridIndex &&
+			(focusedGrid?.subGridIndex < 0 || focusedGrid?.subGridIndex >= subgrids)
+		) {
 			throw Error(`Invalid subgrid selected: ${key}, max subgrids: ${subgrids}`)
 		}
 		// If ever the subgrid is undefined, we want to make sure it is defined

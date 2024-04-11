@@ -119,7 +119,7 @@
 
 				let length = roughSizeOfObject(result)
 				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = length > 100000
+				largeObject = length > 50000
 
 				if (largeObject) {
 					return 'json'
@@ -547,9 +547,9 @@
 					<div class="mt-1 mb-2">
 						<Alert
 							size="xs"
-							title="Large file detected"
+							title="Large result detected"
 							type="warning"
-							tooltip="We recommend using persistent storage for large data files. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
+							tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
 							documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
 						/>
 					</div>

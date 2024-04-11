@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.304.3",
+	"version": "1.305.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -134,13 +134,13 @@
 		"vscode-uri": "~3.0.8",
 		"vscode-ws-jsonrpc": "~3.1.0",
 		"windmill-parser-wasm": "^1.286.2",
+		"windmill-sql-datatype-parser-wasm": "1.305.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
 		"yaml": "^2.3.4",
 		"yjs": "^13.6.7"
 	},
 	"peerDependencies": {
-		"@sveltejs/kit": "^1.25.0",
 		"svelte": "^4.0.0"
 	},
 	"exports": {

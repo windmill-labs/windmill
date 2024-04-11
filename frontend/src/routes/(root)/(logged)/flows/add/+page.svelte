@@ -3,6 +3,7 @@
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
@@ -26,6 +27,7 @@
 	let loading = false
 
 	let initialPath: string | undefined = undefined
+	let pathStoreInit: string | undefined = undefined
 
 	export const flowStore = writable<Flow>({
 		summary: '',
@@ -82,7 +84,7 @@
 			])
 
 			flow = state.flow
-			initialPath = state.path
+			pathStoreInit = state.path
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
@@ -133,7 +135,9 @@
 	on:details={(e) => {
 		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
+	gotoEdit={(path, selectedId) => goto(`/flows/edit/${path}?selected=${selectedId}`)}
 	{initialPath}
+	{pathStoreInit}
 	bind:getSelectedId
 	bind:this={flowBuilder}
 	newFlow
@@ -141,4 +145,11 @@
 	{flowStateStore}
 	{selectedId}
 	{loading}
-/>
+>
+	<UnsavedConfirmationModal
+		savedValue={{}}
+		modifiedValue={{
+			...$flowStore
+		}}
+	/></FlowBuilder
+>
