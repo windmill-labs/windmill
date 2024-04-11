@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.305.2](https://github.com/windmill-labs/windmill/compare/v1.305.1...v1.305.2) (2024-04-11)
+
+
+### Bug Fixes
+
+* unsaved changes on deploy of flow ([d1650db](https://github.com/windmill-labs/windmill/commit/d1650dbed935b206a8de8a59835933d559ff3a20))
+
 ## [1.305.1](https://github.com/windmill-labs/windmill/compare/v1.305.0...v1.305.1) (2024-04-11)
 
 
