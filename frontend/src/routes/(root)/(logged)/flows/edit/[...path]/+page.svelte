@@ -18,6 +18,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
@@ -202,10 +203,19 @@
 	{flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}
+	gotoEdit={(path, selectedId) => goto(`/flows/edit/${path}?selected=${selectedId}`)}
 	newFlow={false}
 	{selectedId}
 	{initialArgs}
 	{loading}
 	bind:savedFlow
 	{diffDrawer}
-/>
+>
+	<UnsavedConfirmationModal
+		{diffDrawer}
+		savedValue={savedFlow}
+		modifiedValue={{
+			...$flowStore
+		}}
+	/>
+</FlowBuilder>

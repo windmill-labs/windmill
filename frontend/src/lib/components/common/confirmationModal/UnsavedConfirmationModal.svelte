@@ -57,7 +57,7 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to discard the changes you have made? </span>
-		{#if savedValue && modifiedValue}
+		{#if savedValue && modifiedValue && diffDrawer}
 			<Button
 				wrapperClasses="self-start"
 				color="light"

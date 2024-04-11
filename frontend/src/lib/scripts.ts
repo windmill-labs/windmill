@@ -7,9 +7,9 @@ export function scriptLangToEditorLang(lang: Script.language) {
 	if (lang == 'deno') {
 		return 'typescript'
 	} else if (lang == 'bun') {
-		return 'javascript'
+		return 'typescript'
 	} else if (lang == 'nativets') {
-		return 'javascript'
+		return 'typescript'
 		// } else if (lang == 'graphql') {
 		// 	return 'typescript'
 	} else if (lang == 'postgresql') {
