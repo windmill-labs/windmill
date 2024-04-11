@@ -813,6 +813,11 @@
 
 					<br /><br />
 
+					It can take additionally the following args: channel_id, user_name, user_id, command,
+					trigger_id, api_app_id
+
+					<br /><br />
+
 					<span class="font-bold text-xs">
 						The script or flow is permissioned as group "slack" that will be automatically created
 						after connection to Slack.
