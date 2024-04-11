@@ -120,7 +120,6 @@
 	}
 
 	$: outputs?.result?.set(result ?? [])
-	$: actions && updateOptions()
 
 	let clientHeight
 	let clientWidth
@@ -161,21 +160,20 @@
 		}
 	>()
 
-	function refreshActions(actions: TableAction[]) {
-		const firstCache = cachedDivs.get(0)
+	let lastActions: TableAction[] | undefined = undefined
 
-		if (firstCache && firstCache?.actions?.length === actions.length) {
+	function refreshActions(actions: TableAction[]) {
+		if (Array.isArray(lastActions) && lastActions.length === actions.length) {
 			const same = actions.every((action, index) => {
-				return (
-					action.id === firstCache.actions[index].id &&
-					action.type === firstCache.actions[index].type
-				)
+				return action.id === lastActions![index].id && action.type === lastActions![index].type
 			})
 
 			if (same) {
 				return
 			}
 		}
+
+		lastActions = actions
 
 		cachedDivs.forEach((cachedDiv) => {
 			cachedDiv.svelteComponent.$destroy()
