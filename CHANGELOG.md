@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.305.1](https://github.com/windmill-labs/windmill/compare/v1.305.0...v1.305.1) (2024-04-11)
+
+
+### Bug Fixes
+
+* fix plug connection for apps with array items ([c88e6a8](https://github.com/windmill-labs/windmill/commit/c88e6a86359cbdad038db09d54979cec1f12c8f3))
+* **frontend:** add missing darkModeObserver in CronInput ([#3531](https://github.com/windmill-labs/windmill/issues/3531)) ([8525494](https://github.com/windmill-labs/windmill/commit/8525494a68314e342b7393f6b6df15565ffb4082))
+* **frontend:** fix text alignement ([#3533](https://github.com/windmill-labs/windmill/issues/3533)) ([0c9a95c](https://github.com/windmill-labs/windmill/commit/0c9a95c964a16c3194d4887b7a3882a626faf6e4))
+* improve goto behavior ([6c33f17](https://github.com/windmill-labs/windmill/commit/6c33f17829a3a43cd1794abfc0c0807caa01bcfd))
+* load lazily the app icons ([cd5b023](https://github.com/windmill-labs/windmill/commit/cd5b0230338f3f20d7306b8a3feef509f6c8fe30))
+* remove requirement on full wasm parser for row insert of db studio ([cd07020](https://github.com/windmill-labs/windmill/commit/cd07020edb8ff652d086023771caa07755b5b2a2))
+* remove requirement on full wasm parser for row insert of db studio ([f17bed9](https://github.com/windmill-labs/windmill/commit/f17bed9741762f5241206a1bc257bcc4c4cb96fb))
+* update monaco configurations ([62e4ec2](https://github.com/windmill-labs/windmill/commit/62e4ec2e1443b47c273631d2b8efa7f3a9ba804c))
+
 ## [1.305.0](https://github.com/windmill-labs/windmill/compare/v1.304.4...v1.305.0) (2024-04-09)
 
 
