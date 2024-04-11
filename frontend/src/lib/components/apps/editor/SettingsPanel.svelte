@@ -11,13 +11,17 @@
 
 	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
+	let firstComponent = $selectedComponent?.[0]
+
+	$: $selectedComponent?.[0] != firstComponent && (firstComponent = $selectedComponent?.[0])
+
 	$: hiddenInlineScript = $app?.hiddenInlineScripts
 		?.map((x, i) => ({ script: x, index: i }))
 		.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
 
-	$: componentSettings = findComponentSettings($app, $selectedComponent?.[0])
-	$: tableActionSettings = findTableActionSettings($app, $selectedComponent?.[0])
-	$: menuItemsSettings = findMenuItemsSettings($app, $selectedComponent?.[0])
+	$: componentSettings = findComponentSettings($app, firstComponent)
+	$: tableActionSettings = findTableActionSettings($app, firstComponent)
+	$: menuItemsSettings = findMenuItemsSettings($app, firstComponent)
 
 	function findTableActionSettings(app: App, id: string | undefined) {
 		return allItems(app.grid, app.subgrids)
