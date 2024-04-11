@@ -25,7 +25,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 </script>
 
-<div class="flex flex-row justify-center items-center gap-4 flex-wrap h-full my-0.5">
+<div class="flex flex-row justify-center items-center gap-4 flex-wrap h-full px-4 py-1">
 	{#each actions as action, actionIndex}
 		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 		<!-- svelte-ignore missing-declaration -->
@@ -212,8 +212,8 @@
 						noInitialize
 						extraKey={'idx' + rowIndex}
 						{render}
-						id={action.id}
 						--font-size="10px"
+						id={action.id}
 						customCss={action.customCss}
 						configuration={action.configuration}
 						recomputeIds={action.recomputeIds}
