@@ -34,7 +34,7 @@
 	{/each}
 {/if}
 
-{#if gridItem?.data?.type === 'aggridcomponent'}
+{#if gridItem?.data?.type === 'aggridcomponent' || gridItem?.data?.type === 'aggridcomponentee'}
 	{#each gridItem.data.actions as actionButton, index (index)}
 		{#if actionButton?.id === $selectedComponentInEditor || actionButton?.id + '_transformer' === $selectedComponentInEditor}
 			<InlineScriptEditorPanel

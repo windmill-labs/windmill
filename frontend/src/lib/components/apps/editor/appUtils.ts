@@ -72,7 +72,10 @@ export function dfs(
 			return [item.id, id]
 		} else if (item.data.type == 'menucomponent' && item.data.menuItems.find((x) => id == x.id)) {
 			return [item.id, id]
-		} else if (item.data.type == 'aggridcomponent' && item.data.actions.find((x) => id == x.id)) {
+		} else if (
+			(item.data.type == 'aggridcomponent' || item.data.type == 'aggridcomponentee') &&
+			item.data.actions.find((x) => id == x.id)
+		) {
 			return [item.id, id]
 		} else {
 			for (let i = 0; i < (item.data.numberOfSubgrids ?? 0); i++) {
@@ -167,7 +170,7 @@ export function allsubIds(app: App, parentId: string): string[] {
 			if (item.data.type === 'tablecomponent') {
 				subIds.push(...item.data.actionButtons?.map((x) => x.id))
 			}
-			if (item.data.type === 'aggridcomponent') {
+			if (item.data.type === 'aggridcomponent' || item.data.type === 'aggridcomponentee') {
 				subIds.push(...item.data.actions?.map((x) => x.id))
 			}
 			if (item.data.type === 'menucomponent') {
@@ -187,7 +190,7 @@ export function getNextGridItemId(app: App): string {
 	const allIds = allItems(app.grid, app.subgrids).flatMap((x) => {
 		if (x.data.type === 'tablecomponent') {
 			return [x.id, ...x.data.actionButtons.map((x) => x.id)]
-		} else if (x.data.type === 'aggridcomponent') {
+		} else if (x.data.type === 'aggridcomponent' || x.data.type === 'aggridcomponentee') {
 			return [x.id, ...x.data.actions.map((x) => x.id)]
 		} else if (x.data.type === 'menucomponent') {
 			return [x.id, ...x.data.menuItems.map((x) => x.id)]
@@ -427,7 +430,7 @@ export function copyComponent(
 							id: x.id.replace(`${item.id}_`, `${id}_`)
 						})) ?? []
 				}
-			} else if (item.data.type === 'aggridcomponent') {
+			} else if (item.data.type === 'aggridcomponent' || item.data.type === 'aggridcomponentee') {
 				return {
 					...item.data,
 					id,
@@ -480,7 +483,7 @@ export function getAllSubgridsAndComponentIds(
 		components.push(...component.actionButtons?.map((x) => x.id))
 	}
 
-	if (component.type === 'aggridcomponent') {
+	if (component.type === 'aggridcomponent' || component.type === 'aggridcomponentee') {
 		components.push(...component.actions?.map((x) => x.id))
 	}
 
@@ -511,7 +514,7 @@ export function getAllGridItems(app: App): GridItem[] {
 		.map((x) => {
 			if (x?.data?.type === 'tablecomponent') {
 				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
-			} else if (x?.data?.type === 'aggridcomponent') {
+			} else if (x?.data?.type === 'aggridcomponent' || x?.data?.type === 'aggridcomponentee') {
 				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]
 			} else if (x?.data?.type === 'menucomponent') {
 				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]

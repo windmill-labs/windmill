@@ -29,7 +29,7 @@
 							return { item: { data: tableAction, id: tableAction.id }, parent: x.data.id }
 						}
 					}
-				} else if (x?.data?.type === 'aggridcomponent') {
+				} else if (x?.data?.type === 'aggridcomponent' || x?.data?.type === 'aggridcomponentee') {
 					if (x?.data?.actions) {
 						const tableAction = x.data.actions.find((x) => x.id === id)
 						if (tableAction) {
@@ -85,7 +85,7 @@
 						)
 					}
 
-					if (parent.data.type === 'aggridcomponent') {
+					if (parent.data.type === 'aggridcomponent' || parent.data.type === 'aggridcomponentee') {
 						parent.data.actions = parent.data.actions.filter(
 							(x) => x.id !== tableActionSettings?.item.id
 						)

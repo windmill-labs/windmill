@@ -90,7 +90,7 @@
 			}
 		}
 
-		if (item?.data.type == 'aggridcomponent') {
+		if (item?.data.type == 'aggridcomponent' || item?.data.type == 'aggridcomponentee') {
 			for (let c of item.data.actions) {
 				let old = c.id
 				c.id = c.id.replace(id + '_', newId + '_')
@@ -119,7 +119,7 @@
 			}
 		}
 
-		if (data.type == 'aggridcomponent') {
+		if (data.type == 'aggridcomponent' || data.type == 'aggridcomponentee') {
 			for (let c of data.actions) {
 				renameComponent(from, to, c)
 			}

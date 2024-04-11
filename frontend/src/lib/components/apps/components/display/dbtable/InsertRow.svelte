@@ -21,7 +21,6 @@
 	init(wasmUrl)
 
 	import { argSigToJsonSchemaType } from '$lib/inferArgSig'
-	import fi from 'date-fns/locale/fi'
 
 	export let args: Record<string, any> = {}
 	export let dbType: DbType = 'postgresql'
