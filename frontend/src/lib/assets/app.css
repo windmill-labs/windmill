@@ -123,3 +123,6 @@
 	align-items: center;
 	justify-content: center;
 }
+.grid-cell-centered .svelte-select {
+	height: 32px !important;
+}

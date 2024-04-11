@@ -14,6 +14,7 @@
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
+
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
@@ -150,7 +151,17 @@
 
 	let state: any = undefined
 
+	const cachedDivs = new Map<number, HTMLDivElement>()
+
 	function actionRenderer(rowIndex: number = -1, row: any = {}) {
+		if (rowIndex === -1) {
+			return null
+		}
+
+		if (cachedDivs.has(rowIndex)) {
+			return cachedDivs.get(rowIndex)
+		}
+
 		const div = document.createElement('div')
 		div.classList.add('flex', 'flex-row', 'items-center', 'w-full', 'h-full')
 
@@ -165,6 +176,8 @@
 			},
 			context: new Map([['AppViewerContext', context]])
 		})
+
+		cachedDivs.set(rowIndex, div)
 
 		return div
 	}
