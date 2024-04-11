@@ -97,7 +97,7 @@
 					height: h,
 					margin: { l: 50, r: 40, b: 40, t: 40, pad: 4 },
 					paper_bgcolor: $darkMode ? '#2e3440' : '#fff',
-					plot_bgcolor: $darkMode ? '#2e3440' : '#fff',
+					plot_bgcolor: $darkMode ? '#344358' : '#fff',
 					...resolvedConfig.layout,
 					xaxis: {
 						color: $darkMode ? '#f3f6f8' : '#000',

@@ -38,7 +38,7 @@
 				$currentStepStore !== undefined ? 'z-[901]' : '',
 				copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')
 					? ''
-					: 'text-violet-800 dark:text-violet-400'
+					: 'text-violet-800 dark:text-violet-300'
 			)}
 			on:click={() => {
 				if (copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')) {
@@ -125,7 +125,7 @@
 				startIcon={{
 					icon: Wand2
 				}}
-				btnClasses="text-violet-800 dark:text-violet-500"
+				btnClasses="text-violet-800 dark:text-violet-300"
 				color={'light'}
 				variant={'border'}
 				nonCaptureEvent

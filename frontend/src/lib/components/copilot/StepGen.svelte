@@ -128,7 +128,7 @@
 			{#if funcDesc.length === 0}
 				<Wand2
 					size={14}
-					class="absolute right-4 top-1/2 -translate-y-1/2 fill-current opacity-70 text-violet-800 dark:text-violet-400"
+					class="absolute right-4 top-1/2 -translate-y-1/2 fill-current opacity-70 text-violet-800 dark:text-violet-300"
 				/>
 			{/if}
 		</div>
@@ -147,7 +147,7 @@
 							<div
 								class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 							>
-								<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
+								<Wand2 size={14} class="text-violet-800 dark:text-violet-300" />
 							</div>
 
 							<div class="text-left text-xs text-secondary">
@@ -169,7 +169,7 @@
 							<div
 								class="rounded-md p-1 flex justify-center items-center bg-surface border w-6 h-6"
 							>
-								<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
+								<Wand2 size={14} class="text-violet-800 dark:text-violet-300" />
 							</div>
 
 							<div class="text-left text-xs text-secondary">

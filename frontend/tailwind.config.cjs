@@ -19,18 +19,18 @@ const lightTheme = {
 const lightThemeRgb = makeRgb(lightTheme)
 
 const darkTheme = {
-	surface: '#2e3440',
-	surfaceSecondary: '#3b4252',
-	surfaceHover: '#4c566a',
-	surfaceDisabled: '#2a2f3a',
+	surface: '#1F2937',
+	surfaceSecondary: '#2A3648',
+	surfaceHover: '#344358',
+	surfaceDisabled: '#171F2D',
 	surfaceSelected: '#434c5e',
 
-	textPrimary: '#f3f6f8',
-	textSecondary: '#e0e7ed',
-	textTertiary: '#c7ccd6',
-	textDisabled: '#a0aec0',
+	textPrimary: '#E2E8F0',
+	textSecondary: '#CBD5E1',
+	textTertiary: '#94A3B8',
+	textDisabled: '#4A5668',
 
-	border: '#3e4c60',
+	border: '#344358',
 	borderHover: '#3e4c60'
 }
 
@@ -353,7 +353,8 @@ const config = {
 				600: '#2563eb',
 				700: '#1d4ed8',
 				800: '#1e40af',
-				900: '#1e3a8a'
+				900: '#1e3a8a',
+				950: '#172554'
 			},
 
 			indigo: {
@@ -663,7 +664,7 @@ const config = {
 				'button:disabled,button[disabled=true],a:disabled,a[disabled=true]': {
 					pointerEvents: 'none',
 					cursor: 'default',
-					filter: 'grayscale(1)'
+					opacity: '0.50'
 				},
 				'pre code.hljs': {
 					padding: '0px !important',

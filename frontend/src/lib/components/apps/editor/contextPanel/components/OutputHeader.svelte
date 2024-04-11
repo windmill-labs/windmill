@@ -38,8 +38,8 @@
 	}
 
 	const openBackground = {
-		blue: 'bg-blue-50 dark:bg-frost-800',
-		indigo: 'bg-indigo-50 dark:bg-indigo-800'
+		blue: 'bg-blue-50 dark:bg-frost-500/90',
+		indigo: 'bg-indigo-50 dark:bg-indigo-400/40'
 	}
 
 	const manuallyOpenColor = {
@@ -48,8 +48,8 @@
 	}
 
 	const idClass = {
-		blue: 'bg-blue-500 text-white',
-		indigo: 'bg-indigo-500 text-white'
+		blue: 'bg-blue-500 text-white dark:bg-blue-400/80',
+		indigo: 'bg-indigo-500 text-white dark:bg-indigo-500/60'
 	}
 
 	function renameId(newId: string): void {

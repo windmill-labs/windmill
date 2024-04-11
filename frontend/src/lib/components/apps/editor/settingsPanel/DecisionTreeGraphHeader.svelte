@@ -23,7 +23,7 @@
 <div class="relative h-full">
 	<div
 		class={twMerge(
-			'w-full h-full border border-gray-400',
+			'w-full h-full border border-gray-200',
 			'flex flex-row gap-2 items-center justify-between rounded-sm overflow-hidden'
 		)}
 		style="min-width: 275px; max-height: 80px; background-color: {document.documentElement.classList.contains(

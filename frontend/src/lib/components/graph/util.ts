@@ -32,7 +32,7 @@ export function getStateColor(state: FlowStatusModule.type | undefined): string 
 		case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
 			return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 		default:
-			return isDark ? '#2e3440' : '#fff'
+			return isDark ? '#344358' : '#fff'
 	}
 }
 

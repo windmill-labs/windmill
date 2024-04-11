@@ -62,7 +62,7 @@
 			startIcon={{ icon: Wand2 }}
 			iconOnly
 			title="AI Assistant"
-			btnClasses="min-h-[30px] text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+			btnClasses="min-h-[30px] text-violet-800 dark:text-violet-300 bg-violet-100 dark:bg-gray-700"
 			loading={genLoading}
 			clickableWhileLoading
 			on:click={genLoading ? () => abortController?.abort() : undefined}
@@ -87,7 +87,7 @@
 				color="light"
 				variant="contained"
 				buttonType="button"
-				btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+				btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-300 bg-violet-100 dark:bg-gray-700"
 				title="Generate CRON schedule from prompt"
 				aria-label="Generate"
 				iconOnly

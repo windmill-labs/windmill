@@ -62,7 +62,7 @@
 						<div
 							class="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-800/50"
 						>
-							<AlertTriangle class="text-red-500 dark:text-red-400" />
+							<AlertTriangle class="text-red-500 dark:text-red-400/90" />
 						</div>
 						<div class="ml-4 text-left flex-1">
 							<h3 class="text-lg font-medium text-primary">

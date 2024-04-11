@@ -33,8 +33,8 @@
 				: {
 						icon: $codeCompletionSessionEnabled ? SparklesIcon : SparklesOffIcon,
 						classes: $codeCompletionSessionEnabled
-							? 'text-violet-800 dark:text-violet-400'
-							: 'text-violet-800/50 dark:text-violet-400/50'
+							? 'text-violet-800 dark:text-violet-300'
+							: 'text-violet-800/50 dark:text-violet-300'
 				  }}
 			on:click={() => {
 				storeSetting()
@@ -51,7 +51,7 @@
 			startIcon={{
 				icon: SparklesOffIcon
 			}}
-			btnClasses="text-violet-800/50 dark:text-violet-400/50"
+			btnClasses="text-violet-800/50 dark:text-violet-300"
 		/>
 	</Popover>
 {/if}

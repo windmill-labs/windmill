@@ -131,7 +131,7 @@
 	</div>
 	<div
 		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-			border border-gray-400 p-2 text-2xs module text-primary"
+			border border-gray-400/20 p-2 text-2xs module text-primary"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />

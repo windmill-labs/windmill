@@ -82,7 +82,7 @@
 	<div
 		class="flex gap-1 justify-between {center
 			? 'items-center'
-			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400"
+			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400/20"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />
@@ -172,7 +172,7 @@
 						: undefined}
 					slot="trigger"
 					type="button"
-					class=" bg-surface text-violet-800 dark:text-violet-400 border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
+					class=" bg-surface text-violet-800 dark:text-violet-300 border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
 				>
 					<Wand2 size={16} />
 				</button>

@@ -342,7 +342,7 @@
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			class="relative {$propPickerConfig?.propName == argName
-				? 'outline outline-offset-1 outline-1 outline-blue-500 rounded-md'
+				? 'outline outline-offset-1 outline-1 outline-blue-400/50 rounded-md'
 				: ''}"
 			on:keyup={stepInputGen?.onKeyUp}
 		>

@@ -62,7 +62,7 @@
 		class={twMerge(
 			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[9px] -left-[8px] border rounded-sm z-50 cursor-move',
 			selected
-				? 'bg-indigo-500/90 border-indigo-600 text-white'
+				? 'bg-indigo-500/90 border-indigo-600 text-white dark:bg-indigo-500/90'
 				: $connectingInput.opened
 				? 'bg-red-500/90 border-red-600 text-white'
 				: 'bg-blue-500/90 border-blue-600 text-white'

@@ -230,7 +230,7 @@ Generate a description for the flow below:
 		{#if active}
 			<span
 				class={twMerge(
-					'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
+					'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-300 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
 					!loading && generatedContent.length > 0
 						? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
 						: ''

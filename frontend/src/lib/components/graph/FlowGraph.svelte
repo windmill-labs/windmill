@@ -290,7 +290,7 @@
 			case false:
 				return getStateColor(FlowStatusModule.type.FAILURE)
 			default:
-				return isDark ? '#2e3440' : '#fff'
+				return isDark ? '#344358' : '#fff'
 		}
 	}
 
@@ -679,7 +679,7 @@
 							label == 'Result'
 								? getResultColor()
 								: document.documentElement.classList.contains('dark')
-								? '#2e3440'
+								? '#344358'
 								: '#dfe6ee',
 						selected: $selectedId == label,
 						index,

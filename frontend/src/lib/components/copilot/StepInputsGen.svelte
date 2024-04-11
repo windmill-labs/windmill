@@ -173,7 +173,7 @@ input_name2: expression2
 			size="xs"
 			color="light"
 			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400',
+				'text-violet-800 dark:text-violet-300',
 				!loading && Object.keys($generatedExprs || {}).length > 0
 					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
 					: ''
@@ -219,7 +219,7 @@ input_name2: expression2
 				<Button
 					size="xs"
 					color="light"
-					btnClasses="text-violet-800 dark:text-violet-400"
+					btnClasses="text-violet-800 dark:text-violet-300"
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2

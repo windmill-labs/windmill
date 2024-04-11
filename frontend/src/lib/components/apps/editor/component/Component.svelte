@@ -163,7 +163,7 @@
 					? 'outline outline-orange-600'
 					: 'outline outline-blue-600'
 				: '',
-			selected && $mode !== 'preview' ? 'outline outline-indigo-600' : '',
+			selected && $mode !== 'preview' ? 'outline outline-indigo-600 dark:outline-indigo-400/80' : '',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class,

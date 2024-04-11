@@ -169,7 +169,7 @@
 						on:click={genLoading ? () => abortController?.abort() : undefined}
 						btnClasses={genLoading
 							? ''
-							: 'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700'}
+							: 'text-violet-800 dark:text-violet-300 bg-violet-100 dark:bg-gray-700'}
 						>{#if genLoading}
 							<WindmillIcon
 								white

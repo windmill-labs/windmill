@@ -8,7 +8,7 @@
 
 	$: settingsClass = classNames(
 		'border w-full rounded-sm p-2 bg-surface  text-sm cursor-pointer flex items-center',
-		$selectedId == 'constants' ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+		$selectedId == 'constants' ? 'outline outline-offset-1 outline-2  outline-slate-900 dark:bg-surface-secondary dark:outline-slate-800/50 dark:border-gray-400/80' : ''
 	)
 </script>
 

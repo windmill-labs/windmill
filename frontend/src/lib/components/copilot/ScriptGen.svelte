@@ -322,14 +322,14 @@
 					title="Generate code from Prompt"
 					startIcon={genLoading
 						? { icon: Ban }
-						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
+						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-300' }}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
 					btnClasses={twMerge(
 						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
+						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-300'
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
@@ -405,7 +405,7 @@
 							size="xs"
 							color="light"
 							buttonType="button"
-							btnClasses="h-[36px] !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							btnClasses="h-[36px] !p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-300 bg-violet-100 dark:bg-gray-700"
 							title="Generate code from prompt"
 							aria-label="Generate"
 							on:click={() => {
