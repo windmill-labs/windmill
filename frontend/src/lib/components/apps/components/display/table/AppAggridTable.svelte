@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { SvelteComponent, getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -125,13 +125,6 @@
 	let clientHeight
 	let clientWidth
 
-	function clearAndUpdateOptions() {
-		cachedDivs.clear()
-		updateOptions()
-	}
-
-	$: actions && clearAndUpdateOptions()
-
 	function onCellValueChanged(event) {
 		if (result) {
 			let dataCell = event.newValue
@@ -159,7 +152,42 @@
 
 	let state: any = undefined
 
-	const cachedDivs = new Map<number, HTMLDivElement>()
+	const cachedDivs = new Map<
+		number,
+		{
+			div: HTMLDivElement
+			svelteComponent: SvelteComponent
+			actions: TableAction[]
+		}
+	>()
+
+	function refreshActions(actions: TableAction[]) {
+		const firstCache = cachedDivs.get(0)
+
+		if (firstCache && firstCache?.actions?.length === actions.length) {
+			const same = actions.every((action, index) => {
+				return (
+					action.id === firstCache.actions[index].id &&
+					action.type === firstCache.actions[index].type
+				)
+			})
+
+			if (same) {
+				return
+			}
+		}
+
+		cachedDivs.forEach((cachedDiv) => {
+			cachedDiv.svelteComponent.$destroy()
+			cachedDiv.div.remove()
+		})
+
+		cachedDivs.clear()
+
+		updateOptions()
+	}
+
+	$: actions && refreshActions(actions)
 
 	function actionRenderer(rowIndex: number = -1, row: any = {}) {
 		if (rowIndex === -1) {
@@ -167,13 +195,13 @@
 		}
 
 		if (cachedDivs.has(rowIndex)) {
-			return cachedDivs.get(rowIndex)
+			return cachedDivs.get(rowIndex)?.div
 		}
 
 		const div = document.createElement('div')
 		div.classList.add('flex', 'flex-row', 'items-center', 'w-full', 'h-full')
 
-		new AppAggridTableActions({
+		const svelteComponent = new AppAggridTableActions({
 			target: div,
 			props: {
 				id: id,
@@ -185,7 +213,11 @@
 			context: new Map([['AppViewerContext', context]])
 		})
 
-		cachedDivs.set(rowIndex, div)
+		cachedDivs.set(rowIndex, {
+			div,
+			actions,
+			svelteComponent
+		})
 
 		return div
 	}
