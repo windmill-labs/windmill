@@ -165,7 +165,7 @@
 	function refreshActions(actions: TableAction[]) {
 		if (Array.isArray(lastActions) && lastActions.length === actions.length) {
 			const same = actions.every((action, index) => {
-				return action.id === lastActions![index].id && action.type === lastActions![index].type
+				return JSON.stringify(action) === JSON.stringify(lastActions![index])
 			})
 
 			if (same) {
@@ -187,7 +187,8 @@
 
 	$: actions && refreshActions(actions)
 
-	function actionRenderer(rowIndex: number = -1, row: any = {}) {
+	function actionRenderer(params) {
+		const { rowIndex, data: row } = params
 		if (rowIndex === -1) {
 			return null
 		}
@@ -231,8 +232,8 @@
 				// Add the action column if actions are defined
 				if (actions.length > 0) {
 					columnDefs.push({
-						headerName: 'Action',
-						cellRenderer: (p) => actionRenderer(p.rowIndex, p.data),
+						headerName: 'Actions',
+						cellRenderer: actionRenderer,
 						autoHeight: true,
 						cellStyle: { textAlign: 'center' },
 						cellClass: 'grid-cell-centered'
@@ -354,9 +355,8 @@
 			// Add the action column if actions are defined
 			if (actions.length > 0) {
 				columnDefs.push({
-					headerName: 'Action',
-					cellRenderer: (p: { rowIndex: number | undefined; data: any }) =>
-						actionRenderer(p.rowIndex, p.data),
+					headerName: 'Actions',
+					cellRenderer: actionRenderer,
 					autoHeight: true,
 					cellStyle: { textAlign: 'center' },
 					cellClass: 'grid-cell-centered'
