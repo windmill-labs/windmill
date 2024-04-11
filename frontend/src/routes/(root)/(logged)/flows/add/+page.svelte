@@ -134,6 +134,7 @@
 	on:details={(e) => {
 		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
+	gotoEdit={(path, selectedId) => goto(`/flows/edit/${path}?selected=${selectedId}`)}
 	{initialPath}
 	{pathStoreInit}
 	bind:getSelectedId
