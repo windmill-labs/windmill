@@ -134,7 +134,9 @@
 						customCss={action.customCss}
 						configuration={action.configuration}
 						recomputeIds={action.recomputeIds}
-						extraQueryParams={{ row: row.original }}
+						extraQueryParams={{
+							row
+						}}
 						componentInput={action.componentInput}
 						verticalAlignment="center"
 						{controls}
@@ -188,7 +190,9 @@
 					customCss={action.customCss}
 					configuration={action.configuration}
 					recomputeIds={action.recomputeIds}
-					extraQueryParams={{ row: row.original }}
+					extraQueryParams={{
+						row
+					}}
 					componentInput={action.componentInput}
 				/>
 			{:else if action.type == 'checkboxcomponent'}
