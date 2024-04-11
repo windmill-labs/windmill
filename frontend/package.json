@@ -141,7 +141,6 @@
 		"yjs": "^13.6.7"
 	},
 	"peerDependencies": {
-		"@sveltejs/kit": "^2.0.0",
 		"svelte": "^4.0.0"
 	},
 	"exports": {

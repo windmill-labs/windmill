@@ -69,7 +69,6 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { cloneDeep } from 'lodash'
-	import { goto } from '$app/navigation'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -85,6 +84,7 @@
 		  })
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let gotoEdit: (path: string, selected: string) => void
 
 	const dispatch = createEventDispatcher()
 
@@ -195,7 +195,8 @@
 				dispatch('saveInitial', $pathStore)
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				initialPath = $pathStore
-				goto(`/flows/edit/${$pathStore}?selected=${getSelectedId()}`)
+				// this is so we can use the flow builder outside of sveltekit
+				gotoEdit($pathStore, getSelectedId())
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {

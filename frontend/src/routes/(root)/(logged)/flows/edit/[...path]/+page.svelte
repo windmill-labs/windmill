@@ -202,6 +202,7 @@
 	{flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}
+	gotoEdit={(path, selectedId) => goto(`/flows/edit/${path}?selected=${selectedId}`)}
 	newFlow={false}
 	{selectedId}
 	{initialArgs}
