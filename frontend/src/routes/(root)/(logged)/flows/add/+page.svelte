@@ -26,6 +26,7 @@
 	let loading = false
 
 	let initialPath: string | undefined = undefined
+	let pathStoreInit: string | undefined = undefined
 
 	export const flowStore = writable<Flow>({
 		summary: '',
@@ -82,7 +83,7 @@
 			])
 
 			flow = state.flow
-			initialPath = state.path
+			pathStoreInit = state.path
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
@@ -134,6 +135,7 @@
 		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
 	{initialPath}
+	{pathStoreInit}
 	bind:getSelectedId
 	bind:this={flowBuilder}
 	newFlow
