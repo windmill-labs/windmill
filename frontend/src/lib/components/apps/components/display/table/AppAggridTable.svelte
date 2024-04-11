@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GridApi, createGrid, type ICellRendererComp } from 'ag-grid-community'
+	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
@@ -182,7 +182,8 @@
 					columnDefs.push({
 						headerName: 'Action',
 						cellRenderer: (p) => actionRenderer(p.rowIndex, p.data),
-						wrapText: true
+						minWidth: actions.length * 130,
+						autoHeight: true
 					})
 				}
 
@@ -305,6 +306,7 @@
 					headerName: 'Action',
 					cellRenderer: (p: { rowIndex: number | undefined; data: any }) =>
 						actionRenderer(p.rowIndex, p.data),
+					minWidth: actions.length * 130,
 					autoHeight: true
 				})
 			}
