@@ -126,3 +126,7 @@
 .grid-cell-centered .svelte-select {
 	height: 32px !important;
 }
+
+.grid-cell-centered .selected-item {
+	margin-top: -4px;
+}
