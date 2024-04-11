@@ -163,16 +163,6 @@
 	let lastActions: TableAction[] | undefined = undefined
 
 	function refreshActions(actions: TableAction[]) {
-		if (Array.isArray(lastActions) && lastActions.length === actions.length) {
-			const same = actions.every((action, index) => {
-				return JSON.stringify(action) === JSON.stringify(lastActions![index])
-			})
-
-			if (same) {
-				return
-			}
-		}
-
 		lastActions = actions
 
 		cachedDivs.forEach((cachedDiv) => {
@@ -217,6 +207,8 @@
 			actions,
 			svelteComponent
 		})
+
+		console.log('CACHED DIVS', cachedDivs.size)
 
 		return div
 	}
