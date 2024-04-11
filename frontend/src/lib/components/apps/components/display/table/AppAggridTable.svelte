@@ -120,9 +120,17 @@
 	}
 
 	$: outputs?.result?.set(result ?? [])
+	$: actions && updateOptions()
 
 	let clientHeight
 	let clientWidth
+
+	function clearAndUpdateOptions() {
+		cachedDivs.clear()
+		updateOptions()
+	}
+
+	$: actions && clearAndUpdateOptions()
 
 	function onCellValueChanged(event) {
 		if (result) {
@@ -195,7 +203,9 @@
 					columnDefs.push({
 						headerName: 'Action',
 						cellRenderer: (p) => actionRenderer(p.rowIndex, p.data),
-						autoHeight: true
+						autoHeight: true,
+						cellStyle: { textAlign: 'center' },
+						cellClass: 'grid-cell-centered'
 					})
 				}
 
@@ -268,7 +278,6 @@
 	}
 
 	$: resolvedConfig && updateOptions()
-	$: actions && updateOptions()
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
