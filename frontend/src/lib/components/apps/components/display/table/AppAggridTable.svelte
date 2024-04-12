@@ -36,7 +36,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
-	export let actions: TableAction[] = []
+	export let actions: TableAction[] | undefined = undefined
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 
@@ -198,7 +198,7 @@
 
 	function actionRenderer(params) {
 		const { rowIndex, data: row } = params
-		if (rowIndex === -1) {
+		if (rowIndex === -1 || actions == undefined || actions?.length == 0) {
 			return null
 		}
 
@@ -261,7 +261,7 @@
 						: []
 
 				// Add the action column if actions are defined
-				if (actions.length > 0) {
+				if (actions && actions.length > 0) {
 					columnDefs.push({
 						headerName: 'Actions',
 						cellRenderer: actionRenderer,
@@ -385,7 +385,7 @@
 					: []
 
 			// Add the action column if actions are defined
-			if (actions.length > 0) {
+			if (actions && actions.length > 0) {
 				columnDefs.push({
 					headerName: 'Actions',
 					cellRenderer: actionRenderer,
