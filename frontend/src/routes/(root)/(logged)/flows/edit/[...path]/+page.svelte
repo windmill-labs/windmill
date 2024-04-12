@@ -211,11 +211,5 @@
 	bind:savedFlow
 	{diffDrawer}
 >
-	<UnsavedConfirmationModal
-		{diffDrawer}
-		savedValue={savedFlow}
-		modifiedValue={{
-			...$flowStore
-		}}
-	/>
+	<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={$flowStore} />
 </FlowBuilder>
