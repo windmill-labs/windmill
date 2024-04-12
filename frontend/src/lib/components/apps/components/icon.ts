@@ -31,7 +31,6 @@ export async function loadIcon(
 					elem.setAttribute('stroke', color)
 				}
 			}
-		} else {
 		}
 	} catch (error) {
 		console.error(error)
