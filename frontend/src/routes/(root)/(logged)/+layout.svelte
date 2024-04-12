@@ -312,7 +312,7 @@
 									</svg>
 								</button>
 							</div>
-							<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark ">
+							<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
 								<div
 									class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
 									class:w-40={!isCollapsed}
@@ -337,7 +337,8 @@
 					class={classNames(
 						'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
 						isCollapsed ? 'md:w-12' : 'md:w-40',
-						devOnly ? '!hidden' : ''
+						devOnly ? '!hidden' : '',
+						'border-r'
 					)}
 				>
 					<div
@@ -438,7 +439,7 @@
 								{#if !isCollapsed}Windmill{/if}
 							</div>
 
-							<div class="px-2 py-4 space-y-2 border-y border-gray-500 ">
+							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 								<WorkspaceMenu />
 								<FavoriteMenu {favoriteLinks} />
 							</div>
