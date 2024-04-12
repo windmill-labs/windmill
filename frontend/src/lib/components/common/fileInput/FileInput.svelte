@@ -77,6 +77,22 @@
 		})
 	}
 
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault()
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'copy'
+		}
+	}
+
+	function handleDrop(event: DragEvent) {
+		event.preventDefault()
+		if (event.dataTransfer) {
+			if (event.dataTransfer.files && event.dataTransfer.files.length) {
+				onChange(event.dataTransfer.files)
+			}
+		}
+	}
+
 	function removeFile(index: number) {
 		if (!files) return
 		files.splice(index, 1)
@@ -114,6 +130,8 @@
 		duration-200 rounded-lg p-1`,
 		c
 	)}
+	on:dragover={handleDragOver}
+	on:drop={handleDrop}
 	{style}
 >
 	{#if !hideIcon && !files}

@@ -117,3 +117,16 @@
 		}
 	}
 }
+
+.grid-cell-centered {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.grid-cell-centered .svelte-select {
+	height: 32px !important;
+}
+
+.grid-cell-centered .selected-item {
+	margin-top: -4px;
+}
