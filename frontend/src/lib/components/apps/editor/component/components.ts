@@ -2858,7 +2858,13 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 							title: 'London'
 						}
 					]
-				} as StaticAppInput
+				} as StaticAppInput,
+				lock: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false,
+					tooltip: 'Lock the map to prevent user interaction'
+				}
 			}
 		}
 	},
