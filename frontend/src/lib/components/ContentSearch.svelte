@@ -10,7 +10,6 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import { Alert, Button } from './common'
-	import { goto } from '$app/navigation'
 	import YAML from 'yaml'
 
 	let search: string = ''
@@ -41,14 +40,14 @@
 
 	let searchKind: 'all' | 'scripts' | 'flows' | 'apps' | 'resources' = 'all'
 
-	let isOpen = false;
-    	let inputElement;
+	let isOpen = false
+	let inputElement
 
-        // Reactive statement to focus the input when the modal opens
-        $: if (isOpen && inputElement) {
-	  // Use a timeout to ensure focus after any animations or rendering
-	  setTimeout(() => inputElement.focus(), 0);
-        }
+	// Reactive statement to focus the input when the modal opens
+	$: if (isOpen && inputElement) {
+		// Use a timeout to ensure focus after any animations or rendering
+		setTimeout(() => inputElement.focus(), 0)
+	}
 
 	let scripts: undefined | { path: string; content: string }[] = undefined
 	let filteredScriptItems: { path: string; content: string; marked: any }[] = []
@@ -94,7 +93,6 @@
 					flows: getCounts(filteredFlowItems.length),
 					scripts: getCounts(filteredScriptItems.length)
 			  }
-
 </script>
 
 <SearchItems
@@ -285,7 +283,9 @@
 													<div class="flex gap-2">
 														<Button
 															on:click|once={() => {
-																goto(`/scripts/edit/${item.path}?no_draft=true`)
+																window
+																	.open(`/scripts/edit/${item.path}?no_draft=true`, '_blank')
+																	?.focus()
 															}}
 															color="light"
 															size="sm"
@@ -325,7 +325,9 @@
 													<div class="flex gap-2">
 														<Button
 															on:click|once={() => {
-																goto(`/flows/edit/${item.path}?no_draft=true`)
+																window
+																	.open(`/flows/edit/${item.path}?no_draft=true`, '_blank')
+																	?.focus()
 															}}
 															color="light"
 															size="sm"

@@ -415,28 +415,29 @@ pub async fn update_flow_status_after_job_completion_internal<
                     tx.commit().await?;
 
                     if parallelism.is_some() {
-                        let mut tx = db.begin().await?;
-
                         // this ensure that the lock is taken in the same order and thus avoid deadlocks
-                        let _ = sqlx::query!(
-                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by id FOR UPDATE",
-                            job_id_for_status
+                        let ids = sqlx::query_scalar!(
+                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend",
+                            flow
                         )
-                        .fetch_all(&mut *tx)
+                        .fetch_all(db)
                         .await
                         .map_err(|e| {
                             Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e}"))
                         })?;
-                        sqlx::query!(
-                            "UPDATE queue SET suspend = suspend - 1 WHERE parent_job = $1 AND suspend > 0",
-                            flow
-                        )
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| {
-                            Error::InternalErr(format!("error decreasing suspend: {e}"))
-                        })?;
-                        tx.commit().await?;
+                        for id in ids {
+                            sqlx::query!(
+                                "UPDATE queue SET suspend = suspend - 1 WHERE id = $1 AND suspend > 0",
+                                id
+                            )
+                            .execute(db)
+                            .await
+                            .map_err(|e| {
+                                Error::InternalErr(format!(
+                                    "error decreasing suspend for {id}: {e}"
+                                ))
+                            })?;
+                        }
                     }
 
                     sqlx::query!(
@@ -446,13 +447,18 @@ pub async fn update_flow_status_after_job_completion_internal<
                         flow
                     )
                     .execute(db)
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("error while setting last ping to null: {e}"))
+                    })?;
 
                     let r = sqlx::query_scalar!(
                         "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 and job_id = $2 RETURNING last_ping",
                         flow,
                         job_id_for_status
-                    ).fetch_optional(db).await?;
+                    ).fetch_optional(db).await.map_err(|e| {
+                        Error::InternalErr(format!("error while removing parallel_monitor_lock: {e}"))
+                    })?;
                     if r.is_some() {
                         tracing::info!(
                             "parallel flow has removed lock on its parent, last ping was {:?}",
@@ -741,7 +747,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                     &_cleanup_module.flow_jobs_to_clean,
                 )
                 .execute(db)
-                .await?;
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!("error while cleaning up completed_job: {e}"))
+                })?;
             }
         }
         if flow_job.canceled {
@@ -2598,6 +2607,7 @@ async fn compute_next_flow_transform(
                                         cache_ttl: None,
                                         priority: None,
                                         early_return: None,
+                                        concurrency_key: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
                                     restarted_from: None,
@@ -2696,6 +2706,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2747,6 +2758,7 @@ async fn compute_next_flow_transform(
                                                     cache_ttl: None,
                                                     priority: None,
                                                     early_return: None,
+                                                    concurrency_key: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2814,6 +2826,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",
@@ -2886,6 +2899,7 @@ async fn next_loop_iteration(
                         cache_ttl: None,
                         priority: None,
                         early_return: None,
+                        concurrency_key: None,
                     },
                     path: inner_path,
                     restarted_from: None,

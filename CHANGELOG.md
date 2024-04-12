@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.305.3](https://github.com/windmill-labs/windmill/compare/v1.305.2...v1.305.3) (2024-04-12)
+
+
+### Bug Fixes
+
+* improve app icon renderer and app html renderer ([ee56821](https://github.com/windmill-labs/windmill/commit/ee56821a4734fa56097ae1ec7e032b6d14c0ee80))
+
+## [1.305.2](https://github.com/windmill-labs/windmill/compare/v1.305.1...v1.305.2) (2024-04-11)
+
+
+### Bug Fixes
+
+* unsaved changes on deploy of flow ([d1650db](https://github.com/windmill-labs/windmill/commit/d1650dbed935b206a8de8a59835933d559ff3a20))
+
+## [1.305.1](https://github.com/windmill-labs/windmill/compare/v1.305.0...v1.305.1) (2024-04-11)
+
+
+### Bug Fixes
+
+* fix plug connection for apps with array items ([c88e6a8](https://github.com/windmill-labs/windmill/commit/c88e6a86359cbdad038db09d54979cec1f12c8f3))
+* **frontend:** add missing darkModeObserver in CronInput ([#3531](https://github.com/windmill-labs/windmill/issues/3531)) ([8525494](https://github.com/windmill-labs/windmill/commit/8525494a68314e342b7393f6b6df15565ffb4082))
+* **frontend:** fix text alignement ([#3533](https://github.com/windmill-labs/windmill/issues/3533)) ([0c9a95c](https://github.com/windmill-labs/windmill/commit/0c9a95c964a16c3194d4887b7a3882a626faf6e4))
+* improve goto behavior ([6c33f17](https://github.com/windmill-labs/windmill/commit/6c33f17829a3a43cd1794abfc0c0807caa01bcfd))
+* load lazily the app icons ([cd5b023](https://github.com/windmill-labs/windmill/commit/cd5b0230338f3f20d7306b8a3feef509f6c8fe30))
+* remove requirement on full wasm parser for row insert of db studio ([cd07020](https://github.com/windmill-labs/windmill/commit/cd07020edb8ff652d086023771caa07755b5b2a2))
+* remove requirement on full wasm parser for row insert of db studio ([f17bed9](https://github.com/windmill-labs/windmill/commit/f17bed9741762f5241206a1bc257bcc4c4cb96fb))
+* update monaco configurations ([62e4ec2](https://github.com/windmill-labs/windmill/commit/62e4ec2e1443b47c273631d2b8efa7f3a9ba804c))
+
+## [1.305.0](https://github.com/windmill-labs/windmill/compare/v1.304.4...v1.305.0) (2024-04-09)
+
+
+### Features
+
+* flow concurrency limits support custom concurrency key ([a55aad3](https://github.com/windmill-labs/windmill/commit/a55aad30039d8bc44f4cbc9aa2fa3e220966ca80))
+
+
+### Bug Fixes
+
+* add ability to cancel flows directly from operator modal ([5272956](https://github.com/windmill-labs/windmill/commit/5272956153419f3eac7203a9b043ca63c2cf869b))
+
+## [1.304.4](https://github.com/windmill-labs/windmill/compare/v1.304.3...v1.304.4) (2024-04-09)
+
+
+### Bug Fixes
+
+* allow for longer approver names in flows ([f117539](https://github.com/windmill-labs/windmill/commit/f117539a54e5947832c1d435a4991274d103cef0))
+* **frontend:** Fix bypass confirmation shortcut ([#3527](https://github.com/windmill-labs/windmill/issues/3527)) ([db5abd3](https://github.com/windmill-labs/windmill/commit/db5abd37cda548e642fa825cd279a730a7af5c00))
+* **frontend:** Improve theme editor ([#3525](https://github.com/windmill-labs/windmill/issues/3525)) ([975055b](https://github.com/windmill-labs/windmill/commit/975055b90ff3e7bd0b8202920ca78fb9178663a7))
+* improve deadlocks for parallel branches with parallelism constraints ([0c824de](https://github.com/windmill-labs/windmill/commit/0c824de4cdfb3b6b609cce0e1678a58743ea24f4))
+* improve deadlocks for parallel branches with parallelism constraints ([8dd1175](https://github.com/windmill-labs/windmill/commit/8dd117528c793b828631d5f320bb28ce9c5e3a3f))
+* improve handling of very large iterator on frontend ([7e4b6c3](https://github.com/windmill-labs/windmill/commit/7e4b6c374415862954f4876b693a199aabcab45e))
+* improve order dragndrop for json editor in app ([1ab1fb7](https://github.com/windmill-labs/windmill/commit/1ab1fb7e4de9984c6408d1fe5ef332d8f242362b))
+* improve performance of for-loops with parralelism ([a4442d4](https://github.com/windmill-labs/windmill/commit/a4442d4d3d919383ac09df66f20d6c4f98c04a92))
+* improve performance of for-loops with parralelism ([29422f1](https://github.com/windmill-labs/windmill/commit/29422f156d8ca3e0ac03288bd11b31f505a492c1))
+
 ## [1.304.3](https://github.com/windmill-labs/windmill/compare/v1.304.2...v1.304.3) (2024-04-08)
 
 

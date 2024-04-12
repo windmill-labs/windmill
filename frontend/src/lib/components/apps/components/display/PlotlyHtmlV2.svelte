@@ -35,7 +35,11 @@
 	let Plotly
 	onMount(async () => {
 		//@ts-ignore
-		await import('https://cdn.jsdelivr.net/npm/plotly.js-dist@2.18.0/plotly.min.js')
+		await import(
+			/* webpackIgnore: true */
+			//@ts-ignorez
+			'https://cdn.jsdelivr.net/npm/plotly.js-dist@2.18.0/plotly.min.js'
+		)
 
 		Plotly = window['Plotly']
 	})

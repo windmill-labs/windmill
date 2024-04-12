@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::json;
 
 use std::collections::HashMap;
-use windmill_parser::{Arg, MainArgSignature, Typ};
+pub use windmill_parser::{Arg, MainArgSignature, Typ};
 
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
