@@ -33,9 +33,11 @@
 			<div>
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 				<div class="ml-4 mt-4">
-					{#each gridItem.data.actions as actionButton (actionButton.id)}
-						<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
-					{/each}
+					{#if Array.isArray(gridItem.data.actions)}
+						{#each gridItem.data.actions as actionButton (actionButton.id)}
+							<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
+						{/each}
+					{/if}
 				</div>
 			</div>
 		{:else}

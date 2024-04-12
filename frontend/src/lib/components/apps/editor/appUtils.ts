@@ -74,7 +74,7 @@ export function dfs(
 			return [item.id, id]
 		} else if (
 			(item.data.type == 'aggridcomponent' || item.data.type == 'aggridcomponentee') &&
-			item.data.actions.find((x) => id == x.id)
+			item.data.actions?.find((x) => id == x.id)
 		) {
 			return [item.id, id]
 		} else {
@@ -170,7 +170,10 @@ export function allsubIds(app: App, parentId: string): string[] {
 			if (item.data.type === 'tablecomponent') {
 				subIds.push(...item.data.actionButtons?.map((x) => x.id))
 			}
-			if (item.data.type === 'aggridcomponent' || item.data.type === 'aggridcomponentee') {
+			if (
+				item.data.type === 'aggridcomponent' ||
+				(item.data.type === 'aggridcomponentee' && Array.isArray(item.data.actions))
+			) {
 				subIds.push(...item.data.actions?.map((x) => x.id))
 			}
 			if (item.data.type === 'menucomponent') {
@@ -514,7 +517,10 @@ export function getAllGridItems(app: App): GridItem[] {
 		.map((x) => {
 			if (x?.data?.type === 'tablecomponent') {
 				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
-			} else if (x?.data?.type === 'aggridcomponent' || x?.data?.type === 'aggridcomponentee') {
+			} else if (
+				(x?.data?.type === 'aggridcomponent' || x?.data?.type === 'aggridcomponentee') &&
+				Array.isArray(x?.data?.actions)
+			) {
 				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]
 			} else if (x?.data?.type === 'menucomponent') {
 				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
