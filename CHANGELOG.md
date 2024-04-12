@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.306.2](https://github.com/windmill-labs/windmill/compare/v1.306.1...v1.306.2) (2024-04-12)
+
+
+### Bug Fixes
+
+* fix actions buttons error ([6ea5965](https://github.com/windmill-labs/windmill/commit/6ea59658196339600e39776c690d6924e355f471))
+
 ## [1.306.1](https://github.com/windmill-labs/windmill/compare/v1.306.0...v1.306.1) (2024-04-12)
 
 
