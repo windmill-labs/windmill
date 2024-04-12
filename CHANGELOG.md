@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.305.3](https://github.com/windmill-labs/windmill/compare/v1.305.2...v1.305.3) (2024-04-12)
+
+
+### Bug Fixes
+
+* improve app icon renderer and app html renderer ([ee56821](https://github.com/windmill-labs/windmill/commit/ee56821a4734fa56097ae1ec7e032b6d14c0ee80))
+
 ## [1.305.2](https://github.com/windmill-labs/windmill/compare/v1.305.1...v1.305.2) (2024-04-11)
 
 
