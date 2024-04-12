@@ -682,6 +682,12 @@ const aggridcomponentconst = {
 				value: 'normal',
 				selectOptions: ['normal', 'compact', 'comfortable'],
 				tooltip: 'Change the row height'
+			},
+			wrapActions: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+				tooltip: 'Wrap action buttons'
 			}
 		},
 		componentInput: {

@@ -22,6 +22,7 @@
 	export let row: { original: Record<string, any> }
 	export let onSet: (id: string, value: any) => void
 	export let onRemove: (id: string) => void
+	export let wrapActions: boolean | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	const { selectedComponent, hoverStore, mode, connectingInput } =
@@ -29,7 +30,12 @@
 </script>
 
 <RowWrapper value={row} index={rowIndex} {onSet} {onRemove}>
-	<div class="flex flex-row justify-center items-center gap-4 flex-wrap h-full px-4 py-1">
+	<div
+		class={twMerge(
+			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1',
+			!wrapActions ? 'flex-wrap' : ''
+		)}
+	>
 		{#each actions as action, actionIndex}
 			<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 			<!-- svelte-ignore missing-declaration -->

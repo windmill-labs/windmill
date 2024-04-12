@@ -217,6 +217,7 @@
 				rowIndex,
 				row,
 				render,
+				wrapActions: resolvedConfig.wrapActions,
 				onSet: (id, value) => {
 					if (!inputs[id]) {
 						inputs[id] = { [rowIndex]: value }
@@ -266,7 +267,8 @@
 						cellRenderer: actionRenderer,
 						autoHeight: true,
 						cellStyle: { textAlign: 'center' },
-						cellClass: 'grid-cell-centered'
+						cellClass: 'grid-cell-centered',
+						...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 					})
 				}
 
@@ -389,7 +391,8 @@
 					cellRenderer: actionRenderer,
 					autoHeight: true,
 					cellStyle: { textAlign: 'center' },
-					cellClass: 'grid-cell-centered'
+					cellClass: 'grid-cell-centered',
+					...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 				})
 			}
 
