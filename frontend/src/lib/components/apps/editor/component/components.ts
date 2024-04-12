@@ -687,7 +687,8 @@ const aggridcomponentconst = {
 				type: 'static',
 				fieldType: 'boolean',
 				value: false,
-				tooltip: 'Wrap action buttons'
+				tooltip:
+					'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
 			}
 		},
 		componentInput: {
