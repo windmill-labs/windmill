@@ -90,8 +90,8 @@
 					}
 
 					if (
-						parent.data.type === 'aggridcomponent' ||
-						(parent.data.type === 'aggridcomponentee' && Array.isArray(parent.data.actions))
+						(parent.data.type === 'aggridcomponent' || parent.data.type === 'aggridcomponentee') &&
+						Array.isArray(parent.data.actions)
 					) {
 						parent.data.actions = parent.data.actions.filter(
 							(x) => x.id !== tableActionSettings?.item.id

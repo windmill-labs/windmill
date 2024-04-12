@@ -198,7 +198,7 @@
 
 	function actionRenderer(params) {
 		const { rowIndex, data: row } = params
-		if (rowIndex === -1 || actions == undefined || actions.length == 0) {
+		if (rowIndex === -1 || actions == undefined || actions?.length == 0) {
 			return null
 		}
 

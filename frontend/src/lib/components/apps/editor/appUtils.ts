@@ -517,7 +517,10 @@ export function getAllGridItems(app: App): GridItem[] {
 		.map((x) => {
 			if (x?.data?.type === 'tablecomponent') {
 				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
-			} else if (x?.data?.type === 'aggridcomponent' || x?.data?.type === 'aggridcomponentee') {
+			} else if (
+				(x?.data?.type === 'aggridcomponent' || x?.data?.type === 'aggridcomponentee') &&
+				Array.isArray(x?.data?.actions)
+			) {
 				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]
 			} else if (x?.data?.type === 'menucomponent') {
 				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
