@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import { SvelteComponent, getContext } from 'svelte'
+	import { SvelteComponent, getContext, onDestroy } from 'svelte'
 	import type { AppInput } from '../../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
@@ -33,6 +39,9 @@
 	export let actions: TableAction[] = []
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
+
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const { app, worldStore, selectedComponent, componentControl, darkMode } = context
 
@@ -84,6 +93,7 @@
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
 		ready: undefined as boolean | undefined,
+		inputs: {},
 		filters: {},
 		displayedRowCount: 0
 	})
@@ -99,11 +109,20 @@
 				selectedRowIndex = rowIndex
 				outputs?.selectedRowIndex.set(rowIndex)
 			}
+
 			if (!deepEqual(outputs?.selectedRow?.peak(), data)) {
 				outputs?.selectedRow.set(data)
 			}
+
+			if (iterContext && listInputs) {
+				listInputs.set(id, { selectedRow: data, selectedRowIndex: selectedRowIndex })
+			}
 		}
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
 
 	function toggleRows(rows: any[]) {
 		if (rows.length === 0) {
@@ -142,14 +161,11 @@
 	}
 
 	let extraConfig = resolvedConfig.extraConfig
-
 	let api: GridApi<any> | undefined = undefined
-
 	let eGui: HTMLDivElement
+	let state: any = undefined
 
 	$: loaded && eGui && mountGrid()
-
-	let state: any = undefined
 
 	const cachedDivs = new Map<
 		number,
@@ -178,6 +194,8 @@
 	let lastActions: TableAction[] | undefined = undefined
 	$: actions && refreshActions(actions)
 
+	let inputs = {}
+
 	function actionRenderer(params) {
 		const { rowIndex, data: row } = params
 		if (rowIndex === -1) {
@@ -198,7 +216,28 @@
 				actions,
 				rowIndex,
 				row,
-				render
+				render,
+				onSet: (id, value) => {
+					if (!inputs[id]) {
+						inputs[id] = { [rowIndex]: value }
+					} else {
+						inputs[id] = { ...inputs[id], [rowIndex]: value }
+					}
+
+					outputs?.inputs.set(inputs, true)
+				},
+				onRemove: (id) => {
+					if (inputs?.[id] == undefined) {
+						return
+					}
+					delete inputs[id][rowIndex]
+					inputs[id] = { ...inputs[id] }
+					if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+						delete inputs[id]
+						inputs = { ...inputs }
+					}
+					outputs?.inputs.set(inputs, true)
+				}
 			},
 			context: new Map([['AppViewerContext', context]])
 		})
