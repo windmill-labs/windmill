@@ -193,7 +193,10 @@ export function getNextGridItemId(app: App): string {
 	const allIds = allItems(app.grid, app.subgrids).flatMap((x) => {
 		if (x.data.type === 'tablecomponent') {
 			return [x.id, ...x.data.actionButtons.map((x) => x.id)]
-		} else if (x.data.type === 'aggridcomponent' || x.data.type === 'aggridcomponentee') {
+		} else if (
+			(x.data.type === 'aggridcomponent' || x.data.type === 'aggridcomponentee') &&
+			Array.isArray(x.data.actions)
+		) {
 			return [x.id, ...x.data.actions.map((x) => x.id)]
 		} else if (x.data.type === 'menucomponent') {
 			return [x.id, ...x.data.menuItems.map((x) => x.id)]
@@ -438,7 +441,7 @@ export function copyComponent(
 					...item.data,
 					id,
 					actionButtons:
-						item.data.actions.map((x) => ({
+						(item.data.actions ?? []).map((x) => ({
 							...x,
 							id: x.id.replace(`${item.id}_`, `${id}_`)
 						})) ?? []
