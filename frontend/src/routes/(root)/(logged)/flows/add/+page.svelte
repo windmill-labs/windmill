@@ -121,6 +121,12 @@
 
 	let getSelectedId: (() => string) | undefined = undefined
 	let flowBuilder: FlowBuilder | undefined = undefined
+
+	let savedFlow:
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
+		| undefined = undefined
 </script>
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
@@ -141,15 +147,14 @@
 	bind:getSelectedId
 	bind:this={flowBuilder}
 	newFlow
+	bind:savedFlow
 	{flowStore}
 	{flowStateStore}
 	{selectedId}
 	{loading}
 >
 	<UnsavedConfirmationModal
-		savedValue={{}}
-		modifiedValue={{
-			...$flowStore
-		}}
+		savedValue={{ ...savedFlow, path: undefined }}
+		modifiedValue={$flowStore}
 	/></FlowBuilder
 >
