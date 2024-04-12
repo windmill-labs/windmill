@@ -137,12 +137,19 @@ export type AgChartsComponentEe = BaseComponent<'agchartscomponentee'> & {
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
+export type TableAction = BaseAppComponent &
+	(ButtonComponent | CheckboxComponent | SelectComponent) &
+	GridItem
+
 export type TableComponent = BaseComponent<'tablecomponent'> & {
-	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
+	actionButtons: TableAction[]
 }
-export type AggridComponent = BaseComponent<'aggridcomponent'>
+export type AggridComponent = BaseComponent<'aggridcomponent'> & {
+	actions: TableAction[]
+}
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
+	actions: TableAction[]
 }
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
@@ -348,6 +355,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	numberOfSubgrids?: number
 	recomputeIds?: boolean
 	actionButtons?: boolean
+	actions?: boolean
 	menuItems?: boolean
 	tabs?: string[]
 	panes?: number[]
@@ -674,6 +682,13 @@ const aggridcomponentconst = {
 				value: 'normal',
 				selectOptions: ['normal', 'compact', 'comfortable'],
 				tooltip: 'Change the row height'
+			},
+			wrapActions: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+				tooltip:
+					'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
 			}
 		},
 		componentInput: {
