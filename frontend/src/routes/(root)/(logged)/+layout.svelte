@@ -338,7 +338,7 @@
 						'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
 						isCollapsed ? 'md:w-12' : 'md:w-40',
 						devOnly ? '!hidden' : '',
-						'border-r'
+						'border-r border-opacity-50'
 					)}
 				>
 					<div
