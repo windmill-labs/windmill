@@ -151,29 +151,31 @@
 
 	let state: any = undefined
 
-	const actionsCache = new Map<
+	const cachedDivs = new Map<
 		number,
 		{
 			div: HTMLDivElement
 			svelteComponent: SvelteComponent
+			actions: TableAction[]
 		}
 	>()
 
-	let lastActions: TableAction[] | undefined = undefined
-
 	function refreshActions(actions: TableAction[]) {
-		lastActions = actions
+		if (!deepEqual(actions, lastActions)) {
+			lastActions = [...actions]
 
-		actionsCache.forEach((cachedDiv) => {
-			cachedDiv.svelteComponent.$destroy()
-			cachedDiv.div.remove()
-		})
+			cachedDivs.forEach((cachedDiv) => {
+				cachedDiv.svelteComponent.$destroy()
+				cachedDiv.div.remove()
+			})
 
-		actionsCache.clear()
+			cachedDivs.clear()
 
-		updateOptions()
+			updateOptions()
+		}
 	}
 
+	let lastActions: TableAction[] | undefined = undefined
 	$: actions && refreshActions(actions)
 
 	function actionRenderer(params) {
@@ -182,8 +184,8 @@
 			return null
 		}
 
-		if (actionsCache.has(rowIndex)) {
-			return actionsCache.get(rowIndex)?.div
+		if (cachedDivs.has(rowIndex)) {
+			return cachedDivs.get(rowIndex)?.div
 		}
 
 		const div = document.createElement('div')
@@ -201,12 +203,11 @@
 			context: new Map([['AppViewerContext', context]])
 		})
 
-		actionsCache.set(rowIndex, {
+		cachedDivs.set(rowIndex, {
 			div,
+			actions,
 			svelteComponent
 		})
-
-		console.log('CACHED DIVS', actionsCache.size)
 
 		return div
 	}
