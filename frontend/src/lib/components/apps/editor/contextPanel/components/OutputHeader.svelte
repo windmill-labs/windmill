@@ -119,7 +119,10 @@
 			}
 		}
 
-		if (data.type == 'aggridcomponent' || data.type == 'aggridcomponentee') {
+		if (
+			(data.type == 'aggridcomponent' || data.type == 'aggridcomponentee') &&
+			Array.isArray(data.actions)
+		) {
 			for (let c of data.actions) {
 				renameComponent(from, to, c)
 			}
