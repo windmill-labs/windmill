@@ -40,7 +40,6 @@
 
 	async function handleChange(files: File[] | undefined) {
 		for (const file of files ?? []) {
-			console.log('Uploading file:', file)
 			uploadFileToS3(file, file.name)
 		}
 	}
@@ -74,8 +73,6 @@
 			path: path,
 			file: fileToUpload
 		}
-
-		console.log('uploadData:', uploadData)
 
 		$fileUploads = [...$fileUploads, uploadData]
 
