@@ -184,7 +184,10 @@
 					if (c.type === 'tablecomponent') {
 						r.push(...c.actionButtons.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
-					if (c.type === 'aggridcomponent' || c.type === 'aggridcomponentee') {
+					if (
+						(c.type === 'aggridcomponent' || c.type === 'aggridcomponentee') &&
+						Array.isArray(c.actions)
+					) {
 						r.push(...c.actions.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
 					if (c.type === 'menucomponent') {

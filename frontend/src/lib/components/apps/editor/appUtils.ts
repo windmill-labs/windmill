@@ -170,7 +170,10 @@ export function allsubIds(app: App, parentId: string): string[] {
 			if (item.data.type === 'tablecomponent') {
 				subIds.push(...item.data.actionButtons?.map((x) => x.id))
 			}
-			if (item.data.type === 'aggridcomponent' || item.data.type === 'aggridcomponentee') {
+			if (
+				item.data.type === 'aggridcomponent' ||
+				(item.data.type === 'aggridcomponentee' && Array.isArray(item.data.actions))
+			) {
 				subIds.push(...item.data.actions?.map((x) => x.id))
 			}
 			if (item.data.type === 'menucomponent') {
