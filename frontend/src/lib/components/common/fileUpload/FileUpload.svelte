@@ -149,7 +149,7 @@
 						}
 					}
 
-					activeUploads = activeUploads.filter((x) => x.xhr !== xhr)
+					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 				})
 				xhr?.open(
 					'POST',
