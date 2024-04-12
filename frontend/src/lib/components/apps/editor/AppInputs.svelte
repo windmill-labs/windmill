@@ -29,6 +29,15 @@
 					{/each}
 				</div>
 			</div>
+		{:else if gridItem?.data?.type === 'aggridcomponent' || gridItem?.data?.type === 'aggridcomponentee'}
+			<div>
+				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
+				<div class="ml-4 mt-4">
+					{#each gridItem.data.actions as actionButton (actionButton.id)}
+						<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
+					{/each}
+				</div>
+			</div>
 		{:else}
 			<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 		{/if}

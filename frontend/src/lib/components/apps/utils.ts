@@ -291,6 +291,16 @@ export function getAllScriptNames(app: App): string[] {
 			})
 		}
 
+		if (gridItem.data.type === 'aggridcomponent' || gridItem.data.type === 'aggridcomponentee') {
+			gridItem.data.actions.forEach((actionButton) => {
+				if (actionButton.componentInput?.type === 'runnable') {
+					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+						acc.push(actionButton.componentInput.runnable.name)
+					}
+				}
+			})
+		}
+
 		if (gridItem.data.type === 'menucomponent') {
 			gridItem.data.menuItems.forEach((menuItem) => {
 				if (menuItem.componentInput?.type === 'runnable') {

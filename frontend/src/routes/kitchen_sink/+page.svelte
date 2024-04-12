@@ -25,6 +25,8 @@
 			<div class="font-bold text-md">Contained buttons</div>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
 				<Button>Lorem</Button>
+				<Button disabled>Lorem</Button>
+
 				<Button color="dark" loading>Lorem</Button>
 				<Button
 					color="gray"
