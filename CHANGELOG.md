@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.306.1](https://github.com/windmill-labs/windmill/compare/v1.306.0...v1.306.1) (2024-04-12)
+
+
+### Bug Fixes
+
+* **frontend:** Correctly handle undefined actions ([#3546](https://github.com/windmill-labs/windmill/issues/3546)) ([a687d56](https://github.com/windmill-labs/windmill/commit/a687d56d45b637b615ea1b6727a34086bd545eb4))
+
 ## [1.306.0](https://github.com/windmill-labs/windmill/compare/v1.305.3...v1.306.0) (2024-04-12)
 
 
