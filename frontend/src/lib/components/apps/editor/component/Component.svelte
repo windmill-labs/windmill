@@ -351,7 +351,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				customCss={component.customCss}
-				actions={component.actions}
+				actions={component.actions ?? []}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponentee'}
@@ -362,7 +362,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				customCss={component.customCss}
-				actions={component.actions}
+				actions={component.actions ?? []}
 				{render}
 			/>
 		{:else if component.type === 'textcomponent'}

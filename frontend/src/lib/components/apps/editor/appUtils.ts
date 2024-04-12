@@ -74,7 +74,7 @@ export function dfs(
 			return [item.id, id]
 		} else if (
 			(item.data.type == 'aggridcomponent' || item.data.type == 'aggridcomponentee') &&
-			item.data.actions.find((x) => id == x.id)
+			item.data.actions?.find((x) => id == x.id)
 		) {
 			return [item.id, id]
 		} else {
