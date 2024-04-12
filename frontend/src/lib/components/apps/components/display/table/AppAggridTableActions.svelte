@@ -52,11 +52,7 @@
 					}
 				}}
 				on:pointerdown|stopPropagation={() => {
-					if ($selectedComponent?.includes(action.id)) {
-						$selectedComponent = []
-					} else {
-						$selectedComponent = [action.id]
-					}
+					$selectedComponent = [action.id]
 				}}
 				class={twMerge(
 					($selectedComponent?.includes(action.id) || $hoverStore === action.id) &&
