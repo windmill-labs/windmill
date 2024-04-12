@@ -91,7 +91,7 @@
 		}
 
 		if (item?.data.type == 'aggridcomponent' || item?.data.type == 'aggridcomponentee') {
-			for (let c of item.data.actions) {
+			for (let c of item.data.actions ?? []) {
 				let old = c.id
 				c.id = c.id.replace(id + '_', newId + '_')
 				propagateRename(old, c.id)

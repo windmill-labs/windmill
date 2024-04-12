@@ -490,7 +490,7 @@ export function getAllSubgridsAndComponentIds(
 	}
 
 	if (component.type === 'aggridcomponent' || component.type === 'aggridcomponentee') {
-		components.push(...component.actions?.map((x) => x.id))
+		components.push(...(component.actions?.map((x) => x.id) ?? []))
 	}
 
 	if (component.type === 'menucomponent') {
