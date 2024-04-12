@@ -82,18 +82,30 @@
 	let beforeIconComponent: any
 	let afterIconComponent: any
 
-	$: resolvedConfig.beforeIcon && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && handleAfterIcon()
+	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
+	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
-			beforeIconComponent = await loadIcon(resolvedConfig.beforeIcon)
+			beforeIconComponent = await loadIcon(
+				resolvedConfig.beforeIcon,
+				beforeIconComponent,
+				14,
+				undefined,
+				undefined
+			)
 		}
 	}
 
 	async function handleAfterIcon() {
 		if (resolvedConfig.afterIcon) {
-			afterIconComponent = await loadIcon(resolvedConfig.afterIcon)
+			afterIconComponent = await loadIcon(
+				resolvedConfig.afterIcon,
+				afterIconComponent,
+				14,
+				undefined,
+				undefined
+			)
 		}
 	}
 </script>
@@ -141,14 +153,20 @@
 		<AlignWrapper {render} {verticalAlignment}>
 			<div class="relative w-full">
 				<div class="absolute top-1/2 -translate-y-1/2 left-2">
-					{#if resolvedConfig.beforeIcon && beforeIconComponent}
-						<svelte:component this={beforeIconComponent} size={14} />
+					{#if resolvedConfig.beforeIcon}
+						{#key resolvedConfig.beforeIcon}
+							<div class="min-w-4" bind:this={beforeIconComponent} />
+						{/key}
 					{/if}
 				</div>
 
 				{#if inputType === 'password'}
 					<input
-						class={twMerge(classInput, beforeIconComponent && 'pl-8', afterIconComponent && 'pr-8')}
+						class={twMerge(
+							classInput,
+							resolvedConfig.beforeIcon ? '!pl-8' : '',
+							resolvedConfig.afterIcon ? '!pr-8' : ''
+						)}
 						style={css?.input?.style ?? ''}
 						on:pointerdown|stopPropagation={(e) =>
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -160,7 +178,11 @@
 					/>
 				{:else if inputType === 'text'}
 					<input
-						class={twMerge(classInput, beforeIconComponent && 'pl-8', afterIconComponent && 'pr-8')}
+						class={twMerge(
+							classInput,
+							resolvedConfig.beforeIcon ? '!pl-8' : '',
+							resolvedConfig.afterIcon ? '!pr-8' : ''
+						)}
 						style={css?.input?.style ?? ''}
 						on:pointerdown|stopPropagation={(e) =>
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -172,7 +194,11 @@
 					/>
 				{:else if inputType === 'email'}
 					<input
-						class={twMerge(classInput, beforeIconComponent && 'pl-8', afterIconComponent && 'pr-8')}
+						class={twMerge(
+							classInput,
+							resolvedConfig.beforeIcon != undefined ? '!pl-8' : '',
+							resolvedConfig.afterIcon ? '!pr-8' : ''
+						)}
 						style={css?.input?.style ?? ''}
 						on:pointerdown|stopPropagation={(e) =>
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
@@ -185,8 +211,10 @@
 				{/if}
 
 				<div class="absolute top-1/2 -translate-y-1/2 right-2">
-					{#if resolvedConfig.afterIcon && afterIconComponent}
-						<svelte:component this={afterIconComponent} size={14} />
+					{#if resolvedConfig.afterIcon}
+						{#key resolvedConfig.afterIcon}
+							<div class="min-w-4" bind:this={afterIconComponent} />
+						{/key}
 					{/if}
 				</div>
 			</div>
