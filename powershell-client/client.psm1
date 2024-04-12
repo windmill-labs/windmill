@@ -175,6 +175,14 @@ function Get-WindmillJob {
     return $global:WindmillConnection.GetJob($JobId)
 }
 
+function New-WindmillToken([TimeSpan] $Duration = (New-TimeSpan -Days 1)) {
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.CreateToken([DateTime]::Now.Add($Duration))
+}
+
 class Windmill {
     [string] $BaseUrl
     [string] $Token
@@ -400,5 +408,16 @@ class Windmill {
     [PSCustomObject] GetJob([string] $JobId) {
         $response = $this.Get("/w/$($this.Workspace)/jobs_u/get/$JobId", $true)
         return $response.Content | ConvertFrom-Json
+    }
+
+    [string] CreateToken([datetime] $Expiration) {
+        $endpoint = "users/tokens/create"
+        $refresh = Get-Date (Get-Date).ToUniversalTime() -UFormat %s
+        $payload = @{
+            "label" = "refresh $refresh"
+            "expiration" = $Expiration.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        }
+
+        return $this.Post($endpoint, $payload, $true).Content
     }
 }
