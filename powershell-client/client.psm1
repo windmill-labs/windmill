@@ -196,6 +196,18 @@ function New-WindmillToken([TimeSpan] $Duration = (New-TimeSpan -Days 1)) {
     return $global:WindmillConnection.CreateToken([DateTime]::Now.Add($Duration))
 }
 
+function Get-WindmillIdToken {
+    param(
+        [string] $Audience
+    )
+
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.GetIdToken($Audience)
+}
+
 class Windmill {
     [string] $BaseUrl
     [string] $Token
@@ -240,7 +252,7 @@ class Windmill {
         return $url
     }
 
-    [Object] Get([string] $Endpoint, [boolean] $RaiseForStatus) {
+    [Microsoft.PowerShell.Commands.BasicHtmlWebResponseObject] Get([string] $Endpoint, [boolean] $RaiseForStatus) {
         $Url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
         $Response = Invoke-WebRequest -Uri $Url -Method "GET" -Headers $this.Headers -SkipHttpErrorCheck
         
@@ -251,7 +263,7 @@ class Windmill {
         return $Response
     }
 
-    [Object] Post([string] $Endpoint, [Object] $Data, [boolean] $RaiseForStatus) {
+    [Microsoft.PowerShell.Commands.BasicHtmlWebResponseObject] Post([string] $Endpoint, [Object] $Data, [boolean] $RaiseForStatus) {
         $Url = "$($this.BaseUrl)/$($Endpoint.TrimStart('/'))"
         $Response = Invoke-WebRequest -Uri $Url -Method "POST" -Headers $this.Headers -Body ($Data | ConvertTo-Json) -SkipHttpErrorCheck -ContentType "application/json"
         if ($RaiseForStatus -and -not $Response.BaseResponse.IsSuccessStatusCode) {
@@ -432,5 +444,9 @@ class Windmill {
         }
 
         return $this.Post($endpoint, $payload, $true).Content
+    }
+
+    [string] GetIdToken([string] $Audience) {
+        return $this.Post("/w/$($this.Workspace)/oidc/token/$Audience").Content
     }
 }
