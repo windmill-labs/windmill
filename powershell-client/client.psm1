@@ -175,6 +175,19 @@ function Get-WindmillJob {
     return $global:WindmillConnection.GetJob($JobId)
 }
 
+function Stop-WindmillJob {
+    param(
+        [string] $JobId,
+        [string] $Reason = ""
+    )
+
+    if (-not $global:WindmillConnection) {
+        throw "Windmill connection not established. Run Connect-Windmill first."
+    }
+
+    return $global:WindmillConnection.CancelJob($JobId, $Reason)
+}
+
 function New-WindmillToken([TimeSpan] $Duration = (New-TimeSpan -Days 1)) {
     if (-not $global:WindmillConnection) {
         throw "Windmill connection not established. Run Connect-Windmill first."
