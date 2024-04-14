@@ -200,10 +200,13 @@
 	on:details={(e) => {
 		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
 	}}
+	on:saveDraftOnlyAtNewPath={(e) => {
+		const { path, selectedId } = e.detail
+		goto(`/flows/edit/${path}?selected=${selectedId}`)
+	}}
 	{flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}
-	gotoEdit={(path, selectedId) => goto(`/flows/edit/${path}?selected=${selectedId}`)}
 	newFlow={false}
 	{selectedId}
 	{initialArgs}
