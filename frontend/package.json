@@ -266,6 +266,10 @@
 			"types": "./package/stores.d.ts",
 			"default": "./package/stores.js"
 		},
+		"./gen": {
+			"types": "./package/gen/index.d.ts",
+			"default": "./package/gen/index.js"
+		},
 		"./components/flows/flowStore": {
 			"types": "./package/components/flows/flowStore.d.ts",
 			"default": "./package/components/flows/flowStore.js"
@@ -376,6 +380,9 @@
 			],
 			"stores": [
 				"./package/stores.d.ts"
+			],
+			"gen": [
+				"./package/gen/index.d.ts"
 			],
 			"components/flows/flowStore": [
 				"./package/components/flows/flowStore.d.ts"
