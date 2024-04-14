@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.306.4](https://github.com/windmill-labs/windmill/compare/v1.306.3...v1.306.4) (2024-04-14)
+
+
+### Bug Fixes
+
+* improve unsaved confirmation modal on flow draft ([fb00e3b](https://github.com/windmill-labs/windmill/commit/fb00e3b0afbb728f428c918da5d44385549a1a0f))
+
 ## [1.306.3](https://github.com/windmill-labs/windmill/compare/v1.306.2...v1.306.3) (2024-04-12)
 
 
