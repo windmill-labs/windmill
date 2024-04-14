@@ -352,7 +352,7 @@ function Get-WindmillJob {
 
 <#
 .SYNOPSIS
-Returns the result of a
+Returns the result of a specified job
 #>
 function Get-WindmillResult {
     param(
