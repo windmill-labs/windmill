@@ -2,7 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import circleDependency from 'vite-plugin-circular-dependency'
-// import importMetaUrlPlugin from '@codingame/esbuild-import-meta-url-plugin'
+import importMetaUrlPlugin from '@codingame/esbuild-import-meta-url-plugin'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
@@ -38,7 +38,10 @@ const config = {
 		__pkg__: version
 	},
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core']
+		include: ['highlight.js', 'highlight.js/lib/core'],
+		esbuildOptions: {
+			plugins: [importMetaUrlPlugin]
+		}
 	},
 	resolve: {
 		alias: {
