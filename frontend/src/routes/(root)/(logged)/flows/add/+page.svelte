@@ -153,8 +153,5 @@
 	{selectedId}
 	{loading}
 >
-	<UnsavedConfirmationModal
-		savedValue={{ ...savedFlow, path: undefined }}
-		modifiedValue={$flowStore}
-	/></FlowBuilder
+	<UnsavedConfirmationModal savedValue={savedFlow} modifiedValue={$flowStore} /></FlowBuilder
 >
