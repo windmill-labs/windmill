@@ -7,23 +7,27 @@
 
 	import * as vscode from 'vscode'
 
+	import { editor as meditor, languages, KeyCode, KeyMod, type IRange } from 'monaco-editor'
+
+	import '@codingame/monaco-vscode-theme-defaults-default-extension'
+	import '@codingame/monaco-vscode-json-default-extension'
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+	import '@codingame/monaco-vscode-standalone-css-language-features'
+	import '@codingame/monaco-vscode-standalone-html-language-features'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import '@codingame/monaco-vscode-typescript-basics-default-extension'
+	import '@codingame/monaco-vscode-typescript-language-features-default-extension'
+	import '@codingame/monaco-vscode-go-default-extension'
+	import '@codingame/monaco-vscode-javascript-default-extension'
+	import '@codingame/monaco-vscode-powershell-default-extension'
+	import '@codingame/monaco-vscode-python-default-extension'
+	import '@codingame/monaco-vscode-shellscript-default-extension'
+	import '@codingame/monaco-vscode-sql-default-extension'
 	import {
-		editor as meditor,
-		languages,
-		KeyCode,
-		KeyMod,
-		Uri as mUri,
-		type IRange
-	} from 'monaco-editor'
-	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
+		RegisteredFileSystemProvider,
+		registerFileSystemOverlay,
+		RegisteredMemoryFile
+	} from '@codingame/monaco-vscode-files-service-override'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
@@ -50,7 +54,6 @@
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
-	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
 	import { Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
@@ -69,6 +72,7 @@
 	} from '$lib/consts'
 	import { setupTypeAcquisition } from '$lib/ata/index'
 	import { initWasm, parseDeps } from '$lib/infer'
+	import { configureMonacoWorkers } from './build_workers'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -143,7 +147,7 @@
 
 	console.log('uri', uri)
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	configureMonacoWorkers()
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -765,7 +769,7 @@
 				if (scriptLang == 'bun' && ata == undefined) {
 					const addLibraryToRuntime = async (code: string, _path: string) => {
 						const path = 'file://' + _path
-						let uri = mUri.parse(path)
+						let uri = vscode.Uri.parse(path)
 						console.log('adding library to runtime', path)
 						languages.typescript.typescriptDefaults.addExtraLib(code, path)
 						try {
@@ -780,7 +784,7 @@
 						// if (_path?.startsWith('/')) {
 						// 	p = 'file://' + p
 						// }
-						let nuri = mUri.parse(p)
+						let nuri = vscode.Uri.parse(p)
 						console.log('adding local file', _path, nuri.toString())
 						if (editor) {
 							let localModel = meditor.getModel(nuri)
@@ -1023,6 +1027,12 @@
 			console.log('error initializing services', e)
 		}
 
+		// register the JSON language with Monaco
+		languages.register({
+			id: 'typescript',
+			extensions: ['.ts']
+		})
+
 		// console.log('bef ready')
 		// console.log('af ready')
 
@@ -1118,11 +1128,17 @@
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 
+		const fileSystemProvider = new RegisteredFileSystemProvider(false)
+		fileSystemProvider.registerFile(
+			new RegisteredMemoryFile(vscode.Uri.file('/workspace/hello.py'), code)
+		)
+		registerFileSystemOverlay(1, fileSystemProvider)
+
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code, lang, vscode.Uri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
-			const nmodel = meditor.getModel(mUri.parse(uri))
+			const nmodel = meditor.getModel(vscode.Uri.parse(uri))
 			if (!nmodel) {
 				throw err
 			}

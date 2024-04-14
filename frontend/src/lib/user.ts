@@ -13,7 +13,7 @@ export async function getUserExt(workspace: string): Promise<UserExt | undefined
 function mapUserToUserExt(user: User): UserExt {
 	return {
 		...user,
-		groups: user.groups!,
+		groups: user.groups ?? [],
 		pgroups: user.groups!.map((x) => `g/${x}`)
 	}
 }

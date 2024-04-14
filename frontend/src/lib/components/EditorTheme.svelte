@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+	import { editor as meditor } from 'monaco-editor'
 
 	import { onMount } from 'svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'

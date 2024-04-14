@@ -2,6 +2,7 @@ import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import circleDependency from 'vite-plugin-circular-dependency'
+// import importMetaUrlPlugin from '@codingame/esbuild-import-meta-url-plugin'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
 const json = readFileSync(file, 'utf8')
@@ -43,7 +44,7 @@ const config = {
 		alias: {
 			path: 'path-browserify'
 		},
-		dedupe: ['monaco-editor', 'vscode']
+		dedupe: ['vscode']
 	},
 	assetsInclude: ['**/*.wasm']
 }

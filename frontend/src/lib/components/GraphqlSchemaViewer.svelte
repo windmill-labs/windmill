@@ -2,7 +2,6 @@
 	import { BROWSER } from 'esm-env'
 
 	import { editor as meditor } from 'monaco-editor'
-	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 
 	import { onDestroy, onMount } from 'svelte'
 

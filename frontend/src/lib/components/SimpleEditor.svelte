@@ -15,12 +15,21 @@
 		languages,
 		type IRange
 	} from 'monaco-editor'
-	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
-	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
+
+	import '@codingame/monaco-vscode-theme-defaults-default-extension'
+	import '@codingame/monaco-vscode-json-default-extension'
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+	import '@codingame/monaco-vscode-standalone-css-language-features'
+	import '@codingame/monaco-vscode-standalone-html-language-features'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import '@codingame/monaco-vscode-typescript-basics-default-extension'
+	import '@codingame/monaco-vscode-typescript-language-features-default-extension'
+	import '@codingame/monaco-vscode-go-default-extension'
+	import '@codingame/monaco-vscode-javascript-default-extension'
+	import '@codingame/monaco-vscode-powershell-default-extension'
+	import '@codingame/monaco-vscode-python-default-extension'
+	import '@codingame/monaco-vscode-shellscript-default-extension'
+	import '@codingame/monaco-vscode-sql-default-extension'
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
@@ -28,11 +37,11 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { tailwindClasses } from './apps/editor/componentsPanel/tailwindUtils'
 	import { writable } from 'svelte/store'
+	import { configureMonacoWorkers } from './build_workers'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -59,7 +68,7 @@
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	configureMonacoWorkers()
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''

@@ -13,12 +13,15 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
-	import { buildWorkerDefinition } from './build_workers'
-	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import '@codingame/monaco-vscode-typescript-basics-default-extension'
+	import '@codingame/monaco-vscode-typescript-language-features-default-extension'
+	import '@codingame/monaco-vscode-javascript-default-extension'
+
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
+	import { configureMonacoWorkers } from './build_workers'
 
 	export const conf = {
 		wordPattern:
@@ -384,7 +387,7 @@
 
 	const uri = `file:///${hash}.ts`
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	configureMonacoWorkers()
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {
