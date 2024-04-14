@@ -651,7 +651,6 @@
 																<AppSelect
 																	noDefault
 																	noInitialize
-																	--font-size="10px"
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	id={actionButton.id}

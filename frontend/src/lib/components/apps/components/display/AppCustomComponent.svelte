@@ -62,18 +62,21 @@
 			//@ts-ignore
 			await import(
 				/* @vite-ignore */
+				/* webpackIgnore: true */
 				`https://unpkg.com/react@${reactVersion}/umd/react.production.min.js`
 			)
 
 			//@ts-ignore
 			await import(
 				/* @vite-ignore */
+				/* webpackIgnore: true */
 				`https://unpkg.com/react-dom@${reactVersion}/umd/react-dom.production.min.js`
 			)
 		}
 		//@ts-ignore
 		await import(
 			/* @vite-ignore */
+			/* webpackIgnore: true */
 			`/api/w/${workspace ?? 'NO_W'}/resources_u/custom_component/${customComponent.name}`
 		)
 		loaded = true

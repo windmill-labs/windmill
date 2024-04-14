@@ -113,7 +113,7 @@
 
 	function isSortable(key: string) {
 		return (
-			(objects?.[0] != undefined && typeof objects[0][key] === 'string') ||
+			(objects?.[0]?.[key] != undefined && typeof objects[0][key] === 'string') ||
 			typeof objects[0][key] === 'number' ||
 			typeof objects[0][key] === 'boolean'
 		)

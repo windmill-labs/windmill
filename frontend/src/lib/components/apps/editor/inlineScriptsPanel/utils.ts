@@ -66,6 +66,20 @@ function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppS
 			})
 		}
 
+		if (component.type === 'aggridcomponent' || component.type === 'aggridcomponentee') {
+			component.actions?.forEach((actionButton) => {
+				if (actionButton.componentInput?.type !== 'runnable') {
+					return
+				}
+				processRunnable(
+					actionButton.componentInput.runnable,
+					actionButton.componentInput.transformer,
+					actionButton.id,
+					list
+				)
+			})
+		}
+
 		if (component.type === 'menucomponent') {
 			component.menuItems?.forEach((menuItem) => {
 				if (menuItem.componentInput?.type !== 'runnable') {

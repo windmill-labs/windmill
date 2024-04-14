@@ -334,7 +334,7 @@ async fn create_flow(
         nf.draft_only,
         nf.tag,
         nf.dedicated_worker,
-        nf.visible_to_runner_only,
+        nf.visible_to_runner_only.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;
@@ -502,7 +502,7 @@ async fn update_flow(
         w_id,
         nf.tag,
         nf.dedicated_worker,
-        nf.visible_to_runner_only,
+        nf.visible_to_runner_only.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;
@@ -985,6 +985,7 @@ mod tests {
             cache_ttl: None,
             priority: None,
             early_return: None,
+            concurrency_key: None,
         };
         let expect = serde_json::json!({
           "modules": [

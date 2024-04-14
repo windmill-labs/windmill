@@ -710,6 +710,7 @@ export function roughSizeOfObject(object: object | string) {
 			objectList.push(value)
 
 			for (var i in value) {
+				bytes += 2 * i.length
 				stack.push(value[i])
 			}
 		}
@@ -743,7 +744,10 @@ export function cleanValueProperties(obj: Value) {
 
 export function orderedJsonStringify(obj: any, space?: string | number) {
 	const allKeys = new Set()
-	JSON.stringify(obj, (key, value) => (allKeys.add(key), value))
+	JSON.stringify(
+		obj,
+		(key, value) => (value != undefined && value != null && allKeys.add(key), value)
+	)
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }
 

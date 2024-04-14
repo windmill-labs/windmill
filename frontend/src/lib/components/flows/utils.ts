@@ -90,6 +90,9 @@ export function cleanInputs(flow: OpenFlow | any): OpenFlow & {
 			})
 		}
 	})
+	if (newFlow.value.concurrency_key == '') {
+		newFlow.value.concurrency_key = undefined
+	}
 
 	return newFlow
 }
