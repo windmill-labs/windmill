@@ -39,7 +39,6 @@
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import { CancelablePromise } from '$lib/gen'
-	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -175,6 +174,7 @@
 		selectedRow: {},
 		selectedRows: [] as any[],
 		result: [] as any[],
+		inputs: {},
 		loading: false,
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
@@ -544,17 +544,6 @@
 
 		args = {}
 	}
-
-	function refreshActions(actions: TableAction[]) {
-		if (!deepEqual(actions, lastActions)) {
-			lastActions = [...actions]
-
-			renderCount++
-		}
-	}
-
-	let lastActions: TableAction[] | undefined = undefined
-	$: actions && refreshActions(actions)
 
 	let runnableComponent: RunnableComponent
 	let state: any = undefined

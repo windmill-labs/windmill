@@ -33,6 +33,7 @@
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
 	export let actions: TableAction[] = []
+	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, selectedComponent, componentControl, darkMode } = context
@@ -127,6 +128,17 @@
 
 	$: eGui && mountGrid()
 
+	function refreshActions(actions: TableAction[]) {
+		if (!deepEqual(actions, lastActions)) {
+			lastActions = [...actions]
+
+			updateOptions()
+		}
+	}
+
+	let lastActions: TableAction[] | undefined = undefined
+	$: actions && refreshActions(actions)
+
 	const tableActionsFactory = cellRendererFactory((c, p) => {
 		const rowIndex = p.node.rowIndex ?? 0
 		const row = p.data
@@ -140,9 +152,7 @@
 				row,
 				render: true,
 				wrapActions: resolvedConfig.wrapActions,
-				onSet: (id, value) => {},
-				onRemove: (id) => {}
-				/*
+
 				onSet: (id, value) => {
 					if (!inputs[id]) {
 						inputs[id] = { [rowIndex]: value }
@@ -163,7 +173,7 @@
 						inputs = { ...inputs }
 					}
 					outputs?.inputs.set(inputs, true)
-				}*/
+				}
 			},
 			context: new Map([['AppViewerContext', context]])
 		})
@@ -217,6 +227,8 @@
 				autoHeight: true,
 				cellStyle: { textAlign: 'center' },
 				cellClass: 'grid-cell-centered',
+				lockPosition: 'right',
+
 				...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 			})
 		}
@@ -260,6 +272,13 @@
 					cacheBlockSize: 100,
 					cacheOverflowSize: 10,
 					maxBlocksInCache: 20,
+					...(resolvedConfig?.wrapActions
+						? {
+								rowHeight: Math.max(44, actions.length * 48)
+						  }
+						: {
+								rowHeight: 44
+						  }),
 					suppressColumnMoveAnimation: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 					rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
@@ -344,6 +363,13 @@
 				editable: resolvedConfig?.allEditable,
 				onCellValueChanged
 			},
+			...(resolvedConfig?.wrapActions
+				? {
+						rowHeight: Math.max(44, actions.length * 48)
+				  }
+				: {
+						rowHeight: 44
+				  }),
 			rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 			rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 				? resolvedConfig.rowMultiselectWithClick
