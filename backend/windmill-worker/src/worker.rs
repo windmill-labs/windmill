@@ -609,7 +609,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
-    tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
+    tracing::debug!(worker_dir = %worker_dir, "Creating worker dir");
 
     if let Some(ref netrc) = *NETRC {
         tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
@@ -1215,7 +1215,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!(worker = %worker_name, "listening for jobs, WORKER_GROUP: {}, config: {:?}", *WORKER_GROUP, WORKER_CONFIG.read().await);
+    tracing::info!("listening for jobs, WORKER_GROUP: {}, config: {:?}", *WORKER_GROUP, WORKER_CONFIG.read().await);
 
     // (dedi_path, dedicated_worker_tx, dedicated_worker_handle)
     // Option<Sender<Arc<QueuedJob>>>,
@@ -1388,14 +1388,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let db2 = db.clone();
             let worker_name2 = worker_name.clone();
             tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name2, "vacuuming queue and completed_job");
+                tracing::info!(worker_name = %worker_name2, "vacuuming queue and completed_job"); //TODO: Make span for this
                 if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
                     .execute(&db2)
                     .await
                 {
-                    tracing::error!(worker = %worker_name2, "failed to vacuum queue: {}", e);
+                    tracing::error!(worker_name = %worker_name2, "failed to vacuum queue: {}", e);
                 }
-                tracing::info!(worker = %worker_name2, "vacuumed queue and completed_job");
+                tracing::info!(worker_name = %worker_name2, "vacuumed queue and completed_job");
             });
             jobs_executed += 1;
         }
@@ -1500,7 +1500,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                tracing::debug!(worker = %worker_name, "started handling of job {}", job.id);
+                tracing::debug!("started handling of job {}", job.id);
 
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
                     if !dedicated_workers.is_empty() {
@@ -1612,10 +1612,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .unwrap_or_else(|| "none".to_string());
 
                     if job.id == Uuid::nil() {
-                        tracing::info!(worker = %worker_name, "running warmup job");
+                        tracing::info!("running warmup job");
                     } else {
-                        tracing::info!(worker = %worker_name, workspace_id = %job.workspace_id, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
-                    }
+                        tracing::info!(workspace_id = %job.workspace_id, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+                    } // Here we can't remove the job id, but maybe with the
+                    // fields macro we can make a job id that only appears when
+                    // the job is defined?
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
@@ -1740,7 +1742,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 if let Some(secs) = *EXIT_AFTER_NO_JOB_FOR_SECS {
                     if let Some(lj) = last_executed_job {
                         if lj.elapsed().as_secs() > secs {
-                            tracing::info!(worker = %worker_name, "no job for {} seconds, exiting", secs);
+                            tracing::info!("no job for {} seconds, exiting", secs);
                             break;
                         }
                     } else {
@@ -1769,7 +1771,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 });
             }
             Err(err) => {
-                tracing::error!(worker = %worker_name, "Failed to pull jobs: {}", err);
+                tracing::error!("Failed to pull jobs: {}", err);
             }
         };
     }
@@ -1798,7 +1800,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     send_result.await.expect("send result failed");
     tracing::info!("worker {} exited", worker_name);
-    println!("worker {} exited", worker_name);
 }
 
 type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, Option<JoinHandle<()>>);
