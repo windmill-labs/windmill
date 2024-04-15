@@ -196,7 +196,7 @@
 					<input
 						class={twMerge(
 							classInput,
-							resolvedConfig.beforeIcon != undefined ? '!pl-8' : '',
+							resolvedConfig.beforeIcon ? '!pl-8' : '',
 							resolvedConfig.afterIcon ? '!pr-8' : ''
 						)}
 						style={css?.input?.style ?? ''}
