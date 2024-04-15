@@ -44,7 +44,8 @@
 		}
 	}
 
-	let xhr: XMLHttpRequest | undefined = undefined
+	let activeUploads: { xhr: XMLHttpRequest; fileName: string }[] = []
+
 	async function uploadFileToS3(fileToUpload: File, fileToUploadKey: string) {
 		if (fileToUpload === undefined || fileToUploadKey === undefined) {
 			return
@@ -72,6 +73,7 @@
 			path: path,
 			file: fileToUpload
 		}
+
 		$fileUploads = [...$fileUploads, uploadData]
 
 		// // Use a custom TransformStream to track upload progress
@@ -119,7 +121,9 @@
 			// 	}
 			// )
 
-			xhr = new XMLHttpRequest()
+			let xhr = new XMLHttpRequest()
+			activeUploads.push({ xhr, fileName: fileToUpload.name })
+
 			const response = (await new Promise((resolve, reject) => {
 				xhr?.upload.addEventListener('progress', (event) => {
 					if (event.lengthComputable) {
@@ -144,7 +148,8 @@
 							reject(response)
 						}
 					}
-					xhr = undefined
+
+					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 				})
 				xhr?.open(
 					'POST',
@@ -190,11 +195,21 @@
 		sendUserToast('File deleted!')
 	}
 
-	onDestroy(() => {
-		if (xhr) {
-			xhr?.abort
-			xhr = undefined
+	function clearRequests() {
+		activeUploads.forEach(({ xhr }) => xhr.abort())
+		activeUploads = []
+	}
+
+	function abortUpload(fileName: string) {
+		const upload = activeUploads.find((x) => x.fileName === fileName)
+		if (upload) {
+			upload.xhr.abort()
+			activeUploads = activeUploads.filter((x) => x.fileName !== fileName)
 		}
+	}
+
+	onDestroy(() => {
+		clearRequests()
 	})
 </script>
 
@@ -232,10 +247,7 @@
 												return
 											}
 
-											if (xhr) {
-												xhr.abort()
-												xhr = undefined
-											}
+											abortUpload(fileUpload.name)
 
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
@@ -260,10 +272,7 @@
 												return
 											}
 
-											if (xhr) {
-												xhr.abort()
-												xhr = undefined
-											}
+											clearRequests()
 
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
@@ -306,10 +315,7 @@
 											if (fileUpload.path) {
 												deleteFile(fileUpload.path)
 											}
-											if (xhr) {
-												xhr.abort()
-												xhr = undefined
-											}
+											abortUpload(fileUpload.name)
 										}}
 										startIcon={{
 											icon: Trash

@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.306.4](https://github.com/windmill-labs/windmill/compare/v1.306.3...v1.306.4) (2024-04-14)
+
+
+### Bug Fixes
+
+* improve unsaved confirmation modal on flow draft ([fb00e3b](https://github.com/windmill-labs/windmill/commit/fb00e3b0afbb728f428c918da5d44385549a1a0f))
+
+## [1.306.3](https://github.com/windmill-labs/windmill/compare/v1.306.2...v1.306.3) (2024-04-12)
+
+
+### Bug Fixes
+
+* fix actions buttons error ([7163564](https://github.com/windmill-labs/windmill/commit/71635646e8c0e2c5b9f61e14de1f61dbbbe9d243))
+
+## [1.306.2](https://github.com/windmill-labs/windmill/compare/v1.306.1...v1.306.2) (2024-04-12)
+
+
+### Bug Fixes
+
+* fix actions buttons error ([6ea5965](https://github.com/windmill-labs/windmill/commit/6ea59658196339600e39776c690d6924e355f471))
+
+## [1.306.1](https://github.com/windmill-labs/windmill/compare/v1.306.0...v1.306.1) (2024-04-12)
+
+
+### Bug Fixes
+
+* **frontend:** Correctly handle undefined actions ([#3546](https://github.com/windmill-labs/windmill/issues/3546)) ([a687d56](https://github.com/windmill-labs/windmill/commit/a687d56d45b637b615ea1b6727a34086bd545eb4))
+
+## [1.306.0](https://github.com/windmill-labs/windmill/compare/v1.305.3...v1.306.0) (2024-04-12)
+
+
+### Features
+
+* **frontend:** add maplock + properly display marker title ([#3544](https://github.com/windmill-labs/windmill/issues/3544)) ([e9e6614](https://github.com/windmill-labs/windmill/commit/e9e66144860f2a390b58db1f5c0e2d09b46a777f))
+* **frontend:** Ag grid actions ([#3535](https://github.com/windmill-labs/windmill/issues/3535)) ([48ad095](https://github.com/windmill-labs/windmill/commit/48ad095633f3e83f16eccc15b1de534c4804d807))
+
+
+### Bug Fixes
+
+* **frontend:** Correctly handle undefined actions ([#3545](https://github.com/windmill-labs/windmill/issues/3545)) ([7eca53f](https://github.com/windmill-labs/windmill/commit/7eca53f9e7f0640bd43fc37abbe6eb624d77430d))
+* **frontend:** Fix AgGrid action selection ([#3543](https://github.com/windmill-labs/windmill/issues/3543)) ([0672362](https://github.com/windmill-labs/windmill/commit/06723629caed3e152a9161ec3f1fee10710b4971))
+* **frontend:** Fix s3 uploader ([#3539](https://github.com/windmill-labs/windmill/issues/3539)) ([0afd68d](https://github.com/windmill-labs/windmill/commit/0afd68d474b65ce1d1026bdabb081d775e0dcaa3))
+
+## [1.305.3](https://github.com/windmill-labs/windmill/compare/v1.305.2...v1.305.3) (2024-04-12)
+
+
+### Bug Fixes
+
+* improve app icon renderer and app html renderer ([ee56821](https://github.com/windmill-labs/windmill/commit/ee56821a4734fa56097ae1ec7e032b6d14c0ee80))
+
 ## [1.305.2](https://github.com/windmill-labs/windmill/compare/v1.305.1...v1.305.2) (2024-04-11)
 
 

@@ -4,7 +4,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
 
-	import type { components } from '$lib/components/apps/editor/component'
+	import type { TableAction, components } from '$lib/components/apps/editor/component'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -19,6 +19,7 @@
 	import { cellRendererFactory } from './utils'
 	import { Trash2 } from 'lucide-svelte'
 	import type { ColumnDef } from '../dbtable/utils'
+	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -31,9 +32,11 @@
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
+	export let actions: TableAction[] = []
+	let inputs = {}
 
-	const { app, selectedComponent, componentControl, darkMode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const context = getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent, componentControl, darkMode } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
 
@@ -125,6 +128,57 @@
 
 	$: eGui && mountGrid()
 
+	function refreshActions(actions: TableAction[]) {
+		if (!deepEqual(actions, lastActions)) {
+			lastActions = [...actions]
+
+			updateOptions()
+		}
+	}
+
+	let lastActions: TableAction[] | undefined = undefined
+	$: actions && refreshActions(actions)
+
+	const tableActionsFactory = cellRendererFactory((c, p) => {
+		const rowIndex = p.node.rowIndex ?? 0
+		const row = p.data
+
+		new AppAggridTableActions({
+			target: c.eGui,
+			props: {
+				id: id,
+				actions,
+				rowIndex,
+				row,
+				render: true,
+				wrapActions: resolvedConfig.wrapActions,
+
+				onSet: (id, value) => {
+					if (!inputs[id]) {
+						inputs[id] = { [rowIndex]: value }
+					} else {
+						inputs[id] = { ...inputs[id], [rowIndex]: value }
+					}
+
+					outputs?.inputs.set(inputs, true)
+				},
+				onRemove: (id) => {
+					if (inputs?.[id] == undefined) {
+						return
+					}
+					delete inputs[id][rowIndex]
+					inputs[id] = { ...inputs[id] }
+					if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+						delete inputs[id]
+						inputs = { ...inputs }
+					}
+					outputs?.inputs.set(inputs, true)
+				}
+			},
+			context: new Map([['AppViewerContext', context]])
+		})
+	})
+
 	function transformColumnDefs(columnDefs: any[]) {
 		const { isValid, errors } = validateColumnDefs(columnDefs)
 
@@ -134,6 +188,7 @@
 		}
 
 		let r = columnDefs?.filter((x) => x && !x.ignored) ?? []
+
 		if (allowDelete) {
 			r.push({
 				field: 'delete',
@@ -162,6 +217,19 @@
 				editable: false,
 				flex: 0,
 				width: 100
+			})
+		}
+
+		if (actions && actions.length > 0) {
+			r.push({
+				headerName: 'Actions',
+				cellRenderer: tableActionsFactory,
+				autoHeight: true,
+				cellStyle: { textAlign: 'center' },
+				cellClass: 'grid-cell-centered',
+				lockPosition: 'right',
+
+				...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 			})
 		}
 		return r
@@ -204,6 +272,13 @@
 					cacheBlockSize: 100,
 					cacheOverflowSize: 10,
 					maxBlocksInCache: 20,
+					...(resolvedConfig?.wrapActions
+						? {
+								rowHeight: Math.max(44, actions.length * 48)
+						  }
+						: {
+								rowHeight: 44
+						  }),
 					suppressColumnMoveAnimation: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 					rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
@@ -288,6 +363,13 @@
 				editable: resolvedConfig?.allEditable,
 				onCellValueChanged
 			},
+			...(resolvedConfig?.wrapActions
+				? {
+						rowHeight: Math.max(44, actions.length * 48)
+				  }
+				: {
+						rowHeight: 44
+				  }),
 			rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 			rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 				? resolvedConfig.rowMultiselectWithClick

@@ -13,4 +13,11 @@
 			{/each}
 		</div>
 	{/if}
+	{#if (gridItem.data.type === 'aggridcomponent' || gridItem.data.type === 'aggridcomponentee' || gridItem.data.type === 'dbexplorercomponent') && gridItem.data.actions?.length > 0}
+		<div class="ml-2 border-l">
+			{#each gridItem.data.actions as action, index}
+				<Output id={action.id} first={index === 0} label="Table action" />
+			{/each}
+		</div>
+	{/if}
 </div>

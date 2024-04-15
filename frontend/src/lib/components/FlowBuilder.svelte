@@ -83,7 +83,7 @@
 		  })
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let gotoEdit: (path: string, selected: string) => void
+	export let gotoEdit: ((path: string, selected: string) => void) | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -195,7 +195,7 @@
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				initialPath = $pathStore
 				// this is so we can use the flow builder outside of sveltekit
-				gotoEdit($pathStore, getSelectedId())
+				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {

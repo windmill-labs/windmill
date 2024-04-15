@@ -90,6 +90,18 @@
 			}
 		}
 
+		if (
+			item?.data.type == 'aggridcomponent' ||
+			item?.data.type == 'aggridcomponentee' ||
+			item?.data.type == 'dbexplorercomponent'
+		) {
+			for (let c of item.data.actions ?? []) {
+				let old = c.id
+				c.id = c.id.replace(id + '_', newId + '_')
+				propagateRename(old, c.id)
+			}
+		}
+
 		if (item?.data.type === 'menucomponent') {
 			for (let c of item.data.menuItems) {
 				let old = c.id
@@ -107,6 +119,17 @@
 	function renameComponent(from: string, to: string, data: AppComponent) {
 		if (data.type == 'tablecomponent') {
 			for (let c of data.actionButtons) {
+				renameComponent(from, to, c)
+			}
+		}
+
+		if (
+			(data.type == 'aggridcomponent' ||
+				data.type == 'aggridcomponentee' ||
+				data.type == 'dbexplorercomponent') &&
+			Array.isArray(data.actions)
+		) {
+			for (let c of data.actions) {
 				renameComponent(from, to, c)
 			}
 		}

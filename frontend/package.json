@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.305.2",
+	"version": "1.306.4",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -40,10 +40,8 @@
 		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte": "^2.33.1",
-		"ol": "^7.4.0",
 		"openapi-typescript-codegen": "^0.25.0",
 		"path-browserify": "^1.0.1",
-		"pdfjs-dist": "^3.8.162",
 		"postcss": "^8.4.24",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.8.8",
@@ -116,6 +114,8 @@
 		"highlight.js": "^11.8.0",
 		"lodash": "^4.17.21",
 		"lucide-svelte": "^0.293.0",
+		"ol": "^7.4.0",
+		"pdfjs-dist": "^3.8.162",
 		"monaco-editor": "npm:@codingame/monaco-editor-treemended@>=1.83.5 <1.84.0",
 		"monaco-graphql": "^1.5.1",
 		"monaco-languageclient": "~7.0.1",
@@ -266,6 +266,10 @@
 			"types": "./package/stores.d.ts",
 			"default": "./package/stores.js"
 		},
+		"./gen": {
+			"types": "./package/gen/index.d.ts",
+			"default": "./package/gen/index.js"
+		},
 		"./components/flows/flowStore": {
 			"types": "./package/components/flows/flowStore.d.ts",
 			"default": "./package/components/flows/flowStore.js"
@@ -376,6 +380,9 @@
 			],
 			"stores": [
 				"./package/stores.d.ts"
+			],
+			"gen": [
+				"./package/gen/index.d.ts"
 			],
 			"components/flows/flowStore": [
 				"./package/components/flows/flowStore.d.ts"

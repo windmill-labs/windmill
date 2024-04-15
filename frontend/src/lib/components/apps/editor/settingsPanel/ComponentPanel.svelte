@@ -335,6 +335,7 @@
 			/>
 		{:else if componentSettings.item.data.type === 'aggridcomponentee'}
 			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
 		{:else if componentSettings.item.data.type === 'agchartscomponentee'}
 			<GridAgChartsLicenseKe bind:license={componentSettings.item.data.license} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
@@ -364,6 +365,10 @@
 				bind:panes={componentSettings.item.data.panes}
 				bind:component={componentSettings.item.data}
 			/>
+		{:else if componentSettings.item.data.type === 'aggridcomponent'}
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+		{:else if componentSettings.item.data.type === 'dbexplorercomponent'}
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{:else if componentSettings.item.data.type === 'menucomponent' && Array.isArray(componentSettings.item.data.menuItems)}
