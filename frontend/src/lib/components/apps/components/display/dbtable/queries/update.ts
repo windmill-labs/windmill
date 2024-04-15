@@ -5,8 +5,7 @@ function updateWithAllValues(
 	table: string,
 	column: ColumnDef,
 	columns: ColumnDef[],
-	dbType: DbType,
-	data: Record<string, any>
+	dbType: DbType
 ) {
 	let query = buildParameters(
 		[
@@ -14,7 +13,7 @@ function updateWithAllValues(
 				field: 'value_to_update',
 				datatype: column.datatype
 			},
-			...columns.filter((c) => data[c.field] !== null)
+			...(dbType === 'snowflake' ? columns.flatMap((c) => [c, c]) : columns)
 		],
 		dbType
 	)
@@ -24,42 +23,46 @@ function updateWithAllValues(
 	switch (dbType) {
 		case 'postgresql': {
 			const conditions = columns
-				.map((c, i) =>
-					data[c.field] === null
-						? `${c.field} IS NULL`
-						: `${c.field} = $${i + 2}::text::${c.datatype} `
+				.map(
+					(c, i) =>
+						`($${i + 2}::${c.datatype} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${i + 2}::${
+							c.datatype
+						})`
 				)
-				.join(' AND ')
+				.join('\n    AND ')
 
-			query += `\nUPDATE ${table} SET ${column.field} = $1::text::${column.datatype} WHERE ${conditions}	RETURNING 1`
+			query += `\nUPDATE ${table} SET ${column.field} = $1::${column.datatype} \nWHERE ${conditions}	RETURNING 1`
 			return query
 		}
 		case 'mysql': {
 			const conditions = columns
-				.map((c) => (data[c.field] === null ? `${c.field} IS NULL` : `${c.field} = :${c.field}`))
-				.join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = :value_to_update WHERE ${conditions}`
+				.map((c) => `(:${c.field} IS NULL AND ${c.field} IS NULL OR ${c.field} = :${c.field})`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = :value_to_update \nWHERE ${conditions}`
 			return query
 		}
 		case 'ms_sql_server': {
 			const conditions = columns
-				.map((c, i) => (data[c.field] === null ? `${c.field} IS NULL` : `${c.field} = @p${i + 2} `))
-				.join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = @p1 WHERE ${conditions}`
+				.map((c, i) => `(@p${i + 2} IS NULL AND ${c.field} IS NULL OR ${c.field} = @p${i + 2})`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = @p1 \nWHERE ${conditions}`
 			return query
 		}
 		case 'snowflake': {
 			const conditions = columns
-				.map((c, i) => (data[c.field] === null ? `${c.field} IS NULL` : `${c.field} = ? `))
-				.join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = ? WHERE ${conditions}`
+				.map((c, i) => `(? = 'null' AND ${c.field} IS NULL OR ${c.field} = ?)`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = ? \nWHERE ${conditions}`
 			return query
 		}
 		case 'bigquery': {
 			const conditions = columns
-				.map((c, i) => (data[c.field] === null ? `${c.field} IS NULL` : `${c.field} = @${c.field}`))
-				.join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update WHERE ${conditions}`
+				.map(
+					(c, i) =>
+						`(CAST(@${c.field} AS STRING) = 'null' AND ${c.field} IS NULL OR ${c.field} = @${c.field})`
+				)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update \nWHERE ${conditions}`
 			return query
 		}
 		default:
@@ -72,8 +75,7 @@ export function getUpdateInput(
 	table: string,
 	column: ColumnDef,
 	columns: ColumnDef[],
-	dbType: DbType,
-	data: Record<string, any>
+	dbType: DbType
 ): AppInput | undefined {
 	if (!resource || !table) {
 		return undefined
@@ -83,7 +85,7 @@ export function getUpdateInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: updateWithAllValues(table, column, columns, dbType, data),
+			content: updateWithAllValues(table, column, columns, dbType),
 			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
