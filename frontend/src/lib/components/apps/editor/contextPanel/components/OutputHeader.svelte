@@ -90,7 +90,11 @@
 			}
 		}
 
-		if (item?.data.type == 'aggridcomponent' || item?.data.type == 'aggridcomponentee') {
+		if (
+			item?.data.type == 'aggridcomponent' ||
+			item?.data.type == 'aggridcomponentee' ||
+			item?.data.type == 'dbexplorercomponent'
+		) {
 			for (let c of item.data.actions ?? []) {
 				let old = c.id
 				c.id = c.id.replace(id + '_', newId + '_')
@@ -120,7 +124,9 @@
 		}
 
 		if (
-			(data.type == 'aggridcomponent' || data.type == 'aggridcomponentee') &&
+			(data.type == 'aggridcomponent' ||
+				data.type == 'aggridcomponentee' ||
+				data.type == 'dbexplorercomponent') &&
 			Array.isArray(data.actions)
 		) {
 			for (let c of data.actions) {

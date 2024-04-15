@@ -63,7 +63,10 @@
 				if (left.data.type === 'tablecomponent' && left.data.actionButtons.length >= 1) {
 					$selectedComponent = [left.data.actionButtons[left.data.actionButtons.length - 1].id]
 				} else if (
-					(left.data.type === 'aggridcomponent' || left.data.type === 'aggridcomponentee') && Array.isArray(left.data.actions) &&
+					(left.data.type === 'aggridcomponent' ||
+						left.data.type === 'aggridcomponentee' ||
+						left.data.type === 'dbexplorercomponent') &&
+					Array.isArray(left.data.actions) &&
 					left.data.actions.length >= 1
 				) {
 					$selectedComponent = [left.data.actions[left.data.actions.length - 1].id]
