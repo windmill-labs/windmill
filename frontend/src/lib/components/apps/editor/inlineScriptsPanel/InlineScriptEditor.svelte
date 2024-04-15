@@ -172,25 +172,27 @@
 		<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
 			{#if name !== undefined}
 				{#if !transformer}
-					<input
-						on:keydown|stopPropagation
-						bind:value={name}
-						placeholder="Inline script name"
-						class="!text-xs !rounded-xs"
-						on:keyup={() => {
-							$app = $app
-							$stateId++
-						}}
-					/>
+					<div class="flex flex-row gap-2 w-full items-center">
+						<input
+							on:keydown|stopPropagation
+							bind:value={name}
+							placeholder="Inline script name"
+							class="!text-xs !rounded-sm !shadow-none"
+							on:keyup={() => {
+								$app = $app
+								$stateId++
+							}}
+						/>
+						<div
+							title={validCode ? 'Main function parsable' : 'Main function not parsable'}
+							class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+						/>
+					</div>
 				{:else}
 					<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>
 				{/if}
 			{/if}
-			<div class="flex w-full flex-row gap-2 items-center justify-end">
-				<div
-					title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-					class="rounded-full w-2 h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-				/>
+			<div class="flex w-full flex-row gap-1 items-center justify-end">
 				{#if inlineScript}
 					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
 				{/if}
@@ -209,8 +211,8 @@
 				<Button
 					title="Delete"
 					size="xs2"
-					color="red"
-					variant="border"
+					color="light"
+					variant="contained"
 					aria-label="Delete"
 					on:click={() => dispatch('delete')}
 					endIcon={{ icon: Trash2 }}
@@ -221,7 +223,7 @@
 						size="xs2"
 						color="light"
 						title="Full Editor"
-						variant="border"
+						variant="contained"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
