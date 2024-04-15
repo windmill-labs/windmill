@@ -31,7 +31,6 @@ export abstract class AbstractCellRenderer implements ICellRendererComp {
 
 	refresh(params: ICellRendererParams) {
 		this.value = params.value
-		this.eGui.innerHTML = ''
 
 		return true
 	}

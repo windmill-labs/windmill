@@ -319,7 +319,7 @@
 						  }}
 					bind:element={button}
 					iconOnly
-					title="Generate code from Prompt"
+					title="Generate code from prompt"
 					startIcon={genLoading
 						? { icon: Ban }
 						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}

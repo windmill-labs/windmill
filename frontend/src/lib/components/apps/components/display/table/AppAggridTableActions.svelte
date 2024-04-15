@@ -32,8 +32,8 @@
 <RowWrapper value={row} index={rowIndex} {onSet} {onRemove}>
 	<div
 		class={twMerge(
-			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1',
-			!wrapActions ? 'flex-wrap' : ''
+			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full',
+			wrapActions ? 'flex-wrap' : ''
 		)}
 	>
 		{#each actions as action, actionIndex}

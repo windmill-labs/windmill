@@ -6,7 +6,7 @@
 		OneOfConfiguration,
 		RichConfigurations
 	} from '../../../types'
-	import { components } from '$lib/components/apps/editor/component'
+	import { components, type TableAction } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
@@ -45,6 +45,7 @@
 	export let customCss: ComponentCustomCSS<'dbexplorercomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean = true
+	export let actions: TableAction[] = []
 
 	$: table = resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as
 		| string
@@ -173,6 +174,7 @@
 		selectedRow: {},
 		selectedRows: [] as any[],
 		result: [] as any[],
+		inputs: {},
 		loading: false,
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
@@ -598,6 +600,7 @@
 		bind:this={deleteRow}
 	/>
 {/if}
+
 <UpdateCell {id} bind:this={updateCell} />
 {#if render}
 	<DbExplorerCount
@@ -668,6 +671,7 @@
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
+					{actions}
 				/>
 			{/key}
 		{/if}
