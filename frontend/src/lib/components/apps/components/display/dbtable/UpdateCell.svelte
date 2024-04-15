@@ -38,14 +38,16 @@
 		let primaryColumns = getPrimaryKeys(allColumns)
 		let columns = allColumns?.filter((x) => primaryColumns.includes(x.field))
 
-		input = getUpdateInput(resource, table, column, columns, dbType)
+		input = getUpdateInput(resource, table, column, columns, dbType, data)
 
 		await tick()
 
 		if (runnableComponent) {
 			let ndata = {}
 			columns.forEach((x) => {
-				ndata[x.field] = data[x.field]
+				if (data[x.field] !== null) {
+					ndata[x.field] = data[x.field]
+				}
 			})
 			ndata[column.field] = oldValue
 			await runnableComponent?.runComponent(
