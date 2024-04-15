@@ -204,7 +204,7 @@
 				{:else}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						class="flex flex-wrap gap-2 pb-0.5 {$mode === 'dnd' &&
+						class="flex flex-wrap gap-2 pb-0.5 w-full {$mode === 'dnd' &&
 						(componentInput?.type == 'template' || componentInput?.type == 'templatev2')
 							? 'cursor-text'
 							: ''}"
@@ -212,7 +212,7 @@
 						<svelte:element
 							this={component}
 							class={twMerge(
-								'whitespace-pre-wrap',
+								'whitespace-pre-wrap w-full',
 
 								css?.text?.class,
 								classes,
