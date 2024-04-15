@@ -6,7 +6,7 @@
 		OneOfConfiguration,
 		RichConfigurations
 	} from '../../../types'
-	import { components } from '$lib/components/apps/editor/component'
+	import { components, type TableAction } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
@@ -39,12 +39,14 @@
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import { CancelablePromise } from '$lib/gen'
+	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'dbexplorercomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean = true
+	export let actions: TableAction[] = []
 
 	$: table = resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as
 		| string
@@ -543,6 +545,17 @@
 		args = {}
 	}
 
+	function refreshActions(actions: TableAction[]) {
+		if (!deepEqual(actions, lastActions)) {
+			lastActions = [...actions]
+
+			renderCount++
+		}
+	}
+
+	let lastActions: TableAction[] | undefined = undefined
+	$: actions && refreshActions(actions)
+
 	let runnableComponent: RunnableComponent
 	let state: any = undefined
 	let insertRowRunnable: InsertRowRunnable
@@ -598,6 +611,7 @@
 		bind:this={deleteRow}
 	/>
 {/if}
+
 <UpdateCell {id} bind:this={updateCell} />
 {#if render}
 	<DbExplorerCount
@@ -668,6 +682,7 @@
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
+					{actions}
 				/>
 			{/key}
 		{/if}

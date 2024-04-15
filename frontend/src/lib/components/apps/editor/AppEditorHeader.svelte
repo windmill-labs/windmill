@@ -185,7 +185,9 @@
 						r.push(...c.actionButtons.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
 					if (
-						(c.type === 'aggridcomponent' || c.type === 'aggridcomponentee') &&
+						(c.type === 'aggridcomponent' ||
+							c.type === 'aggridcomponentee' ||
+							c.type === 'dbexplorercomponent') &&
 						Array.isArray(c.actions)
 					) {
 						r.push(...c.actions.map((x) => ({ input: x.componentInput, id: x.id })))

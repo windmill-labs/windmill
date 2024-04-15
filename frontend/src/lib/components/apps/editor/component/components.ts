@@ -213,6 +213,7 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 
 export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
+	actions: TableAction[]
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'>
@@ -3533,6 +3534,13 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					value: false,
 					tooltip: 'Hide the search bar'
+				},
+				wrapActions: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
 				}
 			},
 			componentInput: undefined
