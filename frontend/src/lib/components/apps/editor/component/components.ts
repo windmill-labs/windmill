@@ -1420,7 +1420,7 @@ Hello \${ctx.username}
 		name: 'Markdown',
 		icon: Heading1,
 		documentationLink: `${documentationBaseUrl}/html`,
-		dims: '1:2-4-4' as AppComponentDimensions,
+		dims: '1:2-4:4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
 		},
