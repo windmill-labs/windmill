@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.307.0](https://github.com/windmill-labs/windmill/compare/v1.306.4...v1.307.0) (2024-04-15)
+
+
+### Features
+
+* **frontend:** Add actions to Database Studio ([#3556](https://github.com/windmill-labs/windmill/issues/3556)) ([863550a](https://github.com/windmill-labs/windmill/commit/863550a91d8380cd18cc750dc63dfa75bdf504bb))
+
+
+### Bug Fixes
+
+* add mysql decimal support ([#3557](https://github.com/windmill-labs/windmill/issues/3557)) ([7c85cd8](https://github.com/windmill-labs/windmill/commit/7c85cd808d4d5e79adf7d0b0a93ea15008ce1d87))
+* **frontend:** fix the initial dimension of the markdown component ([#3554](https://github.com/windmill-labs/windmill/issues/3554)) ([0b48742](https://github.com/windmill-labs/windmill/commit/0b487426c806fca991f9fe8ce1e33dc2d44f7cfd))
+* tighten delete folder permissions ([8b4dc22](https://github.com/windmill-labs/windmill/commit/8b4dc227d389c0fa98b762e76464cbffc02bb75f))
+
 ## [1.306.4](https://github.com/windmill-labs/windmill/compare/v1.306.3...v1.306.4) (2024-04-14)
 
 
