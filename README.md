@@ -353,6 +353,43 @@ you to have it being synced automatically everyday.
 | QUEUE_LIMIT_WAIT_RESULT   | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
 | DENO_AUTH_TOKENS          | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
 
+## Run a local dev setup
+### only Frontend
+This will use the backend of <https://app.windmill.dev> but your own frontend
+with hot-code reloading.
+1. Install [caddy](https://caddyserver.com)
+2. Go to `frontend/`:
+   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
+   2. In another shell `sudo caddy run --config CaddyfileRemote`
+3. Et voilà, windmill should be available at `http://localhost/`
+### Backend + Frontend
+See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
+running options.
+1. Create a Postgres Database for Windmill and create an admin role inside your
+   Postgres setup.
+   The easiest way to get a working db is to run
+	```
+   cargo install sqlx-cli
+   env DATABASE_URL=<YOUR_DATABASE_URL> sqlx migrate run
+	```
+   This will also avoid compile time issue with sqlx's `query!` macro
+2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
+   your PATH
+3. Install deno and python3, have the bins at `/usr/bin/deno` and
+   `/usr/local/bin/python3`
+4. Install [caddy](https://caddyserver.com)
+5. Install the [lld linker](https://lld.llvm.org/)
+6. Go to `frontend/`:
+   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
+   2. You might need to set some extra heap space for the node runtime `export NODE_OPTIONS="--max-old-space-size=4096"`
+   3. In another shell `npm run build` otherwise the backend will not find the `frontend/build` folder and will not compile.
+   4. In another shell `sudo caddy run --config Caddyfile`
+7. Go to `backend/`:
+   `env DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
+8. Et voilà, windmill should be available at `http://localhost/`
+
+
+
 ## Contributors
 
 <a href="https://github.com/windmill-labs/windmill/graphs/contributors">
