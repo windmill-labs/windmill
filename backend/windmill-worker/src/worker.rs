@@ -584,6 +584,7 @@ impl JobCompletedSender {
     }
 }
 
+#[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker_name = %worker_name))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     worker_instance: &str,
@@ -2554,7 +2555,7 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(name = "job", level = "info", skip_all, fields(job_id = %job.id))]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: Arc<QueuedJob>,
     db: &DB,
