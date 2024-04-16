@@ -477,15 +477,23 @@ async fn delete_folder(
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
-    require_is_owner(&authed, &name)?;
 
-    sqlx::query!(
-        "DELETE FROM folder WHERE name = $1 AND workspace_id = $2",
+    let del = sqlx::query_scalar!(
+        "DELETE FROM folder WHERE name = $1 AND workspace_id = $2 RETURNING 1",
         name,
         w_id
     )
-    .execute(&mut *tx)
-    .await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    if del.is_none() {
+        return Err(windmill_common::error::Error::NotAuthorized(format!(
+            "Not authorized to delete folder {}",
+            name
+        )));
+    }
+
     audit_log(
         &mut *tx,
         &authed.username,
