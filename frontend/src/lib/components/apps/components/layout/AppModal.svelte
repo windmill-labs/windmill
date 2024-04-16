@@ -30,7 +30,8 @@
 		worldStore,
 		connectingInput,
 		mode,
-		componentControl
+		componentControl,
+		zIndex
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -51,6 +52,7 @@
 
 	function closeDrawer(): void {
 		console.log('Close drawer')
+		$zIndex = $zIndex - 1
 		open = false
 	}
 
@@ -69,16 +71,24 @@
 	$componentControl[id] = {
 		openModal: () => {
 			unclosableModal()
+			$zIndex = $zIndex + 1
+
 			open = true
 		},
 		closeModal: () => {
+			$zIndex = $zIndex - 1
+
 			open = false
 		},
 		open: () => {
 			unclosableModal()
+			$zIndex = $zIndex + 1
+
 			open = true
 		},
 		close: () => {
+			$zIndex = $zIndex - 1
+
 			open = false
 		}
 	}
@@ -132,6 +142,8 @@
 						parentComponentId: id,
 						subGridIndex: 0
 					}
+					$zIndex = $zIndex + 1
+
 					open = true
 				}}
 				size={resolvedConfig.buttonSize}
@@ -149,9 +161,9 @@
 			`${
 				$mode == 'dnd' ? 'absolute' : 'fixed'
 			} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
-			open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible',
-			$mode === 'dnd' ? 'z-[1000]' : 'z-[1100]'
+			open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
 		)}
+		style="z-index: {$zIndex}"
 	>
 		<div
 			style={css?.popup?.style}
@@ -168,6 +180,8 @@
 				<div class="w-8">
 					<button
 						on:click|stopPropagation={() => {
+							$zIndex = $zIndex - 1
+
 							open = false
 						}}
 						class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"

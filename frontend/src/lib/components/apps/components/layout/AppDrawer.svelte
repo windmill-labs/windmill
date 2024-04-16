@@ -28,7 +28,8 @@
 		worldStore,
 		connectingInput,
 		mode,
-		componentControl
+		componentControl,
+		zIndex
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
@@ -41,9 +42,11 @@
 
 	$componentControl[id] = {
 		open: () => {
+			$zIndex = $zIndex + 1
 			appDrawer?.openDrawer()
 		},
 		close: () => {
+			$zIndex = $zIndex - 1
 			appDrawer?.closeDrawer()
 		}
 	}
@@ -114,10 +117,12 @@
 		size="800px"
 		alwaysOpen
 		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
+		--zIndex={$zIndex}
 	>
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}
 			on:close={() => {
+				$zIndex = $zIndex - 1
 				appDrawer?.toggleDrawer()
 				$focusedGrid = undefined
 			}}
