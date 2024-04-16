@@ -50,7 +50,7 @@
 						event.preventDefault()
 						event.stopPropagation()
 						event.stopImmediatePropagation()
-						open = false
+						closeDrawer()
 						break
 					}
 			}
