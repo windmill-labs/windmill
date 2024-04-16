@@ -610,9 +610,9 @@ class Windmill {
         }
 
         # TODO: Figure out why this fails when we set parent_job (at least for HN Discord Feed)
-        # if ($env:WM_JOB_ID) {
-        #     $params["parent_job"] = $env:WM_JOB_ID
-        # }
+        if ($env:WM_JOB_ID) {
+            $params["parent_job"] = $env:WM_JOB_ID
+        }
         if ($env:WM_ROOT_FLOW_JOB_ID) {
             $params["root_job"] = $env:WM_ROOT_FLOW_JOB_ID
         }
