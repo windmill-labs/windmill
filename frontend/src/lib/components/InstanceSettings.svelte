@@ -164,7 +164,8 @@
 		'gworkspace',
 		'basecamp',
 		'linkedin',
-		'quickbooks'
+		'quickbooks',
+		'visma'
 	]
 
 	let oauth_name = undefined
