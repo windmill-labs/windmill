@@ -155,8 +155,7 @@
 		darkMode,
 		cssEditorOpen,
 		previewTheme,
-		debuggingComponents: writable({}),
-		zIndex: writable(1100)
+		debuggingComponents: writable({})
 	})
 
 	let scale = writable(100)

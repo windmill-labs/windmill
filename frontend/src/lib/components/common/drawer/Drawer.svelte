@@ -1,11 +1,8 @@
-<script lang="ts" context="module">
-	let openedDrawers: string[] = []
-</script>
-
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { BROWSER } from 'esm-env'
+	import Disposable from './Disposable.svelte'
 
 	export let open = false
 	export let duration = 0.3
@@ -13,26 +10,20 @@
 	export let size = '600px'
 	export let alwaysOpen = false
 
-	let id = (Math.random() + 1).toString(36).substring(10)
+	let disposable: Disposable | undefined = undefined
 
 	$: durationMs = duration * 1000
 
 	export function toggleDrawer() {
-		open = !open
-		if (open) {
-			openedDrawers.push(id)
-		} else {
-			openedDrawers = openedDrawers.filter((x) => x != id)
-		}
+		disposable?.toggleDrawer()
 	}
 
 	export function openDrawer() {
-		openedDrawers.push(id)
-		open = true
+		disposable?.openDrawer()
 	}
+
 	export function closeDrawer() {
-		open = false
-		openedDrawers = openedDrawers.filter((x) => x != id)
+		disposable?.closeDrawer()
 
 		setTimeout(() => {
 			dispatch('afterClose')
@@ -60,27 +51,6 @@
 
 	$: scrollLock(open)
 
-	function handleClickAway() {
-		dispatch('clickAway')
-		open = false
-	}
-
-	function onKeyDown(event: KeyboardEvent) {
-		if (open) {
-			switch (event.key) {
-				case 'Escape':
-					if (id == openedDrawers[openedDrawers.length - 1] || openedDrawers.length == 0) {
-						openedDrawers.pop()
-						event.preventDefault()
-						event.stopPropagation()
-						event.stopImmediatePropagation()
-						open = false
-						break
-					}
-			}
-		}
-	}
-
 	$: open ? dispatch('open') : dispatch('close')
 
 	let timeout = true
@@ -90,22 +60,23 @@
 	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
-
-<aside
-	class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
-	class:open
-	class:close={!open && timeout}
-	{style}
->
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
-	<div class="panel {placement} {$$props.positionClass}" class:size>
-		{#if open || !timeout || alwaysOpen}
-			<slot {open} />
-		{/if}
-	</div>
-</aside>
+<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable}>
+	<aside
+		class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
+		class:open
+		class:close={!open && timeout}
+		style={`${style}; --zIndex: ${zIndex};`}
+	>
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
+		<div class="panel {placement} {$$props.positionClass}" class:size>
+			{#if open || !timeout || alwaysOpen}
+				<slot {open} />
+			{/if}
+		</div>
+	</aside>
+</Disposable>
 
 <style>
 	.drawer {
