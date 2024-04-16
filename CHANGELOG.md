@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.308.1](https://github.com/windmill-labs/windmill/compare/v1.308.0...v1.308.1) (2024-04-16)
+
+
+### Bug Fixes
+
+* fix delete perms user folders ([456b903](https://github.com/windmill-labs/windmill/commit/456b9037666d2986be7a0663a5dab19f2067580f))
+
 ## [1.308.0](https://github.com/windmill-labs/windmill/compare/v1.307.0...v1.308.0) (2024-04-16)
 
 
