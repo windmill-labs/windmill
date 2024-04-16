@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL RETURNING id, running, is_flow_step",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "running",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_flow_step",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "18699cb0eca25b6bde05d81571dfdea8cafd0043634f61b0f652a93767c9c30a"
+}

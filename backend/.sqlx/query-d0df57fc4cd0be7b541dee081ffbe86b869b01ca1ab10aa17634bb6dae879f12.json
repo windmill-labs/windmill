@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE queue\n                        SET last_ping = null\n                        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d0df57fc4cd0be7b541dee081ffbe86b869b01ca1ab10aa17634bb6dae879f12"
+}
