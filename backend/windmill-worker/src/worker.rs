@@ -13,6 +13,7 @@ use prometheus::{
     core::{AtomicI64, GenericGauge},
     IntCounter,
 };
+use tracing::Instrument;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
@@ -1387,16 +1388,17 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             let db2 = db.clone();
             let worker_name2 = worker_name.clone();
-            tokio::task::spawn(async move {
-                tracing::info!(worker_name = %worker_name2, "vacuuming queue and completed_job"); //TODO: Make span for this
+            let current_span = tracing::Span::current();
+            tokio::task::spawn((async move {
+                tracing::info!("vacuuming queue and completed_job");
                 if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
                     .execute(&db2)
                     .await
                 {
-                    tracing::error!(worker_name = %worker_name2, "failed to vacuum queue: {}", e);
+                    tracing::error!("failed to vacuum queue: {}", e);
                 }
-                tracing::info!(worker_name = %worker_name2, "vacuumed queue and completed_job");
-            });
+                tracing::info!("vacuumed queue and completed_job");
+            }).instrument(current_span));
             jobs_executed += 1;
         }
 
