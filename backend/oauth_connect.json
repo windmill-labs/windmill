@@ -141,5 +141,16 @@
     "scopes": [
       "com.intuit.quickbooks.accounting"
     ]
+  },
+  "visma": {
+    "auth_url": "https://connect.visma.com/connect/authorize",
+    "token_url": "https://connect.visma.com/connect/token",
+    "scopes": [
+      "offline_access",
+      "vismanet_erp_interactive_api:create",
+      "vismanet_erp_interactive_api:delete",
+      "vismanet_erp_interactive_api:read",
+      "vismanet_erp_interactive_api:update"
+    ]
   }
 }
