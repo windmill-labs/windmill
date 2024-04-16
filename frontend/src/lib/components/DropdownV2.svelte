@@ -47,7 +47,10 @@
 				class={twMerge(
 					'px-4 py-2 text-primary hover:bg-surface-hover hover:text-primary cursor-pointer text-xs transition-all',
 					'flex flex-row gap-2 items-center',
-					item?.type === 'delete' && 'text-red-500 hover:bg-red-100 hover:text-red-500'
+					item?.disabled && 'text-gray-400 cursor-not-allowed',
+					item?.type === 'delete' &&
+						!item?.disabled &&
+						'text-red-500 hover:bg-red-100 hover:text-red-500'
 				)}
 			>
 				{#if item.icon}

@@ -581,14 +581,37 @@ async fn delete_schedule(
     let path = path.to_path();
 
     clear_schedule(&mut tx, path, &w_id).await?;
-
-    sqlx::query!(
-        "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2",
+    let exists = sqlx::query_scalar!(
+        "SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2",
         path,
         w_id
     )
-    .execute(&mut *tx)
-    .await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    if exists.is_none() {
+        return Err(windmill_common::error::Error::NotFound(format!(
+            "Schedule {} not found",
+            path
+        )));
+    }
+
+    let del = sqlx::query_scalar!(
+        "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2 RETURNING 1",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    if del.is_none() {
+        return Err(windmill_common::error::Error::NotAuthorized(format!(
+            "Not authorized to delete schedule {}",
+            path
+        )));
+    }
 
     handle_deployment_metadata(
         &authed.email,
