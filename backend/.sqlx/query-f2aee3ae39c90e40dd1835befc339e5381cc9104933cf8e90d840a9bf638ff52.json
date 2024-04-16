@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folder\n                 (workspace_id, name, display_name, owners, extra_perms)\n                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f2aee3ae39c90e40dd1835befc339e5381cc9104933cf8e90d840a9bf638ff52"
+}

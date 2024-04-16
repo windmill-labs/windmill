@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = queue.created_by WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a96dd57b127a1adbdca13867a76d7fd9f9a9c76b02bcebd2830d928821f3abc0"
+}
