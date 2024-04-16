@@ -579,7 +579,7 @@ export function canWrite(
 	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1) {
 		return true
 	}
-	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/') && user.folders[x]) != -1) {
 		return true
 	}
 
