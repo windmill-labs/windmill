@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.308.0](https://github.com/windmill-labs/windmill/compare/v1.307.0...v1.308.0) (2024-04-16)
+
+
+### Features
+
+* add visma oauth ([#3564](https://github.com/windmill-labs/windmill/issues/3564)) ([a8cf3ef](https://github.com/windmill-labs/windmill/commit/a8cf3ef4243b76894b30764647091e48a0f1b60b))
+* **frontend:** ImproveApp Editor UI ([#3514](https://github.com/windmill-labs/windmill/issues/3514)) ([44c9fda](https://github.com/windmill-labs/windmill/commit/44c9fda49aadda97bef395953fa36e3b27e7d2e4))
+
+
+### Bug Fixes
+
+* db update cell issue when some col values are null ([#3558](https://github.com/windmill-labs/windmill/issues/3558)) ([c17bcd3](https://github.com/windmill-labs/windmill/commit/c17bcd395e1c0726f3ee61d82f008c6077c44168))
+* **frontend:** fix text alignement, email input before icon and fix m… ([#3561](https://github.com/windmill-labs/windmill/issues/3561)) ([1658740](https://github.com/windmill-labs/windmill/commit/1658740ec6e7e566e541ca9cb735c6577d25169e))
+* tighten delete permissions ([158d26f](https://github.com/windmill-labs/windmill/commit/158d26fe38cbd4c0a8518b90a1996c2db35e0702))
+
 ## [1.307.0](https://github.com/windmill-labs/windmill/compare/v1.306.4...v1.307.0) (2024-04-15)
 
 
