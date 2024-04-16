@@ -8,7 +8,7 @@
 	export let open = false
 	export let id = (Math.random() + 1).toString(36).substring(10)
 
-	let diff = 0
+	let offset = 0
 
 	export function toggleDrawer() {
 		if (!open) {
@@ -20,13 +20,13 @@
 
 	export function openDrawer() {
 		openedDrawers.push(id)
-		diff = openedDrawers.length - 1
+		offset = openedDrawers.length - 1
 		open = true
 	}
 
 	export function closeDrawer() {
 		open = false
-		diff = 0
+		offset = 0
 		openedDrawers = openedDrawers.filter((x) => x != id)
 	}
 
@@ -57,7 +57,7 @@
 		}
 	}
 
-	$: zIndex = 1100 + diff
+	$: zIndex = 1100 + offset
 
 	$: open ? dispatch('open') : dispatch('close')
 </script>
