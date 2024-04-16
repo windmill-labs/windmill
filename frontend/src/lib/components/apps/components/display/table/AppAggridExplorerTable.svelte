@@ -341,6 +341,10 @@
 		api?.purgeInfiniteCache()
 	}
 
+	export function restoreColumns() {
+		api?.resetColumnState()
+	}
+
 	function onSelectionChanged(api: GridApi<any>) {
 		if (resolvedConfig?.multipleSelectable) {
 			const rows = api.getSelectedNodes()
@@ -407,9 +411,9 @@
 		>
 			<div bind:this={eGui} style:height="100%" />
 		</div>
-		<div class="flex gap-1 w-full justify-end text-sm text-secondary py-1"
-			>{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows</div
-		>
+		<div class="flex gap-1 w-full justify-end text-sm text-secondary/80 py-1">
+			{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+		</div>
 	</div>
 {:else if resolvedConfig.columnDefs != undefined}
 	<Alert title="Parsing issues" type="error" size="xs">

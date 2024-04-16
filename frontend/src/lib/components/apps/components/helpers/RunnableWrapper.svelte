@@ -11,6 +11,7 @@
 
 	export let componentInput: AppInput | undefined
 	export let noInitialize = false
+	export let hideRefreshButton = false
 
 	type SideEffectAction =
 		| {

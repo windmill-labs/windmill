@@ -22,7 +22,7 @@
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus } from 'lucide-svelte'
+	import { Columns, LoaderIcon, Plus, RefreshCw, Settings } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import InsertRow from './InsertRow.svelte'
 	import Portal from 'svelte-portal'
@@ -39,6 +39,7 @@
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import { CancelablePromise } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -570,6 +571,8 @@
 
 	$: hideSearch = resolvedConfig.hideSearch as boolean
 	$: hideInsert = resolvedConfig.hideInsert as boolean
+
+	let loading: boolean = false
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -623,14 +626,15 @@
 	noInitialize
 	bind:runnableComponent
 	componentInput={input}
-	autoRefresh={false}
+	autoRefresh={true}
+	bind:loading
 	{render}
 	{id}
 	{outputs}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
 		{#if !(hideSearch === true && hideInsert === true)}
-			<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
+			<div class="flex py-2 h-12 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
 				{#if hideSearch !== true}
 					<DebouncedInput
 						class="w-full max-w-[300px]"
@@ -639,19 +643,44 @@
 						placeholder="Quicksearch"
 					/>
 				{/if}
-				{#if hideInsert !== true}
+				<div class="flex flex-row gap-2">
 					<Button
-						startIcon={{ icon: Plus }}
-						color="dark"
-						size="xs"
+						startIcon={{ icon: Columns }}
+						color="light"
+						size="xs2"
 						on:click={() => {
-							args = {}
-							insertDrawer?.openDrawer()
+							// Restore the columnDefs to the original state
+							aggrid?.restoreColumns()
 						}}
-					>
-						Insert
-					</Button>
-				{/if}
+						iconOnly
+					/>
+					<Button
+						startIcon={{
+							icon: loading ? LoaderIcon : RefreshCw,
+							classes: twMerge(loading ? 'animate-spin text-blue-800' : '', 'transition-all')
+						}}
+						color="light"
+						size="xs2"
+						btnClasses={twMerge(loading ? ' bg-blue-100' : '', 'transition-all')}
+						on:click={() => {
+							$runnableComponents[id]?.cb?.map((cb) => cb())
+						}}
+						iconOnly
+					/>
+					{#if hideInsert !== true}
+						<Button
+							startIcon={{ icon: Plus }}
+							color="dark"
+							size="xs2"
+							on:click={() => {
+								args = {}
+								insertDrawer?.openDrawer()
+							}}
+						>
+							Insert
+						</Button>
+					{/if}
+				</div>
 			</div>
 		{/if}
 		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}

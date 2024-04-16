@@ -346,7 +346,8 @@
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(
-				'border  shadow-sm divide-y h-full',
+				'component-wrapper',
+				'divide-y h-full',
 				css?.container?.class ?? '',
 				'wm-table-container',
 				'flex flex-col'

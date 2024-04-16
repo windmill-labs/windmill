@@ -138,3 +138,9 @@
 	@apply w-7 h-7 center-center bg-surface border  text-secondary 
 	rounded mt-1 mr-1 shadow duration-200 hover:bg-surface-hover focus:bg-surface-hover;
 }
+
+/* Components */
+.component-wrapper {
+	@apply rounded-md border;
+	--ag-border-color: #ff0000;
+}

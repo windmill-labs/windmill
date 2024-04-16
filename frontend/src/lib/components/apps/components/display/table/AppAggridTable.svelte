@@ -414,7 +414,7 @@
 		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 			<div
 				class={twMerge(
-					'border shadow-sm divide-y flex flex-col h-full',
+					'divide-y flex flex-col h-full',
 					css?.container?.class,
 					'wm-aggrid-container'
 				)}

@@ -30,6 +30,7 @@
 
 		componentSettings?.forEach((componentSetting) => {
 			const id = componentSetting?.item?.id
+
 			const onDeleteComponentControl = id ? $componentControl[id]?.onDelete : undefined
 			if (onDeleteComponentControl) {
 				onDeleteComponentControl()
