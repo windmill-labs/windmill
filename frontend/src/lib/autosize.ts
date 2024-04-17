@@ -14,29 +14,15 @@ export const action = (node) => {
 		node.dispatchEvent(update)
 	}
 
-	const getParents = (element: Node): HTMLElement[] => {
-		const parents: HTMLElement[] = []
-		while (element.parentNode && element.parentNode.nodeName.toLowerCase() !== 'body') {
-			element = element.parentNode as HTMLElement
-			parents.push(element as HTMLElement)
-		}
-		return parents
-	}
-
-	const hasInvisibleParent = (): boolean => {
-		return getParents(node).some(
-			(parent) => parent.classList.contains('hidden') || parent.style.display === 'none'
-		)
-	}
-
 	const setInitialHeight = () => {
-		if (!hasInvisibleParent()) {
-			adjustHeight()
-		}
-	}
-
-	const adjustHeight = () => {
 		let height = 0
+
+		const style = window.getComputedStyle(node)
+		const visible = style.getPropertyValue('visibility') === 'hidden'
+
+		if (visible === false) {
+			return
+		}
 
 		if (node.value) {
 			height = node.scrollHeight
