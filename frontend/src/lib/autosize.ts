@@ -18,7 +18,7 @@ export const action = (node) => {
 		let height = 0
 
 		const style = window.getComputedStyle(node)
-		const visible = style.getPropertyValue('visibility') === 'hidden'
+		const visible = style?.getPropertyValue('visibility') === 'hidden'
 
 		if (visible === false) {
 			return
