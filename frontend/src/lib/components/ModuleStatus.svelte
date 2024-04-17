@@ -1,25 +1,25 @@
 <script lang="ts">
-	import { FlowStatusModule } from '$lib/gen'
+	import type { FlowStatusModule } from '$lib/gen'
 	import { Badge } from './common'
 	import { forLater } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
 	import { Hourglass } from 'lucide-svelte'
 
-	export let type: FlowStatusModule.type
+	export let type: FlowStatusModule['type']
 	export let scheduled_for: Date | undefined
 </script>
 
-{#if type == FlowStatusModule.type.WAITING_FOR_EVENTS}
+{#if type == 'WaitingForEvents'}
 	<span class="italic text-waiting">
 		<Hourglass />
 		Waiting to be resumed by resume events such as approvals
 	</span>
-{:else if type == FlowStatusModule.type.WAITING_FOR_PRIOR_STEPS}
+{:else if type == 'WaitingForPriorSteps'}
 	<span class="italic text-tertiary">
 		<Hourglass />
 		Waiting for prior steps to complete
 	</span>
-{:else if type == FlowStatusModule.type.WAITING_FOR_EXECUTOR}
+{:else if type == 'WaitingForExecutor'}
 	<span class="italic text-tertiary">
 		<Hourglass />
 		{#if scheduled_for && forLater(scheduled_for.toString())}
@@ -28,9 +28,9 @@
 			Job is waiting for an executor
 		{/if}
 	</span>
-{:else if type == FlowStatusModule.type.SUCCESS}
+{:else if type == 'Success'}
 	<Badge color="green">Success</Badge>
-{:else if type == FlowStatusModule.type.FAILURE}
+{:else if type == 'Failure'}
 	<Badge color="red">Failure</Badge>
 {/if}
 

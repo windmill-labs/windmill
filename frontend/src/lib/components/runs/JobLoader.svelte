@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
-	import { JobService, Job, CompletedJob } from '$lib/gen'
+	import { JobService, type Job, type CompletedJob } from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
@@ -60,15 +60,33 @@
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
 		if (jobKindsCat == 'all') {
-			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.APPDEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
+			let kinds: CompletedJob['job_kind'][] = [
+				'script',
+				'flow',
+				'dependencies',
+				'flowdependencies',
+				'appdependencies',
+				'preview',
+				'flowpreview',
+				'script_hub'
+			]
+			return kinds.join(',')
 		} else if (jobKindsCat == 'dependencies') {
-			return `${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.FLOWDEPENDENCIES},${CompletedJob.job_kind.APPDEPENDENCIES}`
+			let kinds: CompletedJob['job_kind'][] = [
+				'dependencies',
+				'flowdependencies',
+				'appdependencies'
+			]
+			return kinds.join(',')
 		} else if (jobKindsCat == 'previews') {
-			return `${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`
+			let kinds: CompletedJob['job_kind'][] = ['preview', 'flowpreview']
+			return kinds.join(',')
 		} else if (jobKindsCat == 'deploymentcallbacks') {
-			return `${CompletedJob.job_kind.DEPLOYMENTCALLBACK}`
+			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
+			return kinds.join(',')
 		} else {
-			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`
+			let kinds: CompletedJob['job_kind'][] = ['script', 'flow']
+			return kinds.join(',')
 		}
 	}
 
@@ -172,10 +190,10 @@
 
 					while (cursor < jobs.length && minTs == undefined) {
 						let invCursor = jobs.length - 1 - cursor
-						let isQueuedJob = invCursor == 0 || jobs[invCursor].type == Job.type.QUEUED_JOB
+						let isQueuedJob = invCursor == 0 || jobs[invCursor].type == 'QueuedJob'
 						if (isQueuedJob) {
 							if (cursor > 0) {
-								let inc = invCursor == 0 && jobs[invCursor].type == Job.type.COMPLETED_JOB ? 0 : 1
+								let inc = invCursor == 0 && jobs[invCursor].type == 'CompletedJob' ? 0 : 1
 								const date = new Date(
 									jobs[invCursor + inc]?.started_at ?? jobs[invCursor + inc]?.created_at!
 								)

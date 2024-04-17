@@ -645,12 +645,20 @@ async fn compact_logs(
     let (excess_prev_logs, current_logs) = if extra_split {
         let split_idx = nlogs
             .char_indices()
-            .nth(excess_size_modulo)
+            .nth(excess_size)
             .map(|(i, _)| i)
             .unwrap_or(0);
         let (excess_prev_logs, current_logs) = nlogs.split_at(split_idx);
+        // tracing::error!(
+        //     "{:?} {:?} {} {}",
+        //     excess_prev_logs.lines().last(),
+        //     current_logs.lines().next(),
+        //     split_idx,
+        //     excess_size_modulo
+        // );
         (excess_prev_logs, current_logs.to_string())
     } else {
+        // tracing::error!("{:?}", nlogs.lines().last());
         ("", nlogs.to_string())
     };
 
@@ -668,7 +676,7 @@ async fn compact_logs(
 
     let mut new_current_logs = match compact_kind {
         CompactLogs::NoS3 => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}, add object storage in the instance settings to save it on distributed storage and allow direct download from Windmill\n"),
-        CompactLogs::S3 => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to object storage at {path}\n[windmill] Download logs in expanded drawer to get full logs.\n"),
+        CompactLogs::S3 => format!("[windmill] Previous logs have been saved to object storage at {path}\n"),
         CompactLogs::NotEE => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}\n[windmill] Upgrade to EE and add object storage to save it persistentely on distributed storage and allow direct download from Windmill\n"),
     };
     new_current_logs.push_str(&current_logs);

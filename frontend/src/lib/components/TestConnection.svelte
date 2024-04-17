@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CompletedJob, JobService, Preview } from '$lib/gen'
+	import { type CompletedJob, JobService, type Preview } from '$lib/gen'
 
 	import { Database, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
@@ -68,7 +68,7 @@ export async function main(s3: S3) {
 			additionalCheck: (testResult: CompletedJob) => {
 				if (
 					testResult.success &&
-					(typeof testResult.result !== 'object' || !('__typename' in testResult.result))
+					(typeof testResult.result !== 'object' || !('__typename' in (testResult.result ?? {})))
 				) {
 					return {
 						...testResult,
@@ -120,7 +120,7 @@ export async function main(bucket: any) {
 			workspace: workspaceOverride ?? $workspaceStore!,
 			requestBody: {
 				path: `testConnection: ${resourceType}`,
-				language: resourceScript.lang as Preview.language,
+				language: resourceScript.lang as Preview['language'],
 				content: resourceScript.code,
 				args: {
 					[resourceScript.argName]: args

@@ -63,7 +63,7 @@
 			metadata['content'] = 'check content diff'
 		}
 		return {
-			lang: data.language ? scriptLangToEditorLang(data.language as Script.language) : undefined,
+			lang: data.language ? scriptLangToEditorLang(data.language as Script['language']) : undefined,
 			content,
 			metadata: orderedYamlStringify(metadata)
 		}

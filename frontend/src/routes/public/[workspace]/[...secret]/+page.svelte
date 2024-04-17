@@ -6,7 +6,7 @@
 
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { AppService, AppWithLastVersion } from '$lib/gen'
+	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
@@ -15,7 +15,7 @@
 	import { writable } from 'svelte/store'
 	import { setLicense } from '$lib/enterpriseUtils'
 
-	let app: AppWithLastVersion | undefined = undefined
+	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
 
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
@@ -61,10 +61,10 @@
 		<div
 			class={twMerge(
 				'min-h-screen h-full w-full',
-				app?.value.css?.['app']?.['viewer']?.class,
+				app?.value?.['css']?.['app']?.['viewer']?.class,
 				'wm-app-viewer'
 			)}
-			style={app?.value.css?.['app']?.['viewer']?.style}
+			style={app?.value?.['css']?.['app']?.['viewer']?.style}
 		>
 			<AppPreview
 				noBackend={false}

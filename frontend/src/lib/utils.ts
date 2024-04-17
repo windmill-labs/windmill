@@ -719,7 +719,7 @@ export function roughSizeOfObject(object: object | string) {
 }
 
 export type Value = {
-	language?: Script.language
+	language?: Script['language']
 	content?: string
 	path?: string
 	draft_only?: boolean

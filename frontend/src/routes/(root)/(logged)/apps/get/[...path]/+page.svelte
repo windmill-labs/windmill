@@ -4,14 +4,14 @@
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
 	import { Button, Skeleton } from '$lib/components/common'
-	import { AppService, AppWithLastVersion } from '$lib/gen'
+	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { Pen } from 'lucide-svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
-	let app: AppWithLastVersion | undefined = undefined
+	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let can_write = false
 
 	async function loadApp() {

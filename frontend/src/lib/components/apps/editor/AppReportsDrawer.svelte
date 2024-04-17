@@ -11,7 +11,6 @@
 	import {
 		FlowService,
 		JobService,
-		RawScript,
 		ScheduleService,
 		SettingService,
 		WorkspaceService
@@ -92,8 +91,9 @@
 				cron: schedule.schedule,
 				timezone: schedule.timezone
 			}
-			appReportingStartupDuration = schedule.args?.startup_duration ?? appReportingStartupDuration
-			screenshotKind = schedule.args?.kind ?? screenshotKind
+			appReportingStartupDuration =
+				(schedule.args?.startup_duration as number) ?? appReportingStartupDuration
+			screenshotKind = (schedule.args?.kind as 'png' | 'pdf') ?? screenshotKind
 
 			args = schedule.args
 				? Object.fromEntries(
@@ -300,7 +300,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 						type: 'rawscript' as const,
 						tag: 'chromium',
 						content: appPreviewScript,
-						language: RawScript.language.BUN,
+						language: 'bun' as const,
 						input_transforms: {
 							app_path: {
 								expr: 'flow_input.app_path',
@@ -491,7 +491,8 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 </script>
 
 <Drawer bind:open size="800px">
-	<DrawerContent on:close={() => (open = false)}
+	<DrawerContent
+		on:close={() => (open = false)}
 		title="Schedule Reports"
 		tooltip="Send a PDF or PNG preview of any app at a given schedule"
 		documentationLink="https://www.windmill.dev/docs/apps/schedule_reports"
