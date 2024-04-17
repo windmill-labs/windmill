@@ -391,8 +391,6 @@ mount {{
     }
 
     tracing::info!(
-        worker_name = %worker_name,
-        job_id = %job.id,
         workspace_id = %job.workspace_id,
         "started python code execution {}",
         job.id
@@ -614,7 +612,7 @@ async fn replace_pip_secret(
                 }
                 let secret = get_secret_value_as_admin(db, w_id, variable).await?;
                 tracing::info!(
-                    worker_name = %worker_name,
+                    worker = %worker_name,
                     job_id = %job_id,
                     workspace_id = %w_id,
                     "found secret variable in pip requirements: {}",
@@ -878,16 +876,12 @@ pub async fn handle_python_reqs(
         append_logs(job_id.clone(), w_id.to_string(), logs1, db).await;
 
         tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job_id,
             workspace_id = %w_id,
             "started setup python dependencies"
         );
 
         let child = if !*DISABLE_NSJAIL {
             tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job_id,
                 workspace_id = %w_id,
                 "starting nsjail"
             );
@@ -992,8 +986,6 @@ pub async fn handle_python_reqs(
         )
         .await;
         tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job_id,
             workspace_id = %w_id,
             is_ok = child.is_ok(),
             "finished setting up python dependencies {}",

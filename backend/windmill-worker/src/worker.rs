@@ -585,7 +585,7 @@ impl JobCompletedSender {
     }
 }
 
-#[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker_name = %worker_name))]
+#[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     worker_instance: &str,
@@ -1024,7 +1024,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_name2 = worker_name.clone();
     let killpill_tx2 = killpill_tx.clone();
     let job_completed_sender = job_completed_tx.0.clone();
-    let send_result = tokio::spawn(async move {
+    let send_result = tokio::spawn((async move {
         while let Some(sr) = job_completed_rx.recv().await {
             match sr {
                 SendResult::JobCompleted(jc) => {
@@ -1202,7 +1202,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         tracing::info!("finished processing all completed jobs");
-    });
+    }).instrument(tracing::Span::current()));
 
     let mut last_executed_job: Option<Instant> = None;
     let mut last_checked_suspended = Instant::now();
@@ -1387,7 +1387,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             let db2 = db.clone();
-            let worker_name2 = worker_name.clone();
             let current_span = tracing::Span::current();
             tokio::task::spawn((async move {
                 tracing::info!("vacuuming queue and completed_job");
@@ -1616,7 +1615,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     if job.id == Uuid::nil() {
                         tracing::info!("running warmup job");
                     } else {
-                        tracing::info!(workspace_id = %job.workspace_id, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+                        tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
                     } // Here we can't remove the job id, but maybe with the
                     // fields macro we can make a job id that only appears when
                     // the job is defined?
@@ -2222,6 +2221,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 //     logs: String,
 // ) -> error::Result<()> {
 
+#[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
     client: &AuthedClient,
@@ -2363,6 +2363,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
 //     *barrier = None;
 //     tracing::debug!("leader worker done waiting for");
 // }
+
+#[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     client: &AuthedClient,
@@ -2735,8 +2737,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
 
         tracing::debug!(
-            worker = %worker_name,
-            job_id = %job.id,
             workspace_id = %job.workspace_id,
             "handling job {}",
             job.id
@@ -3214,8 +3214,6 @@ async fn handle_code_execution_job(
         .unwrap_or_else(|| "NO_LANG".to_string());
 
     tracing::debug!(
-        worker_name = %worker_name,
-        job_id = %job.id,
         workspace_id = %job.workspace_id,
         "started {} job {}",
         &lang_str,
@@ -3350,8 +3348,6 @@ mount {{
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
-        worker_name = %worker_name,
-        job_id = %job.id,
         workspace_id = %job.workspace_id,
         is_ok = result.is_ok(),
         "finished {} job {}",
