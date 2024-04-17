@@ -1,5 +1,7 @@
 <script lang="ts" context="module">
 	let openedDrawers: string[] = []
+
+	export const baseZIndex = 1100
 </script>
 
 <script lang="ts">
@@ -57,7 +59,7 @@
 		}
 	}
 
-	$: zIndex = 1100 + offset
+	$: zIndex = baseZIndex + offset
 
 	$: open ? dispatch('open') : dispatch('close')
 </script>

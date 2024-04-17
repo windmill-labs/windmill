@@ -21,7 +21,7 @@
 <!-- z-index must be above the split pane handles' z-index (which is 1001 atm.) -->
 <div
 	bind:clientWidth={width}
-	class="absolute z-[1002] inset-0 overflow-hidden w-full"
+	class="absolute z-[1001] inset-0 overflow-hidden w-full"
 	class:pointer-events-none={!$secondaryMenu.isOpen}
 >
 	{#if $secondaryMenu.isOpen && $secondaryMenu.component}

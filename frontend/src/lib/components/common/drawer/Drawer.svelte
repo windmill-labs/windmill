@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 
@@ -51,7 +50,7 @@
 
 	$: scrollLock(open)
 
-	$: open ? dispatch('open') : dispatch('close')
+	$: open ? openDrawer() : closeDrawer()
 
 	let timeout = true
 	$: !open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
@@ -60,7 +59,7 @@
 	})
 </script>
 
-<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable}>
+<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable} on:open on:close>
 	<aside
 		class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
 		class:open
@@ -94,7 +93,7 @@
 	.drawer.open {
 		height: 100%;
 		width: 100%;
-		z-index: var(--zIndex, 1002);
+		z-index: var(--zIndex);
 		transition: z-index var(--duration) step-start;
 		pointer-events: auto;
 	}
