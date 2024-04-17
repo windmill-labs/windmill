@@ -44,7 +44,7 @@ export const action = (node) => {
 
 	const setHeight = () => {
 		node.style.height = '0px'
-		node.style.height = Math.max(node.scrollHeight ?? 0, 40) + 5 + 'px'
+		node.style.height = Math.max(node.scrollHeight ?? 0, 40) + 2 + 'px'
 	}
 
 	const addStyles = () => {
