@@ -14,7 +14,37 @@ export const action = (node) => {
 		node.dispatchEvent(update)
 	}
 
+	const getParents = (element: Node): HTMLElement[] => {
+		const parents: HTMLElement[] = []
+		while (element.parentNode && element.parentNode.nodeName.toLowerCase() !== 'body') {
+			element = element.parentNode as HTMLElement
+			parents.push(element as HTMLElement)
+		}
+		return parents
+	}
+
+	const hasInvisibleParent = (): boolean => {
+		return getParents(node).some(
+			(parent) => parent.classList.contains('hidden') || parent.style.display === 'none'
+		)
+	}
+
 	const setInitialHeight = () => {
+		if (hasInvisibleParent()) {
+			const observer = new MutationObserver(() => {
+				if (!hasInvisibleParent()) {
+					adjustHeight()
+					observer.disconnect()
+				}
+			})
+
+			observer.observe(node, { attributes: true, childList: true, subtree: true })
+		} else {
+			adjustHeight()
+		}
+	}
+
+	const adjustHeight = () => {
 		let height = 0
 
 		if (node.value) {
@@ -37,7 +67,7 @@ export const action = (node) => {
 
 	const setHeight = () => {
 		node.style.height = '0px'
-		node.style.height = Math.max(node.scrollHeight, 40) + 5 + 'px'
+		node.style.height = Math.max(node.scrollHeight ?? 0, 40) + 5 + 'px'
 	}
 
 	const addStyles = () => {
