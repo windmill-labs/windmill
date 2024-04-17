@@ -30,16 +30,7 @@ export const action = (node) => {
 	}
 
 	const setInitialHeight = () => {
-		if (hasInvisibleParent()) {
-			const observer = new MutationObserver(() => {
-				if (!hasInvisibleParent()) {
-					adjustHeight()
-					observer.disconnect()
-				}
-			})
-
-			observer.observe(node, { attributes: true, childList: true, subtree: true })
-		} else {
+		if (!hasInvisibleParent()) {
 			adjustHeight()
 		}
 	}
