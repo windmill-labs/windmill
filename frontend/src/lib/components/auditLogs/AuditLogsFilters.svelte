@@ -5,7 +5,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 	import {
-		AuditLog,
+		type AuditLog,
 		AuditService,
 		ResourceService,
 		UserService,

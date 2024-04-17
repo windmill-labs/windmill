@@ -1,11 +1,11 @@
 <script lang="ts">
 	import {
 		DraftService,
-		NewScript,
-		Script,
+		type NewScript,
 		ScriptService,
 		type NewScriptWithDraft,
-		ScheduleService
+		ScheduleService,
+		type Script
 	} from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
@@ -114,33 +114,33 @@
 		) as [string, SupportedLanguage | 'docker'][]
 
 	const scriptKindOptions: {
-		value: Script.kind
+		value: Script['kind']
 		title: string
 		Icon: any
 		desc?: string
 		documentationLink?: string
 	}[] = [
 		{
-			value: Script.kind.SCRIPT,
+			value: 'script',
 			title: 'Action',
 			Icon: Code
 		},
 		{
-			value: Script.kind.TRIGGER,
+			value: 'trigger',
 			title: 'Trigger',
 			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.',
 			documentationLink: 'https://www.windmill.dev/docs/flows/flow_trigger',
 			Icon: Rocket
 		},
 		{
-			value: Script.kind.APPROVAL,
+			value: 'approval',
 			title: 'Approval',
 			desc: 'Send notifications externally to ask for approval to continue a flow.',
 			documentationLink: 'https://www.windmill.dev/docs/flows/flow_approval',
 			Icon: CheckCircle
 		},
 		{
-			value: Script.kind.FAILURE,
+			value: 'failure',
 			title: 'Error Handler',
 			desc: 'Handle errors in flows after all retry attempts have been exhausted.',
 			documentationLink: 'https://www.windmill.dev/docs/flows/flow_error_handler',
@@ -168,7 +168,7 @@
 
 	function initContent(
 		language: SupportedLanguage,
-		kind: Script.kind | undefined,
+		kind: Script['kind'] | undefined,
 		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
 	) {
 		scriptEditor?.disableCollaboration()
@@ -584,7 +584,7 @@
 														} else {
 															template = 'script'
 														}
-														let language = lang == 'docker' ? Script.language.BASH : lang
+														let language = lang == 'docker' ? 'bash' : lang
 														//
 														initContent(language, script.kind, template)
 														script.language = language
@@ -763,9 +763,9 @@
 									<Toggle
 										disabled={!$enterpriseLicense ||
 											isCloudHosted() ||
-											(script.language != Script.language.BUN &&
-												script.language != Script.language.PYTHON3 &&
-												script.language != Script.language.DENO)}
+											(script.language != 'bun' &&
+												script.language != 'python3' &&
+												script.language != 'deno')}
 										size="sm"
 										checked={Boolean(script.dedicated_worker)}
 										on:change={() => {

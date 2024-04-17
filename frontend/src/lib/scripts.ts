@@ -1,9 +1,9 @@
 import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
-import { FlowService, Script, ScriptService, ScheduleService } from './gen'
+import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'
 
-export function scriptLangToEditorLang(lang: Script.language) {
+export function scriptLangToEditorLang(lang: Script['language'] | undefined) {
 	if (lang == 'deno') {
 		return 'typescript'
 	} else if (lang == 'bun') {
@@ -30,6 +30,8 @@ export function scriptLangToEditorLang(lang: Script.language) {
 		return 'powershell'
 	} else if (lang == 'graphql') {
 		return 'graphql'
+	} else if (lang == undefined) {
+		return 'typescript'
 	} else {
 		return lang
 	}
@@ -87,22 +89,23 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	}
 }
 
-export const defaultScriptLanguages = Object.fromEntries([
-	[Script.language.BUN, 'TypeScript (Bun)'],
-	[Script.language.PYTHON3, 'Python'],
-	[Script.language.DENO, 'TypeScript (Deno)'],
-	[Script.language.BASH, 'Bash'],
-	[Script.language.GO, 'Go'],
-	[Script.language.NATIVETS, 'REST'],
-	[Script.language.POSTGRESQL, 'PostgreSQL'],
-	[Script.language.MYSQL, 'MySQL'],
-	[Script.language.BIGQUERY, 'BigQuery'],
-	[Script.language.SNOWFLAKE, 'Snowflake'],
-	[Script.language.MSSQL, 'MS SQL Server'],
-	[Script.language.GRAPHQL, 'GraphQL'],
-	[Script.language.POWERSHELL, 'PowerShell'],
+const scriptLanguagesArray: [SupportedLanguage | 'docker', string][] = [
+	['bun', 'TypeScript (Bun)'],
+	['python3', 'Python'],
+	['deno', 'TypeScript (Deno)'],
+	['bash', 'Bash'],
+	['go', 'Go'],
+	['nativets', 'REST'],
+	['postgresql', 'PostgreSQL'],
+	['mysql', 'MySQL'],
+	['bigquery', 'BigQuery'],
+	['snowflake', 'Snowflake'],
+	['mssql', 'MS SQL Server'],
+	['graphql', 'GraphQL'],
+	['powershell', 'PowerShell'],
 	['docker', 'Docker']
-])
+]
+export const defaultScriptLanguages = Object.fromEntries(scriptLanguagesArray)
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string

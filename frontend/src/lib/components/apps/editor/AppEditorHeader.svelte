@@ -11,7 +11,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, Job, Policy } from '$lib/gen'
+	import { AppService, DraftService, type Job, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import {
@@ -912,9 +912,7 @@
 				}}
 				checked={policy.execution_mode == 'anonymous'}
 				on:change={(e) => {
-					policy.execution_mode = e.detail
-						? Policy.execution_mode.ANONYMOUS
-						: Policy.execution_mode.PUBLISHER
+					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
 			/>

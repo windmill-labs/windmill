@@ -5,16 +5,16 @@
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
-		CompletedJob,
-		Job,
+		type CompletedJob,
+		type Job,
 		JobService,
 		OpenAPI,
-		Preview,
+		type Preview,
 		type OpenFlow,
 		type FlowModule,
 		WorkspaceService,
 		type InputTransform,
-		RawScript,
+		type RawScript,
 		type PathScript
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
@@ -157,7 +157,7 @@
 	type LastEditScript = {
 		content: string
 		path: string
-		language: Preview.language
+		language: Preview['language']
 		lock?: string
 	}
 
@@ -399,6 +399,7 @@
 		if (selectedIdStore == '') {
 			return
 		}
+		//@ts-ignore
 		dfs($flowStore.value.modules, async (mod) => {
 			if (mod.id == selectedIdStore) {
 				if (

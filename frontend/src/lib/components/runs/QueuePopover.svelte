@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService, QueuedJob } from '$lib/gen'
+	import { JobService, type QueuedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'

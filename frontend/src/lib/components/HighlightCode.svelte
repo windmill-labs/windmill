@@ -14,10 +14,10 @@
 	import { ClipboardCopy } from 'lucide-svelte'
 
 	export let code: string = ''
-	export let language: Script.language | 'frontend' | undefined
+	export let language: Script['language'] | 'frontend' | undefined
 	export let lines = false
 
-	function getLang(lang: Script.language | 'frontend' | undefined) {
+	function getLang(lang: Script['language'] | 'frontend' | undefined) {
 		switch (lang) {
 			case 'python3':
 				return python

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, FlowService, Script, AppService } from '$lib/gen'
+	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -23,7 +23,7 @@
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
 	export let itemKind: 'script' | 'flow' | 'app' = 'script'
-	export let kinds: Script.kind[] = [Script.kind.SCRIPT]
+	export let kinds: Script['kind'][] = ['script']
 	export let disabled = false
 	export let allowRefresh = false
 

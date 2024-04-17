@@ -69,7 +69,7 @@ export function pythonCompile(schema: Schema) {
 export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python3' | 'typescript') {
 	if (lang === 'python3') {
 		const result = resourceTypes.map((resourceType) => {
-			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema)}`
+			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
 		})
 		return '\n' + result.join('\n\n')
 	} else {
@@ -78,7 +78,9 @@ export function formatResourceTypes(resourceTypes: ResourceType[], lang: 'python
 				(resourceType) => Boolean(resourceType.schema) && typeof resourceType.schema === 'object'
 			)
 			.map((resourceType) => {
-				return `type ${toCamel(capitalize(resourceType.name))} = ${compile(resourceType.schema)}`
+				return `type ${toCamel(capitalize(resourceType.name))} = ${compile(
+					resourceType.schema as any
+				)}`
 			})
 		return '\n' + result.join('\n\n')
 	}

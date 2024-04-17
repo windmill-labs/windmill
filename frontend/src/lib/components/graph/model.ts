@@ -44,7 +44,7 @@ export type FlowStatusViewerContext = {
 	suspendStatus: Writable<Record<string, { nb: number; job: Job }>>
 }
 export type GraphModuleState = {
-	type: FlowStatusModule.type
+	type: FlowStatusModule['type']
 	args: any
 	logs?: string
 	result?: any

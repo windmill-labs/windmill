@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Script, type FlowModule } from '$lib/gen'
+	import { type FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
@@ -43,11 +43,11 @@
 	) {
 		const [module, state] = await pickScript(path, summary, flowModule.id, hash)
 
-		if (kind == Script.kind.APPROVAL) {
+		if (kind == 'approval') {
 			module.suspend = { required_events: 1, timeout: 1800 }
 		}
 
-		if (kind == Script.kind.TRIGGER) {
+		if (kind == 'trigger') {
 			if (!$schedule.cron) {
 				$schedule.cron = '0 */15 * * *'
 			}
@@ -116,7 +116,7 @@
 					scriptKind = kind
 					scriptTemplate = subkind
 
-					if (kind == Script.kind.TRIGGER) {
+					if (kind == 'trigger') {
 						if (!$schedule.cron) {
 							$schedule.cron = '0 */15 * * *'
 						}
@@ -128,7 +128,7 @@
 						}
 					}
 
-					if (kind == Script.kind.APPROVAL) {
+					if (kind == 'approval') {
 						module.suspend = { required_events: 1, timeout: 1800 }
 					}
 
