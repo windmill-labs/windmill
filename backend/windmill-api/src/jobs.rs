@@ -1013,49 +1013,62 @@ async fn cancel_all(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut jobs = sqlx::query!(
-        "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL RETURNING id, running, is_flow_step",
+    let jobs = sqlx::query!(
+        "SELECT id, running, is_flow_step FROM queue WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL",
         w_id,
-        authed.username
     )
     .fetch_all(&db)
     .await?;
 
     let username = authed.username;
+    let mut uuids = vec![];
     for j in jobs.iter() {
-        if !j.running && !j.is_flow_step.unwrap_or(false) {
-            let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
-            let job_running = get_queued_job(&j.id, &w_id, &db).await?;
+        let r = sqlx::query!(
+            "UPDATE queue SET canceled = true,  canceled_by = $1, scheduled_for = now(), suspend = 0 WHERE id = $2 RETURNING 1 as one",
+            username,
+            j.id,
+        )
+        .fetch_optional(&db)
+        .await;
 
-            if let Some(job_running) = job_running {
-                append_logs(
-                    j.id,
-                    w_id.clone(),
-                    format!("canceled by {username}: cancel_all"),
-                    db.clone(),
-                )
-                .await;
-                let add_job = add_completed_job_error(
-                    &db,
-                    &job_running,
-                    job_running.mem_peak.unwrap_or(0),
-                    Some(CanceledBy {
-                        username: Some(username.to_string()),
-                        reason: Some("cancel_all".to_string()),
-                    }),
-                    e,
-                    rsmq.clone(),
-                    "server",
-                    true,
-                )
-                .await;
-                if let Err(e) = add_job {
-                    tracing::error!("Failed to add canceled job: {}", e);
+        if r.as_ref().is_ok_and(|x| x.is_some()) {
+            uuids.push(j.id);
+
+            if !j.running && !j.is_flow_step.unwrap_or(false) {
+                let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
+                let job_running = get_queued_job(&j.id, &w_id, &db).await?;
+
+                if let Some(job_running) = job_running {
+                    append_logs(
+                        j.id,
+                        w_id.clone(),
+                        format!("canceled by {username}: cancel_all"),
+                        db.clone(),
+                    )
+                    .await;
+                    let add_job = add_completed_job_error(
+                        &db,
+                        &job_running,
+                        job_running.mem_peak.unwrap_or(0),
+                        Some(CanceledBy {
+                            username: Some(username.to_string()),
+                            reason: Some("cancel_all".to_string()),
+                        }),
+                        e,
+                        rsmq.clone(),
+                        "server",
+                        true,
+                    )
+                    .await;
+                    if let Err(e) = add_job {
+                        tracing::error!("Failed to add canceled job: {}", e);
+                    }
                 }
             }
+        } else {
+            tracing::error!("Failed to cancel job: {:?} {:?}", j.id, r.err());
         }
     }
-    let uuids = jobs.iter_mut().map(|j| j.id).collect::<Vec<_>>();
 
     Ok(Json(uuids))
 }
