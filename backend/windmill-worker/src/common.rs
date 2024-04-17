@@ -453,6 +453,26 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     }
 }
 
+pub fn sizeof_val(v: &serde_json::Value) -> usize {
+    std::mem::size_of::<serde_json::Value>()
+        + match v {
+            serde_json::Value::Null => 0,
+            serde_json::Value::Bool(_) => 0,
+            serde_json::Value::Number(_) => 4, // Incorrect if arbitrary_precision is enabled. oh well
+            serde_json::Value::String(s) => s.capacity(),
+            serde_json::Value::Array(a) => a.iter().map(sizeof_val).sum(),
+            serde_json::Value::Object(o) => o
+                .iter()
+                .map(|(k, v)| {
+                    std::mem::size_of::<String>()
+                        + k.capacity()
+                        + sizeof_val(v)
+                        + std::mem::size_of::<usize>() * 3
+                })
+                .sum(),
+        }
+}
+
 pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     job_id: Uuid,
     timeout: Option<i32>,
