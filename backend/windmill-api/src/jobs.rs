@@ -251,6 +251,7 @@ pub fn global_service() -> Router {
             get(get_completed_job_result_maybe),
         )
         .route("/getupdate/:id", get(get_job_update))
+        .route("/get_log_file/*file_path", get(get_log_file))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route(
             "/queue/cancel_persistent/*script_path",
@@ -3482,6 +3483,84 @@ pub struct JobUpdate {
     pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
     pub flow_status: Option<serde_json::Value>,
+}
+
+// #[cfg(all(feature = "enterprise", feature = "parquet"))]
+// async fn get_logs_from_store(
+//     log_offset: i32,
+//     logs: &str,
+//     log_file_index: Option<Vec<String>>,
+// ) -> Option<error::Result<Body>> {
+//     if log_offset > 0 {
+//         if let Some(file_index) = log_file_index {
+//             tracing::debug!("Getting logs from store: {file_index:?}");
+//             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+//                 tracing::debug!("object store client present, streaming from there");
+
+//                 let logs = logs.to_string();
+//                 let stream = async_stream::stream! {
+//                     for file_p in file_index {
+//                         let file_p_2 = file_p.clone();
+//                         let file = os.get(&object_store::path::Path::from(file_p)).await;
+//                         if let Ok(file) = file {
+//                             if let Ok(bytes) = file.bytes().await {
+//                                 yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
+//                             }
+//                         } else {
+//                             tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
+//                         }
+//                     }
+
+//                     yield Ok(bytes::Bytes::from(logs))
+//                 };
+//                 return Some(Ok(Body::from_stream(stream)));
+//             } else {
+//                 tracing::debug!("object store client not present, cannot stream logs from store");
+//             }
+//         }
+//     }
+//     return None;
+// }
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+        let file = os
+            .get(&object_store::path::Path::from(format!("logs/{file_p}")))
+            .await;
+        if let Ok(file) = file {
+            if let Ok(bytes) = file.bytes().await {
+                use axum::http::header;
+                let res = Response::builder()
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .body(Body::from(bytes::Bytes::from(bytes)))
+                    .unwrap();
+                return Ok(res);
+            } else {
+                return Err(error::Error::InternalErr(format!(
+                    "Error getting bytes from file: {}",
+                    file_p
+                )));
+            }
+        } else {
+            return Err(error::Error::NotFound(format!(
+                "File not found: {}",
+                file_p
+            )));
+        }
+    } else {
+        return Err(error::Error::InternalErr(
+            "Object store client not present, cannot stream logs from store".to_string(),
+        ));
+    }
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+    return Err(error::Error::NotFound(format!(
+        "Get log file is an EE feature: {}",
+        file_p
+    )));
 }
 
 async fn get_job_update(

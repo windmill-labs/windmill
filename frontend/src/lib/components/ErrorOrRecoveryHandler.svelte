@@ -9,7 +9,7 @@
 	import {
 		FlowService,
 		JobService,
-		Script,
+		type Script,
 		ScriptService,
 		WorkspaceService,
 		type Flow
@@ -101,8 +101,8 @@
 					path: p
 				})
 
-				if (hubScript.schema?.properties) {
-					schema = hubScript.schema
+				if ((hubScript.schema as any)?.properties) {
+					schema = hubScript.schema as any
 				} else {
 					await inferArgs(hubScript.language as SupportedLanguage, hubScript.content ?? '', schema)
 				}
@@ -201,7 +201,7 @@
 		<ScriptPicker
 			disabled={!isEditable || !$enterpriseLicense}
 			initialPath={customInitialScriptPath}
-			kinds={[Script.kind.SCRIPT, Script.kind.FAILURE]}
+			kinds={['script', 'failure']}
 			allowFlow={true}
 			bind:scriptPath={handlerPath}
 			bind:itemKind={customHandlerKind}

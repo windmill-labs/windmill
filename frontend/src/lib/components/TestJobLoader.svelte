@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService, type FlowStatus } from '$lib/gen'
+	import { type Job, JobService, type FlowStatus } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -105,7 +105,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: SupportedLanguage,
+		lang: SupportedLanguage | undefined,
 		args: Record<string, any>,
 		tag: string | undefined,
 		lock?: string

@@ -41,7 +41,7 @@
 	let validCode = true
 
 	async function inferInlineScriptSchema(
-		language: Preview.language,
+		language: Preview['language'],
 		content: string,
 		schema: Schema
 	): Promise<Schema> {

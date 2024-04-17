@@ -52,7 +52,7 @@
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
-	import { Preview, UserService } from '$lib/gen'
+	import { type Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -106,7 +106,7 @@
 	export let useWebsockets: boolean = true
 	export let listenEmptyChanges = false
 	export let small = false
-	export let scriptLang: Preview.language
+	export let scriptLang: Preview['language']
 	export let disabled: boolean = false
 
 	const rHash = randomHash()

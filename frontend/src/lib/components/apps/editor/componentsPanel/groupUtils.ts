@@ -25,14 +25,14 @@ export async function getGroup(
 	workspace: string,
 	path: string
 ): Promise<{
-	name: string,
+	name: string
 	value: any
 }> {
 	try {
 		return ResourceService.getResourceValue({
 			workspace,
 			path
-		})
+		}) as any
 	} catch (e) {
 		sendUserToast(`Group not found ${path}`)
 		return {

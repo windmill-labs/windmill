@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job, ScriptService, Script, type WorkflowStatus, NewScript } from '$lib/gen'
+	import {
+		JobService,
+		type Job,
+		ScriptService,
+		type Script,
+		type WorkflowStatus,
+		type NewScript
+	} from '$lib/gen'
 	import {
 		canWrite,
 		copyToClipboard,
@@ -246,7 +253,7 @@
 			let n: NewScript = {
 				path: job?.script_path + '_fork',
 				summary: 'Fork of preview of ' + job?.script_path,
-				language: job?.language as NewScript.language,
+				language: job?.language as NewScript['language'],
 				description: '',
 				content: job?.raw_code ?? ''
 			}

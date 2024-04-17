@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, type WorkflowStatus } from '../../gen'
+	import { type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -95,7 +95,7 @@
 			<JobArgs args={job?.args} />
 		</div>
 
-		{#if job?.type === Job.type.COMPLETED_JOB}
+		{#if job?.type === 'CompletedJob'}
 			<span class="font-semibold text-xs leading-6">Results</span>
 		{/if}
 
@@ -114,7 +114,7 @@
 				/>
 			{/if}
 
-			{#if job?.type === Job.type.COMPLETED_JOB}
+			{#if job?.type === 'CompletedJob'}
 				<Tabs bind:selected={viewTab}>
 					<Tab size="xs" value="result">Result</Tab>
 					<Tab size="xs" value="logs">Logs</Tab>

@@ -3,7 +3,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { FlowCopilotContext, FlowCopilotModule } from './flow'
-	import { ScriptService, type FlowModule, Script } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Script } from '$lib/gen'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { sendUserToast } from '$lib/toast'
 	import { nextId } from '../flows/flowModuleNextId'

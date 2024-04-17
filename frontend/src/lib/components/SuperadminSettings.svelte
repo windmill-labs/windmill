@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { UserService, GlobalUserInfo, SettingService } from '$lib/gen'
+	import { UserService, type GlobalUserInfo, SettingService } from '$lib/gen'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
@@ -58,7 +58,7 @@
 	let automateUsernameCreation = false
 	async function getAutomateUsernameCreationSetting() {
 		automateUsernameCreation =
-			(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
 	}
 	getAutomateUsernameCreationSetting()
 	let automateUsernameModalOpen = false

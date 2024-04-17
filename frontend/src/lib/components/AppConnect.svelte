@@ -191,7 +191,7 @@
 	}
 
 	async function loadConnects() {
-		const nconnects = await OauthService.listOAuthConnects()
+		const nconnects = (await OauthService.listOauthConnects()) as any
 		if (nconnects['supabase_wizard']) {
 			delete nconnects['supabase_wizard']
 		}

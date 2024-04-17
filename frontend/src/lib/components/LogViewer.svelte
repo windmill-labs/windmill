@@ -1,3 +1,7 @@
+<script lang="ts" context="module">
+	const s3LogPrefix = '[windmill] Previous logs have been saved to object storage at logs/'
+</script>
+
 <script lang="ts">
 	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
@@ -5,6 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import AnsiUp from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
+	import { JobService } from '$lib/gen'
 
 	export let content: string | undefined
 	export let isLoading: boolean
@@ -21,19 +26,37 @@
 	let scroll = true
 	let div: HTMLElement | null = null
 
+	// let downloadStartUrl: string | undefined = undefined
+
 	let LOG_INC = 10000
 	let LOG_LIMIT = LOG_INC
 
 	let lastJobId = jobId
+
+	let loadedFromObjectStore = ''
 	$: if (jobId !== lastJobId) {
 		lastJobId = jobId
 		LOG_LIMIT = LOG_INC
+		loadedFromObjectStore
 	}
-	$: truncatedContent = content
-		? (content.length ?? 0) > LOG_LIMIT
-			? content?.slice(-LOG_LIMIT)
-			: content
-		: ''
+
+	$: downloadStartUrl = truncatedContent.startsWith(s3LogPrefix)
+		? truncatedContent.substring(s3LogPrefix.length, truncatedContent.indexOf('\n'))
+		: undefined
+
+	$: truncatedContent = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+
+	function truncateContent(
+		jobContent: string | undefined,
+		loadedFromObjectStore: string,
+		limit: number
+	) {
+		let content = loadedFromObjectStore + jobContent ?? ''
+		if (content.length > limit) {
+			return content.substring(content.length - limit)
+		}
+		return content
+	}
 
 	$: if (content != undefined && isLoading) {
 		isLoading = false
@@ -41,12 +64,37 @@
 
 	$: truncatedContent && scrollToBottom()
 
-	$: html = ansi_up.ansi_to_html(truncatedContent ?? '')
+	$: html = ansi_up.ansi_to_html(
+		downloadStartUrl
+			? truncatedContent.substring(truncatedContent.indexOf('\n') + 2, truncatedContent.length)
+			: truncatedContent
+	)
 	export function scrollToBottom() {
 		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
 	let logViewer: Drawer
+
+	async function getStoreLogs() {
+		scroll = false
+		let res = (await JobService.getLogFileFromStore({
+			workspace: $workspaceStore ?? '',
+			path: downloadStartUrl
+		})) as string
+		downloadStartUrl = undefined
+		LOG_LIMIT += Math.min(LOG_INC, res.length)
+		loadedFromObjectStore = res + loadedFromObjectStore
+		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+		LOG_LIMIT -= newC.indexOf('\n') + 1
+	}
+
+	function showMoreTruncate(len: number) {
+		scroll = false
+		LOG_LIMIT += LOG_INC
+		console.log(LOG_INC, len, LOG_LIMIT)
+		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+		LOG_LIMIT -= newC.indexOf('\n') + 1
+	}
 </script>
 
 <Drawer bind:this={logViewer} size="900px">
@@ -78,11 +126,13 @@
 		<div>
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
-				>{#if content}{#if content?.length > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
-							on:click={() => {
-								scroll = false
-								LOG_LIMIT = LOG_LIMIT + Math.min(LOG_INC, content?.length ?? 0 - LOG_LIMIT)
-							}}>Show more</button
+				>{#if content}{@const len =
+						(content?.length ?? 0) +
+						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
+							on:click={getStoreLogs}>Show more...</button
+						><br
+						/>{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
+							on:click={() => showMoreTruncate(len)}>Show more</button
 						>
 					{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
@@ -91,7 +141,10 @@
 </Drawer>
 
 <div class="relative w-full h-full {wrapperClass}">
-	<div bind:this={div} class="w-full h-full overflow-auto relative bg-surface-secondary">
+	<div
+		bind:this={div}
+		class="w-full h-full overflow-auto relative bg-surface-secondary max-h-screen"
+	>
 		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
 			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
 				<div class="flex items-center">
@@ -139,14 +192,14 @@
 			>
 		{/if}
 		<pre class="whitespace-pre-wrap break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
-			>{#if content}{#if content?.length > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
-						on:click={() => {
-							scroll = false
-							LOG_LIMIT = LOG_LIMIT + Math.min(LOG_INC, content?.length ?? 0 - LOG_LIMIT)
-						}}>Show more</button
-					>
-				{/if}<span>{@html html}</span>{:else if !isLoading}<span>No logs are available yet</span
-				>{/if}</pre
+			>{#if content}{@const len =
+					(content?.length ?? 0) +
+					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}
+						>Show more...</button
+					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
+					/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
+					>{@html html}</span
+				>{:else if !isLoading}<span>No logs are available yet</span>{/if}</pre
 		>
 	</div>
 </div>

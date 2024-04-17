@@ -4,7 +4,6 @@
 	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Script, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { emptySchema } from '$lib/utils'
@@ -20,6 +19,7 @@
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
 	import { defaultScripts } from '$lib/stores'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
+	import type { Preview } from '$lib/gen'
 
 	export let name: string
 	export let componentType: string | undefined = undefined
@@ -33,7 +33,7 @@
 	const dispatch = createEventDispatcher()
 
 	async function inferInlineScriptSchema(
-		language: Preview.language,
+		language: Preview['language'],
 		content: string,
 		schema: Schema
 	): Promise<Schema> {
@@ -47,18 +47,18 @@
 	}
 
 	async function createInlineScriptByLanguage(
-		language: Preview.language,
+		language: Preview['language'],
 		path: string,
 		subkind: 'pgsql' | 'mysql' | 'fetch' | undefined = undefined
 	) {
 		const content =
-			defaultCode(componentType ?? '', subkind || language) ??
-			initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
+			defaultCode(componentType ?? '', (subkind || language) ?? '') ??
+			initialCode(language, 'script', subkind ?? 'flow')
 
 		return newInlineScript(content, language, path)
 	}
 
-	async function newInlineScript(content: string, language: Preview.language, path: string) {
+	async function newInlineScript(content: string, language: Preview['language'], path: string) {
 		const fullPath = `${appPath}/${path}`
 
 		let schema: Schema = emptySchema()
@@ -100,7 +100,7 @@
 			(x) =>
 				x[1] != 'docker' &&
 				($defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1]))
-		) as [string, Preview.language][]
+		) as [string, Preview['language']][]
 </script>
 
 <Drawer bind:this={picker} size="1000px">

@@ -35,7 +35,7 @@ export async function getTheme(
 		return AppService.getPublicResource({
 			workspace,
 			path
-		})
+		}) as any
 	} catch (e) {
 		sendUserToast(`Theme not found ${path}`)
 		return {
@@ -88,7 +88,7 @@ export async function resolveTheme(
 			path: theme.path
 		})
 
-		css = loadedCss.value ?? ''
+		css = (loadedCss as any).value ?? ''
 	}
 	return css
 }
