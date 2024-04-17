@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Table } from '@tanstack/svelte-table'
-	import { ChevronLeft, ChevronRight, Download } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, Columns, Download } from 'lucide-svelte'
 	import type { Readable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
@@ -11,11 +11,12 @@
 	export let manualPagination: boolean
 	export let pageSize: number
 	export let table: Readable<Table<T>>
+	export let download: boolean = true
+	export let loading: boolean = false
+
 	let c = ''
 	export { c as class }
 	export let style = ''
-	export let download: boolean = true
-	export let loading: boolean = false
 
 	function convertJSONToCSV(objArray: Record<string, any>[]) {
 		let str = ''
@@ -60,6 +61,30 @@
 		class={twMerge('px-2 py-1 text-xs gap-2 items-center justify-between', c, 'flex flex-row')}
 		{style}
 	>
+		<div class="flex items-center gap-1 flex-row">
+			{#if download}
+				<Button
+					size="xs2"
+					color="light"
+					on:click={downloadResultAsCSV}
+					startIcon={{ icon: Download }}
+					wrapperClasses="app-table-footer-btn"
+					iconOnly
+				/>
+			{/if}
+			{#if !$table.getIsAllColumnsVisible()}
+				<Button
+					size="xs2"
+					color="light"
+					on:click={() => {
+						$table.getAllColumns().forEach((column) => column.toggleVisibility(true))
+					}}
+					startIcon={{ icon: Columns }}
+					wrapperClasses="app-table-footer-btn"
+					iconOnly
+				/>
+			{/if}
+		</div>
 		{#if result.length > pageSize || manualPagination}
 			<div class="flex items-center gap-2 flex-row">
 				<Button
@@ -92,26 +117,12 @@
 				>
 					Next
 				</Button>
-				{$table.getState().pagination.pageIndex + 1}
-				{$table.getPageCount() > 0 ? ` of ${$table.getPageCount()}` : ''}
+				<div>
+					Page:
+					{$table.getState().pagination.pageIndex + 1}
+					{$table.getPageCount() > 0 ? ` of ${$table.getPageCount()}` : ''}
+				</div>
 			</div>
-		{:else}
-			<div />
 		{/if}
-		<div class="flex items-center gap-2 flex-row">
-			{#if download}
-				<Button
-					size="xs"
-					variant="border"
-					color="light"
-					btnClasses="!py-1"
-					on:click={downloadResultAsCSV}
-					startIcon={{ icon: Download }}
-					wrapperClasses="app-table-footer-btn"
-				>
-					Download
-				</Button>
-			{/if}
-		</div>
 	</div>
 {/if}

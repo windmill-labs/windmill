@@ -27,6 +27,6 @@
 	on:pointerdown|stopPropagation
 	on:keyup={debounce}
 	on:keydown|stopPropagation
-	class={twMerge(parentClass, 'mb-1 h-8 !rounded-md !shadow-sm')}
+	class={twMerge(parentClass, 'mb-1 h-8 !rounded-md !shadow-none')}
 	{...$$restProps}
 />

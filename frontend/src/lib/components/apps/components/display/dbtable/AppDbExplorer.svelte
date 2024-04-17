@@ -22,7 +22,7 @@
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Columns, LoaderIcon, Plus, RefreshCw, Settings } from 'lucide-svelte'
+	import { Columns, LoaderIcon, Plus, RefreshCw } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import InsertRow from './InsertRow.svelte'
 	import Portal from 'svelte-portal'
