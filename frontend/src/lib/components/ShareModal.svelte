@@ -1,8 +1,7 @@
 <script lang="ts">
 	import TableCustom from './TableCustom.svelte'
 
-	import { GranularAclService } from '$lib/gen/services/GranularAclService'
-	import { GroupService, UserService } from '$lib/gen'
+	import { GroupService, UserService, GranularAclService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { userStore, workspaceStore } from '$lib/stores'
