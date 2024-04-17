@@ -10,7 +10,7 @@
 	import { Button, Drawer, DrawerContent, Popup, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
-	import { canWrite } from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { Pen, Trash, Plus } from 'lucide-svelte'
@@ -25,7 +25,14 @@
 
 	async function loadFolders(): Promise<void> {
 		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite('f/' + x.name, x.extra_perms ?? {}, $userStore), ...x }
+			return {
+				canWrite:
+					$userStore != undefined &&
+					($userStore?.is_admin ||
+						$userStore?.is_super_admin ||
+						$userStore?.folders_owners.includes(x.name)),
+				...x
+			}
 		})
 	}
 
@@ -170,16 +177,20 @@
 											}
 										},
 										{
-											displayName: 'Delete',
+											displayName: `Delete${canWrite ? '' : ' (require owner permissions)'}`,
 											icon: Trash,
 											type: 'delete',
 											disabled: !canWrite,
 											action: async () => {
-												await FolderService.deleteFolder({
-													workspace: $workspaceStore ?? '',
-													name
-												})
-												loadFolders()
+												try {
+													await FolderService.deleteFolder({
+														workspace: $workspaceStore ?? '',
+														name
+													})
+												} catch (e) {
+													sendUserToast(e.body, true)
+													loadFolders()
+												}
 											}
 										}
 									]}
