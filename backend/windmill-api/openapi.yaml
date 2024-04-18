@@ -9747,6 +9747,11 @@ components:
         - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - $ref: "#/components/schemas/FlowMetadata"
 
+    ExtraPerms:
+      type: object
+      additionalProperties:
+        type: boolean
+
     FlowMetadata:
       type: object
       properties:
@@ -9762,9 +9767,7 @@ components:
         archived:
           type: boolean
         extra_perms:
-          type: object
-          additionalProperties:
-            type: boolean
+          $ref: "#/components/schemas/ExtraPerms"
         starred:
           type: boolean
         draft_only:
