@@ -350,6 +350,10 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 
 # Import-Module MyModule
 
+# Import-Module WindmillClient
+# Connect-Windmill
+# Get-WindmillVariable -Path 'u/user/foo'
+
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
