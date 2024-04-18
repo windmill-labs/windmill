@@ -14,7 +14,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
+	import Disposable, { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 
 	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
 	export let id: string
@@ -144,8 +144,12 @@
 				class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
 				use:clickOutside={false}
 				on:click_outside={(e) => {
-					if ($mode !== 'dnd' && !unclickableOutside) {
-						handleClickAway()
+					if (
+						$mode !== 'dnd' &&
+						!unclickableOutside &&
+						openedDrawers[openedDrawers.length - 1] === id
+					) {
+						handleClickAway(e)
 					}
 				}}
 			>

@@ -845,7 +845,7 @@ export const zIndexes = {
 	secondaryMenu: 1001,
 	splitPanelHandle: 1001,
 	colorInput: 1002,
-	modals: 1100,
+	disposables: 1100, // Modals and Drawers
 	svelteSelectOptions: 5000,
 	contextMenu: 6000,
 	draggingComponent: 10000,

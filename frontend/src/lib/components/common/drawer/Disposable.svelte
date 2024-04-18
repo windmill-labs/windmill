@@ -1,10 +1,10 @@
 <script lang="ts" context="module">
-	let openedDrawers: string[] = []
-
-	export const baseZIndex = 1100
+	export let openedDrawers: string[] = []
 </script>
 
 <script lang="ts">
+	import { zIndexes } from '$lib/utils'
+
 	import { createEventDispatcher } from 'svelte'
 
 	export let open = false
@@ -21,15 +21,22 @@
 	}
 
 	export function openDrawer() {
-		openedDrawers.push(id)
-		offset = openedDrawers.length - 1
 		open = true
+
+		if (openedDrawers.includes(id)) {
+			return
+		}
+
+		openedDrawers.push(id)
+
+		offset = openedDrawers.length - 1
 	}
 
 	export function closeDrawer() {
 		open = false
 		offset = 0
-		openedDrawers = openedDrawers.filter((x) => x != id)
+		// remove the last opened drawer
+		openedDrawers = openedDrawers.filter((drawer) => drawer !== id)
 	}
 
 	export function isOpen() {
@@ -38,9 +45,10 @@
 
 	const dispatch = createEventDispatcher()
 
-	function handleClickAway() {
+	function handleClickAway(e) {
+		e.stopPropagation()
 		dispatch('clickAway')
-		open = false
+		closeDrawer()
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -59,7 +67,7 @@
 		}
 	}
 
-	$: zIndex = baseZIndex + offset
+	$: zIndex = zIndexes.disposables + offset
 
 	$: open ? dispatch('open') : dispatch('close')
 </script>
