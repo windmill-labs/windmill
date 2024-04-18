@@ -36,8 +36,8 @@
 	let loadedFromObjectStore = ''
 	$: if (jobId !== lastJobId) {
 		lastJobId = jobId
+		loadedFromObjectStore = ''
 		LOG_LIMIT = LOG_INC
-		loadedFromObjectStore
 	}
 
 	$: downloadStartUrl = truncatedContent.startsWith(s3LogPrefix)
