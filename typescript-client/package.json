@@ -5,7 +5,8 @@
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
   "devDependencies": {
-    "@types/node": "^20.4.10"
+    "@types/node": "^20.4.10",
+    "typescript": "^5.4.5"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

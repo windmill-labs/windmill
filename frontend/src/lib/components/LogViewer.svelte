@@ -76,16 +76,20 @@
 	let logViewer: Drawer
 
 	async function getStoreLogs() {
-		scroll = false
-		let res = (await JobService.getLogFileFromStore({
-			workspace: $workspaceStore ?? '',
-			path: downloadStartUrl
-		})) as string
-		downloadStartUrl = undefined
-		LOG_LIMIT += Math.min(LOG_INC, res.length)
-		loadedFromObjectStore = res + loadedFromObjectStore
-		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
-		LOG_LIMIT -= newC.indexOf('\n') + 1
+		if (downloadStartUrl) {
+			scroll = false
+			let res = (await JobService.getLogFileFromStore({
+				workspace: $workspaceStore ?? '',
+				path: downloadStartUrl
+			})) as string
+			downloadStartUrl = undefined
+			LOG_LIMIT += Math.min(LOG_INC, res.length)
+			loadedFromObjectStore = res + loadedFromObjectStore
+			let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+			LOG_LIMIT -= newC.indexOf('\n') + 1
+		} else {
+			console.error('No file detected to download from')
+		}
 	}
 
 	function showMoreTruncate(len: number) {
