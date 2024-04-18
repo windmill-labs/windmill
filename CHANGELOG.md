@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.309.1](https://github.com/windmill-labs/windmill/compare/v1.309.0...v1.309.1) (2024-04-18)
+
+
+### Bug Fixes
+
+* improve log viewer loading from object store ([024ffde](https://github.com/windmill-labs/windmill/commit/024ffdeb6e8b517f91fd80c5eeea33c769197a69))
+
 ## [1.309.0](https://github.com/windmill-labs/windmill/compare/v1.308.1...v1.309.0) (2024-04-17)
 
 
