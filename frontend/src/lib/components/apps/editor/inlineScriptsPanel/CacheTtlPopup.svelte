@@ -2,6 +2,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Button, Popup, SecondsInput } from '$lib/components/common'
 	import { autoPlacement } from '@floating-ui/core'
+	import { Database } from 'lucide-svelte'
 
 	export let cache_ttl: number | undefined
 </script>
@@ -22,11 +23,11 @@
 				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 				: 'bg-surface text-primay hover:bg-hover'}
 			color="light"
-			variant="border"
+			variant="contained"
 			size="xs2"
-		>
-			Cache
-		</Button>
+			iconOnly
+			startIcon={{ icon: Database }}
+		/>
 	</svelte:fragment>
 	<div class="block text-primary">
 		<Toggle

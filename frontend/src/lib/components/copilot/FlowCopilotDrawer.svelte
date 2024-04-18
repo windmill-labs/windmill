@@ -23,10 +23,12 @@
 </script>
 
 <Drawer bind:this={$drawerStore}>
-	<DrawerContent on:close={$drawerStore.closeDrawer}
-	title="AI Flow Builder"
-	tooltip="Build flows from prompts"
-	documentationLink="https://www.windmill.dev/docs/core_concepts/ai_generation#windmill-ai-for-flows">
+	<DrawerContent
+		on:close={$drawerStore.closeDrawer}
+		title="AI Flow Builder"
+		tooltip="Build flows from prompts"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/ai_generation#windmill-ai-for-flows"
+	>
 		<div class="flex flex-col gap-6">
 			{#if $flowStore.value.modules.length > 0 && $currentStepStore === undefined}
 				<Alert type="error" title="Flow not empty">All flow steps will be overriden</Alert>

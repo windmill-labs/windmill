@@ -18,7 +18,7 @@
 		getRows: async function (params) {
 			try {
 				const searchCol = params.filterModel ? Object.keys(params.filterModel)?.[0] : undefined
-				const res = await HelpersService.loadParquetPreview({
+				const res = (await HelpersService.loadParquetPreview({
 					workspace: $workspaceStore!,
 					path: s3resource,
 					offset: params.startRow,
@@ -27,11 +27,11 @@
 					sortDesc: params.sortModel?.[0]?.sort == 'desc',
 					searchCol: searchCol,
 					searchTerm: searchCol ? params.filterModel?.[searchCol]?.filter : undefined
-				})
+				})) as any
 
 				const data: any[] = []
 
-				res.columns.forEach((c) => {
+				res?.columns?.forEach((c) => {
 					c.values.forEach((v, i) => {
 						if (data[i] == undefined) {
 							data.push({ __index: params.startRow + i })

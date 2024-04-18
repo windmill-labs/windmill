@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { mergeSchema } from '$lib/common'
-	import { Job, JobService } from '$lib/gen'
+	import { type Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { X } from 'lucide-svelte'
@@ -36,10 +36,10 @@
 			return {}
 		}
 		lastJobId = jobId
-		let job_result = await JobService.getCompletedJobResult({
+		let job_result = (await JobService.getCompletedJobResult({
 			workspace: workspaceId ?? $workspaceStore ?? '',
 			id: jobId
-		})
+		})) as any
 		const args = job_result?.default_args ?? {}
 		description = job_result?.description
 		defaultValues = JSON.parse(JSON.stringify(args))
@@ -81,7 +81,7 @@
 				await JobService.resumeSuspendedJobPost({
 					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: jobId,
-					requestBody: default_payload,
+					requestBody: default_payload as any,
 					resumeId,
 					signature,
 					approver
@@ -101,7 +101,7 @@
 				await JobService.resumeSuspendedFlowAsOwner({
 					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: job?.id ?? '',
-					requestBody: default_payload
+					requestBody: default_payload as any
 				})
 			} else {
 				await JobService.cancelQueuedJob({

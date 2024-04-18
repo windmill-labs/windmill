@@ -341,6 +341,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				actions={component.actions ?? []}
 				bind:initializing
 				{render}
 			/>

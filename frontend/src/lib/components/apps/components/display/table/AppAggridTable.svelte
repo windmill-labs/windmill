@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import { SvelteComponent, getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type {
 		AppViewerContext,
@@ -27,6 +27,7 @@
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
+	import { cellRendererFactory } from './utils'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -167,25 +168,9 @@
 
 	$: loaded && eGui && mountGrid()
 
-	const cachedDivs = new Map<
-		number,
-		{
-			div: HTMLDivElement
-			svelteComponent: SvelteComponent
-			actions: TableAction[]
-		}
-	>()
-
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
 			lastActions = [...actions]
-
-			cachedDivs.forEach((cachedDiv) => {
-				cachedDiv.svelteComponent.$destroy()
-				cachedDiv.div.remove()
-			})
-
-			cachedDivs.clear()
 
 			updateOptions()
 		}
@@ -196,21 +181,12 @@
 
 	let inputs = {}
 
-	function actionRenderer(params) {
-		const { rowIndex, data: row } = params
-		if (rowIndex === -1 || actions == undefined || actions?.length == 0) {
-			return null
-		}
+	const tableActionsFactory = cellRendererFactory((c, p) => {
+		const rowIndex = p.node.rowIndex ?? 0
+		const row = p.data
 
-		if (cachedDivs.has(rowIndex)) {
-			return cachedDivs.get(rowIndex)?.div
-		}
-
-		const div = document.createElement('div')
-		div.classList.add('flex', 'flex-row', 'items-center', 'w-full', 'h-full')
-
-		const svelteComponent = new AppAggridTableActions({
-			target: div,
+		new AppAggridTableActions({
+			target: c.eGui,
 			props: {
 				id: id,
 				actions,
@@ -242,15 +218,7 @@
 			},
 			context: new Map([['AppViewerContext', context]])
 		})
-
-		cachedDivs.set(rowIndex, {
-			div,
-			actions,
-			svelteComponent
-		})
-
-		return div
-	}
+	})
 
 	function mountGrid() {
 		if (eGui) {
@@ -264,7 +232,7 @@
 				if (actions && actions.length > 0) {
 					columnDefs.push({
 						headerName: 'Actions',
-						cellRenderer: actionRenderer,
+						cellRenderer: tableActionsFactory,
 						autoHeight: true,
 						cellStyle: { textAlign: 'center' },
 						cellClass: 'grid-cell-centered',
@@ -388,7 +356,7 @@
 			if (actions && actions.length > 0) {
 				columnDefs.push({
 					headerName: 'Actions',
-					cellRenderer: actionRenderer,
+					cellRenderer: tableActionsFactory,
 					autoHeight: true,
 					cellStyle: { textAlign: 'center' },
 					cellClass: 'grid-cell-centered',

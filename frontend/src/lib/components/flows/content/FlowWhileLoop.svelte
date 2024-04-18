@@ -8,14 +8,13 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
 	import { Button, Drawer, Tab, TabContent, Tabs, Alert } from '$lib/components/common'
-	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { enterpriseLicense } from '$lib/stores'
 
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play } from 'lucide-svelte'
-	import type { Job } from '$lib/gen'
+	import type { FlowModule, Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 
@@ -56,10 +55,17 @@
 		<Splitpanes horizontal class="!max-h-[calc(100%-48px)]">
 			<Pane size={60} minSize={20} class="p-4">
 				{#if !noEditor}
-					<Alert type="info" title="While loops" class="mb-4" size="xs" documentationLink="https://www.windmill.dev/docs/flows/while_loops">
+					<Alert
+						type="info"
+						title="While loops"
+						class="mb-4"
+						size="xs"
+						documentationLink="https://www.windmill.dev/docs/flows/while_loops"
+					>
 						Add steps inside the while loop but have one of them use early stop/break in their
-						Advanced settings (or do it at the loop level that will watch the last step) to break out of the while loop (otherwise it will loop forever and you
-						will have to cancel the flow manually).
+						Advanced settings (or do it at the loop level that will watch the last step) to break
+						out of the while loop (otherwise it will loop forever and you will have to cancel the
+						flow manually).
 					</Alert>
 				{/if}
 

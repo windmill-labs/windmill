@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {
 		JobService,
-		Job,
-		CompletedJob,
+		type Job,
+		type CompletedJob,
 		UserService,
 		FolderService,
 		ScriptService,

@@ -66,7 +66,11 @@ function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppS
 			})
 		}
 
-		if (component.type === 'aggridcomponent' || component.type === 'aggridcomponentee') {
+		if (
+			component.type === 'aggridcomponent' ||
+			component.type === 'aggridcomponentee' ||
+			component.type === 'dbexplorercomponent'
+		) {
 			component.actions?.forEach((actionButton) => {
 				if (actionButton.componentInput?.type !== 'runnable') {
 					return

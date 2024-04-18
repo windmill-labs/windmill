@@ -3,7 +3,7 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, AppWithLastVersion, DraftService, type ListableApp } from '$lib/gen'
+	import { AppService, type AppWithLastVersion, DraftService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'

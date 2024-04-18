@@ -1,4 +1,4 @@
-import { ScriptService, type MainArgSignature, FlowService, Script } from '$lib/gen'
+import { ScriptService, type MainArgSignature, FlowService, type Script } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
@@ -42,7 +42,7 @@ export function parseDeps(code: string): string[] {
 }
 
 export async function inferArgs(
-	language: SupportedLanguage,
+	language: SupportedLanguage | undefined,
 	code: string,
 	schema: Schema
 ): Promise<void> {
@@ -57,7 +57,7 @@ export async function inferArgs(
 		}
 
 		let inlineDBResource: string | undefined = undefined
-		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql'].includes(language)) {
+		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql'].includes(language ?? '')) {
 			inlineDBResource = parse_db_resource(code)
 		}
 		if (language == 'python3') {
@@ -157,7 +157,7 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
 		if (schema && typeof schema === 'object' && 'properties' in schema) {
-			return schema
+			return schema as any
 		} else {
 			const newSchema = emptySchema()
 			await inferArgs(language as SupportedLanguage, content ?? '', newSchema)
@@ -220,8 +220,8 @@ export async function loadSchema(
 			script.schema = emptySchema()
 		}
 
-		await inferArgs(script.language as SupportedLanguage, script.content, script.schema)
-		return { schema: script.schema, summary: script.summary }
+		await inferArgs(script.language as SupportedLanguage, script.content, script.schema as any)
+		return { schema: script.schema as any, summary: script.summary }
 	}
 }
 
