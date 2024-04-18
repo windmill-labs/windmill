@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.308.2](https://github.com/windmill-labs/windmill/compare/v1.308.1...v1.308.2) (2024-04-17)
+
+
+### Bug Fixes
+
+* **backend:** prevent push fail of schedule error handling from reverting job completion ([#3568](https://github.com/windmill-labs/windmill/issues/3568)) ([fdaa49a](https://github.com/windmill-labs/windmill/commit/fdaa49a7e964640be2857a5b677fae7cdefdc5b1))
+
+## [1.308.1](https://github.com/windmill-labs/windmill/compare/v1.308.0...v1.308.1) (2024-04-16)
+
+
+### Bug Fixes
+
+* fix delete perms user folders ([456b903](https://github.com/windmill-labs/windmill/commit/456b9037666d2986be7a0663a5dab19f2067580f))
+
 ## [1.308.0](https://github.com/windmill-labs/windmill/compare/v1.307.0...v1.308.0) (2024-04-16)
 
 
