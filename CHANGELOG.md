@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.309.2](https://github.com/windmill-labs/windmill/compare/v1.309.1...v1.309.2) (2024-04-18)
+
+
+### Bug Fixes
+
+* update go and typesript client ([f3666ea](https://github.com/windmill-labs/windmill/commit/f3666ea140f0e373973e6470694d72491f03496f))
+
 ## [1.309.1](https://github.com/windmill-labs/windmill/compare/v1.309.0...v1.309.1) (2024-04-18)
 
 
