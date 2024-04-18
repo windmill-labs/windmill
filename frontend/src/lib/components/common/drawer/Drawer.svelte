@@ -2,13 +2,14 @@
 	import { onMount, createEventDispatcher } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
-	import Portal from 'svelte-portal'
+	import ConditionalPortal from './ConditionalPortal.svelte'
 
 	export let open = false
 	export let duration = 0.3
 	export let placement = 'right'
 	export let size = '600px'
 	export let alwaysOpen = false
+	export let shouldUsePortal: boolean = true
 
 	let disposable: Disposable | undefined = undefined
 
@@ -60,7 +61,7 @@
 	})
 </script>
 
-<Portal>
+<ConditionalPortal condition={shouldUsePortal}>
 	<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable} on:open on:close>
 		<aside
 			class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
@@ -78,7 +79,7 @@
 			</div>
 		</aside>
 	</Disposable>
-</Portal>
+</ConditionalPortal>
 
 <style>
 	.drawer {

@@ -588,46 +588,44 @@
 	</div>
 
 	{#if !disableExpand && !noControls}
-		<Portal>
-			<Drawer bind:this={jsonViewer} size="900px">
-				<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-					<svelte:fragment slot="actions">
-						<Button
-							download="{filename ?? 'result'}.json"
-							href={workspaceId && jobId
-								? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-							startIcon={{ icon: Download }}
-							color="light"
-							size="xs"
-						>
-							Download
-						</Button>
-						<Button
-							on:click={() => copyToClipboard(toJsonStr(result))}
-							color="light"
-							size="xs"
-							startIcon={{
-								icon: ClipboardCopy
-							}}
-						>
-							Copy to clipboard
-						</Button>
-					</svelte:fragment>
-					<svelte:self
-						{noControls}
-						{result}
-						{requireHtmlApproval}
-						{filename}
-						{jobId}
-						{workspaceId}
-						{hideAsJson}
-						{forceJson}
-						disableExpand={true}
-					/>
-				</DrawerContent>
-			</Drawer>
-		</Portal>
+		<Drawer bind:this={jsonViewer} size="900px">
+			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+				<svelte:fragment slot="actions">
+					<Button
+						download="{filename ?? 'result'}.json"
+						href={workspaceId && jobId
+							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+						startIcon={{ icon: Download }}
+						color="light"
+						size="xs"
+					>
+						Download
+					</Button>
+					<Button
+						on:click={() => copyToClipboard(toJsonStr(result))}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: ClipboardCopy
+						}}
+					>
+						Copy to clipboard
+					</Button>
+				</svelte:fragment>
+				<svelte:self
+					{noControls}
+					{result}
+					{requireHtmlApproval}
+					{filename}
+					{jobId}
+					{workspaceId}
+					{hideAsJson}
+					{forceJson}
+					disableExpand={true}
+				/>
+			</DrawerContent>
+		</Drawer>
 
 		<Portal>
 			<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />

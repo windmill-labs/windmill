@@ -50,7 +50,6 @@
 	} from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from '$lib/autosize'
-	import Portal from 'svelte-portal'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -360,21 +359,19 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
-<Portal>
-	<Drawer bind:this={inferrer} size="800px">
-		<DrawerContent title="Infer type from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
-			<SimpleEditor
-				bind:code={inferrerJson}
-				lang="json"
-				class="h-full"
-				fixedOverflowWidgets={false}
-			/>
-			<svelte:fragment slot="actions">
-				<Button size="sm" on:click={inferJson}>Infer</Button>
-			</svelte:fragment>
-		</DrawerContent>
-	</Drawer>
-</Portal>
+<Drawer bind:this={inferrer} size="800px">
+	<DrawerContent title="Infer type from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
+		<SimpleEditor
+			bind:code={inferrerJson}
+			lang="json"
+			class="h-full"
+			fixedOverflowWidgets={false}
+		/>
+		<svelte:fragment slot="actions">
+			<Button size="sm" on:click={inferJson}>Infer</Button>
+		</svelte:fragment>
+	</DrawerContent>
+</Drawer>
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>

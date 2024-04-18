@@ -26,14 +26,13 @@
 
 	export function openDrawer() {
 		open = true
+		offset = openedDrawers.length - 1
 
 		if (openedDrawers.includes(id)) {
 			return
 		}
 
 		openedDrawers.push(id)
-
-		offset = openedDrawers.length - 1
 	}
 
 	export function closeDrawer() {
