@@ -84,7 +84,10 @@
 			let renderer: (props: CCProps<number>) => void =
 				globalThis.windmill[customComponent?.name ?? 'no_name']
 			if (!renderer) {
-				sendUserToast('Custom Component seem to be ill-defined (renderer missing)', true)
+				sendUserToast(
+					'Custom Component seem to be ill-defined (renderer missing). is COMPONENT_NAME in vite.config.ts matching the name of the custom component?',
+					true
+				)
 				return
 			}
 			renderer?.(ccProps)

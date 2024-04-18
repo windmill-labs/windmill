@@ -7,7 +7,6 @@
 		ScheduleService,
 		type Script
 	} from '$lib/gen'
-	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -62,6 +61,7 @@
 	import { writable } from 'svelte/store'
 	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -88,12 +88,15 @@
 		args: {},
 		enabled: false
 	})
+
 	async function loadSchedule() {
 		const scheduleRes = await loadScriptSchedule(initialPath, $workspaceStore!)
 		if (scheduleRes) {
 			scheduleStore.set(scheduleRes)
 		}
 	}
+
+	const dispatch = createEventDispatcher()
 
 	$: {
 		if (initialPath != '') {
@@ -290,7 +293,7 @@
 			if (stay) {
 				script.parent_hash = newHash
 			} else {
-				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+				dispatch('deploy', newHash)
 			}
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
@@ -389,7 +392,7 @@
 
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
 				initialPath = script.path
-				goto(`/scripts/edit/${script.path}`)
+				dispatch('saveInitial', script.path)
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -422,7 +425,7 @@
 									{
 										label: 'Exit & See details',
 										onClick: () => {
-											goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
+											dispatch('seeDetails', initialPath)
 										}
 									}
 							  ]
