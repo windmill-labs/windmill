@@ -1,4 +1,4 @@
-import { JobService, Preview, ResourceService } from '$lib/gen'
+import { JobService, type Preview, ResourceService } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 import {
 	buildClientSchema,
@@ -64,10 +64,10 @@ export async function loadTableMetaData(
 	let code: string = ''
 
 	if (resourceType === 'mysql') {
-		const resourceObj = await ResourceService.getResourceValue({
+		const resourceObj = (await ResourceService.getResourceValue({
 			workspace,
 			path: resource.split(':')[1]
-		})
+		})) as any
 		code = `
 	SELECT 
 			COLUMN_NAME as field,
@@ -190,10 +190,10 @@ order by c.ORDINAL_POSITION;`
 
 			await new Promise((resolve) => setTimeout(resolve, 3000))
 
-			const testResult = await JobService.getCompletedJob({
+			const testResult = (await JobService.getCompletedJob({
 				workspace: workspace,
 				id: job
-			})
+			})) as any
 
 			if (testResult.success) {
 				attempts = maxRetries
@@ -434,7 +434,7 @@ export async function getDbSchemas(
 		const job = await JobService.runScriptPreview({
 			workspace: workspace,
 			requestBody: {
-				language: scripts[resourceType].lang as Preview.language,
+				language: scripts[resourceType].lang as Preview['language'],
 				content: scripts[resourceType].code,
 				args: {
 					[scripts[resourceType].argName]: '$res:' + resourcePath
@@ -455,7 +455,7 @@ export async function getDbSchemas(
 						if (resourceType !== undefined) {
 							if (resourceType !== 'graphql') {
 								const { processingFn } = scripts[resourceType]
-								const schema =
+								const schema: any =
 									processingFn !== undefined ? processingFn(testResult.result) : testResult.result
 
 								const dbSchema = {
@@ -468,7 +468,10 @@ export async function getDbSchemas(
 									stringified: stringifySchema(dbSchema)
 								}
 							} else {
-								if (typeof testResult.result !== 'object' || !('__schema' in testResult.result)) {
+								if (
+									typeof testResult.result !== 'object' ||
+									!('__schema' in (testResult?.result ?? {}))
+								) {
 									console.error('Invalid GraphQL schema')
 
 									errorCallback('Invalid GraphQL schema')
@@ -478,8 +481,8 @@ export async function getDbSchemas(
 										schema: testResult.result
 									}
 									dbSchemas[resourcePath] = {
-										...dbSchema,
-										stringified: stringifySchema(dbSchema)
+										...(dbSchema as any),
+										stringified: stringifySchema(dbSchema as any)
 									}
 								}
 							}
@@ -640,13 +643,13 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 		})
 }
 
-export function getLanguageByResourceType(name: string) {
+export function getLanguageByResourceType(name: string): Preview['language'] {
 	const language = {
-		postgresql: Preview.language.POSTGRESQL,
-		mysql: Preview.language.MYSQL,
-		ms_sql_server: Preview.language.MSSQL,
-		snowflake: Preview.language.SNOWFLAKE,
-		bigquery: Preview.language.BIGQUERY
+		postgresql: 'postgresql',
+		mysql: 'mysql',
+		ms_sql_server: 'mssql',
+		snowflake: 'snowflake',
+		bigquery: 'bigquery'
 	}
 	return language[name]
 }
@@ -704,10 +707,10 @@ export async function getTablesByResource(
 			return paths
 		}
 		case 'mysql': {
-			const resourceObj = await ResourceService.getResourceValue({
+			const resourceObj = (await ResourceService.getResourceValue({
 				workspace,
 				path: resourcePath
-			})
+			})) as any
 			const paths: string[] = []
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {

@@ -14,7 +14,7 @@
 	import {
 		FlowService,
 		ScheduleService,
-		Script,
+		type Script,
 		ScriptService,
 		type Flow,
 		SettingService,
@@ -79,12 +79,12 @@
 		let defaultErrorHandlerMaybe = undefined
 		let defaultRecoveryHandlerMaybe = undefined
 		if ($workspaceStore) {
-			defaultErrorHandlerMaybe = await SettingService.getGlobal({
+			defaultErrorHandlerMaybe = (await SettingService.getGlobal({
 				key: 'default_error_handler_' + $workspaceStore!
-			})
-			defaultRecoveryHandlerMaybe = await SettingService.getGlobal({
+			})) as any
+			defaultRecoveryHandlerMaybe = (await SettingService.getGlobal({
 				key: 'default_recovery_handler_' + $workspaceStore!
-			})
+			})) as any
 		}
 
 		edit = false
@@ -498,7 +498,7 @@
 					<ScriptPicker
 						disabled={initialScriptPath != '' || !can_write}
 						initialPath={initialScriptPath}
-						kinds={[Script.kind.SCRIPT]}
+						kinds={['script']}
 						allowFlow={true}
 						bind:itemKind
 						bind:scriptPath={script_path}

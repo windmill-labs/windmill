@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
+	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button, Drawer, Popup } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'

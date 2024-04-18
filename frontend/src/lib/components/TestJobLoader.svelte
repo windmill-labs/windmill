@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { Job, JobService, type FlowStatus } from '$lib/gen'
+	import { type Job, JobService, type FlowStatus, type Preview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
-	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
@@ -105,7 +104,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: SupportedLanguage,
+		lang: SupportedLanguage | undefined,
 		args: Record<string, any>,
 		tag: string | undefined,
 		lock?: string
@@ -117,7 +116,7 @@
 					path,
 					content: code,
 					args,
-					language: lang as Preview.language,
+					language: lang as Preview['language'],
 					tag,
 					lock
 				}

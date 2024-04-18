@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { NewScript, Script, ScriptService } from '$lib/gen'
+	import { type NewScript, ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { defaultScripts, workspaceStore } from '$lib/stores'
@@ -42,7 +42,7 @@
 				$defaultScripts?.order?.filter(
 					(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
 				)?.[0] ?? 'bun',
-			kind: Script.kind.SCRIPT
+			kind: 'script'
 		}
 	}
 
@@ -72,7 +72,7 @@
 			script.description = `Fork of ${hubPath}`
 			script.content = content
 			script.summary = summary ?? ''
-			script.language = language as Script.language
+			script.language = language as Script['language']
 			scriptBuilder?.setCode(script.content)
 		}
 	}

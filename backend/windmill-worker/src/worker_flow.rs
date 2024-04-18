@@ -671,7 +671,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .root_job
             .map(|x| x.to_string())
             .unwrap_or_else(|| "none".to_string());
-        tracing::info!(id = %flow_job.id, root_id = %job_root, worker_name = %worker_name, "update flow status");
+        tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
         let module = get_module(&flow_job, module_index);
 
@@ -869,7 +869,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         }
 
         if let Some(parent_job) = flow_job.parent_job {
-            tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, worker_name = %worker_name, "subflow is finished, updating parent flow status");
+            tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
 
             return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
                 flow: parent_job,

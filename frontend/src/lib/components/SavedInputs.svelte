@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { InputService, type Input, RunnableType, type CreateInput, Job } from '$lib/gen/index.js'
+	import {
+		InputService,
+		type Input,
+		type RunnableType,
+		type CreateInput,
+		type Job
+	} from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
@@ -35,12 +41,14 @@
 	const dispatch = createEventDispatcher()
 
 	$: runnableId = scriptHash || scriptPath || flowPath || undefined
+
+	let runnableType: RunnableType | undefined = undefined
 	$: runnableType = scriptHash
-		? RunnableType.SCRIPT_HASH
+		? 'ScriptHash'
 		: scriptPath
-		? RunnableType.SCRIPT_PATH
+		? 'ScriptPath'
 		: flowPath
-		? RunnableType.FLOW_PATH
+		? 'FlowPath'
 		: undefined
 
 	async function loadInputHistory() {
@@ -66,7 +74,7 @@
 
 		const requestBody: CreateInput = {
 			name: 'Saved ' + displayDate(new Date()),
-			args
+			args: args as any
 		}
 
 		try {

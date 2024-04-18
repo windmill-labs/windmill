@@ -1,11 +1,11 @@
 <script lang="ts">
 	import {
-		FlowStatusModule,
-		Job,
+		type FlowStatusModule,
+		type Job,
 		JobService,
 		type FlowStatus,
-		CompletedJob,
-		QueuedJob,
+		type CompletedJob,
+		type QueuedJob,
 		type FlowModuleValue
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -151,13 +151,12 @@
 		if ($localModuleStates) {
 			innerModules.forEach((mod, i) => {
 				if (
-					mod.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
-					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
-						FlowStatusModule.type.SUCCESS
+					mod.type === 'WaitingForEvents' &&
+					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
 				) {
 					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args })
 				} else if (
-					mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
+					mod.type === 'WaitingForExecutor' &&
 					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
 				) {
 					JobService.getJob({
@@ -273,7 +272,7 @@
 			let started_at = job.started_at ? new Date(job.started_at).getTime() : undefined
 			if (job.type == 'QueuedJob') {
 				setModuleState(mod.id, {
-					type: FlowStatusModule.type.IN_PROGRESS,
+					type: 'InProgress',
 					job_id: job.id,
 					logs: job.logs,
 					args: job.args,
@@ -287,7 +286,7 @@
 			} else {
 				setModuleState(mod.id, {
 					args: job.args,
-					type: job['success'] ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
+					type: job['success'] ? 'Success' : 'Failure',
 					logs: job.logs,
 					result: job['result'],
 					job_id: job.id,
@@ -347,7 +346,7 @@
 
 			if (jobLoaded.type == 'QueuedJob') {
 				setModuleState(modId, {
-					type: FlowStatusModule.type.IN_PROGRESS,
+					type: 'InProgress',
 					started_at,
 					logs: jobLoaded.logs,
 					job_id,
@@ -365,7 +364,7 @@
 				setModuleState(modId, {
 					started_at,
 					args: jobLoaded.args,
-					type: jobLoaded.success ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
+					type: jobLoaded.success ? 'Success' : 'Failure',
 					logs: 'All jobs completed',
 					result: jobResults,
 					job_id,
@@ -492,7 +491,7 @@
 							logs={job.logs}
 						/>
 					</div>
-				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
+				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
 					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
 				{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}
 					<div class="flex gap-2 flex-col">
@@ -514,7 +513,7 @@
 				{:else if innerModules?.length > 0}
 					<div class="flex flex-col gap-1">
 						{#each innerModules as mod, i (mod.id)}
-							{#if mod.type == FlowStatusModule.type.IN_PROGRESS}
+							{#if mod.type == 'InProgress'}
 								{@const rawMod = job.raw_flow?.modules[i]}
 
 								<div
@@ -651,7 +650,7 @@
 							<div class="line w-8 h-10" />
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
-							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
+							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
 										globalModuleStates={[]}
@@ -811,9 +810,8 @@
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder
-											loading={node.type != FlowStatusModule.type.SUCCESS &&
-												node.type != FlowStatusModule.type.FAILURE}
-											refreshLog={node.type == FlowStatusModule.type.IN_PROGRESS}
+											loading={node.type != 'Success' && node.type != 'Failure'}
+											refreshLog={node.type == 'InProgress'}
 											col
 											result={node.result}
 											logs={node.logs}

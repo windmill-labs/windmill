@@ -53,7 +53,13 @@ pub fn initialize_tracing() {
     match json_fmt {
         true => ts_base.with(json_layer().flatten_event(true)).init(),
         false => ts_base
-            .with(compact_layer().with_ansi(style.to_lowercase() != "never"))
+            .with(
+                compact_layer()
+                    .with_ansi(style.to_lowercase() != "never")
+                    .with_file(true)
+                    .with_line_number(true)
+                    .with_target(false),
+            )
             .init(),
     }
 }

@@ -7,8 +7,6 @@
 		DraftService,
 		type PathScript,
 		ScriptService,
-		Script,
-		type HubScriptKind,
 		type OpenFlow,
 		type RawScript,
 		type InputTransform
@@ -83,7 +81,6 @@
 		  })
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let gotoEdit: ((path: string, selected: string) => void) | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -529,7 +526,7 @@
 			$copilotModulesStore[idx].hubCompletions = scripts as {
 				path: string
 				summary: string
-				kind: HubScriptKind
+				kind: string
 				app: string
 				ask_id: number
 			}[]
@@ -669,7 +666,7 @@
 				value: {
 					input_transforms: {},
 					content: '',
-					language: (module.lang ?? 'bun') as Script.language,
+					language: module.lang ?? 'bun',
 					type: 'rawscript'
 				},
 				summary: module.description
@@ -789,7 +786,8 @@
 								const flowInputKey = expr.match(/flow_input\.([A-Za-z0-9_]+)/)?.[1]
 								if (
 									flowInputKey !== undefined &&
-									(!$flowStore.schema || !(flowInputKey in $flowStore.schema.properties)) // prevent overriding flow inputs
+									(!$flowStore.schema ||
+										!(flowInputKey in (($flowStore.schema.properties as any) ?? {}))) // prevent overriding flow inputs
 								) {
 									if (key in stepSchema.properties) {
 										copilotFlowInputs[flowInputKey] = stepSchema.properties[key]
@@ -848,7 +846,7 @@
 								const snakeKey = snakeCase(key)
 								if (
 									schemaProperty &&
-									(!$flowStore.schema || !(snakeKey in $flowStore.schema.properties)) // prevent overriding flow inputs
+									(!$flowStore.schema || !(snakeKey in ($flowStore.schema.properties as any) ?? {})) // prevent overriding flow inputs
 								) {
 									copilotFlowInputs[snakeKey] = schemaProperty
 									if (schema.required.includes(snakeKey)) {

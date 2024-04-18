@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.309.2](https://github.com/windmill-labs/windmill/compare/v1.309.1...v1.309.2) (2024-04-18)
+
+
+### Bug Fixes
+
+* update go and typesript client ([f3666ea](https://github.com/windmill-labs/windmill/commit/f3666ea140f0e373973e6470694d72491f03496f))
+
+## [1.309.1](https://github.com/windmill-labs/windmill/compare/v1.309.0...v1.309.1) (2024-04-18)
+
+
+### Bug Fixes
+
+* improve log viewer loading from object store ([024ffde](https://github.com/windmill-labs/windmill/commit/024ffdeb6e8b517f91fd80c5eeea33c769197a69))
+
+## [1.309.0](https://github.com/windmill-labs/windmill/compare/v1.308.1...v1.309.0) (2024-04-17)
+
+
+### Features
+
+* show more for logs on s3 directly possible from browser log viewer ([071a0ae](https://github.com/windmill-labs/windmill/commit/071a0ae92728c1a13a61ad3283cf0a680bdfd079))
+
+
+### Bug Fixes
+
+* **backend:** prevent push fail of schedule error handling from reverting job completion ([#3568](https://github.com/windmill-labs/windmill/issues/3568)) ([fdaa49a](https://github.com/windmill-labs/windmill/commit/fdaa49a7e964640be2857a5b677fae7cdefdc5b1))
+* fix autosize when not rendered at initialization ([cdb01b0](https://github.com/windmill-labs/windmill/commit/cdb01b0d01865dc0910ee42464869d3f69e12c1b))
+* improve cancel_all to never deadlock ([2eea00a](https://github.com/windmill-labs/windmill/commit/2eea00a2cdc15b3ba2159c909cc5e092328ffd61))
+* measure memory usage on postgres scripts ([f84a902](https://github.com/windmill-labs/windmill/commit/f84a90244571902f5d876c260f3309cae07806bb))
+
+## [1.308.1](https://github.com/windmill-labs/windmill/compare/v1.308.0...v1.308.1) (2024-04-16)
+
+
+### Bug Fixes
+
+* fix delete perms user folders ([456b903](https://github.com/windmill-labs/windmill/commit/456b9037666d2986be7a0663a5dab19f2067580f))
+
 ## [1.308.0](https://github.com/windmill-labs/windmill/compare/v1.307.0...v1.308.0) (2024-04-16)
 
 

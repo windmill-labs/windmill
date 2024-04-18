@@ -1,12 +1,12 @@
 import type { Schema } from '$lib/common'
 import {
-	Script,
 	ScriptService,
 	type FlowModule,
 	type PathFlow,
 	type PathScript,
 	type RawScript,
-	type OpenFlow
+	type OpenFlow,
+	type Script
 } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
@@ -67,8 +67,8 @@ export async function pickFlow(
 }
 
 export async function createInlineScriptModule(
-	language: RawScript.language,
-	kind: Script.kind,
+	language: RawScript['language'],
+	kind: Script['kind'],
 	subkind: 'pgsql' | 'flow',
 	id: string,
 	summary?: string
@@ -187,7 +187,7 @@ async function createInlineScriptModuleFromPath(
 		id,
 		value: {
 			type: 'rawscript',
-			language: language as RawScript.language,
+			language: language as RawScript['language'],
 			content: content,
 			path,
 			input_transforms: {}

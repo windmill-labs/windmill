@@ -1,16 +1,16 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import { AppService, AppWithLastVersion, DraftService } from '$lib/gen'
+	import { AppService, type AppWithLastVersion, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
-	import { cleanValueProperties, decodeState } from '$lib/utils'
+	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import { cloneDeep } from 'lodash'
 
-	let app = undefined as (AppWithLastVersion & { draft_only?: boolean }) | undefined
+	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
 	let savedApp:
 		| {
 				value: App
@@ -41,12 +41,12 @@
 		const app_w_draft_ = cloneDeep(app_w_draft)
 		savedApp = {
 			summary: app_w_draft_.summary,
-			value: app_w_draft_.value,
+			value: app_w_draft_.value as App,
 			path: app_w_draft_.path,
 			policy: app_w_draft_.policy,
 			draft_only: app_w_draft_.draft_only,
 			draft:
-				app_w_draft_.draft?.summary !== undefined // backward compatibility for old drafts missing metadata
+				app_w_draft_.draft?.['summary'] !== undefined // backward compatibility for old drafts missing metadata
 					? app_w_draft_.draft
 					: app_w_draft_.draft
 					? {
@@ -104,7 +104,7 @@
 			} else {
 				app = {
 					...app_w_draft,
-					value: app_w_draft.draft
+					value: app_w_draft.draft as any
 				}
 			}
 
@@ -115,7 +115,7 @@
 					redraw++
 				}
 
-				const deployed = cleanValueProperties(app_w_draft)
+				const deployed = cleanValueProperties(app_w_draft as Value)
 				const draft = cleanValueProperties(app ?? {})
 				sendUserToast('app loaded from latest saved draft', false, [
 					{
