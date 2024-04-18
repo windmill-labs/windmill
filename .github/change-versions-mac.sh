@@ -16,6 +16,7 @@ sed -i '' -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/frontend/
 sed -i '' -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
 sed -i '' -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
 sed -i '' -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill_pg/pyproject.toml
+sed -i '' -e "/^ModuleVersion =/s/= .*/= '$VERSION'/" ${root_dirpath}/powershell-client/WindmillClient/WindmillClient.psd1
 # sed -i '' -e "/^wmill =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill_pg/pyproject.toml
 sed -i '' -e "/^wmill =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
 sed -i '' -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
