@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.308.2
+  version: 1.309.2
   title: Windmill API
 
   contact:
@@ -5534,6 +5534,26 @@ paths:
                   flow_status:
                     $ref: "#/components/schemas/WorkflowStatusRecord"
 
+  /w/{workspace}/jobs_u/get_log_file/{path}:
+    get:
+      summary: get log file from object store
+      operationId: getLogFileFromStore
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: job log
+          content:
+            text/plain:
+              type: string
+
   /w/{workspace}/jobs_u/get_flow_debug_info/{id}:
     get:
       summary: get flow debug info
@@ -8742,15 +8762,21 @@ components:
         - tag
 
     Job:
-      allOf:
-        - oneOf:
+      oneOf:
+        - allOf:
             - $ref: "#/components/schemas/CompletedJob"
+            - type: object
+              properties:
+                type:
+                  type: string
+                  enum: [CompletedJob]
+        - allOf:
             - $ref: "#/components/schemas/QueuedJob"
-        - type: object
-          properties:
-            type:
-              type: string
-              enum: [CompletedJob, QueuedJob]
+            - type: object
+              properties:
+                type:
+                  type: string
+                  enum: [QueuedJob]
       discriminator:
         propertyName: type
 
@@ -9720,6 +9746,11 @@ components:
         - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - $ref: "#/components/schemas/FlowMetadata"
 
+    ExtraPerms:
+      type: object
+      additionalProperties:
+        type: boolean
+
     FlowMetadata:
       type: object
       properties:
@@ -9735,9 +9766,7 @@ components:
         archived:
           type: boolean
         extra_perms:
-          type: object
-        additionalProperties:
-          type: boolean
+          $ref: "#/components/schemas/ExtraPerms"
         starred:
           type: boolean
         draft_only:
@@ -9911,7 +9940,8 @@ components:
         created_at:
           type: string
           format: date-time
-        value: {}
+        value:
+          type: object
         policy:
           $ref: "#/components/schemas/Policy"
         execution_mode:

@@ -6,8 +6,8 @@ export function scriptToHubUrl(
 	content: string,
 	summary: string,
 	description: string,
-	kind: Script.kind,
-	language: Script.language,
+	kind: Script['kind'],
+	language: Script['language'],
 	schema: Schema | any,
 	lock: string | undefined,
 	hubBaseUrl: string

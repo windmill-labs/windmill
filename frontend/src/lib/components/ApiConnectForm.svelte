@@ -23,14 +23,15 @@
 	let supabaseWizard = false
 
 	async function isSupabaseAvailable() {
-		supabaseWizard = (await OauthService.listOAuthConnects())['supabase_wizard'] != undefined
+		supabaseWizard =
+			((await OauthService.listOauthConnects()) ?? {})['supabase_wizard'] != undefined
 	}
 	async function loadSchema() {
 		if (!resourceTypeInfo) return
 		rawCode = '{}'
 		viewJsonSchema = false
 		try {
-			schema = resourceTypeInfo.schema
+			schema = resourceTypeInfo.schema as any
 			notFound = false
 		} catch (e) {
 			notFound = true

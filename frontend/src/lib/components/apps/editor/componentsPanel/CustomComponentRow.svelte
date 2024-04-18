@@ -11,7 +11,7 @@
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { classNames } from '$lib/utils'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { ResourceService } from '$lib/gen/services/ResourceService'
+	import { ResourceService } from '$lib/gen'
 
 	export let row: {
 		name: string
@@ -30,6 +30,28 @@
 		dispatch('reload')
 		sendUserToast('Component deleted:\n' + row.name)
 	}
+
+	async function updateName(name: string) {
+		if (!$workspaceStore) return
+		const cc = await ResourceService.getResourceValue({
+			workspace: $workspaceStore ?? '',
+			path: row.path
+		})
+		await ResourceService.updateResource({
+			workspace: $workspaceStore ?? '',
+			path: row.path,
+			requestBody: {
+				path: `f/app_custom/${name.replace(/-/g, '_').replace(/\s/g, '_')}`,
+				value: {
+					...(cc ?? {}),
+					name: name
+				}
+			}
+		})
+		dispatch('reload')
+
+		sendUserToast('Component name updated:\n' + name)
+	}
 </script>
 
 <tr>
@@ -37,26 +59,8 @@
 		<div class="flex flex-row gap-1 items-center">
 			<NameEditor
 				kind="custom component"
-				on:update={async (e) => {
-					if (!$workspaceStore) return
-					const cc = await ResourceService.getResourceValue({
-						workspace: $workspaceStore ?? '',
-						path: row.path
-					})
-					await ResourceService.updateResource({
-						workspace: $workspaceStore ?? '',
-						path: row.path,
-						requestBody: {
-							path: `f/app_custom/${e.detail.name.replace(/-/g, '_').replace(/\s/g, '_')}`,
-							value: {
-								...cc,
-								name: e.detail.name
-							}
-						}
-					})
-					dispatch('reload')
-
-					sendUserToast('Component name updated:\n' + e.detail.name)
+				on:update={(e) => {
+					updateName(e.detail.name)
 				}}
 				{row}
 			/>

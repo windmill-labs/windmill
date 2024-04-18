@@ -1,4 +1,4 @@
-import type { FlowModule } from '$lib/gen/models/FlowModule'
+import type { FlowModule } from '$lib/gen'
 
 export function dfs<T>(modules: FlowModule[], f: (x: FlowModule) => T): T[] {
 	let result: T[] = []

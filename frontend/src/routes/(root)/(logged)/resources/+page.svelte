@@ -251,7 +251,7 @@
 		const rt = await ResourceService.getResourceType({ workspace: $workspaceStore!, path: name })
 		editResourceType = {
 			name: rt.name,
-			schema: rt.schema,
+			schema: rt.schema as any,
 			description: rt.description ?? ''
 		}
 		editResourceTypeDrawer.openDrawer?.()
@@ -648,6 +648,7 @@
 												if (linkedRt) {
 													resourceTypeViewerObj = {
 														rt: linkedRt.name,
+														//@ts-ignore
 														schema: linkedRt.schema,
 														description: linkedRt.description ?? ''
 													}
@@ -831,6 +832,7 @@
 											on:click={() => {
 												resourceTypeViewerObj = {
 													rt: name,
+													//@ts-ignore
 													schema: schema,
 													description: description ?? ''
 												}

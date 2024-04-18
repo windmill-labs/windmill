@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { ResourceService, VariableService } from '$lib/gen'
+	import { ResourceService, VariableService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
 	import type Editor from './Editor.svelte'
@@ -42,11 +42,10 @@
 	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
-	import type { Script } from '$lib/gen'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import Popover from './Popover.svelte'
 
-	export let lang: SupportedLanguage
+	export let lang: SupportedLanguage | undefined
 	export let editor: Editor | undefined
 	export let websocketAlive: {
 		pyright: boolean
@@ -62,7 +61,6 @@
 	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let collabMode = false
 	export let collabLive = false
-	export let formatOnSave = false
 	export let collabUsers: { name: string }[] = []
 	export let scriptPath: string | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
@@ -81,9 +79,13 @@
 	let showResourcePicker = false
 	let showResourceTypePicker = false
 
-	$: showContextVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
-	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
-	$: showResourcePicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang)
+	$: showContextVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(
+		lang ?? ''
+	)
+	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang ?? '')
+	$: showResourcePicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(
+		lang ?? ''
+	)
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) || lang === 'python3'
 
@@ -156,6 +158,27 @@
 		return rec(schema.properties, true)
 	}
 
+	async function resourceTypePickCallback(name: string) {
+		if (!editor) return
+		const resourceType = await ResourceService.getResourceType({
+			workspace: $workspaceStore ?? 'NO_W',
+			path: name
+		})
+
+		if (lang == 'python3') {
+			const pySchema = pythonCompile(resourceType.schema as any)
+
+			editor.insertAtCursor(`class ${name}(TypedDict):\n${pySchema}\n`)
+			const code = editor.getCode()
+			if (!code.includes('from typing import TypedDict')) {
+				editor.insertAtBeginning('from typing import TypedDict\n')
+			}
+		} else {
+			const tsSchema = compile(resourceType.schema as any)
+			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
+		}
+		sendUserToast(`${name} inserted at cursor`)
+	}
 	function pythonCompile(schema: Schema) {
 		let res = ''
 		const entries = Object.entries(schema.properties)
@@ -187,7 +210,7 @@
 
 	function clearContent() {
 		if (editor) {
-			const resetCode = getResetCode(lang, kind as Script.kind, template)
+			const resetCode = getResetCode(lang, kind as Script['kind'], template)
 			editor.setCode(resetCode)
 		}
 	}
@@ -382,25 +405,7 @@
 	<ItemPicker
 		bind:this={resourceTypePicker}
 		pickCallback={async (_, name) => {
-			if (!editor) return
-			const resourceType = await ResourceService.getResourceType({
-				workspace: $workspaceStore ?? 'NO_W',
-				path: name
-			})
-
-			if (lang == 'python3') {
-				const pySchema = pythonCompile(resourceType.schema)
-
-				editor.insertAtCursor(`class ${name}(TypedDict):\n${pySchema}\n`)
-				const code = editor.getCode()
-				if (!code.includes('from typing import TypedDict')) {
-					editor.insertAtBeginning('from typing import TypedDict\n')
-				}
-			} else {
-				const tsSchema = compile(resourceType.schema)
-				editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
-			}
-			sendUserToast(`${name} inserted at cursor`)
+			resourceTypePickCallback(name)
 		}}
 		tooltip="Resources Types are the schemas associated with a Resource. They define the structure of the data that is returned from a Resource."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"

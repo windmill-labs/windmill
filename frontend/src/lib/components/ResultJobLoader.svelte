@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { JobService } from '$lib/gen'
+	import { JobService, type Preview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, tick } from 'svelte'
-	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 
@@ -109,7 +108,7 @@
 					path,
 					content: code,
 					args,
-					language: lang as Preview.language,
+					language: lang as Preview['language'],
 					tag
 				}
 			})

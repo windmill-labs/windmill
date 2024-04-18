@@ -1,10 +1,14 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { AuditLog } from '$lib/gen'
+	import { type AuditLog } from '$lib/gen'
 	import { ArrowRight } from 'lucide-svelte'
 
 	export let logs: AuditLog[]
 	export let selectedId: number | undefined = undefined
+
+	const ViewFlowOp: AuditLog['operation'][] = ['jobs.run.flow', 'flows.create', 'flows.update']
+
+	const ViewAppOp: AuditLog['operation'][] = ['apps.create', 'apps.update']
 </script>
 
 <div class="p-4 flex flex-col gap-2 border-t items-start">
@@ -30,7 +34,7 @@
 				</Button>
 			{/if}
 
-			{#if log.operation === AuditLog.operation.JOBS_RUN_SCRIPT}
+			{#if log.operation === 'jobs.run.script'}
 				<Button
 					href={`scripts/get/${log.resource}`}
 					color="dark"
@@ -42,7 +46,7 @@
 				</Button>
 			{/if}
 
-			{#if [AuditLog.operation.JOBS_RUN_FLOW, AuditLog.operation.FLOWS_CREATE, AuditLog.operation.FLOWS_UPDATE].includes(log.operation)}
+			{#if ViewFlowOp.includes(log.operation)}
 				<Button
 					href={`flows/get/${log.resource}`}
 					color="dark"
@@ -54,7 +58,7 @@
 					View flow
 				</Button>
 			{/if}
-			{#if [AuditLog.operation.APPS_UPDATE, AuditLog.operation.APPS_CREATE].includes(log.operation)}
+			{#if ViewAppOp.includes(log.operation)}
 				<Button
 					href={`apps/get/${log.resource}`}
 					color="dark"

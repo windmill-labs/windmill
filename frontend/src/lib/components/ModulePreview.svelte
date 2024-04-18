@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job, Script, JobService } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job, type Script, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 
@@ -22,7 +22,7 @@
 	export let mod: FlowModule
 	export let schema: Schema
 	export let pickableProperties: PickableProperties | undefined
-	export let lang: Script.language
+	export let lang: Script['language']
 	export let editor: Editor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let noEditor = false
@@ -149,7 +149,7 @@
 							result={testJob.result}
 						>
 							<svelte:fragment slot="copilot-fix">
-								{#if lang && editor && diffEditor && stepArgs && testJob?.result?.error}
+								{#if lang && editor && diffEditor && stepArgs && typeof testJob?.result == 'object' && `error` in testJob?.result && testJob?.result.error}
 									<ScriptFix
 										error={JSON.stringify(testJob.result.error)}
 										{lang}

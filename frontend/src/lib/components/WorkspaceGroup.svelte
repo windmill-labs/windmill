@@ -4,7 +4,7 @@
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { ConfigService, Preview } from '$lib/gen'
+	import { ConfigService } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -688,7 +688,7 @@
 						class="flex flex-1 grow h-full w-full"
 						automaticLayout
 						lang="shell"
-						scriptLang={Preview.language.BASH}
+						scriptLang={'bash'}
 						useWebsockets={false}
 						fixedOverflowWidgets={false}
 						listenEmptyChanges

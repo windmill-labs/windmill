@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
+	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'

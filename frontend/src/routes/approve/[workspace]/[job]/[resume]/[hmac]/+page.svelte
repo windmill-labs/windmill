@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
+	import { type Job, JobService } from '$lib/gen'
 	import { page } from '$app/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -78,10 +78,10 @@
 		if (!jobId) {
 			return {}
 		}
-		let job_result = await JobService.getCompletedJobResult({
+		let job_result = (await JobService.getCompletedJobResult({
 			workspace: job?.workspace_id ?? '',
 			id: jobId
-		})
+		})) as any
 		description = job_result?.description
 		default_payload = job_result?.default_args ?? {}
 		enum_payload = job_result?.enums ?? {}
