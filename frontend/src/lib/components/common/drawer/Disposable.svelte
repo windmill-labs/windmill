@@ -10,6 +10,10 @@
 	export let open = false
 	export let id = (Math.random() + 1).toString(36).substring(10)
 
+	if (open) {
+		openedDrawers.push(id)
+	}
+
 	let offset = 0
 
 	export function toggleDrawer() {
@@ -46,9 +50,12 @@
 	const dispatch = createEventDispatcher()
 
 	function handleClickAway(e) {
-		e.stopPropagation()
-		dispatch('clickAway')
-		closeDrawer()
+		const last = openedDrawers[openedDrawers.length - 1]
+
+		if (last === id) {
+			e.stopPropagation()
+			closeDrawer()
+		}
 	}
 
 	function onKeyDown(event: KeyboardEvent) {

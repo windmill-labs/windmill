@@ -2,6 +2,7 @@
 	import { onMount, createEventDispatcher } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
+	import Portal from 'svelte-portal'
 
 	export let open = false
 	export let duration = 0.3
@@ -59,23 +60,25 @@
 	})
 </script>
 
-<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable} on:open on:close>
-	<aside
-		class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
-		class:open
-		class:close={!open && timeout}
-		style={`${style}; --zIndex: ${zIndex};`}
-	>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
-		<div class="panel {placement} {$$props.positionClass}" class:size>
-			{#if open || !timeout || alwaysOpen}
-				<slot {open} />
-			{/if}
-		</div>
-	</aside>
-</Disposable>
+<Portal>
+	<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable} on:open on:close>
+		<aside
+			class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
+			class:open
+			class:close={!open && timeout}
+			style={`${style}; --zIndex: ${zIndex};`}
+		>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
+			<div class="panel {placement} {$$props.positionClass}" class:size>
+				{#if open || !timeout || alwaysOpen}
+					<slot {open} />
+				{/if}
+			</div>
+		</aside>
+	</Disposable>
+</Portal>
 
 <style>
 	.drawer {
