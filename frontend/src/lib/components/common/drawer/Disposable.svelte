@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { zIndexes } from '$lib/utils'
+	import { zIndexes } from '$lib/zIndexes'
 
 	import { createEventDispatcher } from 'svelte'
 

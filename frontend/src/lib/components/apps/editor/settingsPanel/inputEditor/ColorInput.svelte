@@ -4,7 +4,7 @@
 	import { ClearableInput } from '../../../../common'
 	import { createPopperActions } from 'svelte-popperjs'
 	import { fade } from 'svelte/transition'
-	import { zIndexes } from '$lib/utils'
+	import { zIndexes } from '$lib/zIndexes'
 
 	export let value: string = '#fff'
 	const dispatch = createEventDispatcher()

@@ -4,7 +4,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
-	import { zIndexes } from '$lib/utils'
+	import { zIndexes } from '$lib/zIndexes'
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let right: boolean
