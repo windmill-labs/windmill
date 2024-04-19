@@ -328,7 +328,6 @@
 					filePath: 'windmill.d.ts'
 				})
 			}
-			console.log(libs)
 			languages.typescript.javascriptDefaults.setExtraLibs(libs)
 		}
 	}
