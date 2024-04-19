@@ -40,28 +40,28 @@
 
 	const classes: Record<AlertType, Record<string, string>> = {
 		info: {
-			bgClass: 'bg-blue-50 border-blue-200 border dark:bg-blue-900/50 dark:border-blue-900',
-			iconClass: 'text-blue-500 dark:text-blue-400',
-			titleClass: 'text-blue-800 dark:text-blue-100',
-			descriptionClass: 'text-blue-700 dark:text-blue-200'
+			bgClass: 'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40',
+			iconClass: 'text-blue-500 dark:text-blue-300/90',
+			titleClass: 'text-blue-800 dark:text-blue-100/90',
+			descriptionClass: 'text-blue-700 dark:text-blue-100/90'
 		},
 		warning: {
-			bgClass: 'bg-yellow-50 border-yellow-200 border dark:bg-yellow-900/50 dark:border-yellow-900',
-			iconClass: 'text-yellow-500 dark:text-yellow-400',
-			titleClass: 'text-yellow-800 dark:text-yellow-100',
-			descriptionClass: 'text-yellow-700 dark:text-yellow-200'
+			bgClass: 'bg-yellow-50 border-yellow-200 border dark:bg-yellow-900/40 dark:border-yellow-700/40',
+			iconClass: 'text-yellow-500 dark:text-yellow-300/90',
+			titleClass: 'text-yellow-800 dark:text-yellow-100/90',
+			descriptionClass: 'text-yellow-700 dark:text-yellow-100/90'
 		},
 		error: {
-			bgClass: 'bg-red-50 border-red-200 border dark:bg-red-900/50 dark:border-red-900',
-			iconClass: 'text-red-500 dark:text-red-400',
-			titleClass: 'text-red-800 dark:text-red-100',
-			descriptionClass: 'text-red-700 dark:text-red-200'
+			bgClass: 'bg-red-50 border-red-200 border dark:bg-red-900/40 dark:border-red-700/40',
+			iconClass: 'text-red-500 dark:text-red-300/90',
+			titleClass: 'text-red-800 dark:text-red-100/90',
+			descriptionClass: 'text-red-700 dark:text-red-100/90'
 		},
 		success: {
-			bgClass: 'bg-green-50 border-green-200 border dark:bg-green-900/50 dark:border-green-900',
-			iconClass: 'text-green-500 dark:text-green-400',
-			titleClass: 'text-green-800 dark:text-green-100',
-			descriptionClass: 'text-green-700 dark:text-green-200'
+			bgClass: 'bg-green-50 border-green-200 border dark:bg-green-900/40 dark:border-green-700/40',
+			iconClass: 'text-green-500 dark:text-green-300/90',
+			titleClass: 'text-green-800 dark:text-green-100/90',
+			descriptionClass: 'text-green-700 dark:text-green-100/90'
 		}
 	}
 
@@ -91,7 +91,7 @@
 				size={16}
 			/>
 		</div>
-		<div class={twMerge('ml-2 w-full')}>
+		<div class={twMerge('ml-1 w-full')}>
 			<div class={twMerge('w-full flex flex-row items-center justify-between h-8')}>
 				<span
 					class={twMerge(
@@ -132,7 +132,7 @@
 					</div>
 				</div>
 			{:else if $$slots.default && !collapsible}
-				<div class="mt-2">
+				<div class="mb-2">
 					<div
 						class={twMerge(
 							size === 'sm' ? 'text-sm' : 'text-xs',

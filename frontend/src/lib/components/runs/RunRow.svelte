@@ -107,7 +107,7 @@
 					<div class="whitespace-nowrap text-xs font-semibold truncate">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
-								<a href="/run/{job.id}?workspace={job.workspace_id}" class="truncate w-30">
+								<a href="/run/{job.id}?workspace={job.workspace_id}" class="truncate w-30 dark:text-blue-400">
 									{job.script_path}
 								</a>
 								<Button

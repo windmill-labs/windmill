@@ -33,7 +33,7 @@
 						: 'bg-frost-700 hover:bg-[#30404e]'
 					: lightMode
 					? 'hover:bg-surface-hover rounded-none'
-					: 'hover:bg-[#34363c]',
+					: 'hover:bg-[#2A3648]',
 
 				'hover:transition-all',
 				$$props.class

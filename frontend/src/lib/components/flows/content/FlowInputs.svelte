@@ -166,7 +166,7 @@
 		{/if}
 		<h3 class="pb-2 pt-4 flex gap-x-8 flex-wrap">
 			<div>
-				Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
+				Inline new <span class="text-blue-500 dark:text-blue-400">{kind == 'script' ? 'action' : kind}</span> script
 				<Tooltip
 					documentationLink={kind === 'script'
 						? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
@@ -234,7 +234,7 @@
 		</div>
 
 		<h3 class="mb-2 mt-6"
-			>Use pre-made <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script</h3
+			>Use pre-made <span class="text-blue-500 dark:text-blue-400">{kind == 'script' ? 'action' : kind}</span> script</h3
 		>
 		{#if pick_existing == 'hub'}
 			<PickHubScript bind:filter {kind} on:pick>
