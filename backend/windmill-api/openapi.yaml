@@ -8356,6 +8356,8 @@ components:
           type: boolean
         visible_to_runner_only:
           type: boolean
+        no_main_func:
+          type: boolean
       required:
         - hash
         - path
@@ -8371,6 +8373,7 @@ components:
         - language
         - kind
         - starred
+        - no_main_func
 
     NewScript:
       type: object
@@ -8443,6 +8446,8 @@ components:
         concurrency_key:
           type: string
         visible_to_runner_only:
+          type: boolean
+        no_main_func:
           type: boolean
       required:
         - path

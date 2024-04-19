@@ -215,7 +215,9 @@
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = undefined
 			} catch (error) {
+				script.no_main_func = true
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
 				)
@@ -245,7 +247,8 @@
 					delete_after_use: script.delete_after_use,
 					timeout: script.timeout,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
-					visible_to_runner_only: script.visible_to_runner_only
+					visible_to_runner_only: script.visible_to_runner_only,
+					no_main_func: script.no_main_func
 				}
 			})
 
@@ -333,7 +336,9 @@
 			script.schema = script.schema ?? emptySchema()
 			try {
 				await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = undefined
 			} catch (error) {
+				script.no_main_func = true
 				sendUserToast(
 					`The main signature was not parsable. This script is considered to be without main function`
 				)
@@ -372,7 +377,8 @@
 						concurrency_key: emptyString(script.concurrency_key)
 							? undefined
 							: script.concurrency_key,
-						visible_to_runner_only: script.visible_to_runner_only
+						visible_to_runner_only: script.visible_to_runner_only,
+						no_main_func: script.no_main_func
 					}
 				})
 			}

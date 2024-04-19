@@ -47,6 +47,7 @@
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
+				no_main_func?: boolean
 		  }
 		| undefined = undefined
 
@@ -64,6 +65,7 @@
 				ws_error_handler_muted?: boolean
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
+				no_main_func?: boolean
 		  }
 		| undefined = undefined
 
@@ -73,7 +75,9 @@
 				script.schema = script.schema ?? emptySchema()
 				try {
 					await inferArgs(script.language, script.content, script.schema)
+					script.no_main_func = undefined
 				} catch (error) {
+					script.no_main_func = true
 					sendUserToast(
 						`Impossible to infer the schema. Assuming this is a script without main function`,
 						true
