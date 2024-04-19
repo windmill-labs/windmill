@@ -781,7 +781,7 @@ dependencies = [
  "once_cell",
  "pin-project-lite",
  "pin-utils",
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "tokio",
  "tracing",
 ]
@@ -2131,9 +2131,9 @@ dependencies = [
 
 [[package]]
 name = "deno_media_type"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edf9879493856d1622be70f396b0b0d3e519538dd6501b7c609ecbaa7e2194d2"
+checksum = "a8978229b82552bf8457a0125aa20863f023619cfc21ebb007b1e571d68fd85b"
 dependencies = [
  "data-url",
  "serde",
@@ -2187,7 +2187,7 @@ dependencies = [
  "deno_core",
  "deno_native_certs",
  "once_cell",
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "rustls-pemfile 1.0.4",
  "rustls-tokio-stream",
  "rustls-webpki 0.101.7",
@@ -3097,7 +3097,7 @@ dependencies = [
  "hyper 0.14.28",
  "hyper-rustls",
  "ring 0.16.20",
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -3687,7 +3687,7 @@ dependencies = [
  "http 0.2.12",
  "hyper 0.14.28",
  "log",
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "rustls-native-certs",
  "tokio",
  "tokio-rustls 0.24.1",
@@ -4210,7 +4210,7 @@ dependencies = [
  "base64 0.21.7",
  "gethostname",
  "mail-builder",
- "rustls 0.22.3",
+ "rustls 0.22.4",
  "rustls-pki-types",
  "smtp-proto",
  "tokio",
@@ -6331,7 +6331,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "rustls-native-certs",
  "rustls-pemfile 1.0.4",
  "serde",
@@ -6662,9 +6662,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.21.10"
+version = "0.21.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9d5a6813c0759e4609cd494e8e725babae6a2ca7b62a5536a13daaec6fcb7ba"
+checksum = "7fecbfb7b1444f477b345853b1fce097a2c6fb637b2bfb87e6bc5db0f043fae4"
 dependencies = [
  "log",
  "ring 0.17.8",
@@ -6674,9 +6674,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.22.3"
+version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99008d7ad0bbbea527ec27bddbc0e432c5b87d8175178cee68d2eec9c4a1813c"
+checksum = "bf4ef73721ac7bcd79b2b315da7779d8fc09718c6b3d2d1b2d94850eb8c18432"
 dependencies = [
  "log",
  "ring 0.17.8",
@@ -6730,7 +6730,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ded7a36e8ac05b8ada77a84c5ceec95361942ee9dedb60a82f93f788a791aae8"
 dependencies = [
  "futures",
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "socket2 0.5.6",
  "tokio",
 ]
@@ -7598,7 +7598,7 @@ dependencies = [
  "once_cell",
  "paste",
  "percent-encoding",
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -8327,9 +8327,9 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.30.10"
+version = "0.30.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26d7c217777061d5a2d652aea771fb9ba98b6dade657204b08c4b9604d11555b"
+checksum = "87341a165d73787554941cd5ef55ad728011566fe714e987d1b976c15dbc3a83"
 dependencies = [
  "cfg-if",
  "core-foundation-sys",
@@ -8681,7 +8681,7 @@ version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
 dependencies = [
- "rustls 0.21.10",
+ "rustls 0.21.11",
  "tokio",
 ]
 
@@ -8691,7 +8691,7 @@ version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "775e0c0f0adb3a2f22a00c4745d728b479985fc15ee7ca6a2608388c5569860f"
 dependencies = [
- "rustls 0.22.3",
+ "rustls 0.22.4",
  "rustls-pki-types",
  "tokio",
 ]
@@ -8770,7 +8770,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.22.9",
+ "toml_edit 0.22.12",
 ]
 
 [[package]]
@@ -8808,9 +8808,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.9"
+version = "0.22.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e40bb779c5187258fd7aad0eb68cb8706a0a81fa712fbea808ab43c4b8374c4"
+checksum = "d3328d4f68a705b2a4498da1d580585d39a6510f98318a2cec3018a7ec61ddef"
 dependencies = [
  "indexmap 2.2.6",
  "serde",
@@ -9316,7 +9316,7 @@ dependencies = [
  "log",
  "native-tls",
  "once_cell",
- "rustls 0.22.3",
+ "rustls 0.22.4",
  "rustls-pki-types",
  "rustls-webpki 0.102.2",
  "serde",
@@ -9706,7 +9706,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9743,7 +9743,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9820,7 +9820,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9838,7 +9838,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9851,7 +9851,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9887,7 +9887,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9902,7 +9902,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9910,7 +9910,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9921,7 +9921,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9933,7 +9933,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9944,7 +9944,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9955,7 +9955,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9972,7 +9972,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9983,7 +9983,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10001,7 +10001,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.14",
@@ -10019,7 +10019,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10052,7 +10052,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "serde",
  "wasm-bindgen",
@@ -10063,7 +10063,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.309.2"
+version = "1.310.0"
 dependencies = [
  "anyhow",
  "async-recursion",
