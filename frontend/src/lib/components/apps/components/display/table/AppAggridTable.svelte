@@ -92,7 +92,7 @@
 		result: [] as any[],
 		loading: false,
 		page: 0,
-		newChange: { row: 0, column: '', value: undefined },
+		newChange: { row: 0, column: '', value: undefined, old: undefined },
 		ready: undefined as boolean | undefined,
 		inputs: {},
 		filters: {},
@@ -153,7 +153,8 @@
 			outputs?.newChange?.set({
 				row: event.node.rowIndex,
 				column: event.colDef.field,
-				value: dataCell
+				value: dataCell,
+				old: result[Number(event.node.data['__index'])][event.colDef.field]
 			})
 			result[Number(event.node.data['__index'])][event.colDef.field] = dataCell
 			let data = { ...result[event.node.rowIndex] }
