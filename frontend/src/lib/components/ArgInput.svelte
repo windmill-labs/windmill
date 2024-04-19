@@ -284,6 +284,7 @@
 									bind:pattern
 									bind:enum_
 									bind:contentEncoding
+									bind:password={extra['password']}
 									bind:minRows={extra['minRows']}
 									bind:disableCreate={extra['disableCreate']}
 									bind:disableVariablePicker={extra['disableVariablePicker']}
