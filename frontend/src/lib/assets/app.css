@@ -141,5 +141,5 @@
 
 /* Components */
 .component-wrapper {
-	@apply rounded-md border overflow-hidden;
+	@apply rounded-md border overflow-hidden border-gray-300 dark:border-gray-600;
 }

@@ -22,7 +22,7 @@
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Columns, LoaderIcon, Plus, RefreshCw } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import InsertRow from './InsertRow.svelte'
 	import Portal from 'svelte-portal'
@@ -39,7 +39,7 @@
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import { CancelablePromise } from '$lib/gen'
-	import { twMerge } from 'tailwind-merge'
+	import RefreshButton from '../../RefreshButton.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -640,33 +640,11 @@
 						class="w-full max-w-[300px]"
 						type="text"
 						bind:value={quicksearch}
-						placeholder="Quicksearch"
+						placeholder="Search..."
 					/>
 				{/if}
 				<div class="flex flex-row gap-2">
-					<Button
-						startIcon={{ icon: Columns }}
-						color="light"
-						size="xs2"
-						on:click={() => {
-							// Restore the columnDefs to the original state
-							aggrid?.restoreColumns()
-						}}
-						iconOnly
-					/>
-					<Button
-						startIcon={{
-							icon: loading ? LoaderIcon : RefreshCw,
-							classes: twMerge(loading ? 'animate-spin text-blue-800' : '', 'transition-all')
-						}}
-						color="light"
-						size="xs2"
-						btnClasses={twMerge(loading ? ' bg-blue-100' : '', 'transition-all')}
-						on:click={() => {
-							$runnableComponents[id]?.cb?.map((cb) => cb())
-						}}
-						iconOnly
-					/>
+					<RefreshButton {id} {loading} />
 					{#if hideInsert !== true}
 						<Button
 							startIcon={{ icon: Plus }}

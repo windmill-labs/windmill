@@ -346,26 +346,28 @@
 >
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="flex flex-col h-full">
-			<div class="flex flex-row w-full justify-between items-center h-12">
-				{#if resolvedConfig.search !== 'Disabled'}
-					<div class="grow max-w-[300px]">
-						<DebouncedInput
-							placeholder="Search..."
-							bind:value={searchValue}
-							parentClass="h-full "
-						/>
-					</div>
-				{:else}
-					<div />
-				{/if}
+			{#if resolvedConfig.search !== 'Disabled' || (componentInput?.hideRefreshButton && componentInput['autoRefresh'])}
+				<div class="flex flex-row w-full justify-between items-center h-12">
+					{#if resolvedConfig.search !== 'Disabled'}
+						<div class="grow max-w-[300px]">
+							<DebouncedInput
+								placeholder="Search..."
+								bind:value={searchValue}
+								parentClass="h-full "
+							/>
+						</div>
+					{:else}
+						<div />
+					{/if}
 
-				{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
-					<RefreshButton {id} {loading} />
-				{/if}
-			</div>
+					{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
+						<RefreshButton {id} {loading} />
+					{/if}
+				</div>
+			{/if}
 			<div
 				class={twMerge(
-					'component-wrapper',
+					'component-wrapper bg-surface',
 					'divide-y h-full',
 					css?.container?.class ?? '',
 					'wm-table-container',
