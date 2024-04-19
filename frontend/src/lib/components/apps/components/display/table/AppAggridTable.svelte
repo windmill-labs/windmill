@@ -17,6 +17,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
+	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import './theme/windmill-theme.css'
@@ -388,6 +389,7 @@
 			sendUserToast("Couldn't update the grid:" + e, true)
 		}
 	}
+	let loading = false
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -409,19 +411,29 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper
+	{outputs}
+	{render}
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+	bind:loading
+	hideRefreshButton={true}
+>
 	{#if Array.isArray(value) && value.every(isObject)}
 		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 			<div
-				class={twMerge(
-					'divide-y flex flex-col h-full',
-					css?.container?.class,
-					'wm-aggrid-container'
-				)}
+				class={twMerge('flex flex-col h-full', css?.container?.class, 'wm-aggrid-container')}
 				style={css?.container?.style}
 				bind:clientHeight
 				bind:clientWidth
 			>
+				<div class="py-1 flex flex-row justify-end items-center">
+					{#if componentInput?.type === 'runnable' && componentInput.autoRefresh}
+						<RefreshButton {id} {loading} />
+					{/if}
+				</div>
 				<div
 					on:pointerdown|stopPropagation={() => {
 						$selectedComponent = [id]

@@ -20,6 +20,7 @@
 	import { Columns, Trash2 } from 'lucide-svelte'
 	import type { ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -416,16 +417,20 @@
 			<div bind:this={eGui} style:height="100%" />
 		</div>
 		<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
-			<Button
-				startIcon={{ icon: Columns }}
-				color="light"
-				size="xs2"
-				on:click={() => {
-					// Restore the columnDefs to the original state
-					restoreColumns()
-				}}
-				iconOnly
-			/>
+			<Popover>
+				<svelte:fragment slot="text">Restore columns</svelte:fragment>
+				<Button
+					startIcon={{ icon: Columns }}
+					color="light"
+					size="xs2"
+					on:click={() => {
+						// Restore the columnDefs to the original state
+						restoreColumns()
+					}}
+					iconOnly
+				/>
+			</Popover>
+
 			{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
 		</div>
 	</div>
