@@ -6,6 +6,7 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema } from '$lib/utils'
+	import { goto } from '$app/navigation'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -89,6 +90,14 @@
 <ScriptBuilder
 	bind:this={scriptBuilder}
 	lockedLanguage={templatePath != null || hubPath != null}
+	on:deploy={(e) => {
+		let newHash = e.detail
+		goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+	}}
+	on:saveInitial={(e) => {
+		let path = e.detail
+		goto(`/scripts/edit/${path}`)
+	}}
 	{script}
 	{showMeta}
 />
