@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
-	import { type FlowModule, FlowStatusModule } from '../../gen'
+	import { type FlowModule } from '../../gen'
 	import {
 		NODE,
 		createIdGenerator,
@@ -286,9 +286,9 @@
 
 		switch (success) {
 			case true:
-				return getStateColor(FlowStatusModule.type.SUCCESS)
+				return getStateColor('Success')
 			case false:
-				return getStateColor(FlowStatusModule.type.FAILURE)
+				return getStateColor('Failure')
 			default:
 				return isDark ? '#2e3440' : '#fff'
 		}

@@ -7,8 +7,6 @@
 		DraftService,
 		type PathScript,
 		ScriptService,
-		Script,
-		type HubScriptKind,
 		type OpenFlow,
 		type RawScript,
 		type InputTransform
@@ -67,11 +65,10 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { cloneDeep } from 'lodash'
-	import { goto } from '$app/navigation'
 
 	export let initialPath: string = ''
+	export let pathStoreInit: string | undefined = undefined
 	export let newFlow: boolean
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
@@ -194,7 +191,8 @@
 				dispatch('saveInitial', $pathStore)
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				initialPath = $pathStore
-				goto(`/flows/edit/${$pathStore}?selected=${getSelectedId()}`)
+				// this is so we can use the flow builder outside of sveltekit
+				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -359,9 +357,9 @@
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 	const history = initHistory($flowStore)
-	const pathStore = writable<string>(initialPath)
+	const pathStore = writable<string>(pathStoreInit ?? initialPath)
 
-	$: $pathStore = initialPath
+	$: initialPath && ($pathStore = initialPath)
 
 	const testStepStore = writable<Record<string, any>>({})
 
@@ -528,7 +526,7 @@
 			$copilotModulesStore[idx].hubCompletions = scripts as {
 				path: string
 				summary: string
-				kind: HubScriptKind
+				kind: string
 				app: string
 				ask_id: number
 			}[]
@@ -668,7 +666,7 @@
 				value: {
 					input_transforms: {},
 					content: '',
-					language: (module.lang ?? 'bun') as Script.language,
+					language: module.lang ?? 'bun',
 					type: 'rawscript'
 				},
 				summary: module.description
@@ -788,7 +786,8 @@
 								const flowInputKey = expr.match(/flow_input\.([A-Za-z0-9_]+)/)?.[1]
 								if (
 									flowInputKey !== undefined &&
-									(!$flowStore.schema || !(flowInputKey in $flowStore.schema.properties)) // prevent overriding flow inputs
+									(!$flowStore.schema ||
+										!(flowInputKey in (($flowStore.schema.properties as any) ?? {}))) // prevent overriding flow inputs
 								) {
 									if (key in stepSchema.properties) {
 										copilotFlowInputs[flowInputKey] = stepSchema.properties[key]
@@ -847,7 +846,7 @@
 								const snakeKey = snakeCase(key)
 								if (
 									schemaProperty &&
-									(!$flowStore.schema || !(snakeKey in $flowStore.schema.properties)) // prevent overriding flow inputs
+									(!$flowStore.schema || !(snakeKey in ($flowStore.schema.properties as any) ?? {})) // prevent overriding flow inputs
 								) {
 									copilotFlowInputs[snakeKey] = schemaProperty
 									if (schema.required.includes(snakeKey)) {
@@ -982,14 +981,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<UnsavedConfirmationModal
-	{diffDrawer}
-	savedValue={savedFlow}
-	modifiedValue={{
-		...$flowStore,
-		path: $pathStore
-	}}
-/>
+<slot />
 
 {#key renderCount}
 	{#if !$userStore?.operator}

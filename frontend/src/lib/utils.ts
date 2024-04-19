@@ -579,7 +579,7 @@ export function canWrite(
 	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1) {
 		return true
 	}
-	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/') && user.folders[x]) != -1) {
 		return true
 	}
 
@@ -710,6 +710,7 @@ export function roughSizeOfObject(object: object | string) {
 			objectList.push(value)
 
 			for (var i in value) {
+				bytes += 2 * i.length
 				stack.push(value[i])
 			}
 		}
@@ -718,7 +719,7 @@ export function roughSizeOfObject(object: object | string) {
 }
 
 export type Value = {
-	language?: Script.language
+	language?: Script['language']
 	content?: string
 	path?: string
 	draft_only?: boolean
@@ -743,7 +744,10 @@ export function cleanValueProperties(obj: Value) {
 
 export function orderedJsonStringify(obj: any, space?: string | number) {
 	const allKeys = new Set()
-	JSON.stringify(obj, (key, value) => (allKeys.add(key), value))
+	JSON.stringify(
+		obj,
+		(key, value) => (value != undefined && value != null && allKeys.add(key), value)
+	)
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
 }
 

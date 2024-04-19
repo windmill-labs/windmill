@@ -165,7 +165,7 @@ ${webhookType === 'sync' ? 'RESULT' : 'UUID'}=$(curl -s ${
 
 ${
 	webhookType === 'sync'
-		? 'echo $RESULT | jq'
+		? 'echo -E $RESULT | jq'
 		: `
 URL="${$page.url.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do

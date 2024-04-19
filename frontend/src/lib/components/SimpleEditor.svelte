@@ -17,11 +17,10 @@
 	} from 'monaco-editor'
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
-	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
 
@@ -329,6 +328,7 @@
 					filePath: 'windmill.d.ts'
 				})
 			}
+			console.log(libs)
 			languages.typescript.javascriptDefaults.setExtraLibs(libs)
 		}
 	}

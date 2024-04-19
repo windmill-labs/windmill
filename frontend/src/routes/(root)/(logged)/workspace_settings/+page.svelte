@@ -16,9 +16,8 @@
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
-		LargeFileStorage,
+		type LargeFileStorage,
 		OauthService,
-		Script,
 		WorkspaceService,
 		JobService,
 		ResourceService
@@ -232,16 +231,20 @@
 				public_resource: s3ResourceSettings.publicResource
 			}
 			if (s3ResourceSettings.resourceType === 'azure_blob') {
-				params['type'] = LargeFileStorage.type.AZURE_BLOB_STORAGE
+				let typ: LargeFileStorage['type'] = 'AzureBlobStorage'
+				params['type'] = typ
 				params['azure_blob_resource_path'] = resourcePathWithPrefix
 			} else if (s3ResourceSettings.resourceType === 'azure_workload_identity') {
-				params['type'] = LargeFileStorage.type.AZURE_WORKLOAD_IDENTITY
+				let typ: LargeFileStorage['type'] = 'AzureWorkloadIdentity'
+				params['type'] = typ
 				params['azure_blob_resource_path'] = resourcePathWithPrefix
 			} else if (s3ResourceSettings.resourceType === 's3_aws_oidc') {
-				params['type'] = LargeFileStorage.type.S3AWS_OIDC
+				let typ: LargeFileStorage['type'] = 'S3AwsOidc'
+				params['type'] = typ
 				params['s3_resource_path'] = resourcePathWithPrefix
 			} else {
-				params['type'] = LargeFileStorage.type.S3STORAGE
+				let typ: LargeFileStorage['type'] = 'S3Storage'
+				params['type'] = typ
 				params['s3_resource_path'] = resourcePathWithPrefix
 			}
 			await WorkspaceService.editLargeFileStorageConfig({
@@ -436,27 +439,25 @@
 		codeCompletionEnabled = settings.code_completion_enabled
 		workspaceDefaultAppPath = settings.default_app
 
-		if (settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE) {
+		if (settings.large_file_storage?.type === 'S3Storage') {
 			s3ResourceSettings = {
 				resourceType: 's3',
 				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
 				publicResource: settings.large_file_storage?.public_resource
 			}
-		} else if (settings.large_file_storage?.type === LargeFileStorage.type.AZURE_BLOB_STORAGE) {
+		} else if (settings.large_file_storage?.type === 'AzureBlobStorage') {
 			s3ResourceSettings = {
 				resourceType: 'azure_blob',
 				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
 				publicResource: settings.large_file_storage?.public_resource
 			}
-		} else if (
-			settings.large_file_storage?.type === LargeFileStorage.type.AZURE_WORKLOAD_IDENTITY
-		) {
+		} else if (settings.large_file_storage?.type === 'AzureWorkloadIdentity') {
 			s3ResourceSettings = {
 				resourceType: 'azure_workload_identity',
 				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
 				publicResource: settings.large_file_storage?.public_resource
 			}
-		} else if (settings.large_file_storage?.type === LargeFileStorage.type.S3AWS_OIDC) {
+		} else if (settings.large_file_storage?.type === 'S3AwsOidc') {
 			s3ResourceSettings = {
 				resourceType: 's3_aws_oidc',
 				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
@@ -792,7 +793,7 @@
 						<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
 					{/if}
 					<ScriptPicker
-						kinds={[Script.kind.SCRIPT]}
+						kinds={['script']}
 						allowFlow
 						bind:itemKind
 						bind:scriptPath
@@ -810,6 +811,11 @@
 
 					The script or flow chosen is passed the parameters `response_url: string` and `text:
 					string` respectively the url to reply directly to the trigger and the text of the command.
+
+					<br /><br />
+
+					It can take additionally the following args: channel_id, user_name, user_id, command,
+					trigger_id, api_app_id
 
 					<br /><br />
 
@@ -1062,6 +1068,13 @@
 					Windmill S3 bucket browser will not work for buckets containing more than 20 files and
 					uploads are limited to files {'<'} 50MB. Consider upgrading to Windmill EE to use this feature
 					with large buckets.
+				</Alert>
+			{:else}
+				<Alert type="info" title="Logs storage is set at the instance level">
+					This setting is only for storage of large files allowing to upload files directly to
+					object storage using S3Object and use the wmill sdk to read and write large files backed
+					by an object storage. The automatics large logs storage is set by the superadmins in the
+					instance settings UI.
 				</Alert>
 			{/if}
 			{#if s3ResourceSettings}

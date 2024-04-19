@@ -24,8 +24,11 @@
 			newNavigationState.cancel()
 			await tick() // make sure saved value is updated when clicking on save draft or deploy
 			if (savedValue && modifiedValue) {
-				const draftOrDeployed = cleanValueProperties(savedValue.draft || savedValue)
-				const current = cleanValueProperties(modifiedValue)
+				const draftOrDeployed = cleanValueProperties({
+					...((savedValue.draft || savedValue) ?? {}),
+					path: undefined
+				})
+				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
 				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 					bypassBeforeNavigate = true
 					goto(goingTo)
@@ -57,7 +60,7 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to discard the changes you have made? </span>
-		{#if savedValue && modifiedValue}
+		{#if savedValue && modifiedValue && diffDrawer}
 			<Button
 				wrapperClasses="self-start"
 				color="light"

@@ -1,4 +1,4 @@
-import { ScriptService, JobService, Script } from '$lib/gen'
+import { ScriptService, JobService, type Script } from '$lib/gen'
 
 export async function deleteScript(hash: string, workspace: string) {
 	return await ScriptService.deleteScriptByHash({ workspace: workspace, hash })

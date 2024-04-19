@@ -517,8 +517,8 @@
 		])
 		diffDrawer.setDiff({
 			mode: 'simple',
-			original: values[0],
-			current: values[1],
+			original: values?.[0] as any,
+			current: values?.[1] as any,
 			title: 'Staging/prod <> Dev'
 		})
 	}

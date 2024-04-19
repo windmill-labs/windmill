@@ -2,7 +2,6 @@
 	import { Alert } from '$lib/components/common'
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Script } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
@@ -42,18 +41,14 @@
 		) as [string, SupportedLanguage | 'docker'][]
 
 	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
-		if (
-			lang == Script.language.BUN ||
-			lang == Script.language.PYTHON3 ||
-			lang == Script.language.DENO
-		) {
+		if (lang == 'bun' || lang == 'python3' || lang == 'deno') {
 			return true
 		}
-		if (lang == Script.language.GO) {
+		if (lang == 'go') {
 			return kind == 'script' || kind == 'trigger' || failureModule
 		}
 
-		if (lang == Script.language.BASH || lang == Script.language.NATIVETS) {
+		if (lang == 'bash' || lang == 'nativets') {
 			return kind == 'script'
 		}
 		return kind == 'script' && !failureModule
@@ -201,7 +196,7 @@
 						id={`flow-editor-action-script-${lang}`}
 						disabled={noEditor && (summary == undefined || summary == '')}
 						{label}
-						lang={lang == 'docker' ? Script.language.BASH : lang}
+						lang={lang == 'docker' ? 'bash' : lang}
 						on:click={() => {
 							if (lang == 'docker') {
 								if (isCloudHosted()) {
@@ -222,7 +217,7 @@
 							}
 							console.log(lang, kind)
 							dispatch('new', {
-								language: lang == 'docker' ? Script.language.BASH : lang,
+								language: lang == 'docker' ? 'bash' : lang,
 								kind,
 								subkind: lang == 'docker' ? 'docker' : 'flow',
 								summary

@@ -52,7 +52,7 @@
 		description = resourceToEdit!.description ?? ''
 		selectedResourceType = resourceToEdit!.resource_type
 		loadResourceType()
-		args = resourceToEdit!.value
+		args = resourceToEdit!.value as any
 		can_write =
 			resourceToEdit.workspace_id == $workspaceStore &&
 			canWrite(p, resourceToEdit.extra_perms ?? {}, $userStore)

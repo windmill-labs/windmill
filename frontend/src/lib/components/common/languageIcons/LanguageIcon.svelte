@@ -7,7 +7,6 @@
 	import FetchIcon from './FetchIcon.svelte'
 	import DockerIcon from '$lib/components/icons/DockerIcon.svelte'
 	import RestIcon from '$lib/components/icons/RestIcon.svelte'
-	import { Script } from '$lib/gen'
 	import PowershellIcon from '$lib/components/icons/PowershellIcon.svelte'
 	import BigQueryIcon from '$lib/components/icons/BigQueryIcon.svelte'
 	import SnowflakeIcon from '$lib/components/icons/SnowflakeIcon.svelte'
@@ -15,6 +14,7 @@
 	import MSSqlServerIcon from '$lib/components/icons/MSSqlServerIcon.svelte'
 	import BunIcon from '$lib/components/icons/BunIcon.svelte'
 	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
+	import type { Script } from '$lib/gen'
 
 	export let lang:
 		| SupportedLanguage
@@ -29,18 +29,20 @@
 	export let height = 30
 	export let scale = 1
 
-	const languageLabel = {
-		[Script.language.PYTHON3]: 'Python',
-		[Script.language.DENO]: 'TypeScript',
-		[Script.language.GO]: 'Go',
-		[Script.language.BASH]: 'Bash',
-		[Script.language.POWERSHELL]: 'PowerShell',
-		[Script.language.NATIVETS]: 'HTTP',
-		[Script.language.GRAPHQL]: 'GraphQL',
-		[Script.language.POSTGRESQL]: 'Postgresql',
-		[Script.language.BIGQUERY]: 'BigQuery',
-		[Script.language.SNOWFLAKE]: 'Snowflake',
-		[Script.language.MSSQL]: 'MS SQL Server'
+	const languageLabel: Record<Script['language'], String> = {
+		python3: 'Python',
+		deno: 'TypeScript',
+		go: 'Go',
+		bash: 'Bash',
+		powershell: 'PowerShell',
+		nativets: 'HTTP',
+		graphql: 'GraphQL',
+		postgresql: 'Postgresql',
+		bigquery: 'BigQuery',
+		snowflake: 'Snowflake',
+		mysql: 'MySQL',
+		mssql: 'MS SQL Server',
+		bun: 'TypeScript'
 	}
 
 	const langToComponent: Record<

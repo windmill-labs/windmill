@@ -2,7 +2,7 @@
 	import { importStore } from '$lib/components/apps/store'
 
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import { AppService, Policy } from '$lib/gen'
+	import { AppService, type Policy } from '$lib/gen'
 	import { page } from '$app/stores'
 	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -44,7 +44,7 @@
 			? $userStore?.username
 			: `u/${$userStore?.username}`,
 		on_behalf_of_email: $userStore?.email,
-		execution_mode: Policy.execution_mode.PUBLISHER
+		execution_mode: 'publisher'
 	}
 
 	loadApp()
@@ -64,7 +64,7 @@
 				workspace: $workspaceStore!,
 				path: templatePath
 			})
-			value = template.value
+			value = template.value as any
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (templateId) {
@@ -72,7 +72,7 @@
 				workspace: $workspaceStore!,
 				id: parseInt(templateId)
 			})
-			value = template.value
+			value = template.value as any
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (hubId) {
@@ -81,7 +81,7 @@
 				hiddenInlineScripts: [],
 				unusedInlineScripts: [],
 				fullscreen: false,
-				...hub.app.value
+				...((hub.app.value ?? {}) as any)
 			}
 			summary = hub.app.summary
 			sendUserToast('App loaded from Hub')

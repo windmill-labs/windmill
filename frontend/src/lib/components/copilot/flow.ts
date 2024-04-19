@@ -1,11 +1,10 @@
 import {
-	type Script,
 	type FlowModule,
-	type HubScriptKind,
 	ScriptService,
-	RawScript,
+	type RawScript,
 	type PathScript,
-	type InputTransform
+	type InputTransform,
+	type Script
 } from '$lib/gen'
 import { addResourceTypes, deltaCodeCompletion, getNonStreamingCompletion } from './lib'
 import type { Writable } from 'svelte/store'
@@ -23,7 +22,7 @@ export type FlowCopilotModule = {
 	hubCompletions: {
 		path: string
 		summary: string
-		kind: HubScriptKind
+		kind: string
 		app: string
 		ask_id: number
 	}[]
@@ -31,7 +30,7 @@ export type FlowCopilotModule = {
 		| {
 				path: string
 				summary: string
-				kind: HubScriptKind
+				kind: string
 				app: string
 				ask_id: number
 		  }
@@ -164,7 +163,7 @@ async function getPreviousStepContent(
 			const script = await ScriptService.getHubScriptByPath({
 				path: pastModule.value.path
 			})
-			return { prevCode: script.content, prevLang: script.language as Script.language }
+			return { prevCode: script.content, prevLang: script.language as Script['language'] }
 		} else if (pastModule.value.hash) {
 			const script = await ScriptService.getScriptByHash({
 				workspace,
@@ -225,7 +224,7 @@ export async function stepCopilot(
 	prompt = await addResourceTypes(
 		{
 			type: 'gen',
-			language: lang as Script.language,
+			language: lang as Script['language'],
 			description: module.description,
 			dbSchema: undefined,
 			workspace

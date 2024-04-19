@@ -1,7 +1,6 @@
 <script lang="ts">
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Script } from '$lib/gen'
 	import { HelpCircle } from 'lucide-svelte'
 	import { Button, Drawer, Tab, Tabs } from '../../common'
 	import DrawerContent from '../../common/drawer/DrawerContent.svelte'
@@ -42,7 +41,7 @@
 					<svelte:fragment slot="content">
 						<TabContent value="deno" class="p-2">
 							<HighlightCode
-								language={Script.language.DENO}
+								language={'deno'}
 								code={`import * as wmill from "npm:windmill-client@^1.158.2"
     
 export async function main() {
@@ -58,7 +57,7 @@ export async function main() {
 						</TabContent>
 						<TabContent value="bun" class="p-2">
 							<HighlightCode
-								language={Script.language.DENO}
+								language={'deno'}
 								code={`import * as wmill from "windmill-client"
         
 export async function main() {
@@ -74,7 +73,7 @@ export async function main() {
 						</TabContent>
 						<TabContent value="python" class="p-2">
 							<HighlightCode
-								language={Script.language.PYTHON3}
+								language={'python3'}
 								code={`import wmill
 
 def main():
@@ -94,7 +93,7 @@ def main():
 				As one of the return key of this step, return an object `default_args` that contains the
 				default arguments of the form arguments. e.g:
 				<HighlightCode
-					language={Script.language.DENO}
+					language={'deno'}
 					code={`//this assumes the Form tab has a string field named "foo" and a checkbox named "bar"
 
 import * as wmill from "npm:windmill-client@^1.158.2"
@@ -118,7 +117,7 @@ export async function main() {
 				As one of the return key of this step, return an object `enums` that contains the default
 				arguments of the form arguments. e.g:
 				<HighlightCode
-					language={Script.language.DENO}
+					language={'deno'}
 					code={`
 
 //this assumes the Form tab has a string field named "foo"

@@ -67,23 +67,35 @@
 
 	let runnableComponent: RunnableComponent
 
+	let confirmedCallback: (() => void) | undefined = undefined
+
 	let beforeIconComponent: any
 	let afterIconComponent: any
 
-	$: resolvedConfig.beforeIcon && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && handleAfterIcon()
-
-	let confirmedCallback: (() => void) | undefined = undefined
+	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
+	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
-			beforeIconComponent = await loadIcon(resolvedConfig.beforeIcon)
+			beforeIconComponent = await loadIcon(
+				resolvedConfig.beforeIcon,
+				beforeIconComponent,
+				14,
+				undefined,
+				undefined
+			)
 		}
 	}
 
 	async function handleAfterIcon() {
 		if (resolvedConfig.afterIcon) {
-			afterIconComponent = await loadIcon(resolvedConfig.afterIcon)
+			afterIconComponent = await loadIcon(
+				resolvedConfig.afterIcon,
+				afterIconComponent,
+				14,
+				undefined,
+				undefined
+			)
 		}
 	}
 
@@ -210,16 +222,20 @@
 				on:click={handleClick}
 				size={resolvedConfig.size}
 				color={resolvedConfig.color}
-				startIcon={{
-					icon: resolvedConfig.beforeIcon ? beforeIconComponent : undefined
-				}}
-				endIcon={{
-					icon: resolvedConfig.afterIcon ? afterIconComponent : undefined
-				}}
 				{loading}
 			>
+				{#if resolvedConfig.beforeIcon}
+					{#key resolvedConfig.beforeIcon}
+						<div class="min-w-4" bind:this={beforeIconComponent} />
+					{/key}
+				{/if}
 				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
 					<div>{resolvedConfig.label.toString()}</div>
+				{/if}
+				{#if resolvedConfig.afterIcon}
+					{#key resolvedConfig.afterIcon}
+						<div class="min-w-4" bind:this={afterIconComponent} />
+					{/key}
 				{/if}
 			</Button>
 		{/key}

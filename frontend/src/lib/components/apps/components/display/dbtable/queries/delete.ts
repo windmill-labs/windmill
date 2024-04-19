@@ -2,35 +2,54 @@ import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
 
 function deleteWithAllValues(table: string, columns: ColumnDef[], dbType: DbType) {
-	let query = buildParameters(columns, dbType)
+	let query = buildParameters(
+		dbType === 'snowflake' ? columns.flatMap((c) => [c, c]) : columns,
+		dbType
+	)
 
 	switch (dbType) {
 		case 'postgresql': {
 			const conditions = columns
-				.map((c, i) => `${c.field} = $${i + 1}::text::${c.datatype} `)
-				.join(' AND ')
+				.map(
+					(c, i) =>
+						`($${i + 1}::${c.datatype} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${i + 1}::${
+							c.datatype
+						})`
+				)
+				.join('\n    AND ')
 
-			query += `\nDELETE FROM ${table} WHERE ${conditions} RETURNING 1;`
+			query += `\nDELETE FROM ${table} \nWHERE ${conditions} RETURNING 1;`
 			return query
 		}
 		case 'mysql': {
-			const conditions = columns.map((c) => `${c.field} = :${c.field}`).join(' AND ')
-			query += `\nDELETE FROM ${table} WHERE ${conditions}`
+			const conditions = columns
+				.map((c) => `(:${c.field} IS NULL AND ${c.field} IS NULL OR ${c.field} = :${c.field})`)
+				.join('\n    AND ')
+			query += `\nDELETE FROM ${table} \nWHERE ${conditions}`
 			return query
 		}
 		case 'ms_sql_server': {
-			const conditions = columns.map((c, i) => `${c.field} = @p${i + 1} `).join(' AND ')
-			query += `\nDELETE FROM ${table} WHERE ${conditions}`
+			const conditions = columns
+				.map((c, i) => `(@p${i + 1} IS NULL AND ${c.field} IS NULL OR ${c.field} = @p${i + 1})`)
+				.join('\n    AND ')
+			query += `\nDELETE FROM ${table} \nWHERE ${conditions}`
 			return query
 		}
 		case 'snowflake': {
-			const conditions = columns.map((c, i) => `${c.field} = ? `).join(' AND ')
-			query += `\nDELETE FROM ${table} WHERE ${conditions}`
+			const conditions = columns
+				.map((c, i) => `(? = 'null' AND ${c.field} IS NULL OR ${c.field} = ?)`)
+				.join('\n    AND ')
+			query += `\nDELETE FROM ${table} \nWHERE ${conditions}`
 			return query
 		}
 		case 'bigquery': {
-			const conditions = columns.map((c, i) => `${c.field} = @${c.field}`).join(' AND ')
-			query += `\nDELETE FROM ${table} WHERE ${conditions}`
+			const conditions = columns
+				.map(
+					(c, i) =>
+						`(CAST(@${c.field} AS STRING) = 'null' AND ${c.field} IS NULL OR ${c.field} = @${c.field})`
+				)
+				.join('\n    AND ')
+			query += `\nDELETE FROM ${table} \nWHERE ${conditions}`
 			return query
 		}
 		default:

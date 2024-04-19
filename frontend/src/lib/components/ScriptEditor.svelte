@@ -2,12 +2,11 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { CompletedJob, Job, JobService } from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
-	import type { Preview } from '$lib/gen/models/Preview'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -29,7 +28,7 @@
 	export let schema: Schema | any = emptySchema()
 	export let code: string
 	export let path: string | undefined
-	export let lang: Preview.language
+	export let lang: Preview['language']
 	export let kind: string | undefined = undefined
 	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let tag: string | undefined

@@ -40,22 +40,35 @@
 		configuration
 	)
 
-	let beforeIconComponent: any
-	let afterIconComponent: any
 	let css = initCss($app.css?.menucomponent, customCss)
 
-	$: resolvedConfig.beforeIcon && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && handleAfterIcon()
+	let beforeIconComponent: any
+	let afterIconComponent: any
+
+	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
+	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
-			beforeIconComponent = await loadIcon(resolvedConfig.beforeIcon)
+			beforeIconComponent = await loadIcon(
+				resolvedConfig.beforeIcon,
+				beforeIconComponent,
+				14,
+				undefined,
+				undefined
+			)
 		}
 	}
 
 	async function handleAfterIcon() {
 		if (resolvedConfig.afterIcon) {
-			afterIconComponent = await loadIcon(resolvedConfig.afterIcon)
+			afterIconComponent = await loadIcon(
+				resolvedConfig.afterIcon,
+				afterIconComponent,
+				14,
+				undefined,
+				undefined
+			)
 		}
 	}
 </script>
@@ -104,14 +117,18 @@
 					nonCaptureEvent
 				>
 					<span class="truncate inline-flex gap-2 items-center">
-						{#if resolvedConfig.beforeIcon && beforeIconComponent}
-							<svelte:component this={beforeIconComponent} size={14} />
+						{#if resolvedConfig.beforeIcon}
+							{#key resolvedConfig.beforeIcon}
+								<div class="min-w-4" bind:this={beforeIconComponent} />
+							{/key}
 						{/if}
 						{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
 							<div>{resolvedConfig.label}</div>
 						{/if}
-						{#if resolvedConfig.afterIcon && afterIconComponent}
-							<svelte:component this={afterIconComponent} size={14} />
+						{#if resolvedConfig.afterIcon}
+							{#key resolvedConfig.afterIcon}
+								<div class="min-w-4" bind:this={afterIconComponent} />
+							{/key}
 						{/if}
 					</span>
 				</Button>

@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { CompletedJob, Job, JobService, OpenAPI, Preview, type WorkflowStatus } from '$lib/gen'
+	import {
+		type CompletedJob,
+		type Job,
+		JobService,
+		OpenAPI,
+		type Preview,
+		type WorkflowStatus
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -20,7 +27,7 @@
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 
-	export let lang: Preview.language | undefined
+	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
 	export let pastPreviews: CompletedJob[] = []
@@ -29,7 +36,7 @@
 	export let args: Record<string, any> | undefined = undefined
 
 	type DrawerContent = {
-		mode: 'json' | Preview.language | 'plain'
+		mode: 'json' | Preview['language'] | 'plain'
 		title: string
 		content: any
 	}
@@ -116,7 +123,7 @@
 									result={previewJob.result}
 								>
 									<svelte:fragment slot="copilot-fix">
-										{#if lang && editor && diffEditor && args && previewJob?.result?.error}
+										{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
 											<ScriptFix
 												error={JSON.stringify(previewJob.result.error)}
 												{lang}

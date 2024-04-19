@@ -72,6 +72,13 @@ export function dfs(
 			return [item.id, id]
 		} else if (item.data.type == 'menucomponent' && item.data.menuItems.find((x) => id == x.id)) {
 			return [item.id, id]
+		} else if (
+			(item.data.type == 'aggridcomponent' ||
+				item.data.type == 'aggridcomponentee' ||
+				item.data.type == 'dbexplorercomponent') &&
+			item.data.actions?.find((x) => id == x.id)
+		) {
+			return [item.id, id]
 		} else {
 			for (let i = 0; i < (item.data.numberOfSubgrids ?? 0); i++) {
 				const res = dfs(subgrids[`${item.id}-${i}`], id, subgrids)
@@ -165,6 +172,14 @@ export function allsubIds(app: App, parentId: string): string[] {
 			if (item.data.type === 'tablecomponent') {
 				subIds.push(...item.data.actionButtons?.map((x) => x.id))
 			}
+			if (
+				(item.data.type === 'aggridcomponent' ||
+					item.data.type === 'aggridcomponentee' ||
+					item.data.type === 'dbexplorercomponent') &&
+				Array.isArray(item.data.actions)
+			) {
+				subIds.push(...item.data.actions?.map((x) => x.id))
+			}
 			if (item.data.type === 'menucomponent') {
 				subIds.push(...item.data.menuItems?.map((x) => x.id))
 			}
@@ -182,6 +197,13 @@ export function getNextGridItemId(app: App): string {
 	const allIds = allItems(app.grid, app.subgrids).flatMap((x) => {
 		if (x.data.type === 'tablecomponent') {
 			return [x.id, ...x.data.actionButtons.map((x) => x.id)]
+		} else if (
+			(x.data.type === 'aggridcomponent' ||
+				x.data.type === 'aggridcomponentee' ||
+				x.data.type === 'dbexplorercomponent') &&
+			Array.isArray(x.data.actions)
+		) {
+			return [x.id, ...x.data.actions.map((x) => x.id)]
 		} else if (x.data.type === 'menucomponent') {
 			return [x.id, ...x.data.menuItems.map((x) => x.id)]
 		} else {
@@ -329,6 +351,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			customCss: ccomponents[type].customCss as any,
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
+			actions: [],
 			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: init.horizontalAlignment,
@@ -371,9 +394,16 @@ export function insertNewGridItem(
 		let parent = findGridItemById(app.grid, app.subgrids, key)?.data
 		let subgrids = parent?.numberOfSubgrids
 		if (subgrids === undefined) {
-			throw Error(`Invalid subgrid selected, the parent has no subgrids: ${key}, parent: ${JSON.stringify(parent)}`)
+			throw Error(
+				`Invalid subgrid selected, the parent has no subgrids: ${key}, parent: ${JSON.stringify(
+					parent
+				)}`
+			)
 		}
-		if (focusedGrid?.subGridIndex && (focusedGrid?.subGridIndex < 0 || focusedGrid?.subGridIndex >= subgrids)) {
+		if (
+			focusedGrid?.subGridIndex &&
+			(focusedGrid?.subGridIndex < 0 || focusedGrid?.subGridIndex >= subgrids)
+		) {
 			throw Error(`Invalid subgrid selected: ${key}, max subgrids: ${subgrids}`)
 		}
 		// If ever the subgrid is undefined, we want to make sure it is defined
@@ -408,6 +438,20 @@ export function copyComponent(
 					id,
 					actionButtons:
 						item.data.actionButtons.map((x) => ({
+							...x,
+							id: x.id.replace(`${item.id}_`, `${id}_`)
+						})) ?? []
+				}
+			} else if (
+				item.data.type === 'aggridcomponent' ||
+				item.data.type === 'aggridcomponentee' ||
+				item.data.type === 'dbexplorercomponent'
+			) {
+				return {
+					...item.data,
+					id,
+					actionButtons:
+						(item.data.actions ?? []).map((x) => ({
 							...x,
 							id: x.id.replace(`${item.id}_`, `${id}_`)
 						})) ?? []
@@ -455,6 +499,14 @@ export function getAllSubgridsAndComponentIds(
 		components.push(...component.actionButtons?.map((x) => x.id))
 	}
 
+	if (
+		component.type === 'aggridcomponent' ||
+		component.type === 'aggridcomponentee' ||
+		component.type === 'dbexplorercomponent'
+	) {
+		components.push(...(component.actions?.map((x) => x.id) ?? []))
+	}
+
 	if (component.type === 'menucomponent') {
 		components.push(...component.menuItems?.map((x) => x.id))
 	}
@@ -482,6 +534,13 @@ export function getAllGridItems(app: App): GridItem[] {
 		.map((x) => {
 			if (x?.data?.type === 'tablecomponent') {
 				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
+			} else if (
+				(x?.data?.type === 'aggridcomponent' ||
+					x?.data?.type === 'aggridcomponentee' ||
+					x?.data?.type === 'dbexplorercomponent') &&
+				Array.isArray(x?.data?.actions)
+			) {
+				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]
 			} else if (x?.data?.type === 'menucomponent') {
 				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
 			}

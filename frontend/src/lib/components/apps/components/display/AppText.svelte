@@ -105,21 +105,6 @@
 	let component = 'p'
 	let classes = ''
 
-	function getHorizontalAlignement() {
-		if (horizontalAlignment) {
-			switch (horizontalAlignment) {
-				case 'left':
-					return '!text-left'
-				case 'center':
-					return '!text-center'
-				case 'right':
-					return '!text-right'
-				default:
-					return '!text-left'
-			}
-		}
-	}
-
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
 	$: initialValue =
@@ -184,7 +169,7 @@
 		on:keydown|stopPropagation
 	>
 		{#if $mode == 'dnd' && editorMode && (componentInput?.type == 'template' || componentInput?.type == 'templatev2')}
-			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+			<AlignWrapper {verticalAlignment}>
 				<textarea
 					class={twMerge(
 						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0 text-center',
@@ -192,8 +177,7 @@
 						'wm-text',
 						classes,
 						getClasses(),
-						getClassesByType(),
-						getHorizontalAlignement()
+						getClassesByType()
 					)}
 					on:pointerdown|stopPropagation
 					style={css?.text?.style}
@@ -210,7 +194,7 @@
 				/>
 			</AlignWrapper>
 		{:else}
-			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+			<AlignWrapper {verticalAlignment}>
 				{#if !result || result === ''}
 					<div
 						class="text-ternary bg-surface-primary flex justify-center items-center h-full w-full"
@@ -220,14 +204,24 @@
 				{:else}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						class="flex flex-wrap gap-2 pb-0.5 {$mode === 'dnd' &&
+						class="flex flex-wrap gap-2 pb-0.5 w-full {$mode === 'dnd' &&
 						(componentInput?.type == 'template' || componentInput?.type == 'templatev2')
 							? 'cursor-text'
 							: ''}"
 					>
 						<svelte:element
 							this={component}
-							class={twMerge('whitespace-pre-wrap', css?.text?.class, classes)}
+							class={twMerge(
+								'whitespace-pre-wrap w-full',
+
+								css?.text?.class,
+								classes,
+								horizontalAlignment === 'center'
+									? 'text-center'
+									: horizontalAlignment === 'right'
+									? 'text-right'
+									: 'text-left'
+							)}
 							style={css?.text?.style}
 						>
 							{String(result)}

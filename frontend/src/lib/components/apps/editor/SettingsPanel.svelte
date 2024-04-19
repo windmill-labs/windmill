@@ -11,13 +11,17 @@
 
 	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
+	let firstComponent = $selectedComponent?.[0]
+
+	$: $selectedComponent?.[0] != firstComponent && (firstComponent = $selectedComponent?.[0])
+
 	$: hiddenInlineScript = $app?.hiddenInlineScripts
 		?.map((x, i) => ({ script: x, index: i }))
 		.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
 
-	$: componentSettings = findComponentSettings($app, $selectedComponent?.[0])
-	$: tableActionSettings = findTableActionSettings($app, $selectedComponent?.[0])
-	$: menuItemsSettings = findMenuItemsSettings($app, $selectedComponent?.[0])
+	$: componentSettings = findComponentSettings($app, firstComponent)
+	$: tableActionSettings = findTableActionSettings($app, firstComponent)
+	$: menuItemsSettings = findMenuItemsSettings($app, firstComponent)
 
 	function findTableActionSettings(app: App, id: string | undefined) {
 		return allItems(app.grid, app.subgrids)
@@ -25,6 +29,17 @@
 				if (x?.data?.type === 'tablecomponent') {
 					if (x?.data?.actionButtons) {
 						const tableAction = x.data.actionButtons.find((x) => x.id === id)
+						if (tableAction) {
+							return { item: { data: tableAction, id: tableAction.id }, parent: x.data.id }
+						}
+					}
+				} else if (
+					x?.data?.type === 'aggridcomponent' ||
+					x?.data?.type === 'aggridcomponentee' ||
+					x?.data?.type === 'dbexplorercomponent'
+				) {
+					if (x?.data?.actions) {
+						const tableAction = x.data.actions.find((x) => x.id === id)
 						if (tableAction) {
 							return { item: { data: tableAction, id: tableAction.id }, parent: x.data.id }
 						}
@@ -74,6 +89,17 @@
 
 					if (parent.data.type === 'tablecomponent') {
 						parent.data.actionButtons = parent.data.actionButtons.filter(
+							(x) => x.id !== tableActionSettings?.item.id
+						)
+					}
+
+					if (
+						(parent.data.type === 'aggridcomponent' ||
+							parent.data.type === 'aggridcomponentee' ||
+							parent.data.type === 'dbexplorercomponent') &&
+						Array.isArray(parent.data.actions)
+					) {
+						parent.data.actions = parent.data.actions.filter(
 							(x) => x.id !== tableActionSettings?.item.id
 						)
 					}

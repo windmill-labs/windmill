@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT concurrency_key FROM script WHERE hash = $1",
+  "query": "SELECT concurrency_key FROM script WHERE hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,13 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int8",
+        "Text"
       ]
     },
     "nullable": [
       true
     ]
   },
-  "hash": "2719f910142b32476a16025bb9836b0cab019ba0a436b330ea3a53fba4725f73"
+  "hash": "a3ccf362b4f6df400b3c7a084795dbf541eb14c5c374656ffb96da7283a2a6f1"
 }

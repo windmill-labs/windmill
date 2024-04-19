@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
+	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'
@@ -193,5 +193,17 @@
 		bind:savedScript
 		{initialArgs}
 		{diffDrawer}
+		on:deploy={(e) => {
+			let newHash = e.detail
+			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		}}
+		on:saveInitial={(e) => {
+			let path = e.detail
+			goto(`/scripts/edit/${path}`)
+		}}
+		on:seeDetails={(e) => {
+			let path = e.detail
+			goto(`/scripts/get/${path}?workspace=${$workspaceStore}`)
+		}}
 	/>
 {/if}

@@ -2,7 +2,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import { classNames, displayDate, emptyString } from '$lib/utils'
-	import { AppService, AppWithLastVersion, type AppHistory } from '$lib/gen'
+	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import AppPreview from './AppPreview.svelte'
 	import { Skeleton } from '$lib/components/common'
@@ -16,7 +16,7 @@
 	let versions: AppHistory[] = []
 
 	let selectedVersion: AppHistory | undefined = undefined
-	let selected: AppWithLastVersion | undefined = undefined
+	let selected: (AppWithLastVersion & { value: any }) | undefined = undefined
 
 	let deploymentMsgUpdateMode = false
 	let deploymentMsgUpdate: string | undefined = undefined

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService, type FlowModule, type RestartedFrom } from '$lib/gen'
+	import { type Job, JobService, type FlowModule, type RestartedFrom } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
