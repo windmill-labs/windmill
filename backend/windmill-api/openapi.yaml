@@ -5554,7 +5554,6 @@ paths:
             text/plain:
               type: string
 
-
   /w/{workspace}/jobs_u/get_flow_debug_info/{id}:
     get:
       summary: get flow debug info
@@ -8764,14 +8763,14 @@ components:
 
     Job:
       oneOf:
-          - allOf:
+        - allOf:
             - $ref: "#/components/schemas/CompletedJob"
             - type: object
               properties:
                 type:
                   type: string
                   enum: [CompletedJob]
-          - allOf: 
+        - allOf:
             - $ref: "#/components/schemas/QueuedJob"
             - type: object
               properties:
@@ -9941,7 +9940,7 @@ components:
         created_at:
           type: string
           format: date-time
-        value: 
+        value:
           type: object
         policy:
           $ref: "#/components/schemas/Policy"
