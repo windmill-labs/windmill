@@ -19,7 +19,7 @@
 	import { deepEqual } from 'fast-equals'
 
 	import 'ag-grid-community/styles/ag-grid.css'
-	import 'ag-grid-community/styles/ag-theme-alpine.css'
+	import './theme/windmill-theme.css'
 
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -428,8 +428,8 @@
 					}}
 					style:height="{clientHeight}px"
 					style:width="{clientWidth}px"
-					class="ag-theme-alpine"
-					class:ag-theme-alpine-dark={$darkMode}
+					class="ag-theme-windmill"
+					class:ag-theme-windmill-dark={$darkMode}
 				>
 					{#key resolvedConfig?.pagination}
 						{#if loaded}

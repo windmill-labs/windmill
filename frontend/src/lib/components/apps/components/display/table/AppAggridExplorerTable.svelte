@@ -396,7 +396,7 @@
 {#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 	<div
 		class={twMerge(
-			'divide-y flex flex-col h-full component-wrapper',
+			'flex flex-col h-full component-wrapper divide-y',
 			css?.container?.class,
 			'wm-aggrid-container'
 		)}
@@ -410,8 +410,8 @@
 			}}
 			style:height="{clientHeight}px"
 			style:width="{clientWidth}px"
-			class="ag-theme-alpine"
-			class:ag-theme-alpine-dark={$darkMode}
+			class="ag-theme-windmill"
+			class:ag-theme-windmill-dark={$darkMode}
 		>
 			<div bind:this={eGui} style:height="100%" />
 		</div>
@@ -441,11 +441,12 @@
 {/if}
 
 <style>
-	.ag-theme-alpine {
+	.ag-theme-windmill {
 		/* disable all borders */
 		--ag-borders: none;
 		--ag-row-border-style: solid;
 		--ag-border-color: rgb(209 213 219);
 		--ag-header-border-style: solid;
+		--ag-border-radius: 0;
 	}
 </style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Popover from '$lib/components/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Table } from '@tanstack/svelte-table'
 	import { ChevronLeft, ChevronRight, Columns, Download } from 'lucide-svelte'
@@ -63,26 +64,33 @@
 	>
 		<div class="flex items-center gap-1 flex-row">
 			{#if download}
-				<Button
-					size="xs2"
-					color="light"
-					on:click={downloadResultAsCSV}
-					startIcon={{ icon: Download }}
-					wrapperClasses="app-table-footer-btn"
-					iconOnly
-				/>
+				<Popover>
+					<svelte:fragment slot="text">Download as CSV</svelte:fragment>
+
+					<Button
+						size="xs2"
+						color="light"
+						on:click={downloadResultAsCSV}
+						startIcon={{ icon: Download }}
+						wrapperClasses="app-table-footer-btn"
+						iconOnly
+					/>
+				</Popover>
 			{/if}
 			{#if !$table.getIsAllColumnsVisible()}
-				<Button
-					size="xs2"
-					color="light"
-					on:click={() => {
-						$table.getAllColumns().forEach((column) => column.toggleVisibility(true))
-					}}
-					startIcon={{ icon: Columns }}
-					wrapperClasses="app-table-footer-btn"
-					iconOnly
-				/>
+				<Popover>
+					<svelte:fragment slot="text">Display hidden columns</svelte:fragment>
+					<Button
+						size="xs2"
+						color="light"
+						on:click={() => {
+							$table.getAllColumns().forEach((column) => column.toggleVisibility(true))
+						}}
+						startIcon={{ icon: Columns }}
+						wrapperClasses="app-table-footer-btn"
+						iconOnly
+					/>
+				</Popover>
 			{/if}
 		</div>
 		{#if result.length > pageSize || manualPagination}
@@ -102,6 +110,7 @@
 				>
 					Previous
 				</Button>
+
 				<Button
 					size="xs2"
 					variant="border"

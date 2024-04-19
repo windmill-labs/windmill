@@ -1,25 +1,26 @@
-@import 'ag.css';
-
+@font-face {
+	font-family: 'agGridwindmill';
+	src: url(data:font/woff2;charset=utf-8;base64,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);
+	font-weight: normal;
+	font-style: normal;
+}
 .ag-theme-windmill,
 .ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark {
-	/* Active colours - same shade, different opacities */
-	--ag-windmill-active-color: #2196f3;
-	--ag-selected-row-background-color: rgba(33, 150, 243, 0.3);
-	--ag-row-hover-color: rgba(33, 150, 243, 0.1);
+	--ag-windmill-active-color: rgb(255, 239, 254);
+	--ag-selected-row-background-color: rgb(219, 234, 254, 0.5);
+	--ag-row-hover-color: rgb(191, 219, 254, 0.5);
 	--ag-column-hover-color: rgba(33, 150, 243, 0.1);
 	--ag-input-focus-border-color: rgba(33, 150, 243, 0.4);
 	--ag-range-selection-background-color: rgba(33, 150, 243, 0.2);
 	--ag-range-selection-background-color-2: rgba(33, 150, 243, 0.36);
 	--ag-range-selection-background-color-3: rgba(33, 150, 243, 0.49);
 	--ag-range-selection-background-color-4: rgba(33, 150, 243, 0.59);
-
-	/* Main colours (overridden by windmill-dark) */
 	--ag-background-color: #fff;
 	--ag-foreground-color: #181d1f;
-	--ag-border-color: #babfc7;
+	--ag-border-color: #d1d5db;
 	--ag-secondary-border-color: #dde2eb;
-	--ag-header-background-color: #f8f8f8;
+	--ag-header-background-color: #f3f4f6;
 	--ag-tooltip-background-color: #f8f8f8;
 	--ag-odd-row-background-color: #fcfcfc;
 	--ag-control-panel-background-color: #f8f8f8;
@@ -30,8 +31,6 @@
 	--ag-advanced-filter-column-pill-color: #a6e194;
 	--ag-advanced-filter-option-pill-color: #f3c08b;
 	--ag-advanced-filter-value-pill-color: #85c0e4;
-
-	/* Derived colours */
 	--ag-checkbox-background-color: var(--ag-background-color);
 	--ag-checkbox-checked-color: var(--ag-windmill-active-color);
 	--ag-range-selection-border-color: var(--ag-windmill-active-color);
@@ -41,27 +40,21 @@
 	--ag-input-focus-box-shadow: 0 0 2px 0.1rem var(--ag-input-focus-border-color);
 	--ag-panel-background-color: var(--ag-header-background-color);
 	--ag-menu-background-color: var(--ag-header-background-color);
-
-	/* Derived and blended colours */
 	--ag-disabled-foreground-color: rgba(24, 29, 31, 0.5);
 	--ag-chip-background-color: rgba(24, 29, 31, 0.07);
 	--ag-input-disabled-border-color: rgba(186, 191, 199, 0.3);
 	--ag-input-disabled-background-color: rgba(186, 191, 199, 0.15);
-
-	/* Borders */
 	--ag-borders: solid 1px;
-	--ag-border-radius: 3px;
+	--ag-border-radius: 8px;
 	--ag-borders-side-button: none;
 	--ag-side-button-selected-background-color: transparent;
 	--ag-header-column-resize-handle-display: block;
 	--ag-header-column-resize-handle-width: 2px;
 	--ag-header-column-resize-handle-height: 30%;
-
-	/* Sizing */
 	--ag-grid-size: 6px;
 	--ag-icon-size: 16px;
 	--ag-row-height: calc(var(--ag-grid-size) * 7);
-	--ag-header-height: calc(var(--ag-grid-size) * 8);
+	--ag-header-height: calc(var(--ag-grid-size) * 6);
 	--ag-list-item-height: calc(var(--ag-grid-size) * 4);
 	--ag-column-select-indent-size: var(--ag-icon-size);
 	--ag-set-filter-indent-size: var(--ag-icon-size);
@@ -73,14 +66,10 @@
 	--ag-widget-vertical-spacing: calc(var(--ag-grid-size) * 1.5);
 	--ag-toggle-button-height: 18px;
 	--ag-toggle-button-width: 28px;
-
-	/* Fonts */
 	--ag-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu,
 		Cantarell, 'Helvetica Neue', sans-serif;
-	--ag-font-size: 13px;
+	--ag-font-size: 0.7rem;
 	--ag-icon-font-family: agGridwindmill;
-
-	/* Miscellaneous */
 	--ag-selected-tab-underline-color: var(--ag-windmill-active-color);
 	--ag-selected-tab-underline-width: 2px;
 	--ag-selected-tab-underline-transition-speed: 0.3s;
@@ -90,16 +79,16 @@
 	--ag-side-bar-panel-width: 250px;
 }
 
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark {
-	--ag-background-color: #181d1f;
+.ag-theme-windmill-dark {
+	--ag-background-color: #2e3440;
 	--ag-foreground-color: #fff;
+	--ag-windmill-active-color: #434c5e;
 	--ag-border-color: #68686e;
 	--ag-secondary-border-color: rgba(88, 86, 82, 0.5);
-	--ag-modal-overlay-background-color: rgba(24, 29, 31, 0.66);
-	--ag-header-background-color: #222628;
-	--ag-tooltip-background-color: #222628;
-	--ag-odd-row-background-color: #222628;
+	--ag-modal-overlay-background-color: rgba(255, 29, 31, 0.66);
+	--ag-header-background-color: #3b4252;
+	--ag-tooltip-background-color: #3b4252;
+	--ag-odd-row-background-color: #3b4252;
 	--ag-control-panel-background-color: #222628;
 	--ag-subheader-background-color: #000;
 	--ag-input-disabled-background-color: #282c2f;
@@ -119,173 +108,264 @@
 
 @media (prefers-color-scheme: dark) {
 	.ag-theme-windmill-auto-dark {
-		/* dark theme variables are already included via .ag-theme-windmill-dark, no need to duplicate */
+		--ag-background-color: #181d1f;
+		--ag-foreground-color: #fff;
+		--ag-border-color: #68686e;
+		--ag-secondary-border-color: rgba(88, 86, 82, 0.5);
+		--ag-modal-overlay-background-color: rgba(24, 29, 31, 0.66);
+		--ag-header-background-color: #222628;
+		--ag-tooltip-background-color: #222628;
+		--ag-odd-row-background-color: #222628;
+		--ag-control-panel-background-color: #222628;
+		--ag-subheader-background-color: #000;
+		--ag-input-disabled-background-color: #282c2f;
+		--ag-input-focus-box-shadow: 0 0 2px 0.5px rgba(255, 255, 255, 0.5),
+			0 0 4px 3px var(--ag-input-focus-border-color);
+		--ag-card-shadow: 0 1px 20px 1px black;
+		--ag-disabled-foreground-color: rgba(255, 255, 255, 0.5);
+		--ag-chip-background-color: rgba(255, 255, 255, 0.07);
+		--ag-input-disabled-border-color: rgba(104, 104, 110, 0.3);
+		--ag-input-disabled-background-color: rgba(104, 104, 110, 0.07);
+		--ag-advanced-filter-join-pill-color: #7a3a37;
+		--ag-advanced-filter-column-pill-color: #355f2d;
+		--ag-advanced-filter-option-pill-color: #5a3168;
+		--ag-advanced-filter-value-pill-color: #374c86;
+		color-scheme: dark;
 	}
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-filter-toolpanel-header,
+.ag-theme-windmill .ag-filter-toolpanel-search,
+.ag-theme-windmill .ag-status-bar,
+.ag-theme-windmill .ag-header-row,
+.ag-theme-windmill .ag-panel-title-bar-title,
+.ag-theme-windmill .ag-multi-filter-group-title-bar,
+.ag-theme-windmill-dark .ag-filter-toolpanel-header,
+.ag-theme-windmill-dark .ag-filter-toolpanel-search,
+.ag-theme-windmill-dark .ag-status-bar,
+.ag-theme-windmill-dark .ag-header-row,
+.ag-theme-windmill-dark .ag-panel-title-bar-title,
+.ag-theme-windmill-dark .ag-multi-filter-group-title-bar,
 .ag-theme-windmill-auto-dark .ag-filter-toolpanel-header,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-filter-toolpanel-search,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-status-bar,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-header-row,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-panel-title-bar-title,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-multi-filter-group-title-bar {
 	font-weight: 700;
 	color: var(--ag-header-foreground-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-row,
+.ag-theme-windmill-dark .ag-row,
 .ag-theme-windmill-auto-dark .ag-row {
 	font-size: calc(var(--ag-font-size) + 1px);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-text-input {
+.ag-theme-windmill input[class^='ag-']:not([type]),
+.ag-theme-windmill input[class^='ag-'][type='text'],
+.ag-theme-windmill input[class^='ag-'][type='number'],
+.ag-theme-windmill input[class^='ag-'][type='tel'],
+.ag-theme-windmill input[class^='ag-'][type='date'],
+.ag-theme-windmill input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill textarea[class^='ag-'],
+.ag-theme-windmill-dark input[class^='ag-']:not([type]),
+.ag-theme-windmill-dark input[class^='ag-'][type='text'],
+.ag-theme-windmill-dark input[class^='ag-'][type='number'],
+.ag-theme-windmill-dark input[class^='ag-'][type='tel'],
+.ag-theme-windmill-dark input[class^='ag-'][type='date'],
+.ag-theme-windmill-dark input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill-dark textarea[class^='ag-'],
+.ag-theme-windmill-auto-dark input[class^='ag-']:not([type]),
+.ag-theme-windmill-auto-dark input[class^='ag-'][type='text'],
+.ag-theme-windmill-auto-dark input[class^='ag-'][type='number'],
+.ag-theme-windmill-auto-dark input[class^='ag-'][type='tel'],
+.ag-theme-windmill-auto-dark input[class^='ag-'][type='date'],
+.ag-theme-windmill-auto-dark input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill-auto-dark textarea[class^='ag-'] {
 	min-height: calc(var(--ag-grid-size) * 4);
 	border-radius: var(--ag-border-radius);
-	padding-left: var(--ag-grid-size); /* Adjust based on RTL */
+}
+.ag-theme-windmill .ag-ltr input[class^='ag-']:not([type]),
+.ag-theme-windmill .ag-ltr input[class^='ag-'][type='text'],
+.ag-theme-windmill .ag-ltr input[class^='ag-'][type='number'],
+.ag-theme-windmill .ag-ltr input[class^='ag-'][type='tel'],
+.ag-theme-windmill .ag-ltr input[class^='ag-'][type='date'],
+.ag-theme-windmill .ag-ltr input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill .ag-ltr textarea[class^='ag-'],
+.ag-theme-windmill-dark .ag-ltr input[class^='ag-']:not([type]),
+.ag-theme-windmill-dark .ag-ltr input[class^='ag-'][type='text'],
+.ag-theme-windmill-dark .ag-ltr input[class^='ag-'][type='number'],
+.ag-theme-windmill-dark .ag-ltr input[class^='ag-'][type='tel'],
+.ag-theme-windmill-dark .ag-ltr input[class^='ag-'][type='date'],
+.ag-theme-windmill-dark .ag-ltr input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill-dark .ag-ltr textarea[class^='ag-'],
+.ag-theme-windmill-auto-dark .ag-ltr input[class^='ag-']:not([type]),
+.ag-theme-windmill-auto-dark .ag-ltr input[class^='ag-'][type='text'],
+.ag-theme-windmill-auto-dark .ag-ltr input[class^='ag-'][type='number'],
+.ag-theme-windmill-auto-dark .ag-ltr input[class^='ag-'][type='tel'],
+.ag-theme-windmill-auto-dark .ag-ltr input[class^='ag-'][type='date'],
+.ag-theme-windmill-auto-dark .ag-ltr input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill-auto-dark .ag-ltr textarea[class^='ag-'] {
+	padding-left: var(--ag-grid-size);
 }
 
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-rtl input[class^='ag-']:not([type]),
+.ag-theme-windmill .ag-rtl input[class^='ag-'][type='text'],
+.ag-theme-windmill .ag-rtl input[class^='ag-'][type='number'],
+.ag-theme-windmill .ag-rtl input[class^='ag-'][type='tel'],
+.ag-theme-windmill .ag-rtl input[class^='ag-'][type='date'],
+.ag-theme-windmill .ag-rtl input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill .ag-rtl textarea[class^='ag-'],
+.ag-theme-windmill-dark .ag-rtl input[class^='ag-']:not([type]),
+.ag-theme-windmill-dark .ag-rtl input[class^='ag-'][type='text'],
+.ag-theme-windmill-dark .ag-rtl input[class^='ag-'][type='number'],
+.ag-theme-windmill-dark .ag-rtl input[class^='ag-'][type='tel'],
+.ag-theme-windmill-dark .ag-rtl input[class^='ag-'][type='date'],
+.ag-theme-windmill-dark .ag-rtl input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill-dark .ag-rtl textarea[class^='ag-'],
+.ag-theme-windmill-auto-dark .ag-rtl input[class^='ag-']:not([type]),
+.ag-theme-windmill-auto-dark .ag-rtl input[class^='ag-'][type='text'],
+.ag-theme-windmill-auto-dark .ag-rtl input[class^='ag-'][type='number'],
+.ag-theme-windmill-auto-dark .ag-rtl input[class^='ag-'][type='tel'],
+.ag-theme-windmill-auto-dark .ag-rtl input[class^='ag-'][type='date'],
+.ag-theme-windmill-auto-dark .ag-rtl input[class^='ag-'][type='datetime-local'],
+.ag-theme-windmill-auto-dark .ag-rtl textarea[class^='ag-'] {
+	padding-right: var(--ag-grid-size);
+}
+
+.ag-theme-windmill .ag-tab,
+.ag-theme-windmill-dark .ag-tab,
 .ag-theme-windmill-auto-dark .ag-tab {
 	padding: calc(var(--ag-grid-size) * 1.5);
 	transition: color 0.4s;
 	flex: 1 1 auto;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-tab-selected,
+.ag-theme-windmill-dark .ag-tab-selected,
 .ag-theme-windmill-auto-dark .ag-tab-selected {
 	color: var(--ag-windmill-active-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-menu,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-panel-content-wrapper .ag-column-select,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-menu-header {
+.ag-theme-windmill .ag-menu,
+.ag-theme-windmill-dark .ag-menu,
+.ag-theme-windmill-auto-dark .ag-menu {
 	background-color: var(--ag-control-panel-background-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-menu-header {
-	padding-top: 1px; /* hack to align column menu tab header border with header row border */
+.ag-theme-windmill .ag-panel-content-wrapper .ag-column-select,
+.ag-theme-windmill-dark .ag-panel-content-wrapper .ag-column-select,
+.ag-theme-windmill-auto-dark .ag-panel-content-wrapper .ag-column-select {
+	background-color: var(--ag-control-panel-background-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-menu-header,
+.ag-theme-windmill-dark .ag-menu-header,
+.ag-theme-windmill-auto-dark .ag-menu-header {
+	background-color: var(--ag-control-panel-background-color);
+	padding-top: 1px;
+}
+.ag-theme-windmill .ag-tabs-header,
+.ag-theme-windmill-dark .ag-tabs-header,
 .ag-theme-windmill-auto-dark .ag-tabs-header {
 	border-bottom: var(--ag-borders) var(--ag-border-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-charts-settings-group-title-bar,
+.ag-theme-windmill .ag-charts-data-group-title-bar,
+.ag-theme-windmill .ag-charts-format-top-level-group-title-bar,
+.ag-theme-windmill .ag-charts-advanced-settings-top-level-group-title-bar,
+.ag-theme-windmill-dark .ag-charts-settings-group-title-bar,
+.ag-theme-windmill-dark .ag-charts-data-group-title-bar,
+.ag-theme-windmill-dark .ag-charts-format-top-level-group-title-bar,
+.ag-theme-windmill-dark .ag-charts-advanced-settings-top-level-group-title-bar,
 .ag-theme-windmill-auto-dark .ag-charts-settings-group-title-bar,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-charts-data-group-title-bar,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-charts-format-top-level-group-title-bar,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-charts-advanced-settings-top-level-group-title-bar {
 	padding: var(--ag-grid-size) calc(var(--ag-grid-size) * 2);
 	line-height: calc(var(--ag-icon-size) + var(--ag-grid-size) - 2px);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-chart-mini-thumbnail,
+.ag-theme-windmill-dark .ag-chart-mini-thumbnail,
 .ag-theme-windmill-auto-dark .ag-chart-mini-thumbnail {
 	background-color: var(--ag-background-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-chart-settings-nav-bar,
+.ag-theme-windmill-dark .ag-chart-settings-nav-bar,
 .ag-theme-windmill-auto-dark .ag-chart-settings-nav-bar {
 	border-top: var(--ag-borders-secondary) var(--ag-secondary-border-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-group-title-bar-icon {
-	margin-right: var(--ag-grid-size); /* Adjust based on RTL */
+.ag-theme-windmill .ag-ltr .ag-group-title-bar-icon,
+.ag-theme-windmill-dark .ag-ltr .ag-group-title-bar-icon,
+.ag-theme-windmill-auto-dark .ag-ltr .ag-group-title-bar-icon {
+	margin-right: var(--ag-grid-size);
 }
 
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-rtl .ag-group-title-bar-icon,
+.ag-theme-windmill-dark .ag-rtl .ag-group-title-bar-icon,
+.ag-theme-windmill-auto-dark .ag-rtl .ag-group-title-bar-icon {
+	margin-left: var(--ag-grid-size);
+}
+
+.ag-theme-windmill .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill .ag-charts-advanced-settings-top-level-group-toolbar,
+.ag-theme-windmill-dark .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill-dark .ag-charts-advanced-settings-top-level-group-toolbar,
 .ag-theme-windmill-auto-dark .ag-charts-format-top-level-group-toolbar,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-charts-advanced-settings-top-level-group-toolbar {
 	margin-top: var(--ag-grid-size);
-	padding-left: calc(var(--ag-icon-size) * 0.5 + var(--ag-grid-size) * 2); /* Adjust based on RTL */
+}
+.ag-theme-windmill .ag-ltr .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill .ag-ltr .ag-charts-advanced-settings-top-level-group-toolbar,
+.ag-theme-windmill-dark .ag-ltr .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill-dark .ag-ltr .ag-charts-advanced-settings-top-level-group-toolbar,
+.ag-theme-windmill-auto-dark .ag-ltr .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill-auto-dark .ag-ltr .ag-charts-advanced-settings-top-level-group-toolbar {
+	padding-left: calc(var(--ag-icon-size) * 0.5 + var(--ag-grid-size) * 2);
 }
 
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-rtl .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill .ag-rtl .ag-charts-advanced-settings-top-level-group-toolbar,
+.ag-theme-windmill-dark .ag-rtl .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill-dark .ag-rtl .ag-charts-advanced-settings-top-level-group-toolbar,
+.ag-theme-windmill-auto-dark .ag-rtl .ag-charts-format-top-level-group-toolbar,
+.ag-theme-windmill-auto-dark .ag-rtl .ag-charts-advanced-settings-top-level-group-toolbar {
+	padding-right: calc(var(--ag-icon-size) * 0.5 + var(--ag-grid-size) * 2);
+}
+
+.ag-theme-windmill .ag-charts-format-sub-level-group,
+.ag-theme-windmill-dark .ag-charts-format-sub-level-group,
 .ag-theme-windmill-auto-dark .ag-charts-format-sub-level-group {
 	border-left: dashed 1px;
 	border-left-color: var(--ag-border-color);
 	padding-left: var(--ag-grid-size);
 	margin-bottom: calc(var(--ag-grid-size) * 2);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-charts-format-sub-level-group-title-bar,
+.ag-theme-windmill-dark .ag-charts-format-sub-level-group-title-bar,
 .ag-theme-windmill-auto-dark .ag-charts-format-sub-level-group-title-bar {
 	padding-top: 0;
 	padding-bottom: 0;
 	background: none;
 	font-weight: 700;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-charts-format-sub-level-group-container,
+.ag-theme-windmill-dark .ag-charts-format-sub-level-group-container,
 .ag-theme-windmill-auto-dark .ag-charts-format-sub-level-group-container {
 	padding-bottom: 0;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-charts-format-sub-level-group-item:last-child,
+.ag-theme-windmill-dark .ag-charts-format-sub-level-group-item:last-child,
 .ag-theme-windmill-auto-dark .ag-charts-format-sub-level-group-item:last-child {
 	margin-bottom: 0;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill.ag-dnd-ghost,
+.ag-theme-windmill-dark.ag-dnd-ghost,
 .ag-theme-windmill-auto-dark.ag-dnd-ghost {
 	font-size: calc(var(--ag-font-size) - 1px);
 	font-weight: 700;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-side-buttons,
+.ag-theme-windmill-dark .ag-side-buttons,
 .ag-theme-windmill-auto-dark .ag-side-buttons {
 	width: calc(var(--ag-grid-size) * 5);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-standard-button,
+.ag-theme-windmill-dark .ag-standard-button,
 .ag-theme-windmill-auto-dark .ag-standard-button {
 	font-family: inherit;
 	appearance: none;
@@ -298,45 +378,39 @@
 	font-weight: 600;
 	padding: var(--ag-grid-size) calc(var(--ag-grid-size) * 2);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-standard-button:hover,
+.ag-theme-windmill-dark .ag-standard-button:hover,
 .ag-theme-windmill-auto-dark .ag-standard-button:hover {
 	border-color: var(--ag-windmill-active-color);
 	background-color: var(--ag-row-hover-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-standard-button:active,
+.ag-theme-windmill-dark .ag-standard-button:active,
 .ag-theme-windmill-auto-dark .ag-standard-button:active {
 	border-color: var(--ag-windmill-active-color);
 	background-color: var(--ag-windmill-active-color);
 	color: var(--ag-background-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-standard-button:disabled,
+.ag-theme-windmill-dark .ag-standard-button:disabled,
 .ag-theme-windmill-auto-dark .ag-standard-button:disabled {
 	color: var(--ag-disabled-foreground-color);
 	background-color: var(--ag-input-disabled-background-color);
 	border-color: var(--ag-input-disabled-border-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-column-drop-vertical,
+.ag-theme-windmill-dark .ag-column-drop-vertical,
 .ag-theme-windmill-auto-dark .ag-column-drop-vertical {
 	min-height: 75px;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-column-drop-vertical-title-bar,
+.ag-theme-windmill-dark .ag-column-drop-vertical-title-bar,
 .ag-theme-windmill-auto-dark .ag-column-drop-vertical-title-bar {
 	padding: calc(var(--ag-grid-size) * 2);
 	padding-bottom: 0px;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-column-drop-vertical-empty-message,
+.ag-theme-windmill-dark .ag-column-drop-vertical-empty-message,
 .ag-theme-windmill-auto-dark .ag-column-drop-vertical-empty-message {
 	display: flex;
 	align-items: center;
@@ -345,168 +419,233 @@
 	margin: calc(var(--ag-grid-size) * 2);
 	padding: calc(var(--ag-grid-size) * 2);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-column-drop-empty-message,
+.ag-theme-windmill-dark .ag-column-drop-empty-message,
 .ag-theme-windmill-auto-dark .ag-column-drop-empty-message {
 	color: var(--ag-foreground-color);
 	opacity: 0.75;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-pill-select .ag-column-drop,
+.ag-theme-windmill-dark .ag-pill-select .ag-column-drop,
 .ag-theme-windmill-auto-dark .ag-pill-select .ag-column-drop {
 	min-height: unset;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-status-bar,
+.ag-theme-windmill-dark .ag-status-bar,
 .ag-theme-windmill-auto-dark .ag-status-bar {
 	font-weight: normal;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-status-name-value-value,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-status-name-value-value,
+.ag-theme-windmill-dark .ag-status-name-value-value,
+.ag-theme-windmill-auto-dark .ag-status-name-value-value {
+	font-weight: 700;
+}
+.ag-theme-windmill .ag-paging-number,
+.ag-theme-windmill .ag-paging-row-summary-panel-number,
+.ag-theme-windmill-dark .ag-paging-number,
+.ag-theme-windmill-dark .ag-paging-row-summary-panel-number,
 .ag-theme-windmill-auto-dark .ag-paging-number,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-paging-row-summary-panel-number {
 	font-weight: 700;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-column-drop-cell-button,
+.ag-theme-windmill-dark .ag-column-drop-cell-button,
 .ag-theme-windmill-auto-dark .ag-column-drop-cell-button {
 	opacity: 0.5;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-column-drop-cell-button:hover,
+.ag-theme-windmill-dark .ag-column-drop-cell-button:hover,
 .ag-theme-windmill-auto-dark .ag-column-drop-cell-button:hover {
 	opacity: 0.75;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-column-select-column-readonly.ag-icon-grip,
+.ag-theme-windmill .ag-column-select-column-readonly .ag-icon-grip,
+.ag-theme-windmill-dark .ag-column-select-column-readonly.ag-icon-grip,
+.ag-theme-windmill-dark .ag-column-select-column-readonly .ag-icon-grip,
 .ag-theme-windmill-auto-dark .ag-column-select-column-readonly.ag-icon-grip,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-column-select-column-readonly .ag-icon-grip {
 	opacity: 0.35;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-header-cell-menu-button:hover,
+.ag-theme-windmill .ag-header-cell-filter-button:hover,
+.ag-theme-windmill .ag-side-button-button:hover,
+.ag-theme-windmill .ag-tab:hover,
+.ag-theme-windmill .ag-panel-title-bar-button:hover,
+.ag-theme-windmill .ag-header-expand-icon:hover,
+.ag-theme-windmill .ag-column-group-icons:hover,
+.ag-theme-windmill .ag-set-filter-group-icons:hover,
+.ag-theme-windmill .ag-group-expanded .ag-icon:hover,
+.ag-theme-windmill .ag-group-contracted .ag-icon:hover,
+.ag-theme-windmill .ag-chart-settings-prev:hover,
+.ag-theme-windmill .ag-chart-settings-next:hover,
+.ag-theme-windmill .ag-group-title-bar-icon:hover,
+.ag-theme-windmill .ag-column-select-header-icon:hover,
+.ag-theme-windmill .ag-floating-filter-button-button:hover,
+.ag-theme-windmill .ag-filter-toolpanel-expand:hover,
+.ag-theme-windmill .ag-chart-menu-icon:hover,
+.ag-theme-windmill .ag-chart-menu-close:hover,
+.ag-theme-windmill-dark .ag-header-cell-menu-button:hover,
+.ag-theme-windmill-dark .ag-header-cell-filter-button:hover,
+.ag-theme-windmill-dark .ag-side-button-button:hover,
+.ag-theme-windmill-dark .ag-tab:hover,
+.ag-theme-windmill-dark .ag-panel-title-bar-button:hover,
+.ag-theme-windmill-dark .ag-header-expand-icon:hover,
+.ag-theme-windmill-dark .ag-column-group-icons:hover,
+.ag-theme-windmill-dark .ag-set-filter-group-icons:hover,
+.ag-theme-windmill-dark .ag-group-expanded .ag-icon:hover,
+.ag-theme-windmill-dark .ag-group-contracted .ag-icon:hover,
+.ag-theme-windmill-dark .ag-chart-settings-prev:hover,
+.ag-theme-windmill-dark .ag-chart-settings-next:hover,
+.ag-theme-windmill-dark .ag-group-title-bar-icon:hover,
+.ag-theme-windmill-dark .ag-column-select-header-icon:hover,
+.ag-theme-windmill-dark .ag-floating-filter-button-button:hover,
+.ag-theme-windmill-dark .ag-filter-toolpanel-expand:hover,
+.ag-theme-windmill-dark .ag-chart-menu-icon:hover,
+.ag-theme-windmill-dark .ag-chart-menu-close:hover,
+.ag-theme-windmill-auto-dark .ag-header-cell-menu-button:hover,
+.ag-theme-windmill-auto-dark .ag-header-cell-filter-button:hover,
+.ag-theme-windmill-auto-dark .ag-side-button-button:hover,
+.ag-theme-windmill-auto-dark .ag-tab:hover,
+.ag-theme-windmill-auto-dark .ag-panel-title-bar-button:hover,
+.ag-theme-windmill-auto-dark .ag-header-expand-icon:hover,
+.ag-theme-windmill-auto-dark .ag-column-group-icons:hover,
+.ag-theme-windmill-auto-dark .ag-set-filter-group-icons:hover,
+.ag-theme-windmill-auto-dark .ag-group-expanded .ag-icon:hover,
+.ag-theme-windmill-auto-dark .ag-group-contracted .ag-icon:hover,
+.ag-theme-windmill-auto-dark .ag-chart-settings-prev:hover,
+.ag-theme-windmill-auto-dark .ag-chart-settings-next:hover,
+.ag-theme-windmill-auto-dark .ag-group-title-bar-icon:hover,
+.ag-theme-windmill-auto-dark .ag-column-select-header-icon:hover,
+.ag-theme-windmill-auto-dark .ag-floating-filter-button-button:hover,
+.ag-theme-windmill-auto-dark .ag-filter-toolpanel-expand:hover,
+.ag-theme-windmill-auto-dark .ag-chart-menu-icon:hover,
+.ag-theme-windmill-auto-dark .ag-chart-menu-close:hover {
+	color: var(--ag-windmill-active-color);
+}
+.ag-theme-windmill .ag-header-cell-menu-button:hover .ag-icon,
+.ag-theme-windmill .ag-header-cell-filter-button:hover .ag-icon,
+.ag-theme-windmill .ag-side-button-button:hover .ag-icon,
+.ag-theme-windmill .ag-panel-title-bar-button:hover .ag-icon,
+.ag-theme-windmill .ag-floating-filter-button-button:hover .ag-icon,
+.ag-theme-windmill-dark .ag-header-cell-menu-button:hover .ag-icon,
+.ag-theme-windmill-dark .ag-header-cell-filter-button:hover .ag-icon,
+.ag-theme-windmill-dark .ag-side-button-button:hover .ag-icon,
+.ag-theme-windmill-dark .ag-panel-title-bar-button:hover .ag-icon,
+.ag-theme-windmill-dark .ag-floating-filter-button-button:hover .ag-icon,
 .ag-theme-windmill-auto-dark .ag-header-cell-menu-button:hover .ag-icon,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-header-cell-filter-button:hover .ag-icon,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-side-button-button:hover .ag-icon,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-panel-title-bar-button:hover .ag-icon,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-floating-filter-button-button:hover .ag-icon {
 	color: inherit;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-filter-active .ag-icon-filter,
+.ag-theme-windmill-dark .ag-filter-active .ag-icon-filter,
 .ag-theme-windmill-auto-dark .ag-filter-active .ag-icon-filter {
 	color: var(--ag-windmill-active-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-chart-menu-close,
+.ag-theme-windmill-dark .ag-chart-menu-close,
 .ag-theme-windmill-auto-dark .ag-chart-menu-close {
 	background: var(--ag-background-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-chart-menu-close:hover .ag-icon,
+.ag-theme-windmill-dark .ag-chart-menu-close:hover .ag-icon,
 .ag-theme-windmill-auto-dark .ag-chart-menu-close:hover .ag-icon {
 	border-color: var(--ag-windmill-active-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-chart-menu-close .ag-icon,
+.ag-theme-windmill-dark .ag-chart-menu-close .ag-icon,
 .ag-theme-windmill-auto-dark .ag-chart-menu-close .ag-icon {
 	background: var(--ag-header-background-color);
 	border: 1px solid var(--ag-border-color);
 	border-right: none;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-chart-settings-card-item.ag-not-selected:hover,
+.ag-theme-windmill-dark .ag-chart-settings-card-item.ag-not-selected:hover,
 .ag-theme-windmill-auto-dark .ag-chart-settings-card-item.ag-not-selected:hover {
 	opacity: 0.35;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-panel-title-bar-button {
+.ag-theme-windmill .ag-ltr .ag-panel-title-bar-button,
+.ag-theme-windmill-dark .ag-ltr .ag-panel-title-bar-button,
+.ag-theme-windmill-auto-dark .ag-ltr .ag-panel-title-bar-button {
 	margin-left: calc(var(--ag-grid-size) * 2);
-	margin-right: var(--ag-grid-size); /* Adjust based on RTL */
+	margin-right: var(--ag-grid-size);
 }
 
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
-.ag-theme-windmill-auto-dark .ag-filter-toolpanel-group-container {
-	padding-left: var(--ag-grid-size); /* Adjust based on RTL */
+.ag-theme-windmill .ag-rtl .ag-panel-title-bar-button,
+.ag-theme-windmill-dark .ag-rtl .ag-panel-title-bar-button,
+.ag-theme-windmill-auto-dark .ag-rtl .ag-panel-title-bar-button {
+	margin-right: calc(var(--ag-grid-size) * 2);
+	margin-left: var(--ag-grid-size);
 }
 
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-ltr .ag-filter-toolpanel-group-container,
+.ag-theme-windmill-dark .ag-ltr .ag-filter-toolpanel-group-container,
+.ag-theme-windmill-auto-dark .ag-ltr .ag-filter-toolpanel-group-container {
+	padding-left: var(--ag-grid-size);
+}
+
+.ag-theme-windmill .ag-rtl .ag-filter-toolpanel-group-container,
+.ag-theme-windmill-dark .ag-rtl .ag-filter-toolpanel-group-container,
+.ag-theme-windmill-auto-dark .ag-rtl .ag-filter-toolpanel-group-container {
+	padding-right: var(--ag-grid-size);
+}
+
+.ag-theme-windmill .ag-filter-toolpanel-instance-filter,
+.ag-theme-windmill-dark .ag-filter-toolpanel-instance-filter,
 .ag-theme-windmill-auto-dark .ag-filter-toolpanel-instance-filter {
 	border: none;
 	background-color: var(--ag-control-panel-background-color);
+}
+.ag-theme-windmill .ag-ltr .ag-filter-toolpanel-instance-filter,
+.ag-theme-windmill-dark .ag-ltr .ag-filter-toolpanel-instance-filter,
+.ag-theme-windmill-auto-dark .ag-ltr .ag-filter-toolpanel-instance-filter {
 	border-left: dashed 1px;
 	border-left-color: var(--ag-border-color);
-	margin-left: calc(var(--ag-icon-size) * 0.5); /* Adjust based on RTL */
+	margin-left: calc(var(--ag-icon-size) * 0.5);
 }
 
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-rtl .ag-filter-toolpanel-instance-filter,
+.ag-theme-windmill-dark .ag-rtl .ag-filter-toolpanel-instance-filter,
+.ag-theme-windmill-auto-dark .ag-rtl .ag-filter-toolpanel-instance-filter {
+	border-right: dashed 1px;
+	border-right-color: var(--ag-border-color);
+	margin-right: calc(var(--ag-icon-size) * 0.5);
+}
+
+.ag-theme-windmill .ag-set-filter-list,
+.ag-theme-windmill-dark .ag-set-filter-list,
 .ag-theme-windmill-auto-dark .ag-set-filter-list {
 	padding-top: calc(var(--ag-grid-size) * 0.5);
 	padding-bottom: calc(var(--ag-grid-size) * 0.5);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-layout-auto-height .ag-center-cols-viewport,
+.ag-theme-windmill .ag-layout-auto-height .ag-center-cols-container,
+.ag-theme-windmill .ag-layout-print .ag-center-cols-viewport,
+.ag-theme-windmill .ag-layout-print .ag-center-cols-container,
+.ag-theme-windmill-dark .ag-layout-auto-height .ag-center-cols-viewport,
+.ag-theme-windmill-dark .ag-layout-auto-height .ag-center-cols-container,
+.ag-theme-windmill-dark .ag-layout-print .ag-center-cols-viewport,
+.ag-theme-windmill-dark .ag-layout-print .ag-center-cols-container,
 .ag-theme-windmill-auto-dark .ag-layout-auto-height .ag-center-cols-viewport,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-layout-auto-height .ag-center-cols-container,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-layout-print .ag-center-cols-viewport,
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
 .ag-theme-windmill-auto-dark .ag-layout-print .ag-center-cols-container {
 	min-height: 150px;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-overlay-no-rows-wrapper.ag-layout-auto-height,
+.ag-theme-windmill-dark .ag-overlay-no-rows-wrapper.ag-layout-auto-height,
 .ag-theme-windmill-auto-dark .ag-overlay-no-rows-wrapper.ag-layout-auto-height {
 	padding-top: 60px;
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-date-time-list-page-entry-is-current,
+.ag-theme-windmill-dark .ag-date-time-list-page-entry-is-current,
 .ag-theme-windmill-auto-dark .ag-date-time-list-page-entry-is-current {
 	background-color: var(--ag-windmill-active-color);
 }
-
-.ag-theme-windmill,
-.ag-theme-windmill-dark,
+.ag-theme-windmill .ag-advanced-filter-builder-button,
+.ag-theme-windmill-dark .ag-advanced-filter-builder-button,
 .ag-theme-windmill-auto-dark .ag-advanced-filter-builder-button {
 	padding: var(--ag-grid-size);
 	font-weight: 600;
