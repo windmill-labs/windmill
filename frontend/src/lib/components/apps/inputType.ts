@@ -170,6 +170,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 	}
 	noStatic?: boolean
 	onDemandOnly?: boolean
+	hideRefreshButton?: boolean
 }
 
 export type StaticOptions = {
