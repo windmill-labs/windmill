@@ -7,7 +7,6 @@
 		ScheduleService,
 		type Script
 	} from '$lib/gen'
-	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -42,7 +41,6 @@
 		Settings,
 		X
 	} from 'lucide-svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -71,12 +69,14 @@
 	export let showMeta: boolean = false
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedScript: NewScriptWithDraft | undefined = undefined
+	export let searchParams: URLSearchParams = new URLSearchParams()
+	export let disableHistoryChange = false
 
 	let metadataOpen =
 		showMeta ||
 		(initialPath == '' &&
-			$page.url.searchParams.get('state') == undefined &&
-			$page.url.searchParams.get('collab') == undefined)
+			searchParams.get('state') == undefined &&
+			searchParams.get('collab') == undefined)
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
@@ -157,13 +157,13 @@
 
 	$: {
 		;['collab', 'path'].forEach((x) => {
-			if ($page.url.searchParams.get(x)) {
-				$page.url.searchParams.delete(x)
+			if (searchParams.get(x)) {
+				searchParams.delete(x)
 			}
 		})
 	}
 
-	$: window.history.replaceState(null, '', '#' + encodeState(script))
+	$: !disableHistoryChange && window.history.replaceState(null, '', '#' + encodeState(script))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
@@ -289,7 +289,9 @@
 			}
 
 			savedScript = cloneDeep(script) as NewScriptWithDraft
-			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
+			if (!disableHistoryChange) {
+				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
+			}
 			if (stay) {
 				script.parent_hash = newHash
 			} else {
@@ -454,7 +456,7 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-<UnsavedConfirmationModal {diffDrawer} savedValue={savedScript} modifiedValue={script} />
+<slot />
 
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">

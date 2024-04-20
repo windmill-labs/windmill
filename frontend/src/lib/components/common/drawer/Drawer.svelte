@@ -1,38 +1,30 @@
-<script lang="ts" context="module">
-	let openedDrawers: string[] = []
-</script>
-
 <script lang="ts">
-	import { onMount } from 'svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher } from 'svelte'
 	import { BROWSER } from 'esm-env'
+	import Disposable from './Disposable.svelte'
+	import ConditionalPortal from './ConditionalPortal.svelte'
 
 	export let open = false
 	export let duration = 0.3
 	export let placement = 'right'
 	export let size = '600px'
 	export let alwaysOpen = false
+	export let shouldUsePortal: boolean = true
 
-	let id = (Math.random() + 1).toString(36).substring(10)
+	let disposable: Disposable | undefined = undefined
 
 	$: durationMs = duration * 1000
 
 	export function toggleDrawer() {
-		open = !open
-		if (open) {
-			openedDrawers.push(id)
-		} else {
-			openedDrawers = openedDrawers.filter((x) => x != id)
-		}
+		disposable?.toggleDrawer()
 	}
 
 	export function openDrawer() {
-		openedDrawers.push(id)
-		open = true
+		disposable?.openDrawer()
 	}
+
 	export function closeDrawer() {
-		open = false
-		openedDrawers = openedDrawers.filter((x) => x != id)
+		disposable?.closeDrawer()
 
 		setTimeout(() => {
 			dispatch('afterClose')
@@ -60,28 +52,7 @@
 
 	$: scrollLock(open)
 
-	function handleClickAway() {
-		dispatch('clickAway')
-		open = false
-	}
-
-	function onKeyDown(event: KeyboardEvent) {
-		if (open) {
-			switch (event.key) {
-				case 'Escape':
-					if (id == openedDrawers[openedDrawers.length - 1] || openedDrawers.length == 0) {
-						openedDrawers.pop()
-						event.preventDefault()
-						event.stopPropagation()
-						event.stopImmediatePropagation()
-						open = false
-						break
-					}
-			}
-		}
-	}
-
-	$: open ? dispatch('open') : dispatch('close')
+	$: open ? openDrawer() : closeDrawer()
 
 	let timeout = true
 	$: !open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
@@ -90,22 +61,25 @@
 	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
-
-<aside
-	class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
-	class:open
-	class:close={!open && timeout}
-	{style}
->
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
-	<div class="panel {placement} {$$props.positionClass}" class:size>
-		{#if open || !timeout || alwaysOpen}
-			<slot {open} />
-		{/if}
-	</div>
-</aside>
+<ConditionalPortal condition={shouldUsePortal}>
+	<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable} on:open on:close>
+		<aside
+			class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
+			class:open
+			class:close={!open && timeout}
+			style={`${style}; --zIndex: ${zIndex};`}
+		>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
+			<div class="panel {placement} {$$props.positionClass}" class:size>
+				{#if open || !timeout || alwaysOpen}
+					<slot {open} />
+				{/if}
+			</div>
+		</aside>
+	</Disposable>
+</ConditionalPortal>
 
 <style>
 	.drawer {
@@ -123,7 +97,7 @@
 	.drawer.open {
 		height: 100%;
 		width: 100%;
-		z-index: var(--zIndex, 1002);
+		z-index: var(--zIndex);
 		transition: z-index var(--duration) step-start;
 		pointer-events: auto;
 	}

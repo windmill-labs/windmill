@@ -7,6 +7,7 @@
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { goto } from '$app/navigation'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -85,6 +86,7 @@
 			loadTemplate()
 		}
 	}
+	let savedScript: Script | undefined = undefined
 </script>
 
 <ScriptBuilder
@@ -98,6 +100,10 @@
 		let path = e.detail
 		goto(`/scripts/edit/${path}`)
 	}}
+	bind:savedScript
+	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
-/>
+>
+	<UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} />
+</ScriptBuilder>

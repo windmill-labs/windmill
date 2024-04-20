@@ -264,12 +264,12 @@
 					true
 				)
 
-				await setResult(r, job, setRunnableJobEditorPanel)
+				await setResult(r, job)
 				$state = $state
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
 				r = { error: { message: e.body ?? e.message } }
-				await setResult(r, job, setRunnableJobEditorPanel)
+				await setResult(r, job)
 			}
 			loading = false
 			donePromise?.(r)
@@ -483,11 +483,7 @@
 		result = res
 	}
 
-	async function setResult(
-		res: any,
-		jobId: string | undefined,
-		setRunnableJobEditorPanel?: boolean
-	) {
+	async function setResult(res: any, jobId: string | undefined) {
 		dispatch('resultSet')
 		const errors = getResultErrors(res)
 
