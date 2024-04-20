@@ -4,6 +4,7 @@
 	import { ClearableInput } from '../../../../common'
 	import { createPopperActions } from 'svelte-popperjs'
 	import { fade } from 'svelte/transition'
+	import { zIndexes } from '$lib/zIndexes'
 
 	export let value: string = '#fff'
 	const dispatch = createEventDispatcher()
@@ -25,7 +26,7 @@
 	<div
 		transition:fade={{ duration: 150 }}
 		use:popperContent={{ placement: 'bottom', strategy: 'fixed' }}
-		class="color-picker-input z-[1002] !text-primary"
+		class={`color-picker-input z-[${zIndexes.colorInput}] !text-primary`}
 		style="width: {width > 280 ? width : 280}px;"
 	>
 		<ColorPicker

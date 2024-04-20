@@ -4,6 +4,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
+	import { zIndexes } from '$lib/zIndexes'
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let right: boolean
@@ -18,10 +19,9 @@
 	}
 </script>
 
-<!-- z-index must be above the split pane handles' z-index (which is 1001 atm.) -->
 <div
 	bind:clientWidth={width}
-	class="absolute z-[1002] inset-0 overflow-hidden w-full"
+	class={`absolute z-[${zIndexes.secondaryMenu}] inset-0 overflow-hidden w-full`}
 	class:pointer-events-none={!$secondaryMenu.isOpen}
 >
 	{#if $secondaryMenu.isOpen && $secondaryMenu.component}
