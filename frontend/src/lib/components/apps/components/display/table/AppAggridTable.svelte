@@ -440,8 +440,8 @@
 					}}
 					style:height="{clientHeight}px"
 					style:width="{clientWidth}px"
-					class="ag-theme-windmill"
-					class:ag-theme-windmill-dark={$darkMode}
+					class="ag-theme-alpine"
+					class:ag-theme-alpine-dark={$darkMode}
 				>
 					{#key resolvedConfig?.pagination}
 						{#if loaded}

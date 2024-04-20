@@ -411,8 +411,8 @@
 			}}
 			style:height="{clientHeight}px"
 			style:width="{clientWidth}px"
-			class="ag-theme-windmill"
-			class:ag-theme-windmill-dark={$darkMode}
+			class="ag-theme-alpine"
+			class:ag-theme-alpine-dark={$darkMode}
 		>
 			<div bind:this={eGui} style:height="100%" />
 		</div>
@@ -446,7 +446,7 @@
 {/if}
 
 <style>
-	.ag-theme-windmill {
+	.ag-theme-alpine {
 		/* disable all borders */
 		--ag-borders: none;
 		--ag-row-border-style: solid;
