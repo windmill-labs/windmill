@@ -346,7 +346,7 @@
 >
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="flex flex-col h-full">
-			{#if resolvedConfig.search !== 'Disabled' || (componentInput?.hideRefreshButton && componentInput['autoRefresh'])}
+			{#if resolvedConfig.search !== 'Disabled'}
 				<div class="flex flex-row w-full justify-between items-center h-12">
 					{#if resolvedConfig.search !== 'Disabled'}
 						<div class="grow max-w-[300px]">
@@ -363,6 +363,10 @@
 					{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
 						<RefreshButton {id} {loading} />
 					{/if}
+				</div>
+			{:else if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
+				<div class="absolute right-2 top-2 z-50">
+					<RefreshButton {id} {loading} />
 				</div>
 			{/if}
 			<div

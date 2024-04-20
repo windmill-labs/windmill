@@ -430,11 +430,12 @@
 				bind:clientHeight
 				bind:clientWidth
 			>
-				<div class="py-1 flex flex-row justify-end items-center">
-					{#if componentInput?.type === 'runnable' && componentInput.autoRefresh}
+				{#if componentInput?.type === 'runnable' && componentInput.autoRefresh}
+					<div class="absolute top-2 right-2 z-50">
 						<RefreshButton {id} {loading} />
-					{/if}
-				</div>
+					</div>
+				{/if}
+
 				<div
 					on:pointerdown|stopPropagation={() => {
 						$selectedComponent = [id]
