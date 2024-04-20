@@ -11,6 +11,7 @@
 
 	export let componentInput: AppInput | undefined
 	export let noInitialize = false
+	export let hideRefreshButton: boolean | undefined = undefined
 
 	type SideEffectAction =
 		| {
@@ -251,7 +252,7 @@
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
-		hideRefreshButton={componentInput.hideRefreshButton}
+		hideRefreshButton={componentInput.hideRefreshButton ?? hideRefreshButton}
 		transformer={componentInput.transformer}
 		{autoRefresh}
 		recomputableByRefreshButton={componentInput.autoRefresh ?? true}
