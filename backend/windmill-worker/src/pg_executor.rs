@@ -238,10 +238,11 @@ pub async fn do_postgresql(
                 let size = sizeof_val(v);
                 siz += size;
             }
-            if *CLOUD_HOSTED && siz > MAX_RESULT_SIZE {
+            if *CLOUD_HOSTED && siz > MAX_RESULT_SIZE * 4 {
                 return Err(anyhow::anyhow!(
-                    "Query result too large for cloud (size > {})",
-                    MAX_RESULT_SIZE
+                    "Query result too large for cloud (size = {} > {})",
+                    siz,
+                    MAX_RESULT_SIZE & 4
                 ));
             }
             if let Ok(v) = r {
