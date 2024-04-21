@@ -1216,7 +1216,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!("listening for jobs, WORKER_GROUP: {}, config: {:?}", *WORKER_GROUP, WORKER_CONFIG.read().await);
+    tracing::info!(
+        "listening for jobs, WORKER_GROUP: {}, config: {:?}",
+        *WORKER_GROUP,
+        WORKER_CONFIG.read().await
+    );
 
     // (dedi_path, dedicated_worker_tx, dedicated_worker_handle)
     // Option<Sender<Arc<QueuedJob>>>,
@@ -1380,7 +1384,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
-            tracing::debug!("set last ping");
+            tracing::info!("updating last ping");
 
             last_ping = Instant::now();
         }
@@ -1388,16 +1392,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             let db2 = db.clone();
             let current_span = tracing::Span::current();
-            tokio::task::spawn((async move {
-                tracing::info!("vacuuming queue and completed_job");
-                if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
-                    .execute(&db2)
-                    .await
-                {
-                    tracing::error!("failed to vacuum queue: {}", e);
-                }
-                tracing::info!("vacuumed queue and completed_job");
-            }).instrument(current_span));
+            tokio::task::spawn(
+                (async move {
+                    tracing::info!("vacuuming queue and completed_job");
+                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
+                        .execute(&db2)
+                        .await
+                    {
+                        tracing::error!("failed to vacuum queue: {}", e);
+                    }
+                    tracing::info!("vacuumed queue and completed_job");
+                })
+                .instrument(current_span),
+            );
             jobs_executed += 1;
         }
 
@@ -1617,8 +1624,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     } else {
                         tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
                     } // Here we can't remove the job id, but maybe with the
-                    // fields macro we can make a job id that only appears when
-                    // the job is defined?
+                      // fields macro we can make a job id that only appears when
+                      // the job is defined?
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
