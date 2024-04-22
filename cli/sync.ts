@@ -730,7 +730,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
           showConflict(conflict.path, conflict.local, conflict.change.after);
         }
         log.info(
-          colors.red(`Please resolve theses conflicts manually by either:
+          colors.red(`Please resolve these conflicts manually by either:
   - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
   - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
 `)
