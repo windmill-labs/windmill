@@ -167,6 +167,7 @@ export async function handleFile(
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
+            Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             typed.priority == Boolean(remote.priority))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
@@ -198,6 +199,7 @@ export async function handleFile(
           deployment_message: message,
           restart_unless_cancelled: typed?.restart_unless_cancelled,
           visible_to_runner_only: typed?.visible_to_runner_only,
+          no_main_func: typed?.no_main_func,
           priority: typed?.priority,
         },
       });
@@ -227,6 +229,7 @@ export async function handleFile(
           deployment_message: message,
           restart_unless_cancelled: typed?.restart_unless_cancelled,
           visible_to_runner_only: typed?.visible_to_runner_only,
+          no_main_func: typed?.no_main_func,
           priority: typed?.priority,
         },
       });

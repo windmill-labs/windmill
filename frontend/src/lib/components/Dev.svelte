@@ -309,6 +309,7 @@
 		} catch (e) {
 			console.error(e)
 			validCode = false
+			schema = emptySchema()
 		}
 	}
 

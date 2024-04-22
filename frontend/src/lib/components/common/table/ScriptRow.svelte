@@ -34,6 +34,7 @@
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
 	import { Drawer, DrawerContent } from '..'
+	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
@@ -108,6 +109,9 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 
+		{#if script.no_main_func}
+			<NoMainFuncBadge />
+		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
 		<div class="w-8 center-center">

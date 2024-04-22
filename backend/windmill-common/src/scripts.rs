@@ -175,6 +175,8 @@ pub struct Script {
     pub concurrency_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_main_func: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -194,6 +196,8 @@ pub struct ListableScript {
     pub draft_only: Option<bool>,
     pub has_deploy_errors: bool,
     pub ws_error_handler_muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_main_func: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -251,6 +255,7 @@ pub struct NewScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
     pub visible_to_runner_only: Option<bool>,
+    pub no_main_func: Option<bool>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -320,6 +325,7 @@ pub struct ListScriptQuery {
     pub is_template: Option<bool>,
     pub kinds: Option<String>,
     pub starred_only: Option<bool>,
+    pub hide_without_main: Option<bool>,
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
