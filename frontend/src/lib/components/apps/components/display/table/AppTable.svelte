@@ -445,7 +445,7 @@
 								{@const isLastRow = index === filteredResult.length - 1}
 								{@const rowIndex = row.original['__index']}
 								<tr
-									class={classNames(
+									class={twMerge(
 										isLastRow ? '!border-b-0' : '',
 										'divide-x w-full',
 										index % 2 === 0 ? 'bg-gray-50/50' : '',
