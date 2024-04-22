@@ -41,12 +41,13 @@
 	const classes: Record<AlertType, Record<string, string>> = {
 		info: {
 			bgClass: 'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40',
-			iconClass: 'text-blue-500 dark:text-blue-300/90',
-			titleClass: 'text-blue-800 dark:text-blue-100/90',
-			descriptionClass: 'text-blue-700 dark:text-blue-100/90'
+			iconClass: 'text-blue-500 dark:text-blue-300',
+			titleClass: 'text-blue-800 dark:text-blue-100',
+			descriptionClass: 'text-blue-700 dark:text-blue-100'
 		},
 		warning: {
-			bgClass: 'bg-yellow-50 border-yellow-200 border dark:bg-yellow-900/40 dark:border-yellow-700/40',
+			bgClass:
+				'bg-yellow-50 border-yellow-200 border dark:bg-yellow-900/40 dark:border-yellow-700/40',
 			iconClass: 'text-yellow-500 dark:text-yellow-300/90',
 			titleClass: 'text-yellow-800 dark:text-yellow-100/90',
 			descriptionClass: 'text-yellow-700 dark:text-yellow-100/90'
