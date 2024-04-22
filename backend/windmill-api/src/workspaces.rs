@@ -1754,12 +1754,6 @@ async fn delete_workspace(
     let mut tx = db.begin().await?;
     require_super_admin(&db, &email).await?;
 
-    sqlx::query!(
-        "DELETE FROM custom_concurrency_key WHERE job_id IN(
-            SELECT id FROM queue WHERE workspace_id = $1
-        )", &w_id)
-        .execute(&mut *tx)
-        .await?;
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
