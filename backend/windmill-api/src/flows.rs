@@ -985,7 +985,7 @@ mod tests {
             cache_ttl: None,
             priority: None,
             early_return: None,
-            concurrency_key: None,
+            custom_concurrency_key: None,
         };
         let expect = serde_json::json!({
           "modules": [

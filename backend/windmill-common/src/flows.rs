@@ -106,7 +106,7 @@ pub struct FlowValue {
     // Priority at the flow level
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
+    pub custom_concurrency_key: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -345,7 +345,7 @@ pub enum FlowModuleValue {
         tag: Option<String>,
         language: ScriptLang,
         #[serde(skip_serializing_if = "Option::is_none")]
-        concurrency_key: Option<String>,
+        custom_concurrency_key: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         concurrent_limit: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]

@@ -98,7 +98,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         let (
             hash,
             tag,
-            concurrency_key,
+            custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -132,7 +132,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     hash: hash,
                     retry: parsed_retry,
                     args: static_args,
-                    concurrency_key: concurrency_key,
+                    custom_concurrency_key,
                     concurrent_limit: concurrent_limit,
                     concurrency_time_window_s: concurrency_time_window_s,
                     cache_ttl: cache_ttl,
@@ -147,7 +147,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 JobPayload::ScriptHash {
                     hash,
                     path: schedule.script_path.clone(),
-                    concurrency_key: concurrency_key,
+                    custom_concurrency_key,
                     concurrent_limit: concurrent_limit,
                     concurrency_time_window_s: concurrency_time_window_s,
                     cache_ttl: cache_ttl,

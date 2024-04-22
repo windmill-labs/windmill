@@ -2203,7 +2203,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 path: Some(format!("init_script_{worker_name}")),
                 language: ScriptLang::Bash,
                 lock: None,
-                concurrency_key: None,
+                custom_concurrency_key: None,
                 concurrent_limit: None,
                 concurrency_time_window_s: None,
                 cache_ttl: None,
@@ -3832,7 +3832,7 @@ async fn lock_modules(
             language,
             input_transforms,
             tag,
-            concurrency_key,
+            custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
         } = e.value.clone()
@@ -3957,7 +3957,7 @@ async fn lock_modules(
                     content,
                     language,
                     tag,
-                    concurrency_key,
+                    custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                 };
@@ -3979,7 +3979,7 @@ async fn lock_modules(
                     content,
                     language,
                     tag,
-                    concurrency_key,
+                    custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                 };

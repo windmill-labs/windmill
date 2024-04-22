@@ -964,7 +964,7 @@ pub async fn add_completed_job<
                     JobPayload::ScriptHash {
                         hash,
                         path: queued_job.script_path().to_string(),
-                        concurrency_key: custom_concurrency_key(db, queued_job.id).await,
+                        custom_concurrency_key: custom_concurrency_key(db, queued_job.id).await,
                         concurrent_limit: queued_job.concurrent_limit,
                         concurrency_time_window_s: queued_job.concurrency_time_window_s,
                         cache_ttl: queued_job.cache_ttl,
@@ -2893,7 +2893,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         raw_flow,
         flow_status,
         language,
-        concurrency_key,
+        custom_concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         cache_ttl,
@@ -2903,7 +2903,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         JobPayload::ScriptHash {
             hash,
             path,
-            concurrency_key,
+            custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -2918,7 +2918,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             Some(language),
-            concurrency_key,
+            custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -2953,7 +2953,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             hash,
             language,
             lock,
-            concurrency_key,
+            custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -2966,7 +2966,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             Some(language),
-            concurrency_key,
+            custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -3097,7 +3097,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(value.clone()),
                 Some(flow_status),
                 None,
-                value.concurrency_key.clone(),
+                value.custom_concurrency_key.clone(),
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
@@ -3110,7 +3110,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             hash,
             retry,
             args,
-            concurrency_key,
+            custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -3149,7 +3149,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 skip_expr: None,
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 early_return: None,
-                concurrency_key: concurrency_key.clone(),
+                custom_concurrency_key: custom_concurrency_key.clone(),
                 priority: priority,
             };
             (
@@ -3160,7 +3160,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(flow_value.clone()),
                 Some(FlowStatus::new(&flow_value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
-                concurrency_key,
+                custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
                 cache_ttl,
@@ -3186,7 +3186,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
-            let concurrency_key = value.concurrency_key.clone();
+            let custom_concurrency_key = value.custom_concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s.clone();
             let concurrent_limit = value.concurrent_limit.clone();
             let status = Some(FlowStatus::new(&value));
@@ -3198,7 +3198,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(value),
                 status, // this is a new flow being pushed, flow_status is set to flow_value
                 None,
-                concurrency_key,
+                custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
                 cache_ttl,
@@ -3254,7 +3254,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(raw_flow.clone()),
                 Some(restarted_flow_status),
                 None,
-                raw_flow.concurrency_key,
+                raw_flow.custom_concurrency_key,
                 raw_flow.concurrent_limit,
                 raw_flow.concurrency_time_window_s,
                 raw_flow.cache_ttl.map(|x| x as i32),
@@ -3506,7 +3506,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
 
-    if let Some(custom_concurrency_key) = concurrency_key {
+    if let Some(custom_concurrency_key) = custom_concurrency_key {
         if let Err(e) = sqlx::query!(
             "INSERT INTO custom_concurrency_key(job_id, concurrency_key) VALUES ($1, $2)",
             job_id,
