@@ -3401,6 +3401,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: hide_without_main
+          description: |
+            (default false)
+            hide the scripts without an exported main function
+          in: query
+          schema:
+            type: boolean
         - name: is_template
           description: |
             (default regardless)
@@ -8356,6 +8363,8 @@ components:
           type: boolean
         visible_to_runner_only:
           type: boolean
+        no_main_func:
+          type: boolean
       required:
         - hash
         - path
@@ -8371,6 +8380,7 @@ components:
         - language
         - kind
         - starred
+        - no_main_func
 
     NewScript:
       type: object
@@ -8443,6 +8453,8 @@ components:
         concurrency_key:
           type: string
         visible_to_runner_only:
+          type: boolean
+        no_main_func:
           type: boolean
       required:
         - path
