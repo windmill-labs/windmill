@@ -27,8 +27,10 @@
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 	export let containerHeight: number | undefined = undefined
 	export let resolvedConfig: InitConfig<
-		(typeof components)['dbexplorercomponent']['initialData']['configuration']
+		| (typeof components)['dbexplorercomponent']['initialData']['configuration']
+		| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
 	>
+
 	export let datasource: IDatasource
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>

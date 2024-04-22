@@ -1,34 +1,21 @@
 <script lang="ts">
-	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
-	import { isObject, sendUserToast } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import type { IDatasource } from 'ag-grid-community'
+
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		ListContext,
-		ListInputs,
-		RichConfigurations
-	} from '../../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import { components, type TableAction } from '$lib/components/apps/editor/component'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
-	import { deepEqual } from 'fast-equals'
-	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import './theme/windmill-theme.css'
 
-	import { Loader2 } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import AppAggridExplorerTable from './AppAggridExplorerTable.svelte'
-
-	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -39,16 +26,10 @@
 	export let actions: TableAction[] | undefined = undefined
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
-
 	const { app, worldStore } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
-
 	let result: any[] | undefined = undefined
-
-	let value: any[] = Array.isArray(result)
-		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
-		: [{ error: 'input was not an array' }]
 
 	let resolvedConfig = initConfig(
 		components['aggridinfinitecomponent'].initialData.configuration,
@@ -72,9 +53,13 @@
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			params.successCallback(value, value.length)
+			if (result) {
+				params.successCallback(result, result.length)
+			}
 		}
 	}
+
+	let renderCount = 0
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -106,13 +91,15 @@
 	bind:loading
 	hideRefreshButton={true}
 >
-	<AppAggridExplorerTable
-		{id}
-		{datasource}
-		{resolvedConfig}
-		{customCss}
-		{outputs}
-		allowDelete={false}
-		{actions}
-	/>
+	{#key renderCount}
+		<AppAggridExplorerTable
+			{id}
+			{datasource}
+			{resolvedConfig}
+			{customCss}
+			{outputs}
+			allowDelete={false}
+			{actions}
+		/>
+	{/key}
 </RunnableWrapper>
