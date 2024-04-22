@@ -12,7 +12,7 @@
 		Table2,
 		Braces,
 		Highlighter,
-		Info
+		Monitor
 	} from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -307,7 +307,7 @@
 						<Button
 							href="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 							target="_blank"
-							startIcon={{ icon: Info }}
+							startIcon={{ icon: Monitor }}
 							color="light"
 							size="xs2"
 						>

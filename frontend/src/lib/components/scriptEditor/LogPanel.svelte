@@ -18,7 +18,7 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
-	import { CheckCircle2, Info, Loader2, XCircle } from 'lucide-svelte'
+	import { CheckCircle2, Monitor, Loader2, XCircle } from 'lucide-svelte'
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
@@ -150,7 +150,7 @@
 								<Button
 									href="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 									target="_blank"
-									startIcon={{ icon: Info }}
+									startIcon={{ icon: Monitor }}
 									color="light"
 									size="xs2"
 								>
