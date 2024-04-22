@@ -194,7 +194,8 @@ async fn list_scripts(
             "tag",
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
-            "ws_error_handler_muted"
+            "ws_error_handler_muted",
+            "no_main_func",
         ])
         .left()
         .join("favorite")
@@ -213,6 +214,10 @@ async fn list_scripts(
         .offset(offset)
         .limit(per_page)
         .clone();
+
+    if authed.is_operator || lq.hide_without_main.unwrap_or(false) {
+        sqlb.and_where("o.no_main_func IS NOT TRUE");
+    }
 
     if lq.show_archived.unwrap_or(false) {
         sqlb.and_where_eq(

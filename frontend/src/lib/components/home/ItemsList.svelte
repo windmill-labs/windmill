@@ -14,7 +14,14 @@
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { Code2, FoldVertical, LayoutDashboard, SearchCode, UnfoldVertical } from 'lucide-svelte'
+	import {
+		Code2,
+		FoldVertical,
+		LayoutDashboard,
+		SearchCode,
+		SlidersHorizontal,
+		UnfoldVertical
+	} from 'lucide-svelte'
 
 	export let filter = ''
 	export let subtab: 'flow' | 'script' | 'app' = 'script'
@@ -36,6 +43,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
+	import { Popup } from '../common'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -64,10 +72,11 @@
 
 	let nbDisplayed = 15
 
-	async function loadScripts(): Promise<void> {
+	async function loadScripts(hideWithoutMain: boolean): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
-			showArchived: archived ? true : undefined
+			showArchived: archived ? true : undefined,
+			hideWithoutMain: hideWithoutMain ? true : undefined
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
@@ -192,7 +201,7 @@
 
 	$: {
 		if ($userStore && $workspaceStore) {
-			loadScripts()
+			loadScripts(hideWithoutMain)
 			loadFlows()
 			if (!archived) {
 				loadApps()
@@ -265,11 +274,14 @@
 
 	const TREE_VIEW_SETTING_NAME = 'treeView'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
+	const HIDE_WITHOUT_MAIN_SETTING = 'hideWithoutMain'
 	let treeView = getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true'
 	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+	let hideWithoutMain = getLocalSetting(HIDE_WITHOUT_MAIN_SETTING) == 'true'
 
 	$: storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
 	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	$: storeLocalSetting(HIDE_WITHOUT_MAIN_SETTING, hideWithoutMain ? 'true' : undefined)
 
 	let contentSearch: ContentSearch
 
@@ -404,7 +416,37 @@
 		{/if}
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
-				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+				<Popup
+					floatingConfig={{ placement: 'bottom-end' }}
+					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+				>
+					<svelte:fragment slot="button">
+						<Button
+							startIcon={{
+								icon: SlidersHorizontal
+							}}
+							nonCaptureEvent
+							iconOnly
+							size="xs"
+							color="light"
+							variant="border"
+							spacingSize="xs2"
+						/>
+					</svelte:fragment>
+					<div>
+						<span class="text-sm font-semibold">Filters</span>
+						<div class="flex flex-col gap-2 mt-2">
+							<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+							{#if $userStore && !$userStore.operator}
+								<Toggle
+									size="xs"
+									bind:checked={hideWithoutMain}
+									options={{ right: 'Hide without main function' }}
+								/>
+							{/if}
+						</div>
+					</div>
+				</Popup>
 				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
 				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
@@ -451,12 +493,12 @@
 				{nbDisplayed}
 				{collapseAll}
 				isSearching={filter !== ''}
-				on:scriptChanged={loadScripts}
+				on:scriptChanged={() => loadScripts(hideWithoutMain)}
 				on:flowChanged={loadFlows}
 				on:appChanged={loadApps}
 				on:rawAppChanged={loadRawApps}
 				on:reload={() => {
-					loadScripts()
+					loadScripts(hideWithoutMain)
 					loadFlows()
 					loadApps()
 					loadRawApps()
@@ -468,12 +510,12 @@
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					<Item
 						{item}
-						on:scriptChanged={loadScripts}
+						on:scriptChanged={() => loadScripts(hideWithoutMain)}
 						on:flowChanged={loadFlows}
 						on:appChanged={loadApps}
 						on:rawAppChanged={loadRawApps}
 						on:reload={() => {
-							loadScripts()
+							loadScripts(hideWithoutMain)
 							loadFlows()
 							loadApps()
 							loadRawApps()

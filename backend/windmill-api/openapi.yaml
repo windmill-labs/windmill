@@ -3401,6 +3401,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: hide_without_main
+          description: |
+            (default false)
+            hide the scripts without an exported main function
+          in: query
+          schema:
+            type: boolean
         - name: is_template
           description: |
             (default regardless)
