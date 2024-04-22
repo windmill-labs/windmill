@@ -55,7 +55,7 @@ use windmill_common::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
     },
     jobs::{
-        get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
+        get_payload_tag_from_prefixed_path, CompletedJob, JobKind,
         JobPayload, QueuedJob, RawCode,
     },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
@@ -761,7 +761,7 @@ pub async fn add_completed_job<
         }
     }
     if queued_job.concurrent_limit.is_some() {
-        let concurrency_key = concurrency_key(db, queued_job).await;
+        let concurrency_key = concurrency_key(db, queued_job).await?;
         if let Err(e) = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
             concurrency_key,
@@ -964,7 +964,7 @@ pub async fn add_completed_job<
                     JobPayload::ScriptHash {
                         hash,
                         path: queued_job.script_path().to_string(),
-                        custom_concurrency_key: custom_concurrency_key(db, queued_job.id).await,
+                        custom_concurrency_key: custom_concurrency_key(db, queued_job.id).await?,
                         concurrent_limit: queued_job.concurrent_limit,
                         concurrency_time_window_s: queued_job.concurrency_time_window_s,
                         cache_ttl: queued_job.cache_ttl,
@@ -1646,7 +1646,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         // Else the job is subject to concurrency limits
         let job_script_path = pulled_job.script_path.clone().unwrap();
 
-        let job_concurrency_key = concurrency_key(db, &pulled_job).await;
+        let job_concurrency_key = concurrency_key(db, &pulled_job).await?;
         tracing::debug!("Concurrency key is '{}'", job_concurrency_key);
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs
@@ -1995,24 +1995,17 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
     Ok(job)
 }
 
-pub async fn custom_concurrency_key(db: &Pool<Postgres>, job_id: Uuid) -> Option<String> {
-    match sqlx::query_scalar!(
+pub async fn custom_concurrency_key(db: &Pool<Postgres>, job_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+    Ok(sqlx::query_scalar!(
         "SELECT concurrency_key FROM custom_concurrency_key WHERE job_id = $1",
         job_id
     )
     .fetch_optional(db)
-    .await
-    {
-        Ok(opt_key) => opt_key,
-        Err(e) => {
-            tracing::warn!("Error accessing custom_concurrency_key: {}", e);
-            None
-        }
-    }
+    .await?)
 }
 
-async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> String {
-    process_custom_concurrency_key(queued_job, custom_concurrency_key(db, queued_job.id).await).await
+async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> Result<String, sqlx::Error> {
+    Ok(process_custom_concurrency_key(queued_job, custom_concurrency_key(db, queued_job.id).await?).await)
 }
 
 async fn process_custom_concurrency_key(
@@ -2361,12 +2354,6 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
-    }
-
-    if let Err(e) = sqlx::query!("DELETE FROM custom_concurrency_key WHERE job_id = $1", job_id)
-    .fetch_optional(&mut tx)
-    .await {
-        tracing::warn!(%job_id, "Failed to delete custom_concurrency_key: {}", e);
     }
 
     let job_removed = sqlx::query_scalar!(
@@ -3507,16 +3494,14 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
-        if let Err(e) = sqlx::query!(
+        sqlx::query!(
             "INSERT INTO custom_concurrency_key(job_id, concurrency_key) VALUES ($1, $2)",
             job_id,
             custom_concurrency_key
         )
         .fetch_one(&mut tx)
         .await
-        {
-            tracing::warn!("Could not insert custom_concurrency_key={custom_concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}");
-        }
+        .map_err(|e| Error::InternalErr(format!("Could not insert custom_concurrency_key={custom_concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}")))?;
     };
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.

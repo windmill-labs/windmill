@@ -2487,7 +2487,7 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: job.raw_lock,
-                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id).await,
+                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id).await.map_err(to_anyhow)?,
                 concurrent_limit: job.concurrent_limit,
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
