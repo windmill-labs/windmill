@@ -990,7 +990,7 @@ export const components = {
 					type: 'static',
 					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue',
-					tooltip: 'Theses presets can be overwritten with custom styles.'
+					tooltip: 'These presets can be overwritten with custom styles.'
 				},
 				size: {
 					fieldType: 'select',
@@ -1206,7 +1206,7 @@ export const components = {
 					type: 'static',
 					value: 'dark',
 					selectOptions: buttonColorOptions,
-					tooltip: 'Theses presets can be overwritten with custom styles.'
+					tooltip: 'These presets can be overwritten with custom styles.'
 				},
 				size: {
 					fieldType: 'select',
@@ -2942,7 +2942,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 
 					selectOptions: buttonColorOptions,
 					value: 'blue',
-					tooltip: 'Theses presets can be overwritten with custom styles.'
+					tooltip: 'These presets can be overwritten with custom styles.'
 				},
 				buttonSize: {
 					fieldType: 'select',
