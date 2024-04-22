@@ -101,7 +101,7 @@ export async function initializeVscode() {
 				],
 				colors: {
 					'editor.foreground': '#D8DEE9',
-					'editor.background': '#2E3440',
+					'editor.background': '#272D38',
 					'editor.selectionBackground': '#434C5ECC',
 					'editor.lineHighlightBackground': '#3B4252',
 					'editorCursor.foreground': '#D8DEE9',

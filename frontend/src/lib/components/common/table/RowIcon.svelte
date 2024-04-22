@@ -7,10 +7,10 @@
 	export let href: string = '#'
 
 	const color = {
-		script: 'bg-blue-50 border-blue-200 dark:bg-transparent dark:border-blue-900',
-		flow: 'bg-[#f0fdfa] border-[#99f6e4] dark:bg-transparent dark:border-teal-900',
-		app: 'bg-[#fff7ed] border-orange-300 dark:bg-transparent dark:border-orange-900',
-		raw_app: 'bg-[#fff7ed] border-orange-300 dark:bg-transparent dark:border-orange-900'
+		script: 'bg-blue-50 border-blue-200 dark:bg-blue-800/20 dark:border-blue-500/70',
+		flow: 'bg-[#f0fdfa] border-[#99f6e4] dark:bg-teal-800/20 dark:border-teal-600/70',
+		app: 'bg-[#fff7ed] border-orange-300 dark:bg-orange-800/20 dark:border-orange-400/70',
+		raw_app: 'bg-[#fff7ed] border-orange-300 dark:bg-orange-800/20 dark:border-orange-400/70'
 	}[kind]
 
 	const iconColor = {
