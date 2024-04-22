@@ -50,6 +50,7 @@
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
 		href="/apps/add?nodraft=true"
+		color="marine"
 		dropdownItems={[
 			{
 				label: 'Import low-code app from YAML',

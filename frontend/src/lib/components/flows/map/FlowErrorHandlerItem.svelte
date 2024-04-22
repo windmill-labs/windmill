@@ -55,7 +55,7 @@
 		'z-10',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
 		'border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 bg-surface text-sm flex justify-between items-center flex-row overflow-x-hidden relative',
-		$selectedId?.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
+		$selectedId?.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900 dark:outline-slate-900/0 dark:bg-surface-secondary dark:border-gray-400' : ''
 	)}
 	style={small ? 'min-width: 200px' : 'min-width: 275px'}
 >

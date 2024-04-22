@@ -125,7 +125,7 @@
 				startIcon={{
 					icon: Wand2
 				}}
-				btnClasses="text-violet-800 dark:text-violet-500"
+				btnClasses="text-violet-800 dark:text-violet-400"
 				color={'light'}
 				variant={'border'}
 				nonCaptureEvent

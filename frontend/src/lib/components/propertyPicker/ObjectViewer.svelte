@@ -109,7 +109,7 @@
 							<button
 								class="val text-left {pureViewer
 									? 'cursor-auto'
-									: ''} rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
+									: ''} rounded px-1 hover:bg-blue-100 dark:hover:bg-blue-100/10 {getTypeAsString(json[key])}"
 								on:click={() => selectProp(key, json[key])}
 							>
 								{#if json[key] === NEVER_TESTED_THIS_FAR}
@@ -195,14 +195,14 @@
 		@apply text-tertiary;
 	}
 	.val.string {
-		@apply text-green-600;
+		@apply text-green-600 dark:text-green-400/80;
 	}
 
 	.val.number {
-		@apply text-orange-600;
+		@apply text-orange-600 dark:text-orange-400/90;
 		@apply font-mono;
 	}
 	.val.boolean {
-		@apply text-blue-600;
+		@apply text-blue-600 dark:text-blue-400/90;
 	}
 </style>

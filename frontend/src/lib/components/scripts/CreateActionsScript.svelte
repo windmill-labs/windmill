@@ -5,7 +5,7 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<Button size="sm" spacingSize="xl" startIcon={{ icon: Plus }} href="/scripts/add">
+	<Button size="sm" spacingSize="xl" color="marine" startIcon={{ icon: Plus }} href="/scripts/add">
 		Script <Code2 class="ml-1.5" size={18} />
 	</Button>
 </div>
