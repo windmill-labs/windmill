@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.312.0](https://github.com/windmill-labs/windmill/compare/v1.311.0...v1.312.0) (2024-04-22)
+
+
+### Features
+
+* **frontend:** Fix style panel zIndex ([#3581](https://github.com/windmill-labs/windmill/issues/3581)) ([464a2c4](https://github.com/windmill-labs/windmill/commit/464a2c4f66f761bb83bdb281b67c91fccb7ed5eb))
+* hide scripts with on function main from operators + badge/filter for devs ([#3584](https://github.com/windmill-labs/windmill/issues/3584)) ([8ae16d9](https://github.com/windmill-labs/windmill/commit/8ae16d90edbd65ff02929977262647d3e18bf036))
+
+
+### Bug Fixes
+
+* **frontend:** Fix the table selection + improve the ComponentInputTypeEditor ([#3585](https://github.com/windmill-labs/windmill/issues/3585)) ([f3d0bb3](https://github.com/windmill-labs/windmill/commit/f3d0bb3814865ad715e9fe024d7e9f921425af09))
+
 ## [1.311.0](https://github.com/windmill-labs/windmill/compare/v1.310.0...v1.311.0) (2024-04-21)
 
 
