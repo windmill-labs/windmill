@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT concurrency_key FROM script WHERE hash = $1 AND workspace_id = $2",
+  "query": "SELECT concurrency_key FROM custom_concurrency_key WHERE job_id = $1",
   "describe": {
     "columns": [
       {
@@ -11,13 +11,12 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
-      true
+      false
     ]
   },
-  "hash": "a3ccf362b4f6df400b3c7a084795dbf541eb14c5c374656ffb96da7283a2a6f1"
+  "hash": "3797e4173a6fdd3b3cd86643d1027fa05f48987c53c03c287dc01821f37a7529"
 }
