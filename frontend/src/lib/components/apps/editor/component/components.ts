@@ -151,6 +151,15 @@ export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
 	actions: TableAction[]
 }
+
+export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> & {
+	actions: TableAction[]
+}
+
+export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
+	actions: TableAction[]
+}
+
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
@@ -305,6 +314,8 @@ export type TypedComponent =
 	| DateSliderComponent
 	| TimeInputComponent
 	| DateTimeInputComponent
+	| AggridInfiniteComponent
+	| AggridInfiniteComponentEe
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -665,6 +676,101 @@ const aggridcomponentconst = {
 				fieldType: 'boolean',
 				value: false as boolean | undefined
 			},
+			selectFirstRowByDefault: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true as boolean,
+				tooltip: 'Select the first row by default on start'
+			},
+			extraConfig: {
+				type: 'static',
+				fieldType: 'object',
+				value: {},
+				tooltip: 'any configuration that can be passed to ag-grid top level'
+			},
+			compactness: {
+				type: 'static',
+				fieldType: 'select',
+				value: 'normal',
+				selectOptions: ['normal', 'compact', 'comfortable'],
+				tooltip: 'Change the row height'
+			},
+			wrapActions: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+				tooltip:
+					'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
+			}
+		},
+		componentInput: {
+			type: 'static',
+			fieldType: 'array',
+			subFieldType: 'object',
+			value: [
+				{
+					id: 1,
+					name: 'A cell with a long name',
+					age: 42
+				},
+				{
+					id: 2,
+					name: 'A briefer cell',
+					age: 84
+				}
+			]
+		} as StaticAppInput
+	}
+} as const
+
+const aggridinfinitecomponentconst = {
+	name: 'AgGrid Infinite Table',
+	icon: Table2,
+	documentationLink: `${documentationBaseUrl}/aggrid_infinite_table`,
+	dims: '3:10-6:10' as AppComponentDimensions,
+	customCss: {
+		container: { class: '', style: '' }
+	},
+	initialData: {
+		configuration: {
+			columnDefs: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'ag-grid',
+				value: [
+					{ field: 'id', flex: 1 },
+					{ field: 'name', editable: true, flex: 1 },
+					{ field: 'age', flex: 1 }
+				]
+			} as StaticAppInput,
+			flex: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true,
+				tooltip: 'default col flex is 1 (see ag-grid docs)'
+			},
+			allEditable: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+				hide: true,
+				tooltip: 'Configure all columns as Editable by users'
+			},
+			multipleSelectable: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+
+				tooltip: 'Make multiple rows selectable at once'
+			},
+			rowMultiselectWithClick: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: true,
+
+				tooltip: 'If multiple selectable, allow multiselect with click'
+			},
+
 			selectFirstRowByDefault: {
 				type: 'static',
 				fieldType: 'boolean',
@@ -1734,6 +1840,8 @@ This is a paragraph.
 	},
 	aggridcomponent: aggridcomponentconst,
 	aggridcomponentee: { ...aggridcomponentconst, name: 'AgGrid Table EE' },
+	aggridinfinitecomponent: aggridinfinitecomponentconst,
+	aggridinfinitecomponentee: { ...aggridinfinitecomponentconst, name: 'AgGrid Infinite EE' },
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,
