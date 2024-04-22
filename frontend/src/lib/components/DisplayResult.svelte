@@ -11,7 +11,8 @@
 		PanelRightOpen,
 		Table2,
 		Braces,
-		Highlighter
+		Highlighter,
+		Info
 	} from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -303,11 +304,15 @@
 				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
-						<button
-							class="px-4 py-2 text-xs font-normal"
-							on:click={() => window.open('https://www.windmill.dev/docs/core_concepts/rich_display_rendering', '_blank')}>
+						<Button
+							href="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+							target="_blank"
+							startIcon={{ icon: Info }}
+							color="light"
+							size="xs2"
+						>
 							Rich Display
-						</button>
+						</Button>
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
 							><ClipboardCopy size={16} /></button
 						>

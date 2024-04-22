@@ -18,7 +18,7 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
-	import { CheckCircle2, Loader2, XCircle } from 'lucide-svelte'
+	import { CheckCircle2, Info, Loader2, XCircle } from 'lucide-svelte'
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
@@ -26,6 +26,7 @@
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
+	import Button from '../common/button/Button.svelte'
 
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
@@ -146,16 +147,15 @@
 										Test to see the result here
 									{/if}
 								</span>
-								<button
-									class="px-4 py-2 text-xs font-normal"
-									on:click={() =>
-										window.open(
-											'https://www.windmill.dev/docs/core_concepts/rich_display_rendering',
-											'_blank'
-										)}
+								<Button
+									href="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+									target="_blank"
+									startIcon={{ icon: Info }}
+									color="light"
+									size="xs2"
 								>
 									Rich Display
-								</button>
+								</Button>
 							</div>
 						{/if}
 					</Pane>
