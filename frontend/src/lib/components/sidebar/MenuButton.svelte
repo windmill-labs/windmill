@@ -16,7 +16,7 @@
 				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
 				lightMode
 					? 'text-primary hover:bg-surface-hover '
-					: '  hover:bg-[#34363c] text-primary-inverse dark:text-primary',
+					: '  hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
 				'transition-all',
 				$$props.class
 			)}

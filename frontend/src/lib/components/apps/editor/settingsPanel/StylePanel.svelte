@@ -159,8 +159,9 @@
 					</Badge>
 
 					<Tooltip light>
-						You can customise the CSS and the classes of this component instance. Theses
-						customisations will only be applied to this component.
+						You can customise the CSS and the classes of this component instance. These
+						customisations will only be applied to this component. You can also apply
+						custom classes set on the Global styling panel.
 					</Tooltip>
 				</div>
 			</Tab>
@@ -169,7 +170,7 @@
 					Global: {type ? ccomponents[type].name : ''}
 
 					<Tooltip light>
-						You can customise the CSS and the classes of all components of this type. Theses
+						You can customise the CSS and the classes of all components of this type. These
 						customisations will be applied to all components of this type.
 					</Tooltip>
 				</div>

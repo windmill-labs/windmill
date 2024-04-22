@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.311.0](https://github.com/windmill-labs/windmill/compare/v1.310.0...v1.311.0) (2024-04-21)
+
+
+### Features
+
+* **frontend:** Improve tables ([#3577](https://github.com/windmill-labs/windmill/issues/3577)) ([587c777](https://github.com/windmill-labs/windmill/commit/587c777d57213f308c0c56effecdf40f34f942dc))
+
+
+### Bug Fixes
+
+* improve re-scheduled for estimation in concurrency limits ([48ba709](https://github.com/windmill-labs/windmill/commit/48ba709627b3a2ec48081d7774b759115e675b99))
+
+## [1.310.0](https://github.com/windmill-labs/windmill/compare/v1.309.2...v1.310.0) (2024-04-19)
+
+
+### Features
+
+* **frontend:** Deeply nested Modals and Drawers ([#3565](https://github.com/windmill-labs/windmill/issues/3565)) ([62fcf08](https://github.com/windmill-labs/windmill/commit/62fcf086ccacdaaf5649dd4d0c6cfdff4eba15e8))
+
+
+### Bug Fixes
+
+* fix password field ([f9b5da5](https://github.com/windmill-labs/windmill/commit/f9b5da53e8bce1ea1c150de1c605f34c9f068940))
+
 ## [1.309.2](https://github.com/windmill-labs/windmill/compare/v1.309.1...v1.309.2) (2024-04-18)
 
 ### Bug Fixes
