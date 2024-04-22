@@ -32,7 +32,6 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
-	export let maxRows = 10
 	export let enum_: string[] | undefined = undefined
 	export let itemsType:
 		| {
@@ -56,8 +55,6 @@
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let rawValue: string | undefined = undefined
-
-	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
@@ -308,7 +305,7 @@
 										</button>
 									</div>
 								{/each}
-							{:else}
+							{:else if value != undefined}
 								List is not an array
 							{/if}
 						</div>
@@ -351,7 +348,7 @@
 							dispatch('focus')
 						}}
 						use:autosize
-						style="max-height: {maxHeight}"
+						style="min-height: 5px;"
 						class="col-span-10 {valid && error == ''
 							? ''
 							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"

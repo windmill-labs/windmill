@@ -257,7 +257,7 @@
 											staticTemplate
 												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 												: arg.value
-												? JSON.stringify(arg?.value, null, 4)
+												? '(' + JSON.stringify(arg?.value, null, 4) + ')'
 												: ''
 										)
 									}
@@ -273,6 +273,19 @@
 											arg.expr = undefined
 										}
 										setPropertyType(arg?.value)
+									} else if (inputCat == 'list' || inputCat == 'object') {
+										if (arg) {
+											try {
+												let newExpr = arg.expr
+												if (newExpr.startsWith('(') && newExpr.endsWith(')')) {
+													newExpr = newExpr.slice(1, -1)
+												}
+												arg.value = JSON.parse(newExpr)
+											} catch (e) {
+												arg.value = undefined
+											}
+											arg.expr = undefined
+										}
 									} else {
 										if (arg) {
 											arg.type = 'static'
@@ -329,7 +342,7 @@
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			class="relative {$propPickerConfig?.propName == argName
-				? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
+				? 'outline outline-offset-1 outline-1 outline-blue-500 rounded-md'
 				: ''}"
 			on:keyup={stepInputGen?.onKeyUp}
 		>
@@ -419,6 +432,15 @@
 				<div class="mb-2" />
 			{:else}
 				Not recognized input type {argName} ({arg.expr}, {propertyType})
+				<div class="flex mt-2">
+					<Button
+						variant="border"
+						size="xs"
+						on:click={() => {
+							arg.expr = ''
+						}}>Set expr to empty string</Button
+					></div
+				>
 			{/if}
 		</div>
 	</div>

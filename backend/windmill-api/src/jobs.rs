@@ -251,6 +251,7 @@ pub fn global_service() -> Router {
             get(get_completed_job_result_maybe),
         )
         .route("/getupdate/:id", get(get_job_update))
+        .route("/get_log_file/*file_path", get(get_log_file))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route(
             "/queue/cancel_persistent/*script_path",
@@ -792,6 +793,7 @@ pub struct RunJobQuery {
     job_id: Option<Uuid>,
     tag: Option<String>,
     timeout: Option<i32>,
+    cache_ttl: Option<i32>,
 }
 
 impl RunJobQuery {
@@ -1011,49 +1013,62 @@ async fn cancel_all(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut jobs = sqlx::query!(
-        "UPDATE queue SET canceled = true,  canceled_by = $2, scheduled_for = now(), suspend = 0 WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL RETURNING id, running, is_flow_step",
+    let jobs = sqlx::query!(
+        "SELECT id, running, is_flow_step FROM queue WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL",
         w_id,
-        authed.username
     )
     .fetch_all(&db)
     .await?;
 
     let username = authed.username;
+    let mut uuids = vec![];
     for j in jobs.iter() {
-        if !j.running && !j.is_flow_step.unwrap_or(false) {
-            let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
-            let job_running = get_queued_job(&j.id, &w_id, &db).await?;
+        let r = sqlx::query!(
+            "UPDATE queue SET canceled = true,  canceled_by = $1, scheduled_for = now(), suspend = 0 WHERE id = $2 RETURNING 1 as one",
+            username,
+            j.id,
+        )
+        .fetch_optional(&db)
+        .await;
 
-            if let Some(job_running) = job_running {
-                append_logs(
-                    j.id,
-                    w_id.clone(),
-                    format!("canceled by {username}: cancel_all"),
-                    db.clone(),
-                )
-                .await;
-                let add_job = add_completed_job_error(
-                    &db,
-                    &job_running,
-                    job_running.mem_peak.unwrap_or(0),
-                    Some(CanceledBy {
-                        username: Some(username.to_string()),
-                        reason: Some("cancel_all".to_string()),
-                    }),
-                    e,
-                    rsmq.clone(),
-                    "server",
-                    true,
-                )
-                .await;
-                if let Err(e) = add_job {
-                    tracing::error!("Failed to add canceled job: {}", e);
+        if r.as_ref().is_ok_and(|x| x.is_some()) {
+            uuids.push(j.id);
+
+            if !j.running && !j.is_flow_step.unwrap_or(false) {
+                let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
+                let job_running = get_queued_job(&j.id, &w_id, &db).await?;
+
+                if let Some(job_running) = job_running {
+                    append_logs(
+                        j.id,
+                        w_id.clone(),
+                        format!("canceled by {username}: cancel_all"),
+                        db.clone(),
+                    )
+                    .await;
+                    let add_job = add_completed_job_error(
+                        &db,
+                        &job_running,
+                        job_running.mem_peak.unwrap_or(0),
+                        Some(CanceledBy {
+                            username: Some(username.to_string()),
+                            reason: Some("cancel_all".to_string()),
+                        }),
+                        e,
+                        rsmq.clone(),
+                        "server",
+                        true,
+                    )
+                    .await;
+                    if let Err(e) = add_job {
+                        tracing::error!("Failed to add canceled job: {}", e);
+                    }
                 }
             }
+        } else {
+            tracing::error!("Failed to cancel job: {:?} {:?}", j.id, r.err());
         }
     }
-    let uuids = jobs.iter_mut().map(|j| j.id).collect::<Vec<_>>();
 
     Ok(Json(uuids))
 }
@@ -2888,13 +2903,16 @@ pub async fn run_wait_result_script_by_hash(
         tag,
         concurrent_limit,
         concurrency_time_window_s,
-        cache_ttl,
+        mut cache_ttl,
         language,
         dedicated_worker,
         priority,
         delete_after_use,
         timeout,
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
+    if let Some(run_query_cache_ttl) = run_query.cache_ttl {
+        cache_ttl = Some(run_query_cache_ttl);
+    }
     check_scopes(&authed, || format!("run:script/{path}"))?;
 
     let tag = run_query.tag.clone().or(tag);
@@ -3409,7 +3427,7 @@ pub async fn run_job_by_hash(
         tag,
         concurrent_limit,
         concurrency_time_window_s,
-        cache_ttl,
+        mut cache_ttl,
         language,
         dedicated_worker,
         priority,
@@ -3417,7 +3435,9 @@ pub async fn run_job_by_hash(
         timeout,
     ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
-
+    if let Some(run_query_cache_ttl) = run_query.cache_ttl {
+        cache_ttl = Some(run_query_cache_ttl);
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(tag);
 
@@ -3476,6 +3496,84 @@ pub struct JobUpdate {
     pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
     pub flow_status: Option<serde_json::Value>,
+}
+
+// #[cfg(all(feature = "enterprise", feature = "parquet"))]
+// async fn get_logs_from_store(
+//     log_offset: i32,
+//     logs: &str,
+//     log_file_index: Option<Vec<String>>,
+// ) -> Option<error::Result<Body>> {
+//     if log_offset > 0 {
+//         if let Some(file_index) = log_file_index {
+//             tracing::debug!("Getting logs from store: {file_index:?}");
+//             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+//                 tracing::debug!("object store client present, streaming from there");
+
+//                 let logs = logs.to_string();
+//                 let stream = async_stream::stream! {
+//                     for file_p in file_index {
+//                         let file_p_2 = file_p.clone();
+//                         let file = os.get(&object_store::path::Path::from(file_p)).await;
+//                         if let Ok(file) = file {
+//                             if let Ok(bytes) = file.bytes().await {
+//                                 yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
+//                             }
+//                         } else {
+//                             tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
+//                         }
+//                     }
+
+//                     yield Ok(bytes::Bytes::from(logs))
+//                 };
+//                 return Some(Ok(Body::from_stream(stream)));
+//             } else {
+//                 tracing::debug!("object store client not present, cannot stream logs from store");
+//             }
+//         }
+//     }
+//     return None;
+// }
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+        let file = os
+            .get(&object_store::path::Path::from(format!("logs/{file_p}")))
+            .await;
+        if let Ok(file) = file {
+            if let Ok(bytes) = file.bytes().await {
+                use axum::http::header;
+                let res = Response::builder()
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .body(Body::from(bytes::Bytes::from(bytes)))
+                    .unwrap();
+                return Ok(res);
+            } else {
+                return Err(error::Error::InternalErr(format!(
+                    "Error getting bytes from file: {}",
+                    file_p
+                )));
+            }
+        } else {
+            return Err(error::Error::NotFound(format!(
+                "File not found: {}",
+                file_p
+            )));
+        }
+    } else {
+        return Err(error::Error::InternalErr(
+            "Object store client not present, cannot stream logs from store".to_string(),
+        ));
+    }
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+    return Err(error::Error::NotFound(format!(
+        "Get log file is an EE feature: {}",
+        file_p
+    )));
 }
 
 async fn get_job_update(

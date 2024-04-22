@@ -110,16 +110,16 @@
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
 				// Check if the result is an image
-				if (['png', 'svg', 'jpeg'].includes(keys[0]) && keys.length == 1) {
+				if (['png', 'svg', 'jpeg', 'html'].includes(keys[0]) && keys.length == 1) {
 					// Check if the image is too large (10mb)
 					largeObject = roughSizeOfObject(result) > 10000000
 
-					return keys[0] as 'png' | 'svg' | 'jpeg'
+					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html'
 				}
 
 				let length = roughSizeOfObject(result)
 				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = length > 10000
+				largeObject = length > 50000
 
 				if (largeObject) {
 					return 'json'
@@ -529,7 +529,7 @@
 			{:else if !forceJson && isTableDisplay && richRender}
 				<AutoDataTable objects={result} />
 			{:else if largeObject}
-				{#if result && typeof result == 'object' && 'filename' in result && 'file' in result}
+				{#if result && typeof result == 'object' && 'file' in result}
 					<div
 						><a
 							download={result.filename ?? result.file?.filename ?? 'windmill.file'}
@@ -549,23 +549,18 @@
 						</a>
 					</div>
 
-					<div class="my-4">
-						<Alert size="xs" title="Large file detected" type="warning">
-							We recommend using persistent storage for large data files.
-							<a
-								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
-								target="_blank"
-								rel="noreferrer"
-								class="hover:underline"
-							>
-								See docs for setting up an object storage service integration using s3 or any other
-								s3 compatible services
-							</a>
-						</Alert>
+					<div class="mt-1 mb-2">
+						<Alert
+							size="xs"
+							title="Large result detected"
+							type="warning"
+							tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
+							documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
+						/>
 					</div>
-				{/if}
-				{#if result && result != 'WINDMILL_TOO_BIG'}
-					<ObjectViewer json={result} />
+					{#if result && result != 'WINDMILL_TOO_BIG'}
+						<ObjectViewer json={result} />
+					{/if}
 				{/if}
 			{:else if typeof result == 'string' && result.length > 0}
 				<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
@@ -598,46 +593,44 @@
 	</div>
 
 	{#if !disableExpand && !noControls}
-		<Portal>
-			<Drawer bind:this={jsonViewer} size="900px">
-				<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-					<svelte:fragment slot="actions">
-						<Button
-							download="{filename ?? 'result'}.json"
-							href={workspaceId && jobId
-								? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-							startIcon={{ icon: Download }}
-							color="light"
-							size="xs"
-						>
-							Download
-						</Button>
-						<Button
-							on:click={() => copyToClipboard(toJsonStr(result))}
-							color="light"
-							size="xs"
-							startIcon={{
-								icon: ClipboardCopy
-							}}
-						>
-							Copy to clipboard
-						</Button>
-					</svelte:fragment>
-					<svelte:self
-						{noControls}
-						{result}
-						{requireHtmlApproval}
-						{filename}
-						{jobId}
-						{workspaceId}
-						{hideAsJson}
-						{forceJson}
-						disableExpand={true}
-					/>
-				</DrawerContent>
-			</Drawer>
-		</Portal>
+		<Drawer bind:this={jsonViewer} size="900px">
+			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+				<svelte:fragment slot="actions">
+					<Button
+						download="{filename ?? 'result'}.json"
+						href={workspaceId && jobId
+							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+						startIcon={{ icon: Download }}
+						color="light"
+						size="xs"
+					>
+						Download
+					</Button>
+					<Button
+						on:click={() => copyToClipboard(toJsonStr(result))}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: ClipboardCopy
+						}}
+					>
+						Copy to clipboard
+					</Button>
+				</svelte:fragment>
+				<svelte:self
+					{noControls}
+					{result}
+					{requireHtmlApproval}
+					{filename}
+					{jobId}
+					{workspaceId}
+					{hideAsJson}
+					{forceJson}
+					disableExpand={true}
+				/>
+			</DrawerContent>
+		</Drawer>
 
 		<Portal>
 			<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />

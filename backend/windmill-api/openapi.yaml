@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.303.4
+  version: 1.311.0
   title: Windmill API
 
   contact:
@@ -3890,6 +3890,7 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - name: invisible_to_owner
           description: make the run invisible to the the script owner (default false)
@@ -3953,6 +3954,7 @@ paths:
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -3982,6 +3984,7 @@ paths:
         - $ref: "#/components/parameters/ScriptPath"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -5039,6 +5042,7 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
@@ -5230,6 +5234,8 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/Tag"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -5332,6 +5338,8 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/Tag"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -5381,6 +5389,8 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -5523,6 +5533,26 @@ paths:
                     type: integer
                   flow_status:
                     $ref: "#/components/schemas/WorkflowStatusRecord"
+
+  /w/{workspace}/jobs_u/get_log_file/{path}:
+    get:
+      summary: get log file from object store
+      operationId: getLogFileFromStore
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: job log
+          content:
+            text/plain:
+              type: string
 
   /w/{workspace}/jobs_u/get_flow_debug_info/{id}:
     get:
@@ -6190,6 +6220,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/ArgsFilter"
         - name: path
           description: filter by path
           in: query
@@ -8009,6 +8040,12 @@ components:
       in: query
       schema:
         type: string
+    CacheTtl:
+      name: cache_ttl
+      description: Override the cache time to live (in seconds). Can not be used to disable caching, only override with a new cache ttl
+      in: query
+      schema:
+        type: string
     NewJobId:
       name: job_id
       description:
@@ -8725,15 +8762,21 @@ components:
         - tag
 
     Job:
-      allOf:
-        - oneOf:
+      oneOf:
+        - allOf:
             - $ref: "#/components/schemas/CompletedJob"
+            - type: object
+              properties:
+                type:
+                  type: string
+                  enum: [CompletedJob]
+        - allOf:
             - $ref: "#/components/schemas/QueuedJob"
-        - type: object
-          properties:
-            type:
-              type: string
-              enum: [CompletedJob, QueuedJob]
+            - type: object
+              properties:
+                type:
+                  type: string
+                  enum: [QueuedJob]
       discriminator:
         propertyName: type
 
@@ -9703,6 +9746,11 @@ components:
         - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - $ref: "#/components/schemas/FlowMetadata"
 
+    ExtraPerms:
+      type: object
+      additionalProperties:
+        type: boolean
+
     FlowMetadata:
       type: object
       properties:
@@ -9718,9 +9766,7 @@ components:
         archived:
           type: boolean
         extra_perms:
-          type: object
-        additionalProperties:
-          type: boolean
+          $ref: "#/components/schemas/ExtraPerms"
         starred:
           type: boolean
         draft_only:
@@ -9894,7 +9940,8 @@ components:
         created_at:
           type: string
           format: date-time
-        value: {}
+        value:
+          type: object
         policy:
           $ref: "#/components/schemas/Policy"
         execution_mode:
@@ -10118,6 +10165,8 @@ components:
         git_repo_resource_path:
           type: string
         use_individual_branch:
+          type: boolean
+        group_by_folder:
           type: boolean
         exclude_types_override:
           type: array

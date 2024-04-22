@@ -60,7 +60,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
@@ -612,8 +612,10 @@ pub async fn add_completed_job<
         }
     } else {
         if queued_job.schedule_path.is_some() && queued_job.script_path.is_some() {
-            (skip_downstream_error_handlers, tx) = apply_schedule_handlers(
-                tx,
+            let schedule_handlers_tx: QueueTransaction<'_, R> =
+                (rsmq.clone(), db.begin().await?).into();
+            match apply_schedule_handlers(
+                schedule_handlers_tx,
                 db,
                 queued_job.schedule_path.as_ref().unwrap(),
                 queued_job.script_path.as_ref().unwrap(),
@@ -624,21 +626,30 @@ pub async fn add_completed_job<
                 queued_job.started_at.unwrap_or(chrono::Utc::now()),
                 queued_job.priority,
             )
-            .await?;
-        }
-        if !queued_job.is_flow()
-            && queued_job.schedule_path.is_some()
-            && queued_job.script_path.is_some()
-        {
-            // script only
-            tx = handle_maybe_scheduled_job(
-                tx,
-                db,
-                queued_job.schedule_path.as_ref().unwrap(),
-                queued_job.script_path.as_ref().unwrap(),
-                &queued_job.workspace_id,
-            )
-            .await?;
+            .await
+            {
+                Ok((skip, mut schedule_handlers_tx)) => {
+                    skip_downstream_error_handlers = skip;
+
+                    if !queued_job.is_flow() {
+                        // script only
+                        schedule_handlers_tx = handle_maybe_scheduled_job(
+                            schedule_handlers_tx,
+                            db,
+                            queued_job.schedule_path.as_ref().unwrap(),
+                            queued_job.script_path.as_ref().unwrap(),
+                            &queued_job.workspace_id,
+                        )
+                        .await?;
+                    }
+
+                    schedule_handlers_tx.commit().await?;
+                }
+                Err(err) => {
+                    skip_downstream_error_handlers = true;
+                    tracing::error!("Could not apply schedule handlers with error: {}", err);
+                }
+            };
         }
     }
     if queued_job.concurrent_limit.is_some() {
@@ -1220,13 +1231,13 @@ async fn apply_schedule_handlers<
                 }
                 Err(err) => {
                     sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    format!("Could not trigger error handler: {err}"),
-                    &schedule.workspace_id,
-                    &schedule.path
-                )
-                .execute(db)
-                .await?;
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                        format!("Could not trigger error handler: {err}"),
+                        &schedule.workspace_id,
+                        &schedule.path
+                    )
+                    .execute(db)
+                    .await?;
                     tracing::warn!(
                         "Could not trigger error handler for {}: {}",
                         schedule_path,
@@ -1592,11 +1603,11 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             ))
         })?;
 
-        let min_started_at = sqlx::query_scalar!(
+        let min_started_at = sqlx::query!(
             "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
             FROM queue
             WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false
-            GROUP BY script_path), $3)",
+            GROUP BY script_path), $3) as min_started_at, now() AS now",
             job_script_path,
             &pulled_job.workspace_id,
             completed_count.max_ended_at
@@ -1651,18 +1662,24 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         .await?;
 
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
-        let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for)
+        let estimated_next_schedule_timestamp = ((min_started_at
+            .min_started_at
+            .unwrap_or(min_started_at.now.unwrap()))
             + Duration::try_seconds(avg_script_duration.map(i64::from).unwrap_or(0))
                 .unwrap_or_default()
+                .max(Duration::try_seconds(5).unwrap_or_default())
             + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .max(Duration::try_seconds(5).unwrap_or_default()))
+        .max(min_started_at.now.unwrap() + Duration::try_seconds(10).unwrap_or_default());
+
         tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
-            job_uuid, job_script_path, job_custom_concurrent_limit,  job_concurrency_key, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
+            job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 
         let job_log_event = format!(
             "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds",
         );
-        let _ = append_logs(job_uuid, pulled_job.workspace_id, job_log_event, db);
+        let _ = append_logs(job_uuid, pulled_job.workspace_id, job_log_event, db).await;
         if rsmq.is_some() {
             // if let Some(ref mut rsmq) = tx.rsmq {
             // if using redis, only one message at a time can be poped from the queue. Process only this message and move to the next elligible job
@@ -1884,50 +1901,63 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 }
 
 async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> String {
-    if queued_job.is_flow() {
-        // custom concurrency keys are not yet supported for flows
-        queued_job.full_path_with_workspace()
-    } else {
-        let concurrency_key = sqlx::query_scalar!(
-            "SELECT concurrency_key FROM script WHERE hash = $1",
-            queued_job.script_hash.unwrap_or(ScriptHash(0)).0
+    let r = if queued_job.is_flow() {
+        sqlx::query_scalar!(
+            "SELECT value->>'concurrency_key' FROM flow WHERE path = $1 AND workspace_id = $2",
+            queued_job.script_path,
+            queued_job.workspace_id
         )
         .fetch_one(db)
-        .await;
-        match concurrency_key {
-            Ok(Some(custom_concurrency_key)) => {
-                let workspaced =
-                    custom_concurrency_key.replace("$workspace", queued_job.workspace_id.as_str());
-                if RE_ARG_TAG.is_match(&workspaced) {
-                    let mut interpolated = workspaced.clone();
-                    for cap in RE_ARG_TAG.captures_iter(&workspaced) {
-                        let arg_name = cap.get(1).unwrap().as_str();
-                        let arg_value = match queued_job.args.as_ref() {
-                            Some(Json(args_map_json)) => match args_map_json.get(arg_name) {
-                                Some(arg_value_raw) => {
-                                    serde_json::to_string(arg_value_raw).unwrap_or_default()
-                                }
-                                None => "".to_string(),
-                            },
+        .await
+    } else {
+        sqlx::query_scalar!(
+            "SELECT concurrency_key FROM script WHERE hash = $1 AND workspace_id = $2",
+            queued_job.script_hash.unwrap_or(ScriptHash(0)).0,
+            queued_job.workspace_id
+        )
+        .fetch_one(db)
+        .await
+    };
+    process_custom_concurrency_key(queued_job, r).await
+}
+
+async fn process_custom_concurrency_key(
+    queued_job: &QueuedJob,
+    concurrency_key: Result<Option<String>, sqlx::Error>,
+) -> String {
+    match concurrency_key {
+        Ok(Some(custom_concurrency_key)) => {
+            let workspaced =
+                custom_concurrency_key.replace("$workspace", queued_job.workspace_id.as_str());
+            if RE_ARG_TAG.is_match(&workspaced) {
+                let mut interpolated = workspaced.clone();
+                for cap in RE_ARG_TAG.captures_iter(&workspaced) {
+                    let arg_name = cap.get(1).unwrap().as_str();
+                    let arg_value = match queued_job.args.as_ref() {
+                        Some(Json(args_map_json)) => match args_map_json.get(arg_name) {
+                            Some(arg_value_raw) => {
+                                serde_json::to_string(arg_value_raw).unwrap_or_default()
+                            }
                             None => "".to_string(),
-                        };
-                        interpolated = interpolated
-                            .replace(format!("$args[{}]", arg_name).as_str(), arg_value.as_str());
-                    }
-                    interpolated
-                } else {
-                    workspaced
+                        },
+                        None => "".to_string(),
+                    };
+                    interpolated = interpolated
+                        .replace(format!("$args[{}]", arg_name).as_str(), arg_value.as_str());
                 }
+                interpolated
+            } else {
+                workspaced
             }
-            Ok(None) => queued_job.full_path_with_workspace(),
-            _ => {
-                tracing::warn!(
-                    "Unable to retrieve concurrency key for script {:?} | {:?}",
-                    queued_job.script_path,
-                    queued_job.script_hash
-                );
-                queued_job.full_path_with_workspace()
-            }
+        }
+        Ok(None) => queued_job.full_path_with_workspace(),
+        _ => {
+            tracing::warn!(
+                "Unable to retrieve concurrency key for script {:?} | {:?}",
+                queued_job.script_path,
+                queued_job.script_hash
+            );
+            queued_job.full_path_with_workspace()
         }
     }
 }
@@ -2641,26 +2671,70 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     .unwrap_or(false);
 
             if !is_super_admin {
-                let user_usage = if let Some(user_usage) = user_usage {
-                    user_usage
-                } else {
-                    sqlx::query_scalar!(
-                        "SELECT usage.usage + 1 FROM usage 
-                        WHERE is_workspace IS FALSE AND
-                        month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
-                        AND id = $1",
+                if email != ERROR_HANDLER_USER_EMAIL
+                    && email != "worker@windmill.dev"
+                    && email != SUPERADMIN_SECRET_EMAIL
+                    && email != SUPERADMIN_SYNC_EMAIL
+                    && email != SUPERADMIN_NOTIFICATION_EMAIL
+                {
+                    let user_usage = if let Some(user_usage) = user_usage {
+                        user_usage
+                    } else {
+                        sqlx::query_scalar!(
+                            "SELECT usage.usage + 1 FROM usage 
+                            WHERE is_workspace IS FALSE AND
+                            month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
+                            AND id = $1",
+                            email
+                        )
+                        .fetch_optional(_db)
+                        .await?
+                        .flatten()
+                        .unwrap_or(1)
+                    };
+
+                    if user_usage > MAX_FREE_EXECS
+                        && !matches!(job_payload, JobPayload::Dependencies { .. })
+                        && !matches!(job_payload, JobPayload::FlowDependencies { .. })
+                        && !matches!(job_payload, JobPayload::AppDependencies { .. })
+                    {
+                        return Err(error::Error::BadRequest(format!(
+                            "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                        )));
+                    }
+
+                    let in_queue =
+                        sqlx::query_scalar!("SELECT COUNT(id) FROM queue WHERE email = $1", email)
+                            .fetch_one(_db)
+                            .await?
+                            .unwrap_or(0);
+
+                    if in_queue > MAX_FREE_EXECS.into() {
+                        return Err(error::Error::BadRequest(format!(
+                            "User {email} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                        )));
+                    }
+
+                    let concurrent_runs = sqlx::query_scalar!(
+                        "SELECT COUNT(id) FROM queue WHERE running = true AND email = $1",
                         email
                     )
-                    .fetch_optional(_db)
+                    .fetch_one(_db)
                     .await?
-                    .flatten()
-                    .unwrap_or(1)
-                };
+                    .unwrap_or(0);
 
-                let workspace_usage = if let Some(workspace_usage) = workspace_usage {
-                    workspace_usage
-                } else {
-                    sqlx::query_scalar!(
+                    if concurrent_runs > MAX_FREE_CONCURRENT_RUNS.into() {
+                        return Err(error::Error::BadRequest(format!(
+                            "User {email} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
+                        )));
+                    }
+                }
+
+                if workspace_id != "demo" {
+                    let workspace_usage = if let Some(workspace_usage) = workspace_usage {
+                        workspace_usage
+                    } else {
+                        sqlx::query_scalar!(
                         "SELECT usage.usage + 1 FROM usage 
                         WHERE is_workspace IS TRUE AND
                         month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
@@ -2671,79 +2745,45 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     .await?
                     .flatten()
                     .unwrap_or(1)
-                };
+                    };
 
-                if user_usage > MAX_FREE_EXECS
-                    && !matches!(job_payload, JobPayload::Dependencies { .. })
-                    && !matches!(job_payload, JobPayload::FlowDependencies { .. })
-                    && !matches!(job_payload, JobPayload::AppDependencies { .. })
-                {
-                    return Err(error::Error::BadRequest(format!(
-                    "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                )));
-                }
-                if workspace_id != "demo"
-                    && workspace_usage > MAX_FREE_EXECS
-                    && !matches!(job_payload, JobPayload::Dependencies { .. })
-                    && !matches!(job_payload, JobPayload::FlowDependencies { .. })
-                    && !matches!(job_payload, JobPayload::AppDependencies { .. })
-                {
-                    return Err(error::Error::BadRequest(format!(
-                    "Workspace {workspace_id} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                )));
-                }
-                let in_queue =
-                    sqlx::query_scalar!("SELECT COUNT(id) FROM queue WHERE email = $1", email)
-                        .fetch_one(_db)
-                        .await?
-                        .unwrap_or(0);
+                    if workspace_usage > MAX_FREE_EXECS
+                        && !matches!(job_payload, JobPayload::Dependencies { .. })
+                        && !matches!(job_payload, JobPayload::FlowDependencies { .. })
+                        && !matches!(job_payload, JobPayload::AppDependencies { .. })
+                    {
+                        return Err(error::Error::BadRequest(format!(
+                            "Workspace {workspace_id} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                        )));
+                    }
 
-                if in_queue > MAX_FREE_EXECS.into() {
-                    return Err(error::Error::BadRequest(format!(
-                    "User {email} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                )));
-                }
+                    let in_queue_workspace = sqlx::query_scalar!(
+                        "SELECT COUNT(id) FROM queue WHERE workspace_id = $1",
+                        workspace_id
+                    )
+                    .fetch_one(_db)
+                    .await?
+                    .unwrap_or(0);
 
-                let in_queue_workspace = sqlx::query_scalar!(
-                    "SELECT COUNT(id) FROM queue WHERE workspace_id = $1",
-                    workspace_id
-                )
-                .fetch_one(_db)
-                .await?
-                .unwrap_or(0);
+                    if in_queue_workspace > MAX_FREE_EXECS.into() {
+                        return Err(error::Error::BadRequest(format!(
+                            "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                        )));
+                    }
 
-                if in_queue_workspace > MAX_FREE_EXECS.into() {
-                    return Err(error::Error::BadRequest(format!(
-                    "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
-                )));
-                }
+                    let concurrent_runs_workspace = sqlx::query_scalar!(
+                        "SELECT COUNT(id) FROM queue WHERE running = true AND workspace_id = $1",
+                        workspace_id
+                    )
+                    .fetch_one(_db)
+                    .await?
+                    .unwrap_or(0);
 
-                let concurrent_runs = sqlx::query_scalar!(
-                    "SELECT COUNT(id) FROM queue WHERE running = true AND email = $1",
-                    email
-                )
-                .fetch_one(_db)
-                .await?
-                .unwrap_or(0);
-
-                if concurrent_runs > MAX_FREE_CONCURRENT_RUNS.into() {
-                    return Err(error::Error::BadRequest(format!(
-                    "User {email} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
-                )));
-                }
-
-                let concurrent_runs_workspace = sqlx::query_scalar!(
-                    "SELECT COUNT(id) FROM queue WHERE running = true AND workspace_id = $1",
-                    workspace_id
-                )
-                .fetch_one(_db)
-                .await?
-                .unwrap_or(0);
-
-                if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS.into() {
-                    return Err(error::Error::BadRequest(format!(
-                    "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
-                )));
+                    if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS.into() {
+                        return Err(error::Error::BadRequest(format!(
+                            "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
+                        )));
+                    }
                 }
             }
         }
@@ -3000,6 +3040,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 skip_expr: None,
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 early_return: None,
+                concurrency_key: None,
                 priority: priority,
             };
             (

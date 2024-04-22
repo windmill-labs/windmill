@@ -16,9 +16,8 @@
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
-		LargeFileStorage,
+		type LargeFileStorage,
 		OauthService,
-		Script,
 		WorkspaceService,
 		JobService,
 		ResourceService
@@ -110,6 +109,7 @@
 			script_path: string
 			git_repo_resource_path: string
 			use_individual_branch: boolean
+			group_by_folder: boolean
 		}[]
 		include_type: GitSyncTypeMap
 	}
@@ -231,16 +231,20 @@
 				public_resource: s3ResourceSettings.publicResource
 			}
 			if (s3ResourceSettings.resourceType === 'azure_blob') {
-				params['type'] = LargeFileStorage.type.AZURE_BLOB_STORAGE
+				let typ: LargeFileStorage['type'] = 'AzureBlobStorage'
+				params['type'] = typ
 				params['azure_blob_resource_path'] = resourcePathWithPrefix
 			} else if (s3ResourceSettings.resourceType === 'azure_workload_identity') {
-				params['type'] = LargeFileStorage.type.AZURE_WORKLOAD_IDENTITY
+				let typ: LargeFileStorage['type'] = 'AzureWorkloadIdentity'
+				params['type'] = typ
 				params['azure_blob_resource_path'] = resourcePathWithPrefix
 			} else if (s3ResourceSettings.resourceType === 's3_aws_oidc') {
-				params['type'] = LargeFileStorage.type.S3AWS_OIDC
+				let typ: LargeFileStorage['type'] = 'S3AwsOidc'
+				params['type'] = typ
 				params['s3_resource_path'] = resourcePathWithPrefix
 			} else {
-				params['type'] = LargeFileStorage.type.S3STORAGE
+				let typ: LargeFileStorage['type'] = 'S3Storage'
+				params['type'] = typ
 				params['s3_resource_path'] = resourcePathWithPrefix
 			}
 			await WorkspaceService.editLargeFileStorageConfig({
@@ -270,7 +274,8 @@
 				exclude_types_override: exclude_types_override,
 				script_path: elmt.script_path,
 				git_repo_resource_path: `$res:${elmt.git_repo_resource_path.replace('$res:', '')}`,
-				use_individual_branch: elmt.use_individual_branch
+				use_individual_branch: elmt.use_individual_branch,
+				group_by_folder: elmt.group_by_folder
 			}
 		})
 
@@ -434,27 +439,25 @@
 		codeCompletionEnabled = settings.code_completion_enabled
 		workspaceDefaultAppPath = settings.default_app
 
-		if (settings.large_file_storage?.type === LargeFileStorage.type.S3STORAGE) {
+		if (settings.large_file_storage?.type === 'S3Storage') {
 			s3ResourceSettings = {
 				resourceType: 's3',
 				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
 				publicResource: settings.large_file_storage?.public_resource
 			}
-		} else if (settings.large_file_storage?.type === LargeFileStorage.type.AZURE_BLOB_STORAGE) {
+		} else if (settings.large_file_storage?.type === 'AzureBlobStorage') {
 			s3ResourceSettings = {
 				resourceType: 'azure_blob',
 				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
 				publicResource: settings.large_file_storage?.public_resource
 			}
-		} else if (
-			settings.large_file_storage?.type === LargeFileStorage.type.AZURE_WORKLOAD_IDENTITY
-		) {
+		} else if (settings.large_file_storage?.type === 'AzureWorkloadIdentity') {
 			s3ResourceSettings = {
 				resourceType: 'azure_workload_identity',
 				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
 				publicResource: settings.large_file_storage?.public_resource
 			}
-		} else if (settings.large_file_storage?.type === LargeFileStorage.type.S3AWS_OIDC) {
+		} else if (settings.large_file_storage?.type === 'S3AwsOidc') {
 			s3ResourceSettings = {
 				resourceType: 's3_aws_oidc',
 				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
@@ -483,6 +486,7 @@
 						git_repo_resource_path: settings.git_repo_resource_path.replace('$res:', ''),
 						script_path: settings.script_path,
 						use_individual_branch: settings.use_individual_branch ?? false,
+						group_by_folder: settings.group_by_folder ?? false,
 						exclude_types_override: {
 							scripts: (settings.exclude_types_override?.indexOf('script') ?? -1) >= 0,
 							flows: (settings.exclude_types_override?.indexOf('flow') ?? -1) >= 0,
@@ -789,7 +793,7 @@
 						<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
 					{/if}
 					<ScriptPicker
-						kinds={[Script.kind.SCRIPT]}
+						kinds={['script']}
 						allowFlow
 						bind:itemKind
 						bind:scriptPath
@@ -807,6 +811,11 @@
 
 					The script or flow chosen is passed the parameters `response_url: string` and `text:
 					string` respectively the url to reply directly to the trigger and the text of the command.
+
+					<br /><br />
+
+					It can take additionally the following args: channel_id, user_name, user_id, command,
+					trigger_id, api_app_id
 
 					<br /><br />
 
@@ -1059,6 +1068,13 @@
 					Windmill S3 bucket browser will not work for buckets containing more than 20 files and
 					uploads are limited to files {'<'} 50MB. Consider upgrading to Windmill EE to use this feature
 					with large buckets.
+				</Alert>
+			{:else}
+				<Alert type="info" title="Logs storage is set at the instance level">
+					This setting is only for storage of large files allowing to upload files directly to
+					object storage using S3Object and use the wmill sdk to read and write large files backed
+					by an object storage. The automatics large logs storage is set by the superadmins in the
+					instance settings UI.
 				</Alert>
 			{/if}
 			{#if s3ResourceSettings}
@@ -1369,7 +1385,7 @@
 							{/if}
 						</div>
 
-						<div class="flex mt-5 mb-1 gap-1">
+						<div class="flex flex-col mt-5 mb-1 gap-4">
 							{#if gitSyncSettings}
 								<Toggle
 									disabled={emptyString(gitSyncRepository.git_repo_resource_path)}
@@ -1378,6 +1394,17 @@
 										right: 'Create one branch per deployed object',
 										rightTooltip:
 											"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
+									}}
+								/>
+
+								<Toggle
+									disabled={emptyString(gitSyncRepository.git_repo_resource_path) ||
+										!gitSyncRepository.use_individual_branch}
+									bind:checked={gitSyncRepository.group_by_folder}
+									options={{
+										right: 'Group deployed objects by folder',
+										rightTooltip:
+											'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
 									}}
 								/>
 							{/if}
@@ -1475,9 +1502,10 @@
 							gitSyncSettings.repositories = [
 								...gitSyncSettings.repositories,
 								{
-									script_path: 'hub/8720/sync-script-to-git-repo-windmill',
+									script_path: 'hub/8753/sync-script-to-git-repo-windmill',
 									git_repo_resource_path: '',
 									use_individual_branch: false,
+									group_by_folder: false,
 									exclude_types_override: {
 										scripts: false,
 										flows: false,

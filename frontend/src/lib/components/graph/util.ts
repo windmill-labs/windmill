@@ -1,4 +1,4 @@
-import { FlowStatusModule, type FlowModule } from '$lib/gen'
+import type { FlowStatusModule, FlowModule } from '$lib/gen'
 import MapItem from '../flows/map/MapItem.svelte'
 import type { GraphModuleState } from './model'
 
@@ -18,18 +18,18 @@ export function* createIdGenerator(): Generator<number, number, unknown> {
 	}
 }
 
-export function getStateColor(state: FlowStatusModule.type | undefined): string {
+export function getStateColor(state: FlowStatusModule['type'] | undefined): string {
 	const isDark = document.documentElement.classList.contains('dark')
 	switch (state) {
-		case FlowStatusModule.type.SUCCESS:
+		case 'Success':
 			return isDark ? '#059669' : 'rgb(193, 255, 216)'
-		case FlowStatusModule.type.FAILURE:
+		case 'Failure':
 			return isDark ? '#dc2626' : 'rgb(248 113 113)'
-		case FlowStatusModule.type.IN_PROGRESS:
+		case 'InProgress':
 			return isDark ? '#f59e0b' : 'rgb(253, 240, 176)'
-		case FlowStatusModule.type.WAITING_FOR_EVENTS:
+		case 'WaitingForEvents':
 			return isDark ? '#db2777' : 'rgb(229, 176, 253)'
-		case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
+		case 'WaitingForExecutor':
 			return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 		default:
 			return isDark ? '#2e3440' : '#fff'

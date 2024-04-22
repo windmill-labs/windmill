@@ -1,0 +1,20 @@
+[package]
+name = "windmill-sql-datatype-parser-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+
+[lib]
+crate-type = ["cdylib"]
+name = "windmill_sql_datatype_parser_wasm"
+path = "./src/lib.rs"
+
+[dev-dependencies]
+wasm-bindgen-test.workspace = true
+
+[dependencies]
+windmill-parser.workspace = true
+windmill-parser-sql.workspace = true
+wasm-bindgen.workspace = true
+serde = { version = "1.0", features = ["derive"] }

@@ -50,6 +50,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "mysql" => "mysql-connector-python",
     "tenable" => "pytenable",
     "ns1" => "ns1-python",
+    "pymsql" => "PyMySQL",
 };
 
 fn replace_import(x: String) -> String {

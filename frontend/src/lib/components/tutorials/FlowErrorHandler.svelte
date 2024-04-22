@@ -2,7 +2,6 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import Tutorial from './Tutorial.svelte'
-	import { RawScript } from '$lib/gen/models/RawScript'
 	import { clickButtonBySelector } from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
@@ -35,7 +34,7 @@
 								type: 'rawscript',
 								content:
 									'// import * as wmill from "npm:windmill-client@1"\n\nexport async function main(x: string) {\n  throw new Error("Fake error")\n}\n',
-								language: RawScript.language.DENO,
+								language: 'deno',
 								input_transforms: {
 									x: {
 										type: 'static',

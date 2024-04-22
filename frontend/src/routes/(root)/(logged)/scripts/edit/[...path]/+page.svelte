@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
+	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { runFormStore, workspaceStore } from '$lib/stores'
@@ -9,6 +9,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cloneDeep } from 'lodash'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -193,5 +194,23 @@
 		bind:savedScript
 		{initialArgs}
 		{diffDrawer}
-	/>
+		searchParams={$page.url.searchParams}
+		on:deploy={(e) => {
+			let newHash = e.detail
+			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		}}
+		on:saveInitial={(e) => {
+			let path = e.detail
+			goto(`/scripts/edit/${path}`)
+		}}
+		on:seeDetails={(e) => {
+			let path = e.detail
+			goto(`/scripts/get/${path}?workspace=${$workspaceStore}`)
+		}}
+		><UnsavedConfirmationModal
+			{diffDrawer}
+			savedValue={savedScript}
+			modifiedValue={script}
+		/></ScriptBuilder
+	>
 {/if}

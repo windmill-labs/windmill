@@ -1,5 +1,5 @@
 import { OpenAI } from 'openai'
-import { OpenAPI, ResourceService, Script } from '../../gen'
+import { OpenAPI, ResourceService, type Script } from '../../gen'
 import type { Writable } from 'svelte/store'
 
 import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
@@ -79,7 +79,7 @@ export async function testKey({
 }
 
 interface BaseOptions {
-	language: Script.language | 'frontend' | 'transformer'
+	language: Script['language'] | 'frontend' | 'transformer'
 	dbSchema: DBSchema | undefined
 	workspace: string
 }

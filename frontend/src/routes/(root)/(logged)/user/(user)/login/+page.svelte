@@ -141,7 +141,7 @@
 	}
 
 	async function loadLogins() {
-		const allLogins = await OauthService.listOAuthLogins()
+		const allLogins = await OauthService.listOauthLogins()
 		logins = allLogins.oauth
 		saml = allLogins.saml
 

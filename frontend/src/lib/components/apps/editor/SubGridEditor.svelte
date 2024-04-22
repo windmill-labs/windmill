@@ -10,6 +10,7 @@
 	import Component from './component/Component.svelte'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
+	import GridEditorMenu from './GridEditorMenu.svelte'
 
 	export let containerHeight: number | undefined = undefined
 	export let containerWidth: number | undefined = undefined
@@ -120,31 +121,33 @@
 							'top-0'
 						)}
 					>
-						<Component
-							render={visible}
-							component={dataItem.data}
-							selected={Boolean($selectedComponent?.includes(dataItem.id))}
-							locked={isFixed(dataItem)}
-							on:lock={() => lock(dataItem)}
-							on:expand={() => {
-								const parentGridItem = findGridItem($app, id)
+						<GridEditorMenu id={dataItem.id}>
+							<Component
+								render={visible}
+								component={dataItem.data}
+								selected={Boolean($selectedComponent?.includes(dataItem.id))}
+								locked={isFixed(dataItem)}
+								on:lock={() => lock(dataItem)}
+								on:expand={() => {
+									const parentGridItem = findGridItem($app, id)
 
-								if (!parentGridItem) {
-									return
-								}
+									if (!parentGridItem) {
+										return
+									}
 
-								$selectedComponent = [dataItem.id]
-								push(editorContext?.history, $app)
+									$selectedComponent = [dataItem.id]
+									push(editorContext?.history, $app)
 
-								expandGriditem(
-									$app.subgrids?.[subGridId] ?? [],
-									dataItem.id,
-									$breakpoint,
-									parentGridItem
-								)
-								$app = $app
-							}}
-						/>
+									expandGriditem(
+										$app.subgrids?.[subGridId] ?? [],
+										dataItem.id,
+										$breakpoint,
+										parentGridItem
+									)
+									$app = $app
+								}}
+							/>
+						</GridEditorMenu>
 					</ComponentWrapper>
 				</Grid>
 			</div>

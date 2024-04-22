@@ -19,7 +19,6 @@
 		shouldCapitalize={true}
 		resourceOnly={false}
 		fieldType="text"
-		tooltip="Eval an expression that return a list of class as string to dynamically add classes to the component. The styling can then be dynamic using the global CSS Editor."
 		customTitle="Dynamic class (eval)"
 		displayType={false}
 		placeholder={undefined}

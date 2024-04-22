@@ -31,8 +31,8 @@ use windmill_parser::Typ;
 use windmill_parser_sql::{parse_db_resource, parse_pgsql_sig};
 use windmill_queue::CanceledBy;
 
-use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
-use crate::AuthedClientBackgroundTask;
+use crate::common::{build_args_values, run_future_with_polling_update_job_poller, sizeof_val};
+use crate::{AuthedClientBackgroundTask, MAX_RESULT_SIZE};
 use bytes::{Buf, BytesMut};
 use lazy_static::lazy_static;
 use urlencoding::encode;
@@ -230,15 +230,32 @@ pub async fn do_postgresql(
                 .unwrap_or_default(),
         );
 
-        let result = rows
-            .into_iter()
-            .map(|x: Row| postgres_row_to_json_value(x))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut siz = 0;
+        let mut res: Vec<serde_json::Value> = vec![];
+        for row in rows.into_iter() {
+            let r = postgres_row_to_json_value(row);
+            if let Ok(v) = r.as_ref() {
+                let size = sizeof_val(v);
+                siz += size;
+            }
+            if *CLOUD_HOSTED && siz > MAX_RESULT_SIZE * 4 {
+                return Err(anyhow::anyhow!(
+                    "Query result too large for cloud (size = {} > {})",
+                    siz,
+                    MAX_RESULT_SIZE & 4
+                ));
+            }
+            if let Ok(v) = r {
+                res.push(v);
+            } else {
+                return Err(to_anyhow(r.err().unwrap()));
+            }
+        }
 
-        Ok(result)
+        Ok((res, siz))
     };
 
-    let result = run_future_with_polling_update_job_poller(
+    let (result, size) = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
         db,
@@ -249,6 +266,8 @@ pub async fn do_postgresql(
         &job.workspace_id,
     )
     .await?;
+
+    *mem_peak = size as i32;
 
     RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
 

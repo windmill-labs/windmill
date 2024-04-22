@@ -52,7 +52,7 @@
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { buildWorkerDefinition } from './build_workers'
 	import { workspaceStore } from '$lib/stores'
-	import { Preview, UserService } from '$lib/gen'
+	import { type Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -106,7 +106,7 @@
 	export let useWebsockets: boolean = true
 	export let listenEmptyChanges = false
 	export let small = false
-	export let scriptLang: Preview.language
+	export let scriptLang: Preview['language']
 	export let disabled: boolean = false
 
 	const rHash = randomHash()
@@ -754,20 +754,20 @@
 						]
 					}
 				)
-			} else if (lang === 'javascript') {
+			} else if (lang === 'typescript') {
 				const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
 				if (scriptLang == 'bun') {
-					languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+					languages.typescript.typescriptDefaults.setExtraLibs([stdLib])
 				} else {
 					const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
-					languages.typescript.javascriptDefaults.setExtraLibs([stdLib, denoFetch])
+					languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
 				}
 				if (scriptLang == 'bun' && ata == undefined) {
 					const addLibraryToRuntime = async (code: string, _path: string) => {
 						const path = 'file://' + _path
 						let uri = mUri.parse(path)
 						console.log('adding library to runtime', path)
-						languages.typescript.javascriptDefaults.addExtraLib(code, path)
+						languages.typescript.typescriptDefaults.addExtraLib(code, path)
 						try {
 							await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
 						} catch (e) {
@@ -1028,18 +1028,24 @@
 
 		initialized = true
 
-		languages.typescript.typescriptDefaults.setModeConfiguration({
-			completionItems: false,
-			definitions: false,
-			hovers: false
-		})
-
 		languages.typescript.typescriptDefaults.setCompilerOptions({
 			target: languages.typescript.ScriptTarget.Latest,
 			allowNonTsExtensions: true,
 			noSemanticValidation: false,
 			noSyntaxValidation: false,
-
+			completionItems: true,
+			hovers: true,
+			documentSymbols: true,
+			definitions: true,
+			references: true,
+			documentHighlights: true,
+			rename: true,
+			diagnostics: true,
+			documentRangeFormattingEdits: true,
+			signatureHelp: true,
+			onTypeFormattingEdits: true,
+			codeActions: true,
+			inlayHints: true,
 			checkJs: true,
 			allowJs: true,
 			noUnusedLocals: true,
@@ -1064,8 +1070,33 @@
 			inlayHints: true
 		})
 
+		languages.typescript.typescriptDefaults.setModeConfiguration({
+			completionItems: true,
+			hovers: true,
+			documentSymbols: true,
+			definitions: true,
+			references: true,
+			documentHighlights: true,
+			rename: true,
+			diagnostics: true,
+			documentRangeFormattingEdits: true,
+			signatureHelp: true,
+			onTypeFormattingEdits: true,
+			codeActions: true,
+			inlayHints: true
+		})
+
 		languages.typescript.javascriptDefaults.setEagerModelSync(true)
+		languages.typescript.typescriptDefaults.setEagerModelSync(true)
+
 		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+			noSemanticValidation: false,
+			noSyntaxValidation: false,
+			noSuggestionDiagnostics: false,
+			diagnosticCodesToIgnore: [1108]
+		})
+
+		languages.typescript.typescriptDefaults.setDiagnosticsOptions({
 			noSemanticValidation: false,
 			noSyntaxValidation: false,
 			noSuggestionDiagnostics: false,
@@ -1083,8 +1114,7 @@
 			noUnusedParameters: true,
 			noUnusedLocals: true,
 			strict: true,
-			noLib: false,
-
+			noLib: true,
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 

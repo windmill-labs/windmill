@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { NewScript, Script, ScriptService } from '$lib/gen'
+	import { type NewScript, ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { defaultScripts, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema } from '$lib/utils'
+	import { goto } from '$app/navigation'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -42,7 +44,7 @@
 				$defaultScripts?.order?.filter(
 					(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
 				)?.[0] ?? 'bun',
-			kind: Script.kind.SCRIPT
+			kind: 'script'
 		}
 	}
 
@@ -72,7 +74,7 @@
 			script.description = `Fork of ${hubPath}`
 			script.content = content
 			script.summary = summary ?? ''
-			script.language = language as Script.language
+			script.language = language as Script['language']
 			scriptBuilder?.setCode(script.content)
 		}
 	}
@@ -84,11 +86,24 @@
 			loadTemplate()
 		}
 	}
+	let savedScript: Script | undefined = undefined
 </script>
 
 <ScriptBuilder
 	bind:this={scriptBuilder}
 	lockedLanguage={templatePath != null || hubPath != null}
+	on:deploy={(e) => {
+		let newHash = e.detail
+		goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+	}}
+	on:saveInitial={(e) => {
+		let path = e.detail
+		goto(`/scripts/edit/${path}`)
+	}}
+	bind:savedScript
+	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
-/>
+>
+	<UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} />
+</ScriptBuilder>

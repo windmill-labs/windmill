@@ -49,12 +49,16 @@
 
 <ButtonDropdown hasPadding={false}>
 	<svelte:fragment slot="buttonReplacement">
-		<Button nonCaptureEvent size="xs" color="light" variant="border">
-			<div class="flex flex-row items-center gap-2">
-				<BookOpen size={16} />
-				Tutorials
-			</div>
-		</Button>
+		<Button
+			nonCaptureEvent
+			size="xs"
+			color="light"
+			variant="border"
+			iconOnly
+			startIcon={{
+				icon: BookOpen
+			}}
+		/>
 	</svelte:fragment>
 	<svelte:fragment slot="items">
 		<TutorialItem

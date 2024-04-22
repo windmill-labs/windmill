@@ -11,7 +11,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, Job, Policy } from '$lib/gen'
+	import { AppService, DraftService, type Job, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import {
@@ -183,6 +183,14 @@
 					]
 					if (c.type === 'tablecomponent') {
 						r.push(...c.actionButtons.map((x) => ({ input: x.componentInput, id: x.id })))
+					}
+					if (
+						(c.type === 'aggridcomponent' ||
+							c.type === 'aggridcomponentee' ||
+							c.type === 'dbexplorercomponent') &&
+						Array.isArray(c.actions)
+					) {
+						r.push(...c.actions.map((x) => ({ input: x.componentInput, id: x.id })))
 					}
 					if (c.type === 'menucomponent') {
 						r.push(...c.menuItems.map((x) => ({ input: x.componentInput, id: x.id })))
@@ -904,9 +912,7 @@
 				}}
 				checked={policy.execution_mode == 'anonymous'}
 				on:change={(e) => {
-					policy.execution_mode = e.detail
-						? Policy.execution_mode.ANONYMOUS
-						: Policy.execution_mode.PUBLISHER
+					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
 			/>
@@ -957,7 +963,7 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={$jobsDrawerOpen} size="900px" --zIndex={1003}>
+<Drawer bind:open={$jobsDrawerOpen} size="900px">
 	<DrawerContent
 		noPadding
 		title="Debug Runs"
@@ -1204,54 +1210,67 @@
 <div
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
 >
-	<div class="min-w-64 w-64">
-		<input
-			type="text"
-			placeholder="App summary"
-			class="text-sm w-full font-semibold"
-			bind:value={$summary}
-			on:keydown|stopPropagation
-		/>
-	</div>
-	<div class="flex gap-4 items-center justify-center">
-		<UndoRedo
-			undoProps={{ disabled: $history?.index === 0 }}
-			redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
-			on:undo={() => {
-				$app = undo(history, $app)
-			}}
-			on:redo={() => {
-				$app = redo(history)
-			}}
-		/>
-
-		<div>
-			<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
-				<ToggleButton tooltip="Mobile View" icon={Smartphone} value="sm" />
-				<ToggleButton tooltip="Computer View" icon={Laptop2} value="lg" />
-			</ToggleButtonGroup>
+	<div class="flex flex-row gap-2 items-center">
+		<div class="min-w-64 w-64">
+			<input
+				type="text"
+				placeholder="App summary"
+				class="text-sm w-full font-semibold"
+				bind:value={$summary}
+				on:keydown|stopPropagation
+			/>
 		</div>
-		{#if $app}
-			<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
-				<ToggleButton
-					icon={AlignHorizontalSpaceAround}
-					value={false}
-					tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
-				/>
-				<ToggleButton
-					tooltip="The width is of the app if the full width of its container"
-					icon={Expand}
-					value={true}
-				/>
-			</ToggleButtonGroup>
-		{/if}
+		<div class="flex gap-2">
+			<UndoRedo
+				undoProps={{ disabled: $history?.index === 0 }}
+				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
+				on:undo={() => {
+					$app = undo(history, $app)
+				}}
+				on:redo={() => {
+					$app = redo(history)
+				}}
+			/>
+
+			{#if $app}
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
+					<ToggleButton
+						icon={AlignHorizontalSpaceAround}
+						value={false}
+						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+						iconProps={{ size: 16 }}
+					/>
+					<ToggleButton
+						tooltip="The width is of the app if the full width of its container"
+						icon={Expand}
+						value={true}
+						iconProps={{ size: 16 }}
+					/>
+				</ToggleButtonGroup>
+			{/if}
+			<div>
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+					<ToggleButton
+						tooltip="Mobile View"
+						icon={Smartphone}
+						value="sm"
+						iconProps={{ size: 16 }}
+					/>
+					<ToggleButton
+						tooltip="Computer View"
+						icon={Laptop2}
+						value="lg"
+						iconProps={{ size: 16 }}
+					/>
+				</ToggleButtonGroup>
+			</div>
+		</div>
 	</div>
 
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<AppEditorTutorial bind:this={appEditorTutorial} />
 		<ButtonDropdown hasPadding={false}>
 			<svelte:fragment slot="buttonReplacement">
 				<Button nonCaptureEvent size="xs" color="light">
@@ -1279,6 +1298,8 @@
 				{/each}
 			</svelte:fragment>
 		</ButtonDropdown>
+		<AppEditorTutorial bind:this={appEditorTutorial} />
+
 		<div class="hidden md:inline relative overflow-visible">
 			{#if hasErrors}
 				<span

@@ -80,6 +80,7 @@
 
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode: false
+	let isListJson = false
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -125,7 +126,7 @@
 
 	function evalValueToRaw() {
 		rawValue =
-			inputCat === 'object' || inputCat === 'resource-object'
+			inputCat === 'object' || inputCat === 'resource-object' || (inputCat == 'list' && !isListJson)
 				? JSON.stringify(value, null, 2)
 				: undefined
 	}
@@ -283,6 +284,7 @@
 									bind:pattern
 									bind:enum_
 									bind:contentEncoding
+									bind:password={extra['password']}
 									bind:minRows={extra['minRows']}
 									bind:disableCreate={extra['disableCreate']}
 									bind:disableVariablePicker={extra['disableVariablePicker']}
@@ -303,7 +305,6 @@
 			{/if}
 			<span class="text-2xs font-semibold">Preview:</span>
 		{/if}
-
 		{#if description}
 			<div class="text-xs italic pb-1 text-secondary">
 				<pre class="font-main">{description}</pre>
@@ -370,107 +371,121 @@
 				{#if type == 'boolean' && value == undefined}
 					<span>&nbsp; Not set</span>
 				{/if}
-			{:else if inputCat == 'list'}
-				<div class="w-full">
-					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
-						<div class="items-start">
-							<Multiselect
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
-								{disabled}
-								bind:selected={value}
-								options={itemsType?.multiselect ?? []}
-								selectedOptionsDraggable={true}
-							/>
-						</div>
-					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
-						<div class="items-start">
-							<Multiselect
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
-								{disabled}
-								bind:selected={value}
-								options={itemsType?.enum ?? []}
-								selectedOptionsDraggable={true}
-							/>
-						</div>
-					{:else}
-						<div class="w-full">
-							{#key redraw}
-								{#if Array.isArray(value)}
-									{#each value ?? [] as v, i}
-										{#if i < itemsLimit}
-											<div class="flex max-w-md mt-1 w-full items-center">
-												{#if itemsType?.type == 'number'}
-													<input type="number" bind:value={v} id="arg-input-number-array" />
-												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-													<input
-														type="file"
-														class="my-6"
-														on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-														multiple={false}
-													/>
-												{:else if itemsType?.type == 'object'}
-													<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
-												{:else if Array.isArray(itemsType?.enum)}
-													<ArgEnum
-														required
-														create={extra['disableCreate'] != true}
-														on:focus={() => {
-															dispatch('focus')
+			{:else if inputCat == 'list' && !isListJson}
+				<div class="w-full flex gap-4">
+					<div class="w-full">
+						{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
+							<div class="items-start">
+								<Multiselect
+									ulOptionsClass={'p-2 !bg-surface-secondary'}
+									{disabled}
+									bind:selected={value}
+									options={itemsType?.multiselect ?? []}
+									selectedOptionsDraggable={true}
+								/>
+							</div>
+						{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
+							<div class="items-start">
+								<Multiselect
+									ulOptionsClass={'p-2 !bg-surface-secondary'}
+									{disabled}
+									bind:selected={value}
+									options={itemsType?.enum ?? []}
+									selectedOptionsDraggable={true}
+								/>
+							</div>
+						{:else}
+							<div class="w-full">
+								{#key redraw}
+									{#if Array.isArray(value)}
+										{#each value ?? [] as v, i}
+											{#if i < itemsLimit}
+												<div class="flex max-w-md mt-1 w-full items-center">
+													{#if itemsType?.type == 'number'}
+														<input type="number" bind:value={v} id="arg-input-number-array" />
+													{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+														<input
+															type="file"
+															class="my-6"
+															on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+															multiple={false}
+														/>
+													{:else if itemsType?.type == 'object'}
+														<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+													{:else if Array.isArray(itemsType?.enum)}
+														<ArgEnum
+															required
+															create={extra['disableCreate'] != true}
+															on:focus={() => {
+																dispatch('focus')
+															}}
+															on:blur={(e) => {
+																dispatch('blur')
+															}}
+															{defaultValue}
+															{valid}
+															{disabled}
+															{autofocus}
+															bind:value={v}
+															enum_={itemsType?.enum ?? []}
+														/>
+													{:else}
+														<input type="text" bind:value={v} id="arg-input-array" />
+													{/if}
+													<button
+														transition:fade|local={{ duration: 100 }}
+														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+														aria-label="Clear"
+														on:click={() => {
+															value.splice(i, 1)
+															redraw += 1
 														}}
-														on:blur={(e) => {
-															dispatch('blur')
-														}}
-														{defaultValue}
-														{valid}
-														{disabled}
-														{autofocus}
-														bind:value={v}
-														enum_={itemsType?.enum ?? []}
-													/>
-												{:else}
-													<input type="text" bind:value={v} id="arg-input-array" />
-												{/if}
-												<button
-													transition:fade|local={{ duration: 100 }}
-													class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-													aria-label="Clear"
-													on:click={() => {
-														value.splice(i, 1)
-														redraw += 1
-													}}
-												>
-													<X size={14} />
-												</button>
-											</div>
+													>
+														<X size={14} />
+													</button>
+												</div>
+											{/if}
+										{/each}
+										{#if value.length > itemsLimit}
+											<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
+												>{itemsLimit}/{value.length}: Load 50 more...</button
+											>
 										{/if}
-									{/each}
-									{#if value.length > itemsLimit}
-										<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
-											>{itemsLimit}/{value.length}: Load 50 more...</button
-										>
 									{/if}
-								{/if}
-							{/key}
-						</div>
-						<div class="flex mt-2">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									if (value == undefined || !Array.isArray(value)) {
-										value = []
-									}
-									value = value.concat('')
-								}}
-								id="arg-input-add-item"
-								startIcon={{ icon: Plus }}
-							>
-								Add item
-							</Button>
-						</div>
-					{/if}
+								{/key}
+							</div>
+							<div class="flex mt-2 gap-20 items-baseline">
+								<Button
+									variant="border"
+									color="light"
+									size="xs"
+									btnClasses="mt-1"
+									on:click={() => {
+										if (value == undefined || !Array.isArray(value)) {
+											value = []
+										}
+										value = value.concat('')
+									}}
+									id="arg-input-add-item"
+									startIcon={{ icon: Plus }}
+								>
+									Add item
+								</Button>
+							</div>
+						{/if}
+					</div>
+					<div class="mt-2 mr-4">
+						<Toggle
+							on:change={(e) => {
+								evalValueToRaw()
+								isListJson = !isListJson
+							}}
+							checked={isListJson}
+							textClass="text-secondary"
+							size="xs"
+							options={{ right: 'json' }}
+						/>
+					</div>
 				</div>
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
@@ -529,7 +544,7 @@
 						/>
 					{/if}
 				</div>
-			{:else if inputCat == 'object' || inputCat == 'resource-object'}
+			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<SchemaForm
@@ -553,6 +568,19 @@
 						code={rawValue}
 						bind:value
 					/>
+				{/if}
+				{#if inputCat == 'list'}
+					<div class="block">
+						<Toggle
+							on:change={(e) => {
+								isListJson = !isListJson
+							}}
+							checked={isListJson}
+							textClass="text-secondary"
+							size="xs"
+							options={{ right: 'json' }}
+						/>
+					</div>
 				{/if}
 			{:else if inputCat == 'enum'}
 				<div class="flex flex-row w-full gap-1">

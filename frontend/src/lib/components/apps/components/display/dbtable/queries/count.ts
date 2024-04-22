@@ -1,5 +1,4 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { Preview } from '$lib/gen'
 import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
@@ -120,7 +119,7 @@ function makeCountQuery(
 
 	if (
 		!whereClause &&
-		(dbType === Preview.language.MYSQL ||
+		(dbType === 'mysql' ||
 			dbType === 'postgresql' ||
 			dbType === 'snowflake' ||
 			dbType === 'bigquery')

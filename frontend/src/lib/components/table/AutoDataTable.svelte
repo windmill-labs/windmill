@@ -113,7 +113,7 @@
 
 	function isSortable(key: string) {
 		return (
-			typeof objects[0][key] === 'string' ||
+			(objects?.[0]?.[key] != undefined && typeof objects[0][key] === 'string') ||
 			typeof objects[0][key] === 'number' ||
 			typeof objects[0][key] === 'boolean'
 		)
@@ -288,8 +288,8 @@
 							<Cell head first={true} last={false}>
 								<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
 							</Cell>
-							{#each Object.keys(data[0].rowData ?? {}) ?? [] as key, index}
-								<Cell head last={index == Object.keys(objects[0] ?? {}).length - 1}>
+							{#each Object.keys(data?.[0]?.rowData ?? {}) ?? [] as key, index}
+								<Cell head last={index == Object.keys(objects?.[0] ?? {}).length - 1}>
 									<div class="flex flex-row gap-1 items-center">
 										{key}
 										{#if hiddenColumns.includes(key)}
@@ -363,14 +363,14 @@
 										on:change={() => handleCheckboxChange(_id)}
 									/>
 								</Cell>
-								{#each Object.keys(data[0].rowData ?? {}) ?? [] as key, index}
+								{#each Object.keys(data?.[0]?.rowData ?? {}) ?? [] as key, index}
 									{@const value = rowData[key]}
 									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
 										{#if hiddenColumns.includes(key)}
 											...
 										{:else if Array.isArray(value) && value.length === 0}
 											<div />
-										{:else if Array.isArray(value) && typeof value[0] === 'string'}
+										{:else if Array.isArray(value) && typeof value?.[0] === 'string'}
 											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
 												{#each value as item, index}
 													<Badge
@@ -382,7 +382,7 @@
 													</Badge>
 												{/each}
 											</div>
-										{:else if Array.isArray(value) && typeof value[0] === 'number'}
+										{:else if Array.isArray(value) && typeof value?.[0] === 'number'}
 											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
 												{#each value as val}
 													<div

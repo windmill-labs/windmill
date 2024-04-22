@@ -36,7 +36,7 @@
 
 	// props
 	export let iconOnly: boolean = false
-	export let lang: SupportedLanguage | 'frontend'
+	export let lang: SupportedLanguage | 'frontend' | undefined
 	export let editor: Editor | SimpleEditor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let inlineScript = false
@@ -70,7 +70,7 @@
 			if (mode === 'edit') {
 				await copilot(
 					{
-						language: transformer && lang === 'frontend' ? 'transformer' : lang,
+						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						code: editor?.getCode() || '',
 						dbSchema: dbSchema,
@@ -83,7 +83,7 @@
 			} else {
 				await copilot(
 					{
-						language: transformer && lang === 'frontend' ? 'transformer' : lang,
+						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						dbSchema: dbSchema,
 						type: 'gen',
@@ -284,7 +284,7 @@
 		</div>
 	{/if}
 {/if}
-{#if ($generatedCode.length === 0 || genLoading) && SUPPORTED_LANGUAGES.has(lang)}
+{#if ($generatedCode.length === 0 || genLoading) && SUPPORTED_LANGUAGES.has(lang ?? '')}
 	<Popup
 		floatingConfig={{
 			middleware: [
@@ -319,7 +319,7 @@
 						  }}
 					bind:element={button}
 					iconOnly
-					title="Generate code from Prompt"
+					title="Generate code from prompt"
 					startIcon={genLoading
 						? { icon: Ban }
 						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
@@ -439,7 +439,7 @@
 						</div>
 					{/if}
 
-					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(lang) && dbSchema?.lang === lang}
+					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql'].includes(lang ?? '') && dbSchema?.lang === lang}
 						<div class="flex flex-row items-center justify-between gap-2 w-96">
 							<div class="flex flex-row items-center gap-1">
 								<p class="text-xs text-secondary">
@@ -448,7 +448,7 @@
 								<Tooltip placement="top">
 									We pass the selected schema to GPT-4 Turbo for better script generation.
 								</Tooltip>
-								{#if dbSchema.stringified.length > MAX_SCHEMA_LENGTH}
+								{#if dbSchema && dbSchema.stringified.length > MAX_SCHEMA_LENGTH}
 									<Popover notClickable placement="top">
 										<AlertTriangle size={16} class="text-yellow-500" />
 										<svelte:fragment slot="text">
@@ -460,7 +460,7 @@
 									</Popover>
 								{/if}
 							</div>
-							{#if dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
+							{#if dbSchema && dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
 								<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
 									<ToggleButton
 										value={true}

@@ -166,7 +166,8 @@ export async function handleFile(
             Boolean(typed.restart_unless_cancelled) ==
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
-              Boolean(remote.visible_to_runner_only))
+              Boolean(remote.visible_to_runner_only) &&
+            typed.priority == Boolean(remote.priority))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
@@ -197,6 +198,7 @@ export async function handleFile(
           deployment_message: message,
           restart_unless_cancelled: typed?.restart_unless_cancelled,
           visible_to_runner_only: typed?.visible_to_runner_only,
+          priority: typed?.priority,
         },
       });
     } else {
@@ -225,6 +227,7 @@ export async function handleFile(
           deployment_message: message,
           restart_unless_cancelled: typed?.restart_unless_cancelled,
           visible_to_runner_only: typed?.visible_to_runner_only,
+          priority: typed?.priority,
         },
       });
     }

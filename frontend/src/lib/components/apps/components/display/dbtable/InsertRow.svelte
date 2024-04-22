@@ -9,18 +9,18 @@
 		type ColumnDef
 	} from './utils'
 
-	import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
 	import init, {
 		parse_sql,
 		parse_mysql,
 		parse_bigquery,
 		parse_snowflake,
 		parse_mssql
-	} from 'windmill-parser-wasm'
-	import type { MainArgSignature } from '$lib/gen'
-	import { makeInsertQuery } from './queries/insert'
-	import { argSigToJsonSchemaType } from '$lib/infer'
+	} from 'windmill-sql-datatype-parser-wasm'
+	import wasmUrl from 'windmill-sql-datatype-parser-wasm/windmill_sql_datatype_parser_wasm_bg.wasm?url'
+
 	init(wasmUrl)
+
+	import { argSigToJsonSchemaType } from '$lib/inferArgSig'
 
 	export let args: Record<string, any> = {}
 	export let dbType: DbType = 'postgresql'
@@ -63,50 +63,66 @@
 			}
 		}) as FieldMetadata[] | undefined
 
-	async function parseSQLArgs(code: string, dbType: DbType) {
-		await init(wasmUrl)
-
-		let rawSchema = ''
+	function parseSQLArgs(field: string, dbType: DbType): string {
+		let rawType = ''
 		switch (dbType) {
 			case 'mysql':
-				rawSchema = parse_mysql(code)
+				rawType = parse_mysql(field)
 				break
 			case 'postgresql':
-				rawSchema = parse_sql(code)
+				rawType = parse_sql(field)
 				break
 			case 'bigquery':
-				rawSchema = parse_bigquery(code)
+				rawType = parse_bigquery(field)
 				break
 			case 'snowflake':
-				rawSchema = parse_snowflake(code)
+				rawType = parse_snowflake(field)
 				break
 			case 'ms_sql_server':
-				rawSchema = parse_mssql(code)
+				rawType = parse_mssql(field)
 				break
 			default:
 				throw new Error('Language not supported')
 		}
 
-		const args: MainArgSignature = JSON.parse(rawSchema)
-
-		return args
+		return rawType
 	}
 
+	function rawTypeToSchemaType(typ: string) {
+		if (typ.startsWith('list-')) {
+			return {
+				list: rawTypeToSchemaType(typ.replace('list-', ''))
+			}
+		} else if (typ == 'str') {
+			return {
+				str: undefined
+			}
+		} else {
+			return typ
+		}
+	}
 	async function builtSchema(fields: FieldMetadata[], dbType: DbType) {
 		const properties: { [name: string]: SchemaProperty } = {}
 		const required: string[] = []
 
-		const insertCode = makeInsertQuery('ignoredtable', columnDefs, dbType)
-		const args = await parseSQLArgs(insertCode, dbType)
+		await init(wasmUrl)
 
 		fields.forEach((field) => {
 			const schemaProperty: SchemaProperty = {
 				type: 'string'
 			}
 
-			const parsedArg = args.args.find((arg) => arg.name === field.name)
+			const parsedArg = columnDefs.find((arg) => arg.field === field.name)
 			if (parsedArg) {
-				argSigToJsonSchemaType(parsedArg.typ, schemaProperty)
+				let typ: any = rawTypeToSchemaType(parseSQLArgs(parsedArg.datatype, dbType))
+				argSigToJsonSchemaType(typ, schemaProperty)
+				console.log(
+					'schemaProperty',
+					schemaProperty,
+					field.name,
+					typ,
+					parseSQLArgs(parsedArg.datatype, dbType)
+				)
 			}
 
 			if (field.defaultValue) {

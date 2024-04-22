@@ -1,7 +1,6 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
-import type { UserWorkspaceList } from '$lib/gen/models/UserWorkspaceList.js'
-import { type WorkspaceDefaultScripts, type TokenResponse } from './gen'
+import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList } from './gen'
 import type { IntrospectionQuery } from 'graphql'
 
 export interface UserExt {

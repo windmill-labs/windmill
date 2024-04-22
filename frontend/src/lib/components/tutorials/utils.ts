@@ -56,7 +56,9 @@ export function selectOptionsBySelector(selector: string, value: string) {
 }
 
 export function isFlowTainted(flow: OpenFlow) {
-	return flow.value.modules.length > 0 || Object.keys(flow?.schema?.properties).length > 0
+	return (
+		flow.value.modules.length > 0 || Object.keys((flow?.schema?.properties as any) ?? {}).length > 0
+	)
 }
 
 export function isAppTainted(app: App) {

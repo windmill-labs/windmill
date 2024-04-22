@@ -13,6 +13,7 @@ use prometheus::{
     core::{AtomicI64, GenericGauge},
     IntCounter,
 };
+use tracing::Instrument;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
@@ -584,6 +585,7 @@ impl JobCompletedSender {
     }
 }
 
+#[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     worker_instance: &str,
@@ -608,7 +610,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
-    tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
+    tracing::debug!(worker_dir = %worker_dir, "Creating worker dir");
 
     if let Some(ref netrc) = *NETRC {
         tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
@@ -1022,7 +1024,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_name2 = worker_name.clone();
     let killpill_tx2 = killpill_tx.clone();
     let job_completed_sender = job_completed_tx.0.clone();
-    let send_result = tokio::spawn(async move {
+    let send_result = tokio::spawn((async move {
         while let Some(sr) = job_completed_rx.recv().await {
             match sr {
                 SendResult::JobCompleted(jc) => {
@@ -1162,6 +1164,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     token,
                 } => {
                     // let r;
+                    tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db2,
                         &AuthedClient {
@@ -1185,7 +1188,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     )
                     .await
                     {
-                        tracing::error!("Error updating flow status after job completion: {e}");
+                        tracing::error!("Error updating flow status after job completion for {flow} on {worker_name2}: {e}");
                     }
                 }
                 SendResult::Kill => {
@@ -1199,7 +1202,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         tracing::info!("finished processing all completed jobs");
-    });
+    }).instrument(tracing::Span::current()));
 
     let mut last_executed_job: Option<Instant> = None;
     let mut last_checked_suspended = Instant::now();
@@ -1213,7 +1216,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let vacuum_shift = rand::thread_rng().gen_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!(worker = %worker_name, "listening for jobs, WORKER_GROUP: {}, config: {:?}", *WORKER_GROUP, WORKER_CONFIG.read().await);
+    tracing::info!(
+        "listening for jobs, WORKER_GROUP: {}, config: {:?}",
+        *WORKER_GROUP,
+        WORKER_CONFIG.read().await
+    );
 
     // (dedi_path, dedicated_worker_tx, dedicated_worker_handle)
     // Option<Sender<Arc<QueuedJob>>>,
@@ -1337,6 +1344,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             None
         }
     };
+    let mut suspend_first_success = false;
 
     loop {
         #[cfg(feature = "benchmark")]
@@ -1376,24 +1384,27 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
-            tracing::debug!("set last ping");
+            tracing::info!("updating last ping");
 
             last_ping = Instant::now();
         }
 
         if (jobs_executed as u32 + vacuum_shift) % VACUUM_PERIOD == 0 {
             let db2 = db.clone();
-            let worker_name2 = worker_name.clone();
-            tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name2, "vacuuming queue and completed_job");
-                if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
-                    .execute(&db2)
-                    .await
-                {
-                    tracing::error!(worker = %worker_name2, "failed to vacuum queue: {}", e);
-                }
-                tracing::info!(worker = %worker_name2, "vacuumed queue and completed_job");
-            });
+            let current_span = tracing::Span::current();
+            tokio::task::spawn(
+                (async move {
+                    tracing::info!("vacuuming queue and completed_job");
+                    if let Err(e) = sqlx::query!("VACUUM (skip_locked) queue")
+                        .execute(&db2)
+                        .await
+                    {
+                        tracing::error!("failed to vacuum queue: {}", e);
+                    }
+                    tracing::info!("vacuumed queue and completed_job");
+                })
+                .instrument(current_span),
+            );
             jobs_executed += 1;
         }
 
@@ -1426,19 +1437,20 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         r
                     }
                 },
-                (job, timer) = async {
+                (job, timer, suspend_first) = async {
                     let pull_time = Instant::now();
-                    let suspend_first = if last_checked_suspended.elapsed().as_secs() > 3 {
+                    let suspend_first = if suspend_first_success || last_checked_suspended.elapsed().as_secs() > 3 {
                         last_checked_suspended = Instant::now();
                         true
                     } else { false };
-                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time)).await
+                    pull(&db, rsmq.clone(), suspend_first).map(|x| (x, pull_time, suspend_first)).await
                 } => {
                     add_time!(timing, loop_start, "post pull");
                     // tracing::debug!("pulled job: {:?}", job.as_ref().ok().and_then(|x| x.as_ref().map(|y| y.id)));
                     let duration_pull_s = timer.elapsed().as_secs_f64();
                     let err_pull = job.is_ok();
                     let empty = job.as_ref().is_ok_and(|x| x.is_none());
+                    suspend_first_success = suspend_first && !empty;
                     if !agent_mode && duration_pull_s > 0.5 {
                         tracing::warn!("pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                         #[cfg(feature = "prometheus")]
@@ -1496,7 +1508,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                tracing::debug!(worker = %worker_name, "started handling of job {}", job.id);
+                tracing::debug!("started handling of job {}", job.id);
 
                 if matches!(job.job_kind, JobKind::Script | JobKind::Preview) {
                     if !dedicated_workers.is_empty() {
@@ -1608,10 +1620,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .unwrap_or_else(|| "none".to_string());
 
                     if job.id == Uuid::nil() {
-                        tracing::info!(worker = %worker_name, "running warmup job");
+                        tracing::info!("running warmup job");
                     } else {
-                        tracing::info!(worker = %worker_name, workspace_id = %job.workspace_id, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
-                    }
+                        tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+                    } // Here we can't remove the job id, but maybe with the
+                      // fields macro we can make a job id that only appears when
+                      // the job is defined?
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
@@ -1736,7 +1750,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 if let Some(secs) = *EXIT_AFTER_NO_JOB_FOR_SECS {
                     if let Some(lj) = last_executed_job {
                         if lj.elapsed().as_secs() > secs {
-                            tracing::info!(worker = %worker_name, "no job for {} seconds, exiting", secs);
+                            tracing::info!("no job for {} seconds, exiting", secs);
                             break;
                         }
                     } else {
@@ -1765,7 +1779,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 });
             }
             Err(err) => {
-                tracing::error!(worker = %worker_name, "Failed to pull jobs: {}", err);
+                tracing::error!("Failed to pull jobs: {}", err);
             }
         };
     }
@@ -1794,7 +1808,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     send_result.await.expect("send result failed");
     tracing::info!("worker {} exited", worker_name);
-    println!("worker {} exited", worker_name);
 }
 
 type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, Option<JoinHandle<()>>);
@@ -2215,6 +2228,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 //     logs: String,
 // ) -> error::Result<()> {
 
+#[tracing::instrument(name = "completed_job", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     JobCompleted { job, result, mem_peak, success, cached_res_path, canceled_by, .. }: JobCompleted,
     client: &AuthedClient,
@@ -2259,6 +2273,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 let timer = _worker_flow_transition_duration
                     .as_ref()
                     .map(|x| x.start_timer());
+                tracing::info!(parent_flow = %parent_job, subflow = %job.id, "updating flow status (2)");
                 update_flow_status_after_job_completion(
                     db,
                     client,
@@ -2296,6 +2311,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
         .await?;
         if job.is_flow_step {
             if let Some(parent_job) = job.parent_job {
+                tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
                 update_flow_status_after_job_completion(
                     db,
                     client,
@@ -2354,6 +2370,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
 //     *barrier = None;
 //     tracing::debug!("leader worker done waiting for");
 // }
+
+#[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     client: &AuthedClient,
@@ -2409,6 +2427,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
         };
 
         let wrapped_error = WrappedError { error: err.clone() };
+        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err:?}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -2548,7 +2567,7 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(name = "job", level = "info", skip_all, fields(job_id = %job.id))]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: Arc<QueuedJob>,
     db: &DB,
@@ -2725,8 +2744,6 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         }
 
         tracing::debug!(
-            worker = %worker_name,
-            job_id = %job.id,
             workspace_id = %job.workspace_id,
             "handling job {}",
             job.id
@@ -3204,8 +3221,6 @@ async fn handle_code_execution_job(
         .unwrap_or_else(|| "NO_LANG".to_string());
 
     tracing::debug!(
-        worker_name = %worker_name,
-        job_id = %job.id,
         workspace_id = %job.workspace_id,
         "started {} job {}",
         &lang_str,
@@ -3340,8 +3355,6 @@ mount {{
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
-        worker_name = %worker_name,
-        job_id = %job.id,
         workspace_id = %job.workspace_id,
         is_ok = result.is_ok(),
         "finished {} job {}",

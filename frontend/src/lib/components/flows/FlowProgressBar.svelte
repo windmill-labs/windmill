@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowStatusModule, Job } from '$lib/gen'
+	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
 	export let job: Job | undefined = undefined
@@ -27,17 +27,14 @@
 		let maxDone = job?.flow_status?.step ?? 0
 		if (modules.length > maxDone) {
 			const nextModule = modules[maxDone]
-			if (nextModule.type === FlowStatusModule.type.IN_PROGRESS) {
+			if (nextModule.type === 'InProgress') {
 				newNextInProgress = true
 			}
 		}
 
 		let module = modules[maxDone]
 		if (module) {
-			if (
-				module.type === FlowStatusModule.type.FAILURE ||
-				(module.type === FlowStatusModule.type.SUCCESS && job['success'] === false)
-			) {
+			if (module.type === 'Failure' || (module.type === 'Success' && job['success'] === false)) {
 				newError = maxDone
 				maxDone = maxDone + 1
 			}

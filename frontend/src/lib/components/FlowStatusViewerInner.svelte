@@ -1,11 +1,11 @@
 <script lang="ts">
 	import {
-		FlowStatusModule,
-		Job,
+		type FlowStatusModule,
+		type Job,
 		JobService,
 		type FlowStatus,
-		CompletedJob,
-		QueuedJob,
+		type CompletedJob,
+		type QueuedJob,
 		type FlowModuleValue
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -60,6 +60,7 @@
 	export let globalModuleStates: Writable<Record<string, GraphModuleState>>[]
 	export let globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
 	export let childFlow: boolean = false
+	export let reducedPolling = false
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
@@ -118,25 +119,6 @@
 		)
 	}
 
-	if (flowJobIds) {
-		let common = {
-			iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
-			iteration_total: flowJobIds?.length
-		}
-		let modId = flowJobIds?.moduleId ?? ''
-		$localDurationStatuses[modId] = {
-			...($localDurationStatuses[modId] ?? { byJob: {} }),
-			...common
-		}
-		let prefixed = modId
-		globalDurationStatuses.forEach((x) =>
-			x.update((x) => {
-				x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
-				return x
-			})
-		)
-	}
-
 	function updateForloop(len: number) {
 		forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
 		lastSize = len
@@ -169,13 +151,12 @@
 		if ($localModuleStates) {
 			innerModules.forEach((mod, i) => {
 				if (
-					mod.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
-					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
-						FlowStatusModule.type.SUCCESS
+					mod.type === 'WaitingForEvents' &&
+					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
 				) {
 					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args })
 				} else if (
-					mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
+					mod.type === 'WaitingForExecutor' &&
 					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
 				) {
 					JobService.getJob({
@@ -224,17 +205,36 @@
 			}
 		}
 		if (job?.type !== 'CompletedJob' && errorCount < 4) {
-			timeout = setTimeout(() => loadJobInProgress(), 500)
+			timeout = setTimeout(() => loadJobInProgress(), reducedPolling ? 5000 : 1000)
 		}
 	}
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
 			$localModuleStates = {}
-			$localDurationStatuses = {}
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)
 			innerModules = []
+			if (flowJobIds) {
+				let common = {
+					iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
+					iteration_total: flowJobIds?.length
+				}
+				let modId = flowJobIds?.moduleId ?? ''
+				$localDurationStatuses[modId] = {
+					...($localDurationStatuses[modId] ?? { byJob: {} }),
+					...common
+				}
+				let prefixed = modId
+				globalDurationStatuses.forEach((x) =>
+					x.update((x) => {
+						x[prefixed] = { ...(x[prefixed] ?? { byJob: {} }), ...common }
+						return x
+					})
+				)
+			} else {
+				$localDurationStatuses = {}
+			}
 			await loadJobInProgress()
 		}
 	}
@@ -272,7 +272,7 @@
 			let started_at = job.started_at ? new Date(job.started_at).getTime() : undefined
 			if (job.type == 'QueuedJob') {
 				setModuleState(mod.id, {
-					type: FlowStatusModule.type.IN_PROGRESS,
+					type: 'InProgress',
 					job_id: job.id,
 					logs: job.logs,
 					args: job.args,
@@ -286,7 +286,7 @@
 			} else {
 				setModuleState(mod.id, {
 					args: job.args,
-					type: job['success'] ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
+					type: job['success'] ? 'Success' : 'Failure',
 					logs: job.logs,
 					result: job['result'],
 					job_id: job.id,
@@ -312,6 +312,12 @@
 	) {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
+			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
+				$flowStateStore[modId] = {
+					...$flowStateStore[modId],
+					previewResult: jobLoaded.args
+				}
+			}
 			if ($flowStateStore?.[modId]) {
 				if (!childFlow) {
 					if (
@@ -340,7 +346,7 @@
 
 			if (jobLoaded.type == 'QueuedJob') {
 				setModuleState(modId, {
-					type: FlowStatusModule.type.IN_PROGRESS,
+					type: 'InProgress',
 					started_at,
 					logs: jobLoaded.logs,
 					job_id,
@@ -358,7 +364,7 @@
 				setModuleState(modId, {
 					started_at,
 					args: jobLoaded.args,
-					type: jobLoaded.success ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
+					type: jobLoaded.success ? 'Success' : 'Failure',
 					logs: 'All jobs completed',
 					result: jobResults,
 					job_id,
@@ -402,6 +408,31 @@
 	let flowTimeline: FlowTimeline
 
 	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
+
+	let slicedListJobIds: string[] = []
+
+	$: flowJobIds && !deepEqual(flowJobIds, lastFlowJobIds) && updateSlicedListJobIds()
+	let lastFlowJobIds: any = undefined
+	function updateSlicedListJobIds() {
+		lastFlowJobIds = flowJobIds
+		slicedListJobIds =
+			(flowJobIds?.flowJobs.length ?? 0) > 20
+				? flowJobIds?.flowJobs?.slice(
+						$localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0
+				  ) ?? []
+				: flowJobIds?.flowJobs ?? []
+	}
+
+	function loadPreviousIters(lenToAdd: number) {
+		let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
+		if (r.iteration_from) {
+			r.iteration_from -= lenToAdd
+			$localDurationStatuses = $localDurationStatuses
+			globalDurationStatuses.forEach((x) => x.update((x) => x))
+		}
+		jobResults = [...new Array(lenToAdd), ...jobResults]
+		updateSlicedListJobIds()
+	}
 </script>
 
 {#if job}
@@ -418,19 +449,24 @@
 			)}
 
 			{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
+				{@const allToAdd = (flowJobIds?.length ?? 0) - (slicedListJobIds.length ?? 0)}
 				<p class="text-tertiary italic text-xs">
 					For performance reasons, only the last 20 items are shown by default <button
 						class="text-primary underline ml-4"
 						on:click={() => {
-							let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
-							if (r.iteration_from) {
-								r.iteration_from -= lenToAdd
-								$localDurationStatuses = $localDurationStatuses
-								globalDurationStatuses.forEach((x) => x.update((x) => x))
-							}
+							loadPreviousIters(lenToAdd)
 						}}
 						>Load {lenToAdd} prior
 					</button>
+					{#if allToAdd > 0}
+						<button
+							class="text-primary underline ml-4"
+							on:click={() => {
+								loadPreviousIters(allToAdd)
+							}}
+							>Load {allToAdd} prior
+						</button>
+					{/if}
 				</p>
 			{/if}
 			{#if render}
@@ -455,7 +491,7 @@
 							logs={job.logs}
 						/>
 					</div>
-				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
+				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
 					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
 				{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}
 					<div class="flex gap-2 flex-col">
@@ -477,7 +513,7 @@
 				{:else if innerModules?.length > 0}
 					<div class="flex flex-col gap-1">
 						{#each innerModules as mod, i (mod.id)}
-							{#if mod.type == FlowStatusModule.type.IN_PROGRESS}
+							{#if mod.type == 'InProgress'}
 								{@const rawMod = job.raw_flow?.modules[i]}
 
 								<div
@@ -520,22 +556,28 @@
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
 				{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
+					{@const allToAdd = (flowJobIds?.length ?? 0) - (slicedListJobIds.length ?? 0)}
+
 					<p class="text-tertiary italic text-xs">
 						For performance reasons, only the last 20 items are shown by default <button
 							class="text-primary underline ml-4"
 							on:click={() => {
-								let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
-								if (r.iteration_from) {
-									r.iteration_from -= lenToAdd
-									$localDurationStatuses = $localDurationStatuses
-									globalDurationStatuses.forEach((x) => x.update((x) => x))
-								}
+								loadPreviousIters(lenToAdd)
 							}}
 							>Load {lenToAdd} prior
 						</button>
+						{#if allToAdd > 0}
+							<button
+								class="text-primary underline ml-4"
+								on:click={() => {
+									loadPreviousIters(allToAdd)
+								}}
+								>Load {allToAdd} prior
+							</button>
+						{/if}
 					</p>
 				{/if}
-				{#each (flowJobIds?.flowJobs.length ?? 0) > 20 ? flowJobIds?.flowJobs?.slice($localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0) ?? [] : flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
+				{#each slicedListJobIds as loopJobId, j (loopJobId)}
 					{#if render}
 						<Button
 							variant={forloop_selected === loopJobId ? 'contained' : 'border'}
@@ -565,12 +607,14 @@
 						</Button>
 					{/if}
 
+					<!-- <LogId id={loopJobId} /> -->
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
 							{childFlow}
 							globalModuleStates={[localModuleStates, ...globalModuleStates]}
 							globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
 							render={forloop_selected == loopJobId && selected == 'sequence' && render}
+							reducedPolling={flowJobIds?.flowJobs.length && flowJobIds?.flowJobs.length > 20}
 							{workspaceId}
 							jobId={loopJobId}
 							on:jobsLoaded={(e) => innerJobLoaded(e.detail, j)}
@@ -606,7 +650,7 @@
 							<div class="line w-8 h-10" />
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
-							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
+							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
 										globalModuleStates={[]}
@@ -700,6 +744,9 @@
 						<Tabs bind:selected={rightColumnSelect}>
 							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
 							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
+								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
+							{/if}
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
@@ -763,9 +810,8 @@
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder
-											loading={node.type != FlowStatusModule.type.SUCCESS &&
-												node.type != FlowStatusModule.type.FAILURE}
-											refreshLog={node.type == FlowStatusModule.type.IN_PROGRESS}
+											loading={node.type != 'Success' && node.type != 'Failure'}
+											refreshLog={node.type == 'InProgress'}
 											col
 											result={node.result}
 											logs={node.logs}
@@ -778,6 +824,10 @@
 									{/if}
 								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
 									>{/if}
+							</div>
+						{:else if rightColumnSelect == 'user_states'}
+							<div class="p-2">
+								<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />
 							</div>
 						{/if}
 					</div>

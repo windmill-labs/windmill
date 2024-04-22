@@ -1,23 +1,35 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import type { AppInput } from '../../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
-	import { components } from '$lib/components/apps/editor/component'
+	import { components, type TableAction } from '$lib/components/apps/editor/component'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
+	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
-	import 'ag-grid-community/styles/ag-theme-alpine.css'
+	import './theme/windmill-theme.css'
+
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
+
+	import AppAggridTableActions from './AppAggridTableActions.svelte'
+	import { cellRendererFactory } from './utils'
+
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
@@ -26,9 +38,14 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
+	export let actions: TableAction[] | undefined = undefined
 
-	const { app, worldStore, selectedComponent, componentControl, darkMode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const context = getContext<AppViewerContext>('AppViewerContext')
+
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+
+	const { app, worldStore, selectedComponent, componentControl, darkMode } = context
 
 	const rowHeights = {
 		normal: 40,
@@ -76,8 +93,9 @@
 		result: [] as any[],
 		loading: false,
 		page: 0,
-		newChange: { row: 0, column: '', value: undefined },
+		newChange: { row: 0, column: '', value: undefined, old: undefined },
 		ready: undefined as boolean | undefined,
+		inputs: {},
 		filters: {},
 		displayedRowCount: 0
 	})
@@ -93,11 +111,20 @@
 				selectedRowIndex = rowIndex
 				outputs?.selectedRowIndex.set(rowIndex)
 			}
+
 			if (!deepEqual(outputs?.selectedRow?.peak(), data)) {
 				outputs?.selectedRow.set(data)
 			}
+
+			if (iterContext && listInputs) {
+				listInputs.set(id, { selectedRow: data, selectedRowIndex: selectedRowIndex })
+			}
 		}
 	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
 
 	function toggleRows(rows: any[]) {
 		if (rows.length === 0) {
@@ -127,7 +154,8 @@
 			outputs?.newChange?.set({
 				row: event.node.rowIndex,
 				column: event.colDef.field,
-				value: dataCell
+				value: dataCell,
+				old: result[Number(event.node.data['__index'])][event.colDef.field]
 			})
 			result[Number(event.node.data['__index'])][event.colDef.field] = dataCell
 			let data = { ...result[event.node.rowIndex] }
@@ -136,25 +164,89 @@
 	}
 
 	let extraConfig = resolvedConfig.extraConfig
-
 	let api: GridApi<any> | undefined = undefined
-
 	let eGui: HTMLDivElement
+	let state: any = undefined
 
 	$: loaded && eGui && mountGrid()
 
-	let state: any = undefined
+	function refreshActions(actions: TableAction[]) {
+		if (!deepEqual(actions, lastActions)) {
+			lastActions = [...actions]
+
+			updateOptions()
+		}
+	}
+
+	let lastActions: TableAction[] | undefined = undefined
+	$: actions && refreshActions(actions)
+
+	let inputs = {}
+
+	const tableActionsFactory = cellRendererFactory((c, p) => {
+		const rowIndex = p.node.rowIndex ?? 0
+		const row = p.data
+
+		new AppAggridTableActions({
+			target: c.eGui,
+			props: {
+				id: id,
+				actions,
+				rowIndex,
+				row,
+				render,
+				wrapActions: resolvedConfig.wrapActions,
+				onSet: (id, value) => {
+					if (!inputs[id]) {
+						inputs[id] = { [rowIndex]: value }
+					} else {
+						inputs[id] = { ...inputs[id], [rowIndex]: value }
+					}
+
+					outputs?.inputs.set(inputs, true)
+				},
+				onRemove: (id) => {
+					if (inputs?.[id] == undefined) {
+						return
+					}
+					delete inputs[id][rowIndex]
+					inputs[id] = { ...inputs[id] }
+					if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+						delete inputs[id]
+						inputs = { ...inputs }
+					}
+					outputs?.inputs.set(inputs, true)
+				}
+			},
+			context: new Map([['AppViewerContext', context]])
+		})
+	})
+
 	function mountGrid() {
 		if (eGui) {
 			try {
+				let columnDefs =
+					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+						? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
+						: []
+
+				// Add the action column if actions are defined
+				if (actions && actions.length > 0) {
+					columnDefs.push({
+						headerName: 'Actions',
+						cellRenderer: tableActionsFactory,
+						autoHeight: true,
+						cellStyle: { textAlign: 'center' },
+						cellClass: 'grid-cell-centered',
+						...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
+					})
+				}
+
 				createGrid(
 					eGui,
 					{
 						rowData: value,
-						columnDefs:
-							Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-								? resolvedConfig?.columnDefs
-								: [],
+						columnDefs: columnDefs,
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						defaultColDef: {
@@ -183,7 +275,7 @@
 						onGridReady: (e) => {
 							outputs?.ready.set(true)
 							value = value
-							if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
+							if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault === true) {
 								e.api.getRowNode('0')?.setSelected(true)
 							}
 							$componentControl[id] = {
@@ -219,7 +311,6 @@
 	}
 
 	$: resolvedConfig && updateOptions()
-
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
@@ -258,12 +349,26 @@
 
 	function updateOptions() {
 		try {
+			const columnDefs =
+				Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+					? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
+					: []
+
+			// Add the action column if actions are defined
+			if (actions && actions.length > 0) {
+				columnDefs.push({
+					headerName: 'Actions',
+					cellRenderer: tableActionsFactory,
+					autoHeight: true,
+					cellStyle: { textAlign: 'center' },
+					cellClass: 'grid-cell-centered',
+					...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
+				})
+			}
+
 			api?.updateGridOptions({
 				rowData: value,
-				columnDefs:
-					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? resolvedConfig?.columnDefs
-						: undefined,
+				columnDefs: columnDefs,
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				defaultColDef: {
@@ -285,6 +390,7 @@
 			sendUserToast("Couldn't update the grid:" + e, true)
 		}
 	}
+	let loading = false
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -306,19 +412,30 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper
+	{outputs}
+	{render}
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+	bind:loading
+	hideRefreshButton={true}
+>
 	{#if Array.isArray(value) && value.every(isObject)}
 		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
 			<div
-				class={twMerge(
-					'border shadow-sm divide-y flex flex-col h-full',
-					css?.container?.class,
-					'wm-aggrid-container'
-				)}
+				class={twMerge('flex flex-col h-full', css?.container?.class, 'wm-aggrid-container')}
 				style={css?.container?.style}
 				bind:clientHeight
 				bind:clientWidth
 			>
+				{#if componentInput?.type === 'runnable' && componentInput.autoRefresh}
+					<div class="absolute top-2 right-2 z-50">
+						<RefreshButton {id} {loading} />
+					</div>
+				{/if}
+
 				<div
 					on:pointerdown|stopPropagation={() => {
 						$selectedComponent = [id]

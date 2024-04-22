@@ -114,6 +114,7 @@
 		size="800px"
 		alwaysOpen
 		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
+		shouldUsePortal={false}
 	>
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}

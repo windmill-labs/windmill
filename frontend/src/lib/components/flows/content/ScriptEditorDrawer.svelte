@@ -3,7 +3,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
-	import { ScriptService, type Preview, Script } from '$lib/gen'
+	import { ScriptService, type Preview, type Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
 	import { Loader2, Save, DiffIcon } from 'lucide-svelte'
@@ -39,7 +39,7 @@
 				description: string
 				summary: string
 				hash: string
-				language: Preview.language
+				language: Preview['language']
 				content: string
 				schema?: any
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
@@ -56,7 +56,7 @@
 				description: string
 				summary: string
 				hash: string
-				language: Preview.language
+				language: Preview['language']
 				content: string
 				schema?: any
 				kind: 'script' | 'failure' | 'trigger' | 'command' | 'approval' | undefined
@@ -84,10 +84,11 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						...script,
+						language: script.language!,
 						description: script.description ?? '',
 						parent_hash: script.hash != '' ? script.hash : undefined,
 						is_template: false,
-						kind: script.kind as Script.kind | undefined,
+						kind: script.kind as Script['kind'] | undefined,
 						lock: undefined
 					}
 				})

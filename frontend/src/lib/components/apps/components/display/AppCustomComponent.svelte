@@ -62,18 +62,21 @@
 			//@ts-ignore
 			await import(
 				/* @vite-ignore */
+				/* webpackIgnore: true */
 				`https://unpkg.com/react@${reactVersion}/umd/react.production.min.js`
 			)
 
 			//@ts-ignore
 			await import(
 				/* @vite-ignore */
+				/* webpackIgnore: true */
 				`https://unpkg.com/react-dom@${reactVersion}/umd/react-dom.production.min.js`
 			)
 		}
 		//@ts-ignore
 		await import(
 			/* @vite-ignore */
+			/* webpackIgnore: true */
 			`/api/w/${workspace ?? 'NO_W'}/resources_u/custom_component/${customComponent.name}`
 		)
 		loaded = true
@@ -81,7 +84,10 @@
 			let renderer: (props: CCProps<number>) => void =
 				globalThis.windmill[customComponent?.name ?? 'no_name']
 			if (!renderer) {
-				sendUserToast('Custom Component seem to be ill-defined (renderer missing)', true)
+				sendUserToast(
+					'Custom Component seem to be ill-defined (renderer missing). is COMPONENT_NAME in vite.config.ts matching the name of the custom component?',
+					true
+				)
 				return
 			}
 			renderer?.(ccProps)

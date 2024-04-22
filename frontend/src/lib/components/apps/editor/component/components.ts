@@ -137,12 +137,19 @@ export type AgChartsComponentEe = BaseComponent<'agchartscomponentee'> & {
 
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
+export type TableAction = BaseAppComponent &
+	(ButtonComponent | CheckboxComponent | SelectComponent) &
+	GridItem
+
 export type TableComponent = BaseComponent<'tablecomponent'> & {
-	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
+	actionButtons: TableAction[]
 }
-export type AggridComponent = BaseComponent<'aggridcomponent'>
+export type AggridComponent = BaseComponent<'aggridcomponent'> & {
+	actions: TableAction[]
+}
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
+	actions: TableAction[]
 }
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
@@ -206,6 +213,7 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 
 export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
+	actions: TableAction[]
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'>
@@ -348,6 +356,7 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	numberOfSubgrids?: number
 	recomputeIds?: boolean
 	actionButtons?: boolean
+	actions?: boolean
 	menuItems?: boolean
 	tabs?: string[]
 	panes?: number[]
@@ -674,6 +683,13 @@ const aggridcomponentconst = {
 				value: 'normal',
 				selectOptions: ['normal', 'compact', 'comfortable'],
 				tooltip: 'Change the row height'
+			},
+			wrapActions: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+				tooltip:
+					'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
 			}
 		},
 		componentInput: {
@@ -1404,7 +1420,7 @@ Hello \${ctx.username}
 		name: 'Markdown',
 		icon: Heading1,
 		documentationLink: `${documentationBaseUrl}/html`,
-		dims: '1:2-4-4' as AppComponentDimensions,
+		dims: '1:2-4:4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1710,7 +1726,8 @@ This is a paragraph.
 						name: 'A briefer cell',
 						age: 84
 					}
-				]
+				],
+				hideRefreshButton: true
 			} as StaticAppInput,
 			actionButtons: true
 		}
@@ -2380,14 +2397,14 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 					value: '',
 					fieldType: 'datetime',
 					tooltip:
-						'The minimum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+						'The minimum date and time that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
 				},
 				maxDateTime: {
 					type: 'static',
 					value: '',
 					fieldType: 'datetime',
 					tooltip:
-						'The maximum date that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
+						'The maximum date and time that can be selected. The format is the ISO 8601 format: "yyyy-MM-ddTHH:mm:ss:SSSZ", for example "2021-11-06T23:39:30.000Z", or toISOString() from a Date'
 				},
 				outputFormat: {
 					type: 'static',
@@ -2436,14 +2453,14 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: '',
 					fieldType: 'time',
 					tooltip:
-						'The minimum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+						'The minimum time that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
 				},
 				maxTime: {
 					type: 'static',
 					value: '',
 					fieldType: 'time',
 					tooltip:
-						'The maximum date that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
+						'The maximum time that can be selected. If the time provided is not valid, it will set the output "validity" to false. The format is: "HH:mm"'
 				},
 				defaultValue: {
 					type: 'static',
@@ -2843,7 +2860,13 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 							title: 'London'
 						}
 					]
-				} as StaticAppInput
+				} as StaticAppInput,
+				lock: {
+					fieldType: 'boolean',
+					type: 'static',
+					value: false,
+					tooltip: 'Lock the map to prevent user interaction'
+				}
 			}
 		}
 	},
@@ -3512,6 +3535,13 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					value: false,
 					tooltip: 'Hide the search bar'
+				},
+				wrapActions: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
 				}
 			},
 			componentInput: undefined

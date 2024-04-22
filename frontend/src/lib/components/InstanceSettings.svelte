@@ -54,7 +54,8 @@
 		}
 		initialOauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
 		requirePreexistingUserForOauth =
-			(await SettingService.getGlobal({ key: 'require_preexisting_user_for_oauth' })) ?? false
+			((await SettingService.getGlobal({ key: 'require_preexisting_user_for_oauth' })) as any) ??
+			false
 		initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 		oauths = JSON.parse(JSON.stringify(initialOauths))
 		initialValues = Object.fromEntries(
@@ -164,7 +165,8 @@
 		'gworkspace',
 		'basecamp',
 		'linkedin',
-		'quickbooks'
+		'quickbooks',
+		'visma'
 	]
 
 	let oauth_name = undefined

@@ -4,7 +4,7 @@ export type OwnerKind = 'group' | 'user' | 'folder'
 
 export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
-export type SupportedLanguage = Script.language
+export type SupportedLanguage = Script['language']
 
 export interface PropertyDisplayInfo {
 	property: SchemaProperty

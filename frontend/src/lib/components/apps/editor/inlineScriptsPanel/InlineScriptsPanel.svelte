@@ -86,7 +86,7 @@
 				parent_hash: undefined,
 				schema: runnable.inlineScript.schema,
 				is_template: false,
-				language
+				language: language!
 			}
 		})
 

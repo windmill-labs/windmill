@@ -19,6 +19,7 @@
 					.toString()
 					.padStart(2, '0')}-${dateFromValue!.getDate().toString().padStart(2, '0')}`
 			: undefined
+
 		time = isValidDate(dateFromValue)
 			? `${dateFromValue!.getHours().toString().padStart(2, '0')}:${dateFromValue!
 					.getMinutes()
@@ -35,8 +36,10 @@
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
 		if (date && time && (initialDate != date || initialTime != time)) {
 			let newDate = new Date(`${date}T${time}`)
-			value = newDate.toISOString()
-			dispatch('change', value)
+			if (newDate.toString() != 'Invalid Date') {
+				value = newDate.toISOString()
+				dispatch('change', value)
+			}
 		}
 	}
 

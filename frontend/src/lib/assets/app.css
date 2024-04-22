@@ -117,3 +117,29 @@
 		}
 	}
 }
+
+.grid-cell-centered {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.grid-cell-centered .svelte-select {
+	height: 32px !important;
+}
+
+.grid-cell-centered .selected-item {
+	margin-top: -4px;
+}
+
+.ol-overlaycontainer-stopevent {
+	@apply flex flex-col justify-start items-end;
+}
+.ol-control button {
+	@apply w-7 h-7 center-center bg-surface border text-secondary 
+	rounded mt-1 mr-1 shadow duration-200 hover:bg-surface-hover focus:bg-surface-hover;
+}
+
+/* Components */
+.component-wrapper {
+	@apply rounded-md border overflow-hidden border-gray-300 dark:border-gray-600;
+}

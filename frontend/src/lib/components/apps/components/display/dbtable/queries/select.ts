@@ -268,7 +268,8 @@ export function getSelectInput(
 			}
 		},
 		type: 'runnable',
-		fieldType: 'object'
+		fieldType: 'object',
+		hideRefreshButton: true
 	}
 
 	return getQuery

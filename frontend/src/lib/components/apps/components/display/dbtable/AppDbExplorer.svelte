@@ -6,7 +6,7 @@
 		OneOfConfiguration,
 		RichConfigurations
 	} from '../../../types'
-	import { components } from '$lib/components/apps/editor/component'
+	import { components, type TableAction } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import {
@@ -39,12 +39,14 @@
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import { CancelablePromise } from '$lib/gen'
+	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'dbexplorercomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean = true
+	export let actions: TableAction[] = []
 
 	$: table = resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as
 		| string
@@ -173,6 +175,7 @@
 		selectedRow: {},
 		selectedRows: [] as any[],
 		result: [] as any[],
+		inputs: {},
 		loading: false,
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
@@ -568,6 +571,8 @@
 
 	$: hideSearch = resolvedConfig.hideSearch as boolean
 	$: hideInsert = resolvedConfig.hideInsert as boolean
+
+	let loading: boolean = false
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -598,6 +603,7 @@
 		bind:this={deleteRow}
 	/>
 {/if}
+
 <UpdateCell {id} bind:this={updateCell} />
 {#if render}
 	<DbExplorerCount
@@ -620,35 +626,39 @@
 	noInitialize
 	bind:runnableComponent
 	componentInput={input}
-	autoRefresh={false}
+	autoRefresh={true}
+	bind:loading
 	{render}
 	{id}
 	{outputs}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
 		{#if !(hideSearch === true && hideInsert === true)}
-			<div class="flex p-2 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
+			<div class="flex py-2 h-12 justify-between gap-4" bind:clientHeight={buttonContainerHeight}>
 				{#if hideSearch !== true}
 					<DebouncedInput
 						class="w-full max-w-[300px]"
 						type="text"
 						bind:value={quicksearch}
-						placeholder="Quicksearch"
+						placeholder="Search..."
 					/>
 				{/if}
-				{#if hideInsert !== true}
-					<Button
-						startIcon={{ icon: Plus }}
-						color="dark"
-						size="xs"
-						on:click={() => {
-							args = {}
-							insertDrawer?.openDrawer()
-						}}
-					>
-						Insert
-					</Button>
-				{/if}
+				<div class="flex flex-row gap-2">
+					<RefreshButton {id} {loading} />
+					{#if hideInsert !== true}
+						<Button
+							startIcon={{ icon: Plus }}
+							color="dark"
+							size="xs2"
+							on:click={() => {
+								args = {}
+								insertDrawer?.openDrawer()
+							}}
+						>
+							Insert
+						</Button>
+					{/if}
+				</div>
 			</div>
 		{/if}
 		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
@@ -668,6 +678,7 @@
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
+					{actions}
 				/>
 			{/key}
 		{/if}

@@ -145,7 +145,16 @@ pub async fn do_mysql(
             Value::Number(n) if n.is_u64() && arg_t == "uint" => {
                 mysql_async::Value::UInt(n.as_u64().unwrap())
             }
-            Value::Number(n) if n.is_f64() && arg_t == "real" => n.as_f64().into(),
+            Value::Number(n)
+                if n.is_f64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
+            {
+                n.as_f64().unwrap().into()
+            }
+            Value::Number(n)
+                if n.is_i64() && (arg_t == "real" || arg_t == "dec" || arg_t == "fixed") =>
+            {
+                (n.as_i64().unwrap() as f64).into()
+            }
             value @ _ => {
                 return Err(Error::ExecutionErr(format!(
                     "Unsupported type in query: {:?} and signature {arg_t:?}",
@@ -271,6 +280,9 @@ fn convert_mysql_value_to_json(v: mysql_async::Value, c: ColumnType) -> serde_js
         _ => match c {
             ColumnType::MYSQL_TYPE_FLOAT | ColumnType::MYSQL_TYPE_DOUBLE => {
                 conversion_error(f64::from_value_opt(v))
+            }
+            ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
+                conversion_error(rust_decimal::Decimal::from_value_opt(v))
             }
             ColumnType::MYSQL_TYPE_TINY
             | ColumnType::MYSQL_TYPE_SHORT

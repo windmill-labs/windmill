@@ -2,7 +2,6 @@
 	import { Alert } from '$lib/components/common'
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Script } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
@@ -42,18 +41,14 @@
 		) as [string, SupportedLanguage | 'docker'][]
 
 	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
-		if (
-			lang == Script.language.BUN ||
-			lang == Script.language.PYTHON3 ||
-			lang == Script.language.DENO
-		) {
+		if (lang == 'bun' || lang == 'python3' || lang == 'deno') {
 			return true
 		}
-		if (lang == Script.language.GO) {
+		if (lang == 'go') {
 			return kind == 'script' || kind == 'trigger' || failureModule
 		}
 
-		if (lang == Script.language.BASH || lang == Script.language.NATIVETS) {
+		if (lang == 'bash' || lang == 'nativets') {
 			return kind == 'script'
 		}
 		return kind == 'script' && !failureModule
@@ -194,44 +189,43 @@
 			<input class="w-full" type="text" bind:value={summary} placeholder="Summary" />
 			<div class="pb-2" />
 		{/if}
-		<div class="flex flex-row">
-			<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
-				{#each langs as [label, lang] (lang)}
-					{#if displayLang(lang, kind)}
-						<FlowScriptPicker
-							disabled={noEditor && (summary == undefined || summary == '')}
-							{label}
-							lang={lang == 'docker' ? Script.language.BASH : lang}
-							on:click={() => {
-								if (lang == 'docker') {
-									if (isCloudHosted()) {
-										sendUserToast(
-											'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-											true,
-											[
-												{
-													label: 'Learn more',
-													callback: () => {
-														window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-													}
+		<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
+			{#each langs as [label, lang] (lang)}
+				{#if displayLang(lang, kind)}
+					<FlowScriptPicker
+						id={`flow-editor-action-script-${lang}`}
+						disabled={noEditor && (summary == undefined || summary == '')}
+						{label}
+						lang={lang == 'docker' ? 'bash' : lang}
+						on:click={() => {
+							if (lang == 'docker') {
+								if (isCloudHosted()) {
+									sendUserToast(
+										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+										true,
+										[
+											{
+												label: 'Learn more',
+												callback: () => {
+													window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
 												}
-											]
-										)
-										return
-									}
+											}
+										]
+									)
+									return
 								}
-								console.log(lang, kind)
-								dispatch('new', {
-									language: lang == 'docker' ? Script.language.BASH : lang,
-									kind,
-									subkind: lang == 'docker' ? 'docker' : 'flow',
-									summary
-								})
-							}}
-						/>
-					{/if}
-				{/each}
-			</div>
+							}
+							console.log(lang, kind)
+							dispatch('new', {
+								language: lang == 'docker' ? 'bash' : lang,
+								kind,
+								subkind: lang == 'docker' ? 'docker' : 'flow',
+								summary
+							})
+						}}
+					/>
+				{/if}
+			{/each}
 		</div>
 
 		<h3 class="mb-2 mt-6"

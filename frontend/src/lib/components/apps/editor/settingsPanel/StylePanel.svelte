@@ -115,10 +115,10 @@
 
 {#if component}
 	{#key component?.id}
-		<div class="px-2 flex items-center gap-2 flex-row justify-between">
-			{#if !cssEditorOpen}
+		<div class="px-2 flex gap-1 flex-col w-full pb-4">
+			{#if !$cssEditorOpen}
 				<Button
-					color="blue"
+					color="light"
 					size="xs2"
 					variant="border"
 					on:click={() => {
@@ -126,7 +126,7 @@
 					}}
 				>
 					<div class="flex flex-row gap-1 text-xs items-center">
-						Open CSS editor{$enterpriseLicense === undefined ? '  (EE only)' : ''}
+						Open theme editor{$enterpriseLicense === undefined ? '  (EE only)' : ''}
 						<Tooltip light>
 							You can also use the App CSS Editor to customise the CSS of all components.
 						</Tooltip>
@@ -136,19 +136,18 @@
 				<div />
 			{/if}
 
-			<div class="flex flex-row gap-2 items-center justify-between">
-				{#if $enterpriseLicense !== undefined}
-					<Button
-						color="dark"
-						size="xs2"
-						on:click={() => {
-							migrationModal?.open()
-						}}
-					>
-						Convert to global CSS
-					</Button>
-				{/if}
-			</div>
+			{#if $enterpriseLicense !== undefined}
+				<Button
+					color="light"
+					size="xs2"
+					variant="border"
+					on:click={() => {
+						migrationModal?.open()
+					}}
+				>
+					Convert to global CSS
+				</Button>
+			{/if}
 		</div>
 
 		<Tabs bind:selected={tab}>
@@ -178,28 +177,30 @@
 			<svelte:fragment slot="content">
 				<TabContent value="local">
 					{#if component && component.customCss !== undefined}
-						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
-							<div class="w-full">
-								<CssProperty
-									quickStyleProperties={quickStyleProperties?.[component.type]?.[name]}
-									forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
-									forceClass={ccomponents[component.type].customCss[name].class !== undefined}
-									tooltip={ccomponents[component.type].customCss[name].tooltip}
-									{name}
-									wmClass={getSelector(name)}
-									componentType={component.type}
-									bind:value={component.customCss[name]}
-									on:change={() => app.set($app)}
-									shouldDisplayRight={hasStyleValue(component.customCss[name])}
-									on:right={() => {
-										copyLocalToGlobal(name, component?.customCss?.[name])
-										tab = 'global'
-									}}
-									overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
-										hasStyleValue(component.customCss[name])}
-								/>
-							</div>
-						{/each}
+						<div class="flex-col flex gap-4 divide-y">
+							{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
+								<div class="w-full">
+									<CssProperty
+										quickStyleProperties={quickStyleProperties?.[component.type]?.[name]}
+										forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
+										forceClass={ccomponents[component.type].customCss[name].class !== undefined}
+										tooltip={ccomponents[component.type].customCss[name].tooltip}
+										{name}
+										wmClass={getSelector(name)}
+										componentType={component.type}
+										bind:value={component.customCss[name]}
+										on:change={() => app.set($app)}
+										shouldDisplayRight={hasStyleValue(component.customCss[name])}
+										on:right={() => {
+											copyLocalToGlobal(name, component?.customCss?.[name])
+											tab = 'global'
+										}}
+										overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
+											hasStyleValue(component.customCss[name])}
+									/>
+								</div>
+							{/each}
+						</div>
 					{/if}
 				</TabContent>
 				<TabContent value="global">

@@ -116,6 +116,7 @@ pub async fn update_flow_status_after_job_completion<
         {
             Ok(j) => j,
             Err(e) => {
+                tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e}", nrec.flow,&nrec.job_id_for_status);
                 update_flow_status_after_job_completion_internal(
                     db,
                     client,
@@ -322,8 +323,17 @@ pub async fn update_flow_status_after_job_completion_internal<
                             flow
                         )
                         .fetch_one(&mut tx)
-                        .await?
+                        .await.map_err(|e| {
+                            Error::InternalErr(format!(
+                                "error while fetching iterator index: {e}"
+                            ))
+                        })?
                         .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
+                        tracing::info!(
+                            "parallel iteration {job_id_for_status} of flow {flow} update nindex: {nindex} len: {len}",
+                            nindex = nindex,
+                            len = itered.len()
+                        );
                         (nindex, itered.len() as i32)
                     }
                     (_, Some(BranchAllStatus { len, .. })) => {
@@ -336,7 +346,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                             flow
                         )
                         .fetch_one(&mut tx)
-                        .await?
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!(
+                                "error while fetching branchall index: {e}"
+                            ))
+                        })?
                         .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
                         (nindex, *len as i32)
                     }
@@ -351,7 +366,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                             jobs.as_slice()
                         )
                         .fetch_all(&mut tx)
-                        .await?
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!(
+                                "error while fetching sucess from completed_jobs: {e}"
+                            ))
+                        })?
                         .into_iter()
                         .all(|x| x)
                     {
@@ -375,25 +395,49 @@ pub async fn update_flow_status_after_job_completion_internal<
                     let r = sqlx::query_scalar!(
                         "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 RETURNING last_ping",
                         flow,
-                    ).fetch_optional(db).await?;
+                    ).fetch_optional(db).await.map_err(|e| {
+                        Error::InternalErr(format!(
+                            "error while deleting parallel_monitor_lock: {e}"
+                        ))
+                    })?;
                     if r.is_some() {
                         tracing::info!(
                             "parallel flow has removed lock on its parent, last ping was {:?}",
                             r.unwrap()
                         );
                     }
+                    tracing::info!(
+                        "parallel iteration {job_id_for_status} of flow {flow} has finished",
+                    );
 
                     (true, Some(new_status))
                 } else {
                     tx.commit().await?;
 
                     if parallelism.is_some() {
-                        sqlx::query!(
-                            "UPDATE queue SET suspend = suspend - 1 WHERE parent_job = $1",
+                        // this ensure that the lock is taken in the same order and thus avoid deadlocks
+                        let ids = sqlx::query_scalar!(
+                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend",
                             flow
                         )
-                        .execute(db)
-                        .await?;
+                        .fetch_all(db)
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e}"))
+                        })?;
+                        for id in ids {
+                            sqlx::query!(
+                                "UPDATE queue SET suspend = suspend - 1 WHERE id = $1 AND suspend > 0",
+                                id
+                            )
+                            .execute(db)
+                            .await
+                            .map_err(|e| {
+                                Error::InternalErr(format!(
+                                    "error decreasing suspend for {id}: {e}"
+                                ))
+                            })?;
+                        }
                     }
 
                     sqlx::query!(
@@ -403,13 +447,18 @@ pub async fn update_flow_status_after_job_completion_internal<
                         flow
                     )
                     .execute(db)
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("error while setting last ping to null: {e}"))
+                    })?;
 
                     let r = sqlx::query_scalar!(
                         "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 and job_id = $2 RETURNING last_ping",
                         flow,
                         job_id_for_status
-                    ).fetch_optional(db).await?;
+                    ).fetch_optional(db).await.map_err(|e| {
+                        Error::InternalErr(format!("error while removing parallel_monitor_lock: {e}"))
+                    })?;
                     if r.is_some() {
                         tracing::info!(
                             "parallel flow has removed lock on its parent, last ping was {:?}",
@@ -476,7 +525,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                             old_status.step
                         )
                         .fetch_optional(&mut tx)
-                        .await?
+                        .await
+                        .map_err(|e| {
+                            Error::InternalErr(format!("error while getting retry fromn step: {e}"))
+                        })?
                         .flatten();
 
                         let retry = retry
@@ -510,7 +562,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                 flow
             )
             .execute(&mut tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!("error while setting flow index for {flow}: {e}"))
+            })?;
             old_status.step + 1
         } else {
             old_status.step
@@ -528,7 +583,11 @@ pub async fn update_flow_status_after_job_completion_internal<
                     flow
                 )
                 .fetch_one(&mut tx)
-                .await?;
+                .await.map_err(|e| {
+                    Error::InternalErr(format!(
+                        "error while fetching failure module: {e}"
+                    ))
+                })?;
 
                 sqlx::query!(
                     "UPDATE queue
@@ -541,7 +600,12 @@ pub async fn update_flow_status_after_job_completion_internal<
                     flow
                 )
                 .execute(&mut tx)
-                .await?;
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "error while setting flow status in failure step: {e}"
+                    ))
+                })?;
             } else {
                 sqlx::query!(
                     "UPDATE queue
@@ -552,7 +616,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                     flow
                 )
                 .execute(&mut tx)
-                .await?;
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!("error while setting new flow status: {e}"))
+                })?;
 
                 if let Some(job_result) = new_status.job_result() {
                     sqlx::query!(
@@ -564,7 +631,11 @@ pub async fn update_flow_status_after_job_completion_internal<
                         flow
                     )
                     .execute(&mut tx)
-                    .await?;
+                    .await.map_err(|e| {
+                        Error::InternalErr(format!(
+                            "error while setting leaf jobs: {e}"
+                        ))
+                    })?;
                 }
             }
         }
@@ -676,7 +747,10 @@ pub async fn update_flow_status_after_job_completion_internal<
                     &_cleanup_module.flow_jobs_to_clean,
                 )
                 .execute(db)
-                .await?;
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!("error while cleaning up completed_job: {e}"))
+                })?;
             }
         }
         if flow_job.canceled {
@@ -795,6 +869,8 @@ pub async fn update_flow_status_after_job_completion_internal<
         }
 
         if let Some(parent_job) = flow_job.parent_job {
+            tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
+
             return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
                 flow: parent_job,
                 job_id_for_status: flow,
@@ -2531,6 +2607,7 @@ async fn compute_next_flow_transform(
                                         cache_ttl: None,
                                         priority: None,
                                         early_return: None,
+                                        concurrency_key: None,
                                     },
                                     path: Some(format!("{}/forloop", flow_job.script_path())),
                                     restarted_from: None,
@@ -2629,6 +2706,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchone-{}",
@@ -2680,6 +2758,7 @@ async fn compute_next_flow_transform(
                                                     cache_ttl: None,
                                                     priority: None,
                                                     early_return: None,
+                                                    concurrency_key: None,
                                                 },
                                                 path: Some(format!(
                                                     "{}/branchall-{}",
@@ -2747,6 +2826,7 @@ async fn compute_next_flow_transform(
                             cache_ttl: None,
                             priority: None,
                             early_return: None,
+                            concurrency_key: None,
                         },
                         path: Some(format!(
                             "{}/branchall-{}",
@@ -2819,6 +2899,7 @@ async fn next_loop_iteration(
                         cache_ttl: None,
                         priority: None,
                         early_return: None,
+                        concurrency_key: None,
                     },
                     path: inner_path,
                     restarted_from: None,

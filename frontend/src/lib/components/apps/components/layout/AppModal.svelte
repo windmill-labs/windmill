@@ -14,6 +14,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 
 	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
 	export let id: string
@@ -37,22 +38,7 @@
 	initOutput($worldStore, id, {})
 
 	let css = initCss($app.css?.modalcomponent, customCss)
-	let open = false
-
-	function handleKeyUp(event: KeyboardEvent): void {
-		const key = event.key
-		if (key === 'Escape' || key === 'Esc') {
-			if (open) {
-				event.preventDefault()
-				closeDrawer()
-			}
-		}
-	}
-
-	function closeDrawer(): void {
-		console.log('Close drawer')
-		open = false
-	}
+	let disposable: Disposable | undefined = undefined
 
 	let resolvedConfig = initConfig(
 		components['modalcomponent'].initialData.configuration,
@@ -69,22 +55,21 @@
 	$componentControl[id] = {
 		openModal: () => {
 			unclosableModal()
-			open = true
+
+			disposable?.openDrawer()
 		},
 		closeModal: () => {
-			open = false
+			disposable?.closeDrawer()
 		},
 		open: () => {
 			unclosableModal()
-			open = true
+			disposable?.openDrawer()
 		},
 		close: () => {
-			open = false
+			disposable?.closeDrawer()
 		}
 	}
 </script>
-
-<svelte:window on:keyup={handleKeyUp} />
 
 <InitializeComponent {id} />
 
@@ -132,7 +117,7 @@
 						parentComponentId: id,
 						subGridIndex: 0
 					}
-					open = true
+					disposable?.toggleDrawer()
 				}}
 				size={resolvedConfig.buttonSize}
 				color={resolvedConfig.buttonColor}
@@ -144,69 +129,71 @@
 {/if}
 
 <Portal target="#app-editor-top-level-drawer">
-	<div
-		class={twMerge(
-			`${
-				$mode == 'dnd' ? 'absolute' : 'fixed'
-			} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
-			open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible',
-			$mode === 'dnd' ? 'z-[1000]' : 'z-[1100]'
-		)}
-	>
+	<Disposable {id} let:handleClickAway let:zIndex let:open bind:this={disposable}>
 		<div
-			style={css?.popup?.style}
-			class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
-			use:clickOutside={false}
-			on:click_outside={(e) => {
-				if ($mode !== 'dnd' && !unclickableOutside) {
-					closeDrawer()
-				}
-			}}
+			class={twMerge(
+				`${
+					$mode == 'dnd' ? 'absolute' : 'fixed'
+				} top-0 bottom-0 left-0 right-0 transition-all duration-50`,
+				open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
+			)}
+			style="z-index: {zIndex}"
 		>
-			<div class="px-4 py-2 border-b flex justify-between items-center">
-				<div>{resolvedConfig.modalTitle}</div>
-				<div class="w-8">
-					<button
-						on:click|stopPropagation={() => {
-							open = false
-						}}
-						class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
-					>
-						<X class="text-tertiary" />
-					</button>
-				</div>
-			</div>
 			<div
-				class="wm-modal"
-				on:pointerdown={(e) => {
-					e?.stopPropagation()
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-						$focusedGrid = {
-							parentComponentId: id,
-							subGridIndex: 0
-						}
+				style={css?.popup?.style}
+				class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
+				use:clickOutside={false}
+				on:click_outside={(e) => {
+					if ($mode !== 'dnd' && !unclickableOutside) {
+						handleClickAway(e)
 					}
 				}}
 			>
-				{#if $app.subgrids?.[`${id}-0`]}
-					<SubGridEditor
-						visible={open && render}
-						{id}
-						noPadding
-						subGridId={`${id}-0`}
-						on:focus={() => {
-							if (!$connectingInput.opened) {
-								$selectedComponent = [id]
-								$focusedGrid = {
-									parentComponentId: id,
-									subGridIndex: 0
-								}
+				<div class="px-4 py-2 border-b flex justify-between items-center">
+					<div>{resolvedConfig.modalTitle}</div>
+					<div class="w-8">
+						<button
+							on:click|stopPropagation={() => {
+								disposable?.closeDrawer()
+							}}
+							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
+						>
+							<X class="text-tertiary" />
+						</button>
+					</div>
+				</div>
+				<div
+					class="wm-modal"
+					on:pointerdown={(e) => {
+						e?.stopPropagation()
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+							$focusedGrid = {
+								parentComponentId: id,
+								subGridIndex: 0
 							}
-						}}
-					/>
-				{/if}
+						}
+					}}
+				>
+					{#if $app.subgrids?.[`${id}-0`]}
+						<SubGridEditor
+							visible={open && render}
+							{id}
+							noPadding
+							subGridId={`${id}-0`}
+							on:focus={() => {
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+									$focusedGrid = {
+										parentComponentId: id,
+										subGridIndex: 0
+									}
+								}
+							}}
+						/>
+					{/if}
+				</div>
 			</div>
 		</div>
-	</div>
+	</Disposable>
 </Portal>

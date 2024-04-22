@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
+
 	export let placeholder: string = 'Search...'
 	// Using 'any' so 'type="number"' can be passed to the input
 	// which should return a number
@@ -25,6 +27,6 @@
 	on:pointerdown|stopPropagation
 	on:keyup={debounce}
 	on:keydown|stopPropagation
-	class={parentClass}
+	class={twMerge(parentClass, 'mb-1 h-8 !rounded-md !shadow-none')}
 	{...$$restProps}
 />

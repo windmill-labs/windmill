@@ -226,18 +226,18 @@ declare function close(id: string): void;
  * @param id component's id
  * @param key property's key to validate
  */
-declare function validate(id: string, key: number): void;
+declare function validate(id: string, key: string): void;
 
 /** validate form field property 'key'
  * @param id component's id
  * @param key property's key to validate
  */
-declare function invalidate(id: string, key: number, error: string): void;
+declare function invalidate(id: string, key: string, error: string): void;
 
 /** validate all form's properties
  * @param id component's id
  */
-declare function validateAll(id: string, key: number): void;
+declare function validateAll(id: string): void;
 
 /** Clear the files of a file input component
  * @param id component's id
@@ -283,6 +283,20 @@ export function getAllScriptNames(app: App): string[] {
 
 		if (gridItem.data.type === 'tablecomponent') {
 			gridItem.data.actionButtons.forEach((actionButton) => {
+				if (actionButton.componentInput?.type === 'runnable') {
+					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+						acc.push(actionButton.componentInput.runnable.name)
+					}
+				}
+			})
+		}
+
+		if (
+			gridItem.data.type === 'aggridcomponent' ||
+			gridItem.data.type === 'aggridcomponentee' ||
+			gridItem.data.type === 'dbexplorercomponent'
+		) {
+			gridItem.data.actions?.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
 					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
 						acc.push(actionButton.componentInput.runnable.name)

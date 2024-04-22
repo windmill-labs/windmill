@@ -5,8 +5,8 @@
 	import {
 		AppService,
 		FlowService,
-		ListableApp,
-		Script,
+		type ListableApp,
+		type Script,
 		ScriptService,
 		type Flow,
 		type ListableRawApp,

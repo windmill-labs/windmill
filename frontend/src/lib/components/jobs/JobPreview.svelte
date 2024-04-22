@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { onDestroy, tick } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { Job } from '../../gen'
+	import { type Job } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -121,7 +121,7 @@
 						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
 					</div>
 				{/if}
-				{#if job?.type === Job.type.COMPLETED_JOB}
+				{#if job?.type === 'CompletedJob'}
 					<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} {result} disableExpand />
 				{:else if job && `running` in job ? job.running : false}
 					<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>

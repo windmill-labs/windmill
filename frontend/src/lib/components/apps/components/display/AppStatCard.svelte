@@ -30,11 +30,17 @@
 
 	let iconComponent: any
 
-	$: isIcon && resolvedConfig?.media?.configuration?.icon?.icon && handleIcon()
+	$: isIcon && resolvedConfig?.media?.configuration?.icon?.icon && iconComponent && handleIcon()
 
 	async function handleIcon() {
 		if (resolvedConfig?.media?.configuration?.icon?.icon) {
-			iconComponent = await loadIcon(resolvedConfig.media.configuration.icon.icon)
+			iconComponent = await loadIcon(
+				resolvedConfig?.media?.configuration?.icon?.icon,
+				iconComponent,
+				34,
+				undefined,
+				undefined
+			)
 		}
 	}
 
@@ -80,8 +86,10 @@
 			style={css?.media?.style}
 		>
 			{#if isIcon}
-				{#if resolvedConfig?.media && iconComponent}
-					<svelte:component this={iconComponent} size={24} />
+				{#if resolvedConfig?.media}
+					{#key resolvedConfig.media}
+						<div class="min-w-4 text-primary" bind:this={iconComponent} />
+					{/key}
 				{/if}
 			{:else}
 				<Loader loading={resolvedConfig?.media?.configuration?.image?.source == undefined}>

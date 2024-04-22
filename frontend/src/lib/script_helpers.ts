@@ -1,4 +1,4 @@
-import { Script } from './gen'
+import { type Script } from './gen'
 
 import PYTHON_INIT_CODE from '$lib/init_scripts/python_init_code'
 import PYTHON_INIT_CODE_CLEAR from '$lib/init_scripts/python_init_code_clear'
@@ -350,6 +350,10 @@ export const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$
 
 # Import-Module MyModule
 
+# Import-Module WindmillClient
+# Connect-Windmill
+# Get-WindmillVariable -Path 'u/user/foo'
+
 # the last line of the stdout is the return value
 Write-Output "Hello $Msg"`
 
@@ -385,12 +389,12 @@ export function isInitialCode(content: string): boolean {
 }
 
 export function initialCode(
-	language: SupportedLanguage,
-	kind: Script.kind | undefined,
+	language: SupportedLanguage | undefined,
+	kind: Script['kind'] | undefined,
 	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
 ): string {
 	if (!kind) {
-		kind = Script.kind.SCRIPT
+		kind = 'script'
 	}
 	if (language === 'deno') {
 		if (kind === 'trigger') {
@@ -471,8 +475,8 @@ export function initialCode(
 }
 
 export function getResetCode(
-	language: SupportedLanguage,
-	kind: Script.kind | undefined,
+	language: SupportedLanguage | undefined,
+	kind: Script['kind'] | undefined,
 	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
 ) {
 	if (language === 'deno') {

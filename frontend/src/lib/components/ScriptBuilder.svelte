@@ -1,14 +1,12 @@
 <script lang="ts">
 	import {
 		DraftService,
-		NewScript,
-		Script,
+		type NewScript,
 		ScriptService,
 		type NewScriptWithDraft,
-		ScheduleService
+		ScheduleService,
+		type Script
 	} from '$lib/gen'
-	import { goto } from '$app/navigation'
-	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -43,7 +41,6 @@
 		Settings,
 		X
 	} from 'lucide-svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -62,6 +59,7 @@
 	import { writable } from 'svelte/store'
 	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -71,12 +69,14 @@
 	export let showMeta: boolean = false
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedScript: NewScriptWithDraft | undefined = undefined
+	export let searchParams: URLSearchParams = new URLSearchParams()
+	export let disableHistoryChange = false
 
 	let metadataOpen =
 		showMeta ||
 		(initialPath == '' &&
-			$page.url.searchParams.get('state') == undefined &&
-			$page.url.searchParams.get('collab') == undefined)
+			searchParams.get('state') == undefined &&
+			searchParams.get('collab') == undefined)
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
@@ -88,12 +88,15 @@
 		args: {},
 		enabled: false
 	})
+
 	async function loadSchedule() {
 		const scheduleRes = await loadScriptSchedule(initialPath, $workspaceStore!)
 		if (scheduleRes) {
 			scheduleStore.set(scheduleRes)
 		}
 	}
+
+	const dispatch = createEventDispatcher()
 
 	$: {
 		if (initialPath != '') {
@@ -114,33 +117,33 @@
 		) as [string, SupportedLanguage | 'docker'][]
 
 	const scriptKindOptions: {
-		value: Script.kind
+		value: Script['kind']
 		title: string
 		Icon: any
 		desc?: string
 		documentationLink?: string
 	}[] = [
 		{
-			value: Script.kind.SCRIPT,
+			value: 'script',
 			title: 'Action',
 			Icon: Code
 		},
 		{
-			value: Script.kind.TRIGGER,
+			value: 'trigger',
 			title: 'Trigger',
 			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.',
 			documentationLink: 'https://www.windmill.dev/docs/flows/flow_trigger',
 			Icon: Rocket
 		},
 		{
-			value: Script.kind.APPROVAL,
+			value: 'approval',
 			title: 'Approval',
 			desc: 'Send notifications externally to ask for approval to continue a flow.',
 			documentationLink: 'https://www.windmill.dev/docs/flows/flow_approval',
 			Icon: CheckCircle
 		},
 		{
-			value: Script.kind.FAILURE,
+			value: 'failure',
 			title: 'Error Handler',
 			desc: 'Handle errors in flows after all retry attempts have been exhausted.',
 			documentationLink: 'https://www.windmill.dev/docs/flows/flow_error_handler',
@@ -154,13 +157,13 @@
 
 	$: {
 		;['collab', 'path'].forEach((x) => {
-			if ($page.url.searchParams.get(x)) {
-				$page.url.searchParams.delete(x)
+			if (searchParams.get(x)) {
+				searchParams.delete(x)
 			}
 		})
 	}
 
-	$: window.history.replaceState(null, '', '#' + encodeState(script))
+	$: !disableHistoryChange && window.history.replaceState(null, '', '#' + encodeState(script))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
@@ -168,7 +171,7 @@
 
 	function initContent(
 		language: SupportedLanguage,
-		kind: Script.kind | undefined,
+		kind: Script['kind'] | undefined,
 		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
 	) {
 		scriptEditor?.disableCollaboration()
@@ -286,11 +289,13 @@
 			}
 
 			savedScript = cloneDeep(script) as NewScriptWithDraft
-			history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
+			if (!disableHistoryChange) {
+				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
+			}
 			if (stay) {
 				script.parent_hash = newHash
 			} else {
-				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+				dispatch('deploy', newHash)
 			}
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
@@ -389,7 +394,7 @@
 
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
 				initialPath = script.path
-				goto(`/scripts/edit/${script.path}`)
+				dispatch('saveInitial', script.path)
 			}
 			sendUserToast('Saved as draft')
 		} catch (error) {
@@ -422,7 +427,7 @@
 									{
 										label: 'Exit & See details',
 										onClick: () => {
-											goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
+											dispatch('seeDetails', initialPath)
 										}
 									}
 							  ]
@@ -451,7 +456,7 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
-<UnsavedConfirmationModal {diffDrawer} savedValue={savedScript} modifiedValue={script} />
+<slot />
 
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
@@ -584,7 +589,7 @@
 														} else {
 															template = 'script'
 														}
-														let language = lang == 'docker' ? Script.language.BASH : lang
+														let language = lang == 'docker' ? 'bash' : lang
 														//
 														initContent(language, script.kind, template)
 														script.language = language
@@ -662,18 +667,21 @@
 												bind:seconds={script.concurrency_time_window_s}
 											/>
 										</Label>
-										<Label label="Custom concurrency key">
+										<Label label="Custom concurrency key (optional)">
+											<svelte:fragment slot="header">
+												<Tooltip>
+													Concurrency keys are global, you can have them be workspace specific using
+													the variable `$workspace`. You can also use an argument's value using
+													`$args[name_of_arg]`</Tooltip
+												>
+											</svelte:fragment>
 											<input
+												disabled={!$enterpriseLicense}
 												type="text"
 												autofocus
 												bind:value={script.concurrency_key}
 												placeholder={`$workspace/script/${script.path}-$args[foo]`}
 											/>
-											<Tooltip
-												>Concurrency keys are global, you can have them be workspace specific using
-												the variable `$workspace`. You can also use an argument's value using
-												`$args[name_of_arg]`</Tooltip
-											>
 										</Label>
 									</div>
 								</Section>
@@ -760,9 +768,9 @@
 									<Toggle
 										disabled={!$enterpriseLicense ||
 											isCloudHosted() ||
-											(script.language != Script.language.BUN &&
-												script.language != Script.language.PYTHON3 &&
-												script.language != Script.language.DENO)}
+											(script.language != 'bun' &&
+												script.language != 'python3' &&
+												script.language != 'deno')}
 										size="sm"
 										checked={Boolean(script.dedicated_worker)}
 										on:change={() => {

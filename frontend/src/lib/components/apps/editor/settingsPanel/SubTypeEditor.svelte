@@ -6,6 +6,7 @@
 	export let componentInput: StaticInput<any>
 	export let subFieldType: InputType | undefined
 	export let id: string | undefined
+	export let dragging: boolean = false
 
 	let fakeComponentInput: StaticInput<any> = {
 		...componentInput,
@@ -21,4 +22,5 @@
 	fieldType={subFieldType}
 	bind:componentInput={fakeComponentInput}
 	on:remove
+	{dragging}
 />

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.303.4
+  version: 1.311.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -48,6 +48,8 @@ components:
           type: boolean
         concurrent_limit:
           type: number
+        concurrency_key:
+          type: string
         concurrency_time_window_s:
           type: number
         skip_expr:
@@ -419,6 +421,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FlowStatusModule"
+        user_states:
+          additionalProperties: true
         failure_module:
           allOf:
             - $ref: "#/components/schemas/FlowStatusModule"

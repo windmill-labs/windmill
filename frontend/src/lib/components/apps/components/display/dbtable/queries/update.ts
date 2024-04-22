@@ -13,7 +13,7 @@ function updateWithAllValues(
 				field: 'value_to_update',
 				datatype: column.datatype
 			},
-			...columns
+			...(dbType === 'snowflake' ? columns.flatMap((c) => [c, c]) : columns)
 		],
 		dbType
 	)
@@ -23,30 +23,46 @@ function updateWithAllValues(
 	switch (dbType) {
 		case 'postgresql': {
 			const conditions = columns
-				.map((c, i) => `${c.field} = $${i + 2}::text::${c.datatype} `)
-				.join(' AND ')
+				.map(
+					(c, i) =>
+						`($${i + 2}::${c.datatype} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${i + 2}::${
+							c.datatype
+						})`
+				)
+				.join('\n    AND ')
 
-			query += `\nUPDATE ${table} SET ${column.field} = $1::text::${column.datatype} WHERE ${conditions}	RETURNING 1`
+			query += `\nUPDATE ${table} SET ${column.field} = $1::${column.datatype} \nWHERE ${conditions}	RETURNING 1`
 			return query
 		}
 		case 'mysql': {
-			const conditions = columns.map((c) => `${c.field} = :${c.field}`).join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = :value_to_update WHERE ${conditions}`
+			const conditions = columns
+				.map((c) => `(:${c.field} IS NULL AND ${c.field} IS NULL OR ${c.field} = :${c.field})`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = :value_to_update \nWHERE ${conditions}`
 			return query
 		}
 		case 'ms_sql_server': {
-			const conditions = columns.map((c, i) => `${c.field} = @p${i + 2} `).join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = @p1 WHERE ${conditions}`
+			const conditions = columns
+				.map((c, i) => `(@p${i + 2} IS NULL AND ${c.field} IS NULL OR ${c.field} = @p${i + 2})`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = @p1 \nWHERE ${conditions}`
 			return query
 		}
 		case 'snowflake': {
-			const conditions = columns.map((c, i) => `${c.field} = ? `).join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = ? WHERE ${conditions}`
+			const conditions = columns
+				.map((c, i) => `(? = 'null' AND ${c.field} IS NULL OR ${c.field} = ?)`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = ? \nWHERE ${conditions}`
 			return query
 		}
 		case 'bigquery': {
-			const conditions = columns.map((c, i) => `${c.field} = @${c.field}`).join(' AND ')
-			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update WHERE ${conditions}`
+			const conditions = columns
+				.map(
+					(c, i) =>
+						`(CAST(@${c.field} AS STRING) = 'null' AND ${c.field} IS NULL OR ${c.field} = @${c.field})`
+				)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update \nWHERE ${conditions}`
 			return query
 		}
 		default:

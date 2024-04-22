@@ -177,7 +177,7 @@ export async function eval_like(
 				}
 				window.open(x, '_blank')
 			} else {
-				await newTab(x)
+				window.location.href = x
 			}
 		},
 		(id, index) => {
