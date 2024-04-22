@@ -26,8 +26,8 @@
 	<div
 		transition:fade={{ duration: 150 }}
 		use:popperContent={{ placement: 'bottom', strategy: 'fixed' }}
-		class={`color-picker-input z-[${zIndexes.colorInput}] !text-primary`}
-		style="width: {width > 280 ? width : 280}px;"
+		class={`color-picker-input !text-primary`}
+		style="width: {width > 280 ? width : 280}px; z-index: {zIndexes.colorInput}"
 	>
 		<ColorPicker
 			bind:isOpen

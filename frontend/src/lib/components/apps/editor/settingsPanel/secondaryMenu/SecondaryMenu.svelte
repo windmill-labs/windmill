@@ -21,7 +21,8 @@
 
 <div
 	bind:clientWidth={width}
-	class={`absolute z-[${zIndexes.secondaryMenu}] inset-0 overflow-hidden w-full`}
+	class={`absolute inset-0 overflow-hidden w-full`}
+	style={`z-index: ${zIndexes.secondaryMenu}`}
 	class:pointer-events-none={!$secondaryMenu.isOpen}
 >
 	{#if $secondaryMenu.isOpen && $secondaryMenu.component}
