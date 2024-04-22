@@ -1726,7 +1726,8 @@ This is a paragraph.
 						name: 'A briefer cell',
 						age: 84
 					}
-				]
+				],
+				hideRefreshButton: true
 			} as StaticAppInput,
 			actionButtons: true
 		}

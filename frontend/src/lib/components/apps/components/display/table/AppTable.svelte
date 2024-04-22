@@ -41,9 +41,10 @@
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import { Popup } from '$lib/components/common'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
-	import { Plug2 } from 'lucide-svelte'
+	import { EyeIcon, Plug2 } from 'lucide-svelte'
 	import AppCell from './AppCell.svelte'
 	import sum from 'hash-sum'
+	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -344,243 +345,330 @@
 	bind:loading
 >
 	{#if Array.isArray(result) && result.every(isObject)}
-		<div
-			class={twMerge(
-				'border  shadow-sm divide-y h-full',
-				css?.container?.class ?? '',
-				'wm-table-container',
-				'flex flex-col'
-			)}
-			style={css?.container?.style ?? ''}
-		>
+		<div class="flex flex-col h-full">
 			{#if resolvedConfig.search !== 'Disabled'}
-				<div class="px-2 py-1">
-					<div class="flex items-center">
+				<div class="flex flex-row w-full justify-between items-center h-12">
+					{#if resolvedConfig.search !== 'Disabled'}
 						<div class="grow max-w-[300px]">
-							<DebouncedInput placeholder="Search..." bind:value={searchValue} />
+							<DebouncedInput
+								placeholder="Search..."
+								bind:value={searchValue}
+								parentClass="h-full "
+							/>
 						</div>
-					</div>
+					{:else}
+						<div />
+					{/if}
+
+					{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
+						<RefreshButton {id} {loading} />
+					{/if}
+				</div>
+			{:else if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
+				<div class="absolute right-2 top-2 z-50">
+					<RefreshButton {id} {loading} />
 				</div>
 			{/if}
-
-			<div class="overflow-x-auto flex-1 w-full">
-				<table class="relative w-full border-b">
-					<thead
-						class={twMerge(
-							'bg-surface-secondary text-left',
-							css?.tableHeader?.class ?? '',
-							'wm-table-header',
-							'sticky top-0 z-40'
-						)}
-						style={css?.tableHeader?.style ?? ''}
-					>
-						{#each getHeaderGroups($table) as headerGroup}
-							<tr class="divide-x">
-								{#each headerGroup.headers as header}
-									{#if header?.column?.columnDef?.header}
-										{@const context = header?.getContext()}
-										{#if context}
-											{@const component = renderCell(header.column.columnDef.header, context)}
-											{@const displayName = getDisplayNameById(header.id)}
-											<th class="!p-0">
-												<span class="block px-4 py-4 text-sm font-semibold border-b">
-													{#if displayName}
-														{displayName}
-													{:else if !header.isPlaceholder && component}
-														<svelte:component this={component} />
-													{/if}
-												</span>
-											</th>
-										{/if}
-									{/if}
-								{/each}
-								{#if actionButtons.length > 0}
-									<th class="!p-0">
-										<span class="block px-4 py-4 text-sm font-semibold border-b"> Actions </span>
-									</th>
-								{/if}
-							</tr>
-						{/each}
-					</thead>
-					<tbody
-						class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '', 'wm-table-body')}
-						style={css?.tableBody?.style ?? ''}
-					>
-						{#each $table.getRowModel().rows as row (row.id)}
-							{@const rowIndex = row.original['__index']}
-							<tr
-								class={classNames(
-									'last-of-type:!border-b-0 divide-x w-full',
-									selectedRowIndex === rowIndex
-										? 'bg-blue-100 hover:bg-blue-200 dark:bg-surface-selected dark:hover:bg-surface-hover divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700 wm-table-row-selected'
-										: 'hover:bg-blue-50 dark:hover:bg-surface-hover wm-table-row'
-								)}
-							>
-								{#each safeVisibleCell(row) as cell, index (index)}
-									{#if cell?.column?.columnDef?.cell}
-										{@const context = cell?.getContext()}
-										{#if context}
-											<AppCell
-												on:keydown={() => toggleRow(row)}
-												on:click={() => toggleRow(row)}
-												type={resolvedConfig.columnDefs?.find(
-													// TS types are wrong here
-													// @ts-ignore
-													(c) => c.field === cell.column.columnDef.accessorKey
-												)?.type ?? 'text'}
-												value={cell.getValue()}
-												width={cell.column.getSize()}
-												on:update={(event) => {
-													updateCellValue(rowIndex, index, event.detail.value)
-												}}
-											/>
-										{/if}
-									{/if}
-								{/each}
-
-								{#if actionButtons.length > 0}
-									<td
-										class="p-2"
-										on:keypress={() => toggleRow(row)}
-										on:click={() => toggleRow(row)}
-										style="width: {(actionButtons ?? []).length * 130}px"
-									>
-										<div class="center-center h-full w-full flex-wrap gap-2">
-											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
-												<!-- svelte-ignore a11y-no-static-element-interactions -->
-												<RowWrapper
-													value={row.original}
-													index={rowIndex}
-													onSet={(id, value) => {
-														if (!inputs[id]) {
-															inputs[id] = { [rowIndex]: value }
-														} else {
-															inputs[id] = { ...inputs[id], [rowIndex]: value }
-														}
-
-														outputs?.inputs.set(inputs, true)
-													}}
-													onRemove={(id) => {
-														if (inputs?.[id] == undefined) {
-															return
-														}
-														delete inputs[id][rowIndex]
-														inputs[id] = { ...inputs[id] }
-														if (Object.keys(inputs?.[id] ?? {}).length == 0) {
-															delete inputs[id]
-															inputs = { ...inputs }
-														}
-														outputs?.inputs.set(inputs, true)
-													}}
-												>
-													<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+			<div
+				class={twMerge(
+					'component-wrapper bg-surface',
+					'divide-y h-full',
+					css?.container?.class ?? '',
+					'wm-table-container',
+					'flex flex-col'
+				)}
+				style={css?.container?.style ?? ''}
+			>
+				<div class="overflow-x-auto flex-1 w-full">
+					<table class="relative w-full border-b">
+						<thead
+							class={twMerge(
+								'bg-surface-secondary text-left',
+								css?.tableHeader?.class ?? '',
+								'wm-table-header',
+								'sticky top-0 z-40'
+							)}
+							style={css?.tableHeader?.style ?? ''}
+						>
+							{#each getHeaderGroups($table) as headerGroup}
+								<tr class="divide-x">
+									{#each headerGroup.headers as header}
+										{#if header?.column?.columnDef?.header}
+											{@const context = header?.getContext()}
+											{#if context}
+												{@const component = renderCell(header.column.columnDef.header, context)}
+												{@const displayName = getDisplayNameById(header.id)}
+												<th class="!p-0">
 													<div
-														on:mouseover|stopPropagation={() => {
-															if (actionButton.id !== $hoverStore) {
-																$hoverStore = actionButton.id
-															}
-														}}
-														on:mouseout|stopPropagation={() => {
-															if ($hoverStore !== undefined) {
-																$hoverStore = undefined
-															}
-														}}
-														class={classNames(
-															($selectedComponent?.includes(actionButton.id) ||
-																$hoverStore === actionButton.id) &&
-																$mode !== 'preview'
-																? 'outline outline-indigo-500 outline-1 outline-offset-1 relative'
-																: 'relative'
-														)}
+														class="flex flex-row items-center gap-1 px-4 py-4 text-xs text-primary font-medium border-b"
 													>
-														{#if $mode !== 'preview'}
-															<!-- svelte-ignore a11y-click-events-have-key-events -->
-															<!-- svelte-ignore a11y-no-static-element-interactions -->
-															<span
-																title={`Id: ${actionButton.id}`}
-																class={classNames(
-																	'px-2 text-2xs font-bold w-fit absolute shadow  -top-2 -left-2 border z-50 rounded-sm',
-																	'bg-indigo-500/90 border-indigo-600 text-white',
-																	$selectedComponent?.includes(actionButton.id) ||
-																		$hoverStore === actionButton.id
-																		? 'opacity-100'
-																		: 'opacity-0'
-																)}
-																on:click|stopPropagation={() => {
-																	$selectedComponent = [actionButton.id]
+														{#if displayName}
+															{displayName}
+														{:else if !header.isPlaceholder && component}
+															<svelte:component this={component} />
+														{/if}
+														{#if header.column.getIsVisible()}
+															<button
+																class="w-6 flex justify-center items-center"
+																on:click={() => {
+																	header.column.toggleVisibility()
 																}}
 															>
-																{actionButton.id}
-															</span>
-
-															{#if $connectingInput.opened}
-																<div class="absolute z-50 left-8 -top-[10px]">
-																	<Popup
-																		floatingConfig={{
-																			strategy: 'absolute',
-																			placement: 'bottom-start'
-																		}}
-																	>
-																		<svelte:fragment slot="button">
-																			<button
-																				class="bg-red-500/70 border border-red-600 px-1 py-0.5"
-																				title="Outputs"
-																				aria-label="Open output"><Plug2 size={12} /></button
-																			>
-																		</svelte:fragment>
-																		<ComponentOutputViewer
-																			suffix="table"
-																			on:select={({ detail }) =>
-																				connectOutput(
-																					connectingInput,
-																					'buttoncomponent',
-																					actionButton.id,
-																					detail
-																				)}
-																			componentId={actionButton.id}
-																		/>
-																	</Popup>
-																</div>
-															{/if}
+																<EyeIcon
+																	size="14"
+																	class="hover:text-gray-600 text-gray-400 rounded-full "
+																/>
+															</button>
 														{/if}
-														{#if rowIndex == 0}
-															{@const controls = {
-																left: () => {
-																	if (actionIndex === 0) {
-																		$selectedComponent = [id]
-																		return true
-																	} else if (actionIndex > 0) {
-																		$selectedComponent = [actionButtons[actionIndex - 1].id]
-																		return true
-																	}
-																	return false
-																},
-																right: () => {
-																	if (actionIndex === actionButtons.length - 1) {
-																		return id
-																	} else if (actionIndex < actionButtons.length - 1) {
-																		$selectedComponent = [actionButtons[actionIndex + 1].id]
-																		return true
-																	}
-																	return false
+													</div>
+												</th>
+											{/if}
+										{/if}
+									{/each}
+									{#if actionButtons.length > 0}
+										<th class="!p-0">
+											<div
+												class="flex flex-row items-center px-4 py-4 text-xs text-primary font-medium border-b"
+											>
+												Actions
+											</div>
+										</th>
+									{/if}
+								</tr>
+							{/each}
+						</thead>
+						<tbody
+							class={twMerge('divide-y bg-surface', css?.tableBody?.class ?? '', 'wm-table-body')}
+							style={css?.tableBody?.style ?? ''}
+						>
+							{#each $table.getRowModel().rows as row, index (row.id)}
+								{@const isLastRow = index === filteredResult.length - 1}
+								{@const rowIndex = row.original['__index']}
+								<tr
+									class={classNames(
+										isLastRow ? '!border-b-0' : '',
+										'divide-x w-full',
+										index % 2 === 0 ? 'bg-gray-50/50' : '',
+										selectedRowIndex === rowIndex
+											? 'bg-blue-100 hover:bg-blue-200 dark:bg-surface-selected dark:hover:bg-surface-hover divide-blue-200 hover:divide-blue-300 dark:divide-gray-600 dark:hover:divide-gray-700 wm-table-row-selected'
+											: 'hover:bg-blue-50 dark:hover:bg-surface-hover wm-table-row'
+									)}
+								>
+									{#each safeVisibleCell(row) as cell, index (index)}
+										{#if cell?.column?.columnDef?.cell}
+											{@const context = cell?.getContext()}
+											{#if context}
+												<AppCell
+													on:keydown={() => toggleRow(row)}
+													on:click={() => toggleRow(row)}
+													type={resolvedConfig.columnDefs?.find(
+														// TS types are wrong here
+														// @ts-ignore
+														(c) => c.field === cell.column.columnDef.accessorKey
+													)?.type ?? 'text'}
+													value={cell.getValue()}
+													width={cell.column.getSize()}
+													on:update={(event) => {
+														updateCellValue(rowIndex, index, event.detail.value)
+													}}
+												/>
+											{/if}
+										{/if}
+									{/each}
+
+									{#if actionButtons.length > 0}
+										<td
+											class="p-2"
+											on:keypress={() => toggleRow(row)}
+											on:click={() => toggleRow(row)}
+											style="width: {(actionButtons ?? []).length * 130}px"
+										>
+											<div class="center-center h-full w-full flex-wrap gap-2">
+												{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
+													<!-- svelte-ignore a11y-no-static-element-interactions -->
+													<RowWrapper
+														value={row.original}
+														index={rowIndex}
+														onSet={(id, value) => {
+															if (!inputs[id]) {
+																inputs[id] = { [rowIndex]: value }
+															} else {
+																inputs[id] = { ...inputs[id], [rowIndex]: value }
+															}
+
+															outputs?.inputs.set(inputs, true)
+														}}
+														onRemove={(id) => {
+															if (inputs?.[id] == undefined) {
+																return
+															}
+															delete inputs[id][rowIndex]
+															inputs[id] = { ...inputs[id] }
+															if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+																delete inputs[id]
+																inputs = { ...inputs }
+															}
+															outputs?.inputs.set(inputs, true)
+														}}
+													>
+														<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+														<div
+															on:mouseover|stopPropagation={() => {
+																if (actionButton.id !== $hoverStore) {
+																	$hoverStore = actionButton.id
 																}
 															}}
-															{#if actionButton.type == 'buttoncomponent'}
+															on:mouseout|stopPropagation={() => {
+																if ($hoverStore !== undefined) {
+																	$hoverStore = undefined
+																}
+															}}
+															class={classNames(
+																($selectedComponent?.includes(actionButton.id) ||
+																	$hoverStore === actionButton.id) &&
+																	$mode !== 'preview'
+																	? 'outline outline-indigo-500 outline-1 outline-offset-1 relative'
+																	: 'relative'
+															)}
+														>
+															{#if $mode !== 'preview'}
+																<!-- svelte-ignore a11y-click-events-have-key-events -->
+																<!-- svelte-ignore a11y-no-static-element-interactions -->
+																<span
+																	title={`Id: ${actionButton.id}`}
+																	class={classNames(
+																		'px-2 text-2xs font-bold w-fit absolute shadow  -top-2 -left-2 border z-50 rounded-sm',
+																		'bg-indigo-500/90 border-indigo-600 text-white',
+																		$selectedComponent?.includes(actionButton.id) ||
+																			$hoverStore === actionButton.id
+																			? 'opacity-100'
+																			: 'opacity-0'
+																	)}
+																	on:click|stopPropagation={() => {
+																		$selectedComponent = [actionButton.id]
+																	}}
+																>
+																	{actionButton.id}
+																</span>
+
+																{#if $connectingInput.opened}
+																	<div class="absolute z-50 left-8 -top-[10px]">
+																		<Popup
+																			floatingConfig={{
+																				strategy: 'absolute',
+																				placement: 'bottom-start'
+																			}}
+																		>
+																			<svelte:fragment slot="button">
+																				<button
+																					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
+																					title="Outputs"
+																					aria-label="Open output"><Plug2 size={12} /></button
+																				>
+																			</svelte:fragment>
+																			<ComponentOutputViewer
+																				suffix="table"
+																				on:select={({ detail }) =>
+																					connectOutput(
+																						connectingInput,
+																						'buttoncomponent',
+																						actionButton.id,
+																						detail
+																					)}
+																				componentId={actionButton.id}
+																			/>
+																		</Popup>
+																	</div>
+																{/if}
+															{/if}
+															{#if rowIndex == 0}
+																{@const controls = {
+																	left: () => {
+																		if (actionIndex === 0) {
+																			$selectedComponent = [id]
+																			return true
+																		} else if (actionIndex > 0) {
+																			$selectedComponent = [actionButtons[actionIndex - 1].id]
+																			return true
+																		}
+																		return false
+																	},
+																	right: () => {
+																		if (actionIndex === actionButtons.length - 1) {
+																			return id
+																		} else if (actionIndex < actionButtons.length - 1) {
+																			$selectedComponent = [actionButtons[actionIndex + 1].id]
+																			return true
+																		}
+																		return false
+																	}
+																}}
+																{#if actionButton.type == 'buttoncomponent'}
+																	<AppButton
+																		noInitialize
+																		extraKey={'idx' + rowIndex}
+																		{render}
+																		noWFull
+																		preclickAction={async () => {
+																			toggleRow(row)
+																		}}
+																		id={actionButton.id}
+																		customCss={actionButton.customCss}
+																		configuration={actionButton.configuration}
+																		recomputeIds={actionButton.recomputeIds}
+																		extraQueryParams={{ row: row.original }}
+																		componentInput={actionButton.componentInput}
+																		{controls}
+																	/>
+																{:else if actionButton.type == 'checkboxcomponent'}
+																	<AppCheckbox
+																		noInitialize
+																		extraKey={'idx' + rowIndex}
+																		{render}
+																		id={actionButton.id}
+																		customCss={actionButton.customCss}
+																		configuration={actionButton.configuration}
+																		recomputeIds={actionButton.recomputeIds}
+																		onToggle={actionButton.onToggle}
+																		preclickAction={async () => {
+																			toggleRow(row)
+																		}}
+																		{controls}
+																	/>
+																{:else if actionButton.type == 'selectcomponent'}
+																	<div class="w-40">
+																		<AppSelect
+																			noDefault
+																			noInitialize
+																			extraKey={'idx' + rowIndex}
+																			{render}
+																			id={actionButton.id}
+																			customCss={actionButton.customCss}
+																			configuration={actionButton.configuration}
+																			recomputeIds={actionButton.recomputeIds}
+																			onSelect={actionButton.onSelect}
+																			preclickAction={async () => {
+																				toggleRow(row)
+																			}}
+																			{controls}
+																		/>
+																	</div>
+																{/if}
+															{:else if actionButton.type == 'buttoncomponent'}
 																<AppButton
 																	noInitialize
 																	extraKey={'idx' + rowIndex}
 																	{render}
 																	noWFull
-																	preclickAction={async () => {
-																		toggleRow(row)
-																	}}
 																	id={actionButton.id}
 																	customCss={actionButton.customCss}
 																	configuration={actionButton.configuration}
 																	recomputeIds={actionButton.recomputeIds}
+																	preclickAction={async () => {
+																		toggleRow(row)
+																	}}
 																	extraQueryParams={{ row: row.original }}
 																	componentInput={actionButton.componentInput}
-																	{controls}
 																/>
 															{:else if actionButton.type == 'checkboxcomponent'}
 																<AppCheckbox
@@ -595,7 +683,6 @@
 																	preclickAction={async () => {
 																		toggleRow(row)
 																	}}
-																	{controls}
 																/>
 															{:else if actionButton.type == 'selectcomponent'}
 																<div class="w-40">
@@ -612,80 +699,32 @@
 																		preclickAction={async () => {
 																			toggleRow(row)
 																		}}
-																		{controls}
 																	/>
 																</div>
 															{/if}
-														{:else if actionButton.type == 'buttoncomponent'}
-															<AppButton
-																noInitialize
-																extraKey={'idx' + rowIndex}
-																{render}
-																noWFull
-																id={actionButton.id}
-																customCss={actionButton.customCss}
-																configuration={actionButton.configuration}
-																recomputeIds={actionButton.recomputeIds}
-																preclickAction={async () => {
-																	toggleRow(row)
-																}}
-																extraQueryParams={{ row: row.original }}
-																componentInput={actionButton.componentInput}
-															/>
-														{:else if actionButton.type == 'checkboxcomponent'}
-															<AppCheckbox
-																noInitialize
-																extraKey={'idx' + rowIndex}
-																{render}
-																id={actionButton.id}
-																customCss={actionButton.customCss}
-																configuration={actionButton.configuration}
-																recomputeIds={actionButton.recomputeIds}
-																onToggle={actionButton.onToggle}
-																preclickAction={async () => {
-																	toggleRow(row)
-																}}
-															/>
-														{:else if actionButton.type == 'selectcomponent'}
-															<div class="w-40">
-																<AppSelect
-																	noDefault
-																	noInitialize
-																	extraKey={'idx' + rowIndex}
-																	{render}
-																	id={actionButton.id}
-																	customCss={actionButton.customCss}
-																	configuration={actionButton.configuration}
-																	recomputeIds={actionButton.recomputeIds}
-																	onSelect={actionButton.onSelect}
-																	preclickAction={async () => {
-																		toggleRow(row)
-																	}}
-																/>
-															</div>
-														{/if}
-													</div>
-												</RowWrapper>
-											{/each}
-										</div>
-									</td>
-								{/if}
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+														</div>
+													</RowWrapper>
+												{/each}
+											</div>
+										</td>
+									{/if}
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
 
-			<AppTableFooter
-				download={resolvedConfig?.downloadButton}
-				pageSize={resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20}
-				manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
-				result={filteredResult}
-				{table}
-				class={twMerge(css?.tableFooter?.class, 'wm-table-footer')}
-				style={css?.tableFooter?.style}
-				{loading}
-			/>
+				<AppTableFooter
+					download={resolvedConfig?.downloadButton}
+					pageSize={resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20}
+					manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
+					result={filteredResult}
+					{table}
+					class={twMerge(css?.tableFooter?.class, 'wm-table-footer')}
+					style={css?.tableFooter?.style}
+					{loading}
+				/>
+			</div>
 		</div>
 	{:else if result != undefined}
 		<div class="flex flex-col h-full w-full overflow-auto">

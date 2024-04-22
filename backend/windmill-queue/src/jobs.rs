@@ -1603,11 +1603,11 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             ))
         })?;
 
-        let min_started_at = sqlx::query_scalar!(
+        let min_started_at = sqlx::query!(
             "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
             FROM queue
             WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false
-            GROUP BY script_path), $3)",
+            GROUP BY script_path), $3) as min_started_at, now() AS now",
             job_script_path,
             &pulled_job.workspace_id,
             completed_count.max_ended_at
@@ -1662,11 +1662,17 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         .await?;
 
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
-        let estimated_next_schedule_timestamp = min_started_at.unwrap_or(pulled_job.scheduled_for)
+        let estimated_next_schedule_timestamp = ((min_started_at
+            .min_started_at
+            .unwrap_or(min_started_at.now.unwrap()))
             + Duration::try_seconds(avg_script_duration.map(i64::from).unwrap_or(0))
                 .unwrap_or_default()
+                .max(Duration::try_seconds(5).unwrap_or_default())
             + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .max(Duration::try_seconds(5).unwrap_or_default()))
+        .max(min_started_at.now.unwrap() + Duration::try_seconds(10).unwrap_or_default());
+
         tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
             job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
 
