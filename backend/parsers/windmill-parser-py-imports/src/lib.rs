@@ -51,6 +51,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "tenable" => "pytenable",
     "ns1" => "ns1-python",
     "pymsql" => "PyMySQL",
+    "haystack" => "haystack-ai",
 };
 
 fn replace_import(x: String) -> String {
