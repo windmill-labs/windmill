@@ -36,6 +36,7 @@
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
 	export let actions: TableAction[] = []
+
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
@@ -238,8 +239,8 @@
 		return r
 	}
 
-	let firstRow = 0
-	let lastRow = 0
+	export let firstRow: number = 0
+	export let lastRow: number = 0
 
 	function validateColumnDefs(columnDefs: ColumnDef[]): { isValid: boolean; errors: string[] } {
 		let isValid = true
@@ -433,7 +434,11 @@
 				/>
 			</Popover>
 
-			{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+			{#if datasource?.rowCount}
+				{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+			{:else}
+				{firstRow}{'->'}{lastRow + 1}
+			{/if}
 		</div>
 	</div>
 {:else if resolvedConfig.columnDefs != undefined}
