@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::TryFutureExt;
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -12,7 +13,7 @@ use windmill_common::error::{self, Error};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
-use windmill_queue::CanceledBy;
+use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{build_args_values, run_future_with_polling_update_job_poller};
 use crate::AuthedClientBackgroundTask;
@@ -25,6 +26,10 @@ struct MssqlDatabase {
     port: Option<u16>,
     dbname: String,
     instance_name: Option<String>,
+}
+
+lazy_static::lazy_static! {
+    static ref RE_MSSQL_READONLY_INTENT: Regex = Regex::new(r#"(?mi)^-- ApplicationIntent=ReadOnly *(?:\r|\n|$)"#).unwrap();
 }
 
 pub async fn do_mssql(
@@ -72,6 +77,14 @@ pub async fn do_mssql(
     }
     if let Some(port) = database.port {
         config.port(port);
+    }
+
+    let readonly_intent = RE_MSSQL_READONLY_INTENT.is_match(query);
+    config.readonly(readonly_intent);
+
+    if readonly_intent {
+        let logs = format!("\nSetting ApplicationIntent to ReadOnly");
+        append_logs(job.id, job.workspace_id.clone(), logs, db).await;
     }
 
     // Using SQL Server authentication.
