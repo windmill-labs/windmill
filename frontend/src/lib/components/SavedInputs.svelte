@@ -157,6 +157,7 @@
 	jobKindsCat="jobs"
 	jobKinds="all"
 	user={null}
+	label={null}
 	folder={null}
 	success="running"
 	argFilter={undefined}
