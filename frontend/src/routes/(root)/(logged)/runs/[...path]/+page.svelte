@@ -30,6 +30,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
+	import { Calendar } from 'lucide-svelte'
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
@@ -40,6 +41,7 @@
 	let path: string | null = $page.params.path
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
+	let label: string | null = $page.url.searchParams.get('label')
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
 		'success'
@@ -49,10 +51,12 @@
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
 
-	let hideSchedules: boolean | undefined =
-		$page.url.searchParams.get('hide_scheduled') != undefined
-			? $page.url.searchParams.get('hide_scheduled') == 'true'
-			: false
+	let showSchedules: boolean | undefined =
+		$page.url.searchParams.get('show_schedules') != undefined
+			? $page.url.searchParams.get('show_schedules') == 'true'
+			: localStorage.getItem('show_schedules_in_run') == 'false'
+			? false
+			: true
 
 	let argFilter: any = $page.url.searchParams.get('arg')
 		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -88,11 +92,12 @@
 	let manualDatePicker: ManuelDatePicker
 
 	$: (user ||
+		label ||
 		folder ||
 		path ||
 		success !== undefined ||
 		isSkipped ||
-		hideSchedules ||
+		showSchedules ||
 		argFilter ||
 		resultFilter ||
 		schedulePath ||
@@ -130,10 +135,10 @@
 			searchParams.delete('is_skipped')
 		}
 
-		if (hideSchedules) {
-			searchParams.set('hide_scheduled', hideSchedules.toString())
+		if (showSchedules) {
+			searchParams.set('show_schedules', showSchedules.toString())
 		} else {
-			searchParams.delete('hide_scheduled')
+			searchParams.delete('show_schedules')
 		}
 
 		if (allWorkspaces && $workspaceStore == 'admins') {
@@ -178,12 +183,18 @@
 			searchParams.delete('max_ts')
 		}
 
+		if (label) {
+			searchParams.set('label', label)
+		} else {
+			searchParams.delete('label')
+		}
+
 		let newPath = path ? `/${path}` : '/'
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
 		history.replaceState(history.state, '', newUrl.toString())
 	}
 
-	function reloadLogsWithoutFilterError() {
+	function reloadJobsWithoutFilterError() {
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
 			filterTimeout = setTimeout(() => {
@@ -226,6 +237,34 @@
 		loadFolders()
 		loadPaths()
 	}
+
+	function filterByPath(e: CustomEvent<string>) {
+		path = e.detail
+		user = null
+		folder = null
+		label = null
+	}
+
+	function filterByUser(e: CustomEvent<string>) {
+		path = null
+		folder = null
+		user = e.detail
+		label = null
+	}
+
+	function filterByFolder(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = e.detail
+		label = null
+	}
+
+	function filterByLabel(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = e.detail
+	}
 </script>
 
 <JobLoader
@@ -234,11 +273,12 @@
 	{user}
 	{folder}
 	{path}
+	{label}
 	{success}
 	{isSkipped}
 	{argFilter}
 	{resultFilter}
-	{hideSchedules}
+	{showSchedules}
 	{schedulePath}
 	{jobKindsCat}
 	computeMinAndMax={manualDatePicker?.computeMinMax}
@@ -304,6 +344,7 @@
 					bind:isSkipped
 					bind:user
 					bind:folder
+					bind:label
 					bind:path
 					bind:success
 					bind:argFilter
@@ -311,9 +352,8 @@
 					bind:argError
 					bind:resultError
 					bind:jobKindsCat
-					bind:hideSchedules
 					bind:allWorkspaces
-					on:change={reloadLogsWithoutFilterError}
+					on:change={reloadJobsWithoutFilterError}
 					{usernames}
 					{folders}
 					{paths}
@@ -345,6 +385,18 @@
 					disabled={!$userStore?.is_admin && !$superadmin}
 					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
 				>
+			</div>
+			<div class="relative flex gap-2 items-center pr-8 w-40">
+				<Toggle
+					size="xs"
+					bind:checked={showSchedules}
+					on:change={() => {
+						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
+					}}
+				/>
+				<span class="text-xs absolute -top-4">Jobs from schedules</span>
+
+				<Calendar size={16} />
 			</div>
 			<div class="flex flex-row gap-1 w-full max-w-lg">
 				<div class="relative w-full">
@@ -415,21 +467,10 @@
 							{jobs}
 							bind:selectedId
 							bind:selectedWorkspace
-							on:filterByPath={(e) => {
-								user = null
-								folder = null
-								path = e.detail
-							}}
-							on:filterByUser={(e) => {
-								path = null
-								folder = null
-								user = e.detail
-							}}
-							on:filterByFolder={(e) => {
-								path = null
-								user = null
-								folder = e.detail
-							}}
+							on:filterByPath={filterByPath}
+							on:filterByUser={filterByUser}
+							on:filterByFolder={filterByFolder}
+							on:filterByLabel={filterByLabel}
 						/>
 					{:else}
 						<div class="gap-1 flex flex-col">
@@ -480,10 +521,9 @@
 					bind:resultFilter
 					bind:argError
 					bind:resultError
-					bind:hideSchedules
 					bind:allWorkspaces
 					mobile={true}
-					on:change={reloadLogsWithoutFilterError}
+					on:change={reloadJobsWithoutFilterError}
 				/>
 			</div>
 		</div>
@@ -513,6 +553,18 @@
 					disabled={!$userStore?.is_admin && !$superadmin}
 					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
 				>
+			</div>
+			<div class="relative flex gap-2 items-center pr-8 w-40">
+				<Toggle
+					size="xs"
+					bind:checked={showSchedules}
+					on:change={() => {
+						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
+					}}
+				/>
+				<span class="text-xs absolute -top-4">Schedules</span>
+
+				<Calendar size={16} />
 			</div>
 			<div class="flex flex-row gap-1 w-full max-w-lg items-center">
 				<div class="relative w-full">
@@ -583,21 +635,10 @@
 				on:select={() => {
 					runDrawer.openDrawer()
 				}}
-				on:filterByPath={(e) => {
-					user = null
-					folder = null
-					path = e.detail
-				}}
-				on:filterByUser={(e) => {
-					path = null
-					folder = null
-					user = e.detail
-				}}
-				on:filterByFolder={(e) => {
-					path = null
-					user = null
-					folder = e.detail
-				}}
+				on:filterByPath={filterByPath}
+				on:filterByUser={filterByUser}
+				on:filterByFolder={filterByFolder}
+				on:filterByLabel={filterByLabel}
 			/>
 		</div>
 	</div>

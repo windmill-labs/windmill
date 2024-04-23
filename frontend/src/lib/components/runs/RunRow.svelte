@@ -28,6 +28,7 @@
 	export let job: Job
 	export let selectedId: string | undefined = undefined
 	export let containerWidth: number = 0
+	export let containsLabel: boolean = false
 
 	let scheduleEditor: ScheduleEditor
 </script>
@@ -170,6 +171,24 @@
 			{/if}
 		{/if}
 	</div>
+	{#if containsLabel}
+		<div class="w-3/12 flex justify-start">
+			{#if job && job?.['label']}
+				<div class="flex flex-row items-center gap-1">
+					<div class="text-xs">{job?.['label']}</div>
+					<Button
+						size="xs2"
+						color="light"
+						on:click={() => {
+							dispatch('filterByLabel', job?.['label'])
+						}}
+					>
+						<ListFilter size={10} />
+					</Button>
+				</div>
+			{/if}
+		</div>
+	{/if}
 	<div class="w-3/12 flex justify-start">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
