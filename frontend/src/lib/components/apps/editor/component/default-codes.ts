@@ -95,7 +95,7 @@ export async function main(db: Postgresql) {
 `
 	},
 	aggridinfinitecomponent: {
-		deno: `export async function main(startRow: number, endRow: number, offset: number, limit:number, orderBy: string, isDesc: boolean) {
+		deno: `export async function main(offset: number, limit:number, orderBy: string, isDesc: boolean) {
     return [
         {
             "id": 1,
@@ -109,7 +109,7 @@ export async function main(db: Postgresql) {
         }
     ]
 }`,
-		python3: `def main(startRow: int, endRow: int, offset: int, limit: int, orderBy: str, isDesc: bool):
+		python3: `def main(offset: int, limit: int, orderBy: str, isDesc: bool):
 return [
     {
         "id": 1,
@@ -128,7 +128,7 @@ SELECT * FROM demo LIMIT $1::INT OFFSET $2::INT;
 `
 	},
 	aggridinfinitecomponentee: {
-		deno: `export async function main(startRow: number, endRow: number, offset: number, limit:number, orderBy: string, isDesc: boolean) {
+		deno: `export async function main(offset: number, limit:number, orderBy: string, isDesc: boolean) {
     return [
         {
             "id": 1,
@@ -142,7 +142,7 @@ SELECT * FROM demo LIMIT $1::INT OFFSET $2::INT;
         }
     ]
 }`,
-		python3: `def main(startRow: int, endRow: int, offset: int, limit: int, orderBy: str, isDesc: bool):
+		python3: `def main(offset: int, limit: int, orderBy: str, isDesc: bool):
 return [
     {
         "id": 1,

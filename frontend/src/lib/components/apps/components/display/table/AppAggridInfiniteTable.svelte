@@ -54,8 +54,8 @@
 		params: {
 			offset: 0,
 			limit: 10,
-			order_by: resolvedConfig.columnDefs?.[0]?.field,
-			is_desc: false
+			orderBy: resolvedConfig.columnDefs?.[0]?.field,
+			isDesc: false
 		}
 	})
 
@@ -70,10 +70,8 @@
 			const currentParams = {
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
-				order_by: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
-				is_desc: params.sortModel?.[0]?.sort === 'desc',
-				startRow: params.startRow,
-				endRow: params.endRow
+				orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+				isDesc: params.sortModel?.[0]?.sort === 'desc'
 			}
 
 			outputs.params.set(currentParams)
@@ -124,16 +122,6 @@
 
 	let firstRow: number = 0
 	let lastRow: number = 0
-
-	// update outputs wheb firstRow or lastRow changes
-	$: {
-		if (firstRow !== undefined && lastRow !== undefined) {
-			const x = outputs.params.peak()
-			x.startRow = firstRow
-			x.endRow = lastRow
-			outputs.params.set(x)
-		}
-	}
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}

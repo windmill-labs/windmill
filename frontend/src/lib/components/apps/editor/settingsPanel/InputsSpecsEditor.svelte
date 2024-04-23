@@ -17,6 +17,7 @@
 	export let acceptSelf: boolean = false
 	export let recomputeOnInputChanged = true
 	export let showOnDemandOnlyToggle = false
+	export let overridenByComponent: string[] = []
 
 	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
 
@@ -26,7 +27,14 @@
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
 		{#each Object.keys(finalInputSpecsConfiguration) as k}
-			{#if finalInputSpecsConfiguration[k]?.type == 'oneOf'}
+			{#if overridenByComponent.includes(k)}
+				<div>
+					<span class="text-xs font-semibold truncate text-primary">
+						{k}
+					</span>
+					<div class="text-tertiary text-xs">Managed by the component</div>
+				</div>
+			{:else if finalInputSpecsConfiguration[k]?.type == 'oneOf'}
 				<OneOfInputSpecsEditor
 					{acceptSelf}
 					key={k}
