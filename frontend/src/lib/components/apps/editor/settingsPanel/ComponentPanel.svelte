@@ -315,6 +315,9 @@
 										recomputeOnInputChanged={componentSettings.item.data.componentInput
 											.recomputeOnInputChanged}
 										showOnDemandOnlyToggle
+										acceptSelf={component.type === 'aggridinfinitecomponent' ||
+											component.type === 'aggridinfinitecomponentee' ||
+											component.type === 'steppercomponent'}
 									/>
 								</div>
 							{/if}

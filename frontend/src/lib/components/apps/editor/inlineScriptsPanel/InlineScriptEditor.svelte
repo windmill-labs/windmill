@@ -93,12 +93,26 @@
 
 			if (componentOutputs.currentStepIndex) {
 				newFields['stepIndex'] = {
-					type: 'connected',
-					connection: {
-						componentId: id,
-						path: 'currentStepIndex'
-					},
-					value: componentOutputs.currentStepIndex.peak(),
+					type: 'evalv2',
+					expr: `${id}.currentStepIndex`,
+					fieldType: 'number'
+				}
+			}
+		} else if (
+			componentType === 'aggridinfinitecomponent' ||
+			componentType === 'aggridinfinitecomponentee'
+		) {
+			const componentOutputs = $worldStore?.outputsById[id]
+
+			if (componentOutputs.params) {
+				newFields['offset'] = {
+					type: 'evalv2',
+					expr: `${id}.params.offset`,
+					fieldType: 'number'
+				}
+				newFields['limit'] = {
+					type: 'evalv2',
+					expr: `${id}.params.limit`,
 					fieldType: 'number'
 				}
 			}

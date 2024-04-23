@@ -29,6 +29,7 @@
 	export let resolvedConfig: InitConfig<
 		| (typeof components)['dbexplorercomponent']['initialData']['configuration']
 		| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
+		| (typeof components)['aggridinfinitecomponentee']['initialData']['configuration']
 	>
 
 	export let datasource: IDatasource

@@ -36,10 +36,10 @@
 	<InputValue key="nonrunnable" {id} input={componentInput} bind:value={result} />
 {/if}
 
-{#if render || hasChildrens}
+{#if hasChildrens}
 	<div class={render ? 'h-full w-full' : 'invisible h-0 overflow-hidden'}>
 		<slot />
 	</div>
-{:else}
+{:else if render}
 	<div class="w-full h-full" />
 {/if}

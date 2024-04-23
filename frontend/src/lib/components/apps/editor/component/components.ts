@@ -158,6 +158,7 @@ export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> &
 
 export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
 	actions: TableAction[]
+	license: string
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>

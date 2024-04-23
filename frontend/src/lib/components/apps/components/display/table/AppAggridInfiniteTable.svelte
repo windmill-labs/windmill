@@ -19,6 +19,7 @@
 	import type { RunnableComponent } from '../..'
 	import { getPrimaryKeys } from '../dbtable/utils'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
+
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
@@ -28,11 +29,14 @@
 	export let actions: TableAction[] | undefined = undefined
 	let runnableComponent: RunnableComponent | undefined = undefined
 
+	let aggrid: AppAggridExplorerTable | undefined = undefined
+
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
 	let result: any[] | undefined = undefined
+	let loading: boolean = false
 
 	let resolvedConfig = initConfig(
 		components['aggridinfinitecomponent'].initialData.configuration,
@@ -57,8 +61,6 @@
 		}
 	})
 
-	let loading: boolean = false
-
 	const datasource: IDatasource = {
 		rowCount: undefined,
 
@@ -78,10 +80,12 @@
 
 			outputs.params.set(currentParams)
 
+			if (!runnableComponent && result) {
+				params.successCallback(result, result.length)
+			}
+
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
-				done: (d) => {
-					// @ts-ignore
-					const { items, rowCount } = d
+				done: (items) => {
 					let lastRow = -1
 
 					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
@@ -103,9 +107,7 @@
 							lastRow = params.startRow + items.length
 						}
 
-						if (rowCount) {
-							datasource.rowCount = rowCount
-						}
+						datasource.rowCount = undefined
 
 						params.successCallback(processedData, lastRow)
 					} else {
@@ -165,20 +167,21 @@
 	bind:result
 	bind:loading
 	bind:runnableComponent
-	render={false}
+	render={true}
 	autoRefresh={true}
 	allowConcurentRequests
 	noInitialize
-/>
-
-<AppAggridExplorerTable
-	{id}
-	{datasource}
-	{resolvedConfig}
-	{customCss}
-	{outputs}
-	allowDelete={false}
-	{actions}
-	bind:firstRow
-	bind:lastRow
-/>
+>
+	<AppAggridExplorerTable
+		bind:this={aggrid}
+		{id}
+		{datasource}
+		{resolvedConfig}
+		{customCss}
+		{outputs}
+		allowDelete={false}
+		{actions}
+		bind:firstRow
+		bind:lastRow
+	/>
+</RunnableWrapper>
