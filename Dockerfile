@@ -12,8 +12,8 @@ RUN apt-get -y update \
 
 RUN rustup component add rustfmt
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef 
-
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
+RUN cargo install sccache --version ^0.8
 WORKDIR /windmill
 
 ENV SQLX_OFFLINE=true
@@ -46,7 +46,9 @@ FROM rust_base AS planner
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
 
 FROM rust_base AS builder
 ARG features=""
@@ -55,7 +57,9 @@ COPY --from=planner /windmill/recipe.json recipe.json
 
 RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev clang libclang-dev cmake
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
@@ -64,7 +68,9 @@ COPY --from=frontend /frontend /frontend
 COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/openapi-deref.yaml
 COPY .git/ .git/
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
 FROM ${DEBIAN_IMAGE} as downloader
