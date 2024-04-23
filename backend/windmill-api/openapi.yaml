@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.311.0
+  version: 1.313.0
   title: Windmill API
 
   contact:
@@ -3398,6 +3398,13 @@ paths:
             when multiple archived hash share the same path, only the ones with the latest create_at
             are 
             ed.
+          in: query
+          schema:
+            type: boolean
+        - name: hide_without_main
+          description: |
+            (default false)
+            hide the scripts without an exported main function
           in: query
           schema:
             type: boolean
@@ -8356,6 +8363,8 @@ components:
           type: boolean
         visible_to_runner_only:
           type: boolean
+        no_main_func:
+          type: boolean
       required:
         - hash
         - path
@@ -8371,6 +8380,7 @@ components:
         - language
         - kind
         - starred
+        - no_main_func
 
     NewScript:
       type: object
@@ -8443,6 +8453,8 @@ components:
         concurrency_key:
           type: string
         visible_to_runner_only:
+          type: boolean
+        no_main_func:
           type: boolean
       required:
         - path

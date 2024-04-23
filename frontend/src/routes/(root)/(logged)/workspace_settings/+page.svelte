@@ -1502,7 +1502,7 @@
 							gitSyncSettings.repositories = [
 								...gitSyncSettings.repositories,
 								{
-									script_path: 'hub/8753/sync-script-to-git-repo-windmill',
+									script_path: 'hub/8773/sync-script-to-git-repo-windmill',
 									git_repo_resource_path: '',
 									use_individual_branch: false,
 									group_by_folder: false,

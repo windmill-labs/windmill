@@ -352,8 +352,8 @@ dependencies = [
  "futures-io",
  "futures-lite 2.3.0",
  "parking",
- "polling 3.6.0",
- "rustix 0.38.32",
+ "polling 3.7.0",
+ "rustix 0.38.34",
  "slab",
  "tracing",
  "windows-sys 0.52.0",
@@ -556,9 +556,9 @@ checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
 
 [[package]]
 name = "aws-config"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2a89e0000cde82447155d64eeb71720b933b4396a6fbbebad3f8b4f88ca7b54"
+checksum = "b2a4707646259764ab59fd9a50e9de2e92c637b28b36285d6f6fa030e915fbd9"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -622,9 +622,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32fcc572fd5c58489ec205ec3e4e5f7d63018898a485cbf922a462af496bc300"
+checksum = "3d70fb493f4183f5102d8a8d0cc9b57aec29a762f55c0e7bf527e0f7177bb408"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -644,9 +644,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b6275fa8684a1192754221173b1f7a7c1260d6b0571cc2b8af09468eb0cffe5"
+checksum = "de3f37549b3e38b7ea5efd419d4d7add6ea1e55223506eb0b4fef9d25e7cc90d"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -666,9 +666,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30acd58272fd567e4853c5075d838be1626b59057e0249c9be5a1a7eb13bf70f"
+checksum = "3b2ff219a5d4b795cd33251c19dbe9c4b401f2b2cbe513e07c76ada644eaf34e"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -689,9 +689,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11d6f29688a4be9895c0ba8bef861ad0c0dac5c15e9618b9b7a6c233990fc263"
+checksum = "58b56f1cbe6fd4d0c2573df72868f20ab1c125ca9c9dbce17927a463433a2e57"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-http",
@@ -2548,70 +2548,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
 
 [[package]]
-name = "encoding"
-version = "0.2.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b0d943856b990d12d3b55b359144ff341533e516d94098b1d3fc1ac666d36ec"
-dependencies = [
- "encoding-index-japanese",
- "encoding-index-korean",
- "encoding-index-simpchinese",
- "encoding-index-singlebyte",
- "encoding-index-tradchinese",
-]
-
-[[package]]
-name = "encoding-index-japanese"
-version = "1.20141219.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04e8b2ff42e9a05335dbf8b5c6f7567e5591d0d916ccef4e0b1710d32a0d0c91"
-dependencies = [
- "encoding_index_tests",
-]
-
-[[package]]
-name = "encoding-index-korean"
-version = "1.20141219.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dc33fb8e6bcba213fe2f14275f0963fd16f0a02c878e3095ecfdf5bee529d81"
-dependencies = [
- "encoding_index_tests",
-]
-
-[[package]]
-name = "encoding-index-simpchinese"
-version = "1.20141219.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d87a7194909b9118fc707194baa434a4e3b0fb6a5a757c73c3adb07aa25031f7"
-dependencies = [
- "encoding_index_tests",
-]
-
-[[package]]
-name = "encoding-index-singlebyte"
-version = "1.20141219.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3351d5acffb224af9ca265f435b859c7c01537c0849754d3db3fdf2bfe2ae84a"
-dependencies = [
- "encoding_index_tests",
-]
-
-[[package]]
-name = "encoding-index-tradchinese"
-version = "1.20141219.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd0e20d5688ce3cab59eb3ef3a2083a5c77bf496cb798dc6fcdb75f323890c18"
-dependencies = [
- "encoding_index_tests",
-]
-
-[[package]]
-name = "encoding_index_tests"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a246d82be1c9d791c5dfde9a2bd045fc3cbba3fa2b11ad558f27d01712f00569"
-
-[[package]]
 name = "encoding_rs"
 version = "0.8.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2799,9 +2735,9 @@ dependencies = [
 
 [[package]]
 name = "fiat-crypto"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c007b1ae3abe1cb6f85a16305acd418b7ca6343b953633fee2b76d8f108b830f"
+checksum = "38793c55593b33412e3ae40c2c9781ffaa6f438f6f8c10f24e71846fbd7ae01e"
 
 [[package]]
 name = "filetime"
@@ -3917,9 +3853,9 @@ checksum = "9028f49264629065d057f340a86acb84867925865f73bbf8d47b4d149a7e88b8"
 
 [[package]]
 name = "jobserver"
-version = "0.1.30"
+version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "685a7d121ee3f65ae4fddd72b25a04bb36b6af81bc0828f7d5434c0fe60fa3a2"
+checksum = "d2b099aaa34a9751c5bf0878add70444e1ed2dd73f347be99003d4577277de6e"
 dependencies = [
  "libc",
 ]
@@ -5647,15 +5583,15 @@ dependencies = [
 
 [[package]]
 name = "polling"
-version = "3.6.0"
+version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0c976a60b2d7e99d6f229e414670a9b85d13ac305cc6d1e9c134de58c5aaaf6"
+checksum = "645493cf344456ef24219d02a768cf1fb92ddf8c92161679ae3d91b91a637be3"
 dependencies = [
  "cfg-if",
  "concurrent-queue",
  "hermit-abi",
  "pin-project-lite",
- "rustix 0.38.32",
+ "rustix 0.38.34",
  "tracing",
  "windows-sys 0.52.0",
 ]
@@ -6638,27 +6574,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.32"
+version = "0.38.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65e04861e65f21776e67888bfbea442b3642beaa0138fdb1dd7a84a52dffdb89"
+checksum = "70dc5ec042f7a43c4a73241207cecc9873a06d45debb38b329f8541d85c2730f"
 dependencies = [
  "bitflags 2.5.0",
  "errno",
  "libc",
  "linux-raw-sys 0.4.13",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rustls"
-version = "0.20.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b80e3dec595989ea8510028f30c408a4630db12c9cbb8de34203b89d6577e99"
-dependencies = [
- "log",
- "ring 0.16.20",
- "sct",
- "webpki",
 ]
 
 [[package]]
@@ -6682,7 +6606,7 @@ dependencies = [
  "log",
  "ring 0.17.8",
  "rustls-pki-types",
- "rustls-webpki 0.102.2",
+ "rustls-webpki 0.102.3",
  "subtle",
  "zeroize",
 ]
@@ -6748,9 +6672,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.102.2"
+version = "0.102.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faaa0a62740bedb9b2ef5afa303da42764c012f743917351dc9a237ea1663610"
+checksum = "f3bce581c0dd41bce533ce695a1437fa16a7ab5ac3ccfa99fe1a620a7885eabf"
 dependencies = [
  "ring 0.17.8",
  "rustls-pki-types",
@@ -8392,7 +8316,7 @@ checksum = "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1"
 dependencies = [
  "cfg-if",
  "fastrand 2.0.2",
- "rustix 0.38.32",
+ "rustix 0.38.34",
  "windows-sys 0.52.0",
 ]
 
@@ -8447,8 +8371,7 @@ dependencies = [
 [[package]]
 name = "tiberius"
 version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc6e2bf3e4b5be181a2a2ceff4b9b12e2684010d436a6958bd564fbc8094d44d"
+source = "git+https://github.com/prisma/tiberius?rev=8f66a699dfa041e7b5f736c7e94f92c945453c9e#8f66a699dfa041e7b5f736c7e94f92c945453c9e"
 dependencies = [
  "async-trait",
  "asynchronous-codec",
@@ -8456,7 +8379,7 @@ dependencies = [
  "bytes",
  "chrono",
  "connection-string",
- "encoding",
+ "encoding_rs",
  "enumflags2",
  "futures-util",
  "num-traits",
@@ -8467,7 +8390,7 @@ dependencies = [
  "rustls-pemfile 1.0.4",
  "thiserror",
  "tokio",
- "tokio-rustls 0.23.4",
+ "tokio-rustls 0.24.1",
  "tokio-util",
  "tracing",
  "uuid 1.8.0",
@@ -8663,17 +8586,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "whoami",
-]
-
-[[package]]
-name = "tokio-rustls"
-version = "0.23.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c43ee83903113e03984cb9e5cebe6c04a5116269e900e3ddba8f068a62adda59"
-dependencies = [
- "rustls 0.20.9",
- "tokio",
- "webpki",
 ]
 
 [[package]]
@@ -9319,7 +9231,7 @@ dependencies = [
  "once_cell",
  "rustls 0.22.4",
  "rustls-pki-types",
- "rustls-webpki 0.102.2",
+ "rustls-webpki 0.102.3",
  "serde",
  "serde_json",
  "url",
@@ -9614,16 +9526,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "webpki"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed63aea5ce73d0ff405984102c42de94fc55a6b75765d621c65262469b3c9b53"
-dependencies = [
- "ring 0.17.8",
- "untrusted 0.9.0",
-]
-
-[[package]]
 name = "webpki-roots"
 version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9647,7 +9549,7 @@ dependencies = [
  "either",
  "home",
  "once_cell",
- "rustix 0.38.32",
+ "rustix 0.38.34",
 ]
 
 [[package]]
@@ -9659,7 +9561,7 @@ dependencies = [
  "either",
  "home",
  "once_cell",
- "rustix 0.38.32",
+ "rustix 0.38.34",
  "windows-sys 0.48.0",
 ]
 
@@ -9707,7 +9609,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9744,7 +9646,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9821,7 +9723,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9839,7 +9741,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9852,7 +9754,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9888,7 +9790,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9903,7 +9805,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -9911,7 +9813,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9922,7 +9824,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9934,7 +9836,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9945,7 +9847,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "itertools 0.12.1",
@@ -9956,7 +9858,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9973,7 +9875,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9984,7 +9886,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10002,7 +9904,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.14",
@@ -10020,7 +9922,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10053,7 +9955,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "serde",
  "wasm-bindgen",
@@ -10064,7 +9966,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.311.0"
+version = "1.313.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10343,7 +10245,7 @@ checksum = "8da84f1a25939b27f6820d92aed108f83ff920fdf11a7b19366c27c4cda81d4f"
 dependencies = [
  "libc",
  "linux-raw-sys 0.4.13",
- "rustix 0.38.32",
+ "rustix 0.38.34",
 ]
 
 [[package]]

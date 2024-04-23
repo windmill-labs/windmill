@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.311.0"
+version = "1.313.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.311.0"
+version = "1.313.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -224,7 +224,7 @@ tokenizers = "0.14.1"
 candle-core = "0.3.0"
 candle-transformers = "0.3.0"
 candle-nn = "0.3.0"
-tiberius = { version = "0.12.2", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"] }
+tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7b5f736c7e94f92c945453c9e", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
 

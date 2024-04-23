@@ -29,13 +29,16 @@
 			...componentInput,
 			type: 'evalv2',
 			expr: expr,
-			connections: [{ componentId: connection.componentId, id: connection.path.split('.')[0].split('[')[0]  }]
+			connections: [
+				{ componentId: connection.componentId, id: connection.path.split('.')[0].split('[')[0] }
+			]
 		}
 		evalV2editor?.setCode(expr)
 		$app = $app
 	}
 
 	let clientWidth: number
+	const iconOnlyThreshold = 300
 </script>
 
 {#if componentInput.fieldType !== 'any'}
@@ -71,7 +74,7 @@
 						label="Static"
 						value="static"
 						disabled={disableStatic}
-						iconOnly={clientWidth < 250}
+						iconOnly={clientWidth < iconOnlyThreshold}
 						icon={Pen}
 					/>
 				{/if}
@@ -79,21 +82,21 @@
 					<ToggleButton
 						value="connected"
 						icon={Plug2}
-						iconOnly={clientWidth < 250}
+						iconOnly={clientWidth < iconOnlyThreshold}
 						label="Connect"
 					/>
 				{/if}
 				<ToggleButton
 					value="evalv2"
 					icon={FunctionSquare}
-					iconOnly={clientWidth < 250}
+					iconOnly={clientWidth < iconOnlyThreshold}
 					label="Eval"
 				/>
 
 				<ToggleButton
 					value="runnable"
 					icon={Code}
-					iconOnly={clientWidth < 250}
+					iconOnly={clientWidth < iconOnlyThreshold}
 					label="Compute"
 					id="data-source-compute"
 				/>
