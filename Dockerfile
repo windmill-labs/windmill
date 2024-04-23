@@ -19,7 +19,7 @@ ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/backend/sccache
 WORKDIR /windmill
 
 ENV SQLX_OFFLINE=true
-ENV CARGO_INCREMENTAL=1
+# ENV CARGO_INCREMENTAL=1
 
 FROM node:20-alpine as frontend
 
