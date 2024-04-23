@@ -1337,6 +1337,25 @@ async fn accept_invite(
     .await?;
 
     if let Some(r) = r {
+        let already_in_workspace = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
+            &nu.workspace_id,
+            &email,
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+
+        if already_in_workspace {
+            tx.commit().await?;
+            return Ok((
+                StatusCode::CREATED,
+                format!(
+                    "user {} accepted invite to workspace {}",
+                    &email, nu.workspace_id
+                ),
+            ));
+        }
         let username;
         (tx, username) = add_user_to_workspace(
             &nu.workspace_id,
