@@ -29,8 +29,6 @@
 	export let actions: TableAction[] | undefined = undefined
 	let runnableComponent: RunnableComponent | undefined = undefined
 
-	let aggrid: AppAggridExplorerTable | undefined = undefined
-
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
 
@@ -167,21 +165,20 @@
 	bind:result
 	bind:loading
 	bind:runnableComponent
-	render={true}
-	autoRefresh={true}
+	render={false}
+	autoRefresh={false}
 	allowConcurentRequests
 	noInitialize
->
-	<AppAggridExplorerTable
-		bind:this={aggrid}
-		{id}
-		{datasource}
-		{resolvedConfig}
-		{customCss}
-		{outputs}
-		allowDelete={false}
-		{actions}
-		bind:firstRow
-		bind:lastRow
-	/>
-</RunnableWrapper>
+/>
+
+<AppAggridExplorerTable
+	{id}
+	{datasource}
+	{resolvedConfig}
+	{customCss}
+	{outputs}
+	allowDelete={false}
+	{actions}
+	bind:firstRow
+	bind:lastRow
+/>
