@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.313.0](https://github.com/windmill-labs/windmill/compare/v1.312.0...v1.313.0) (2024-04-23)
+
+
+### Features
+
+* add support for readonly application intent in mssql ([#3591](https://github.com/windmill-labs/windmill/issues/3591)) ([ae7f978](https://github.com/windmill-labs/windmill/commit/ae7f9781806609842b2412751220c888827307bb))
+* update git sync for azure devops service principal ([#3588](https://github.com/windmill-labs/windmill/issues/3588)) ([ff361d9](https://github.com/windmill-labs/windmill/commit/ff361d9026752fab848596dbb684a2f9e12a5823))
+
 ## [1.312.0](https://github.com/windmill-labs/windmill/compare/v1.311.0...v1.312.0) (2024-04-22)
 
 
