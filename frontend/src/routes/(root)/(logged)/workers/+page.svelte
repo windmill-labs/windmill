@@ -65,6 +65,15 @@
 		}
 	}
 
+	let defaultTagPerWorkspace: boolean | undefined = undefined
+	async function loadDefaultTagsPerWorkspace() {
+		try {
+			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
+		} catch (err) {
+			sendUserToast(`Could not load default tag per workspace setting: ${err}`, true)
+		}
+	}
+
 	onMount(() => {
 		intervalId = setInterval(() => {
 			loadWorkers()
@@ -78,6 +87,7 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
+	$: $superadmin && loadDefaultTagsPerWorkspace()
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -111,7 +121,7 @@
 						}}
 					/>
 				</div>
-				<div><DefaultTags /> </div>
+				<div><DefaultTags bind:defaultTagPerWorkspace /> </div>
 			</div>
 		{/if}
 	</PageHeader>
@@ -180,6 +190,7 @@
 				activeWorkers={worker_group?.[1].flatMap((x) =>
 					x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 				)?.length ?? 0}
+				{defaultTagPerWorkspace}
 			/>
 
 			<DataTable>

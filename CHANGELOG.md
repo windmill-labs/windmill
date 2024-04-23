@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.314.0](https://github.com/windmill-labs/windmill/compare/v1.313.0...v1.314.0) (2024-04-23)
+
+
+### Features
+
+* add label and schedule filters to runs page ([fcff457](https://github.com/windmill-labs/windmill/commit/fcff4574623a8a11932cc343940410ef8c505e0d))
+* ui helper for workspaced worker tags ([#3595](https://github.com/windmill-labs/windmill/issues/3595)) ([0ab3d1b](https://github.com/windmill-labs/windmill/commit/0ab3d1bb8e151db55d3fa3d8f6274ed09528bef6))
+
 ## [1.313.0](https://github.com/windmill-labs/windmill/compare/v1.312.0...v1.313.0) (2024-04-23)
 
 
