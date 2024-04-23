@@ -9,15 +9,7 @@
 	import Toggle from './Toggle.svelte'
 
 	let defaultTags: string[] | undefined = undefined
-	let defaultTagPerWorkspace: boolean | undefined = undefined
-
-	async function loadDefaultTagsPerWorkspace() {
-		try {
-			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
-		} catch (err) {
-			sendUserToast(`Could not load default tag per workspace setting: ${err}`, true)
-		}
-	}
+	export let defaultTagPerWorkspace: boolean | undefined = undefined
 
 	async function loadDefaultTags() {
 		try {
@@ -28,7 +20,6 @@
 	}
 
 	loadDefaultTags()
-	loadDefaultTagsPerWorkspace()
 </script>
 
 <div class="flex flex-col w-80 p-2 gap-2">
