@@ -3493,7 +3493,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
 
-    tracing::error!("the key for {:?} is {:?}", job_id, custom_concurrency_key);
     if let Some(custom_concurrency_key) = custom_concurrency_key {
         sqlx::query!(
             "INSERT INTO custom_concurrency_key(job_id, concurrency_key) VALUES ($1, $2)",
