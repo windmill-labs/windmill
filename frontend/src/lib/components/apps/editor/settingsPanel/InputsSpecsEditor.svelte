@@ -79,6 +79,19 @@
 					</div>{/if}
 			{/if}
 		{/each}
+
+		<!-- Display overriden by component missing -->
+
+		{#if overridenByComponent.length > 0}
+			{#each overridenByComponent.filter((item) => Object.keys(finalInputSpecsConfiguration).indexOf(item) < 0) as k}
+				<div>
+					<span class="text-xs font-semibold truncate text-primary">
+						{k}
+					</span>
+					<div class="text-tertiary text-xs">Managed by the component</div>
+				</div>
+			{/each}
+		{/if}
 	</div>
 {:else}
 	<div class="text-tertiary text-sm">No inputs</div>

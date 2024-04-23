@@ -98,24 +98,6 @@
 					fieldType: 'number'
 				}
 			}
-		} else if (
-			componentType === 'aggridinfinitecomponent' ||
-			componentType === 'aggridinfinitecomponentee'
-		) {
-			const componentOutputs = $worldStore?.outputsById[id]
-
-			if (componentOutputs.params) {
-				newFields['offset'] = {
-					type: 'evalv2',
-					expr: `${id}.params.offset`,
-					fieldType: 'number'
-				}
-				newFields['limit'] = {
-					type: 'evalv2',
-					expr: `${id}.params.limit`,
-					fieldType: 'number'
-				}
-			}
 		}
 	}
 

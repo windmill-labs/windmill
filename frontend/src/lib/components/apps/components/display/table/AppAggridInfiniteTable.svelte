@@ -59,6 +59,16 @@
 		}
 	})
 
+	let aggrid: AppAggridExplorerTable | undefined = undefined
+
+	function clear() {
+		if (componentInput?.type !== 'runnable') {
+			aggrid?.clearRows()
+		}
+	}
+
+	$: result && clear()
+
 	const datasource: IDatasource = {
 		rowCount: undefined,
 
@@ -119,9 +129,6 @@
 			})
 		}
 	}
-
-	let firstRow: number = 0
-	let lastRow: number = 0
 </script>
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
@@ -167,6 +174,5 @@
 	{outputs}
 	allowDelete={false}
 	{actions}
-	bind:firstRow
-	bind:lastRow
+	bind:this={aggrid}
 />

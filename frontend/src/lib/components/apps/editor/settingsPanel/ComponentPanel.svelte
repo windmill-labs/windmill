@@ -320,7 +320,7 @@
 											component.type === 'steppercomponent'}
 										overridenByComponent={component.type === 'aggridinfinitecomponent' ||
 										component.type === 'aggridinfinitecomponentee'
-											? ['offset', 'limit','orderBy','isDesc']
+											? ['offset', 'limit', 'orderBy', 'isDesc']
 											: []}
 									/>
 								</div>

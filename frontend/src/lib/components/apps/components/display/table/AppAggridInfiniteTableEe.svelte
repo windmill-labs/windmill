@@ -17,7 +17,7 @@
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
-	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'aggridinfinitecomponentee'> | undefined = undefined
 	export let actions: TableAction[] = []
 
 	let loaded = false
