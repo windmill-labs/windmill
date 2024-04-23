@@ -391,7 +391,8 @@
 									noInputStyles
 									hideArrow={true}
 									items={workspaces.map((w) => w.id)}
-									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
+									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary ' +
+										(!workspaceTag ? '!border-red-600/60 !dark:border-red-400/70' : '')}
 									dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
 									className="!font-gray-600 !font-primary !bg-surface-primary"
 									create
