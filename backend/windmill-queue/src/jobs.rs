@@ -3084,7 +3084,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(value.clone()),
                 Some(flow_status),
                 None,
-                value.custom_concurrency_key.clone(),
+                value.concurrency_key.clone(),
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
@@ -3136,7 +3136,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 skip_expr: None,
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 early_return: None,
-                custom_concurrency_key: custom_concurrency_key.clone(),
+                concurrency_key: custom_concurrency_key.clone(),
                 priority: priority,
             };
             (
@@ -3173,7 +3173,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
-            let custom_concurrency_key = value.custom_concurrency_key.clone();
+            let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s.clone();
             let concurrent_limit = value.concurrent_limit.clone();
             let status = Some(FlowStatus::new(&value));
@@ -3241,7 +3241,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(raw_flow.clone()),
                 Some(restarted_flow_status),
                 None,
-                raw_flow.custom_concurrency_key,
+                raw_flow.concurrency_key,
                 raw_flow.concurrent_limit,
                 raw_flow.concurrency_time_window_s,
                 raw_flow.cache_ttl.map(|x| x as i32),
@@ -3493,13 +3493,14 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
 
+    tracing::error!("the key for {:?} is {:?}", job_id, custom_concurrency_key);
     if let Some(custom_concurrency_key) = custom_concurrency_key {
         sqlx::query!(
             "INSERT INTO custom_concurrency_key(job_id, concurrency_key) VALUES ($1, $2)",
             job_id,
             custom_concurrency_key
         )
-        .fetch_one(&mut tx)
+        .execute(&mut tx)
         .await
         .map_err(|e| Error::InternalErr(format!("Could not insert custom_concurrency_key={custom_concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}")))?;
     };
