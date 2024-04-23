@@ -11,9 +11,11 @@
 	import Section from '../Section.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { createEventDispatcher } from 'svelte'
 
 	// Filters
 	export let path: string | null = null
+	export let label: string | null = null
 	export let success: 'running' | 'success' | 'failure' | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
@@ -23,7 +25,6 @@
 	export let jobKindsCat: string
 	export let user: string | null = null
 	export let folder: string | null = null
-	export let hideSchedules: boolean | undefined = undefined
 	export let mobile: boolean = false
 
 	// Autocomplete data
@@ -32,10 +33,14 @@
 	export let folders: string[] = []
 	export let allWorkspaces = false
 
+	$: displayedLabel = label
+
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
 
-	export let filterBy: 'path' | 'user' | 'folder' = 'path'
+	export let filterBy: 'path' | 'user' | 'folder' | 'label' = 'path'
+
+	const dispatch = createEventDispatcher()
 
 	let manuallySet = false
 
@@ -49,8 +54,13 @@
 		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
 			manuallySet = true
 			filterBy = 'folder'
+		} else if (label !== null && label !== '' && filterBy !== 'label') {
+			manuallySet = true
+			filterBy = 'label'
 		}
 	}
+
+	let labelTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <div class="flex gap-4">
@@ -75,6 +85,7 @@
 							path = null
 							user = null
 							folder = null
+							label = null
 						} else {
 							manuallySet = false
 						}
@@ -83,6 +94,7 @@
 					<ToggleButton value="path" label="Path" />
 					<ToggleButton value="user" label="User" />
 					<ToggleButton value="folder" label="Folder" />
+					<ToggleButton value="label" label="Label" />
 				</ToggleButtonGroup>
 			</div>
 
@@ -94,6 +106,7 @@
 								class="absolute top-2 right-2 z-50"
 								on:click={() => {
 									user = null
+									dispatch('reset')
 								}}
 							>
 								<X size={14} />
@@ -104,6 +117,12 @@
 
 						<span class="text-xs absolute -top-4">User</span>
 						<AutoComplete
+							create
+							onCreate={(user) => {
+								usernames.push(user)
+								return user
+							}}
+							createText="Press enter to use this value"
 							noInputStyles
 							items={usernames}
 							value={user}
@@ -123,6 +142,7 @@
 								class="absolute top-2 right-2 z-50"
 								on:click={() => {
 									folder = null
+									dispatch('reset')
 								}}
 							>
 								<X size={14} />
@@ -153,6 +173,7 @@
 								class="absolute top-2 right-2 z-50"
 								on:click={() => {
 									path = null
+									dispatch('reset')
 								}}
 							>
 								<X size={14} />
@@ -164,6 +185,12 @@
 						<span class="text-xs absolute -top-4">Path</span>
 
 						<AutoComplete
+							create
+							onCreate={(path) => {
+								paths.push(path)
+								return path
+							}}
+							createText="Press enter to use this value"
 							noInputStyles
 							items={paths}
 							value={path}
@@ -172,6 +199,45 @@
 							hideArrow
 							className={path ? '!font-bold' : ''}
 							dropdownClassName="!font-normal !w-64 !max-w-64"
+						/>
+					</div>
+				{/key}
+			{:else if filterBy === 'label'}
+				{#key label}
+					<div class="relative">
+						{#if label}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									label = null
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+
+						<span class="text-xs absolute -top-4"
+							>Label <Tooltip
+								>Labels are values in the result of completed jobs at key 'wm_label' to easily
+								filter them</Tooltip
+							></span
+						>
+
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedLabel}
+							on:keydown={(e) => {
+								if (labelTimeout) {
+									clearTimeout(labelTimeout)
+								}
+
+								labelTimeout = setTimeout(() => {
+									label = displayedLabel
+								}, 1000)
+							}}
 						/>
 					</div>
 				{/key}
@@ -262,6 +328,7 @@
 									path = null
 									user = null
 									folder = null
+									label = null
 								} else {
 									manuallySet = false
 								}
@@ -409,10 +476,6 @@
 						<Toggle size="xs" bind:checked={isSkipped} />
 						<Tooltip>Skipped flows are flows that did an early break</Tooltip>
 					</div>
-				</Label>
-
-				<Label label="Hide future scheduled jobs from schedules">
-					<Toggle size="xs" bind:checked={hideSchedules} />
 				</Label>
 
 				<span class="text-xs leading-6">

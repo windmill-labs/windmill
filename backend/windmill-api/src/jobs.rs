@@ -585,6 +585,7 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
         result,    
         deleted,    
         is_skipped,
+        result->>'wm_label' as label,
         CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result"
     } else {
         "scheduled_for,  
@@ -779,6 +780,8 @@ pub struct ListableCompletedJob {
     pub tag: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -839,6 +842,7 @@ pub struct ListQueueQuery {
     pub all_workspaces: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub has_null_parent: Option<bool>,
+    pub is_not_schedule: Option<bool>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -941,6 +945,10 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
 
     if lq.scheduled_for_before_now.is_some_and(|x| x) {
         sqlb.and_where_le("scheduled_for", "now()");
+    }
+
+    if lq.is_not_schedule.unwrap_or(false) {
+        sqlb.and_where("schedule_path IS null");
     }
 
     sqlb
@@ -1171,13 +1179,14 @@ async fn list_jobs(
                 "null as concurrent_limit",
                 "null as concurrency_time_window_s",
                 "priority",
+                "result->>'wm_label' as label",
             ],
         ))
     } else {
         None
     };
 
-    let sql = if lq.success.is_none() {
+    let sql = if lq.success.is_none() && lq.label.is_none() {
         let sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery {
@@ -1203,6 +1212,7 @@ async fn list_jobs(
                 all_workspaces: lq.all_workspaces,
                 is_flow_step: lq.is_flow_step,
                 has_null_parent: lq.has_null_parent,
+                is_not_schedule: lq.is_not_schedule,
             },
             &[
                 "'QueuedJob' as typ",
@@ -1236,6 +1246,7 @@ async fn list_jobs(
                 "concurrent_limit",
                 "concurrency_time_window_s",
                 "priority",
+                "null as label",
             ],
         );
 
@@ -1968,6 +1979,7 @@ struct UnifiedJob {
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
     priority: Option<i16>,
+    label: Option<String>,
 }
 
 impl<'a> From<UnifiedJob> for Job {
@@ -2005,6 +2017,7 @@ impl<'a> From<UnifiedJob> for Job {
                 mem_peak: uj.mem_peak,
                 tag: uj.tag,
                 priority: uj.priority,
+                label: uj.label,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -3732,6 +3745,14 @@ fn list_completed_jobs_query(
         sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
     }
 
+    if let Some(label) = &lq.label {
+        sqlb.and_where("result->>'wm_label' = ?".bind(label));
+    }
+
+    if lq.is_not_schedule.unwrap_or(false) {
+        sqlb.and_where("schedule_path IS null");
+    }
+
     sqlb
 }
 #[derive(Deserialize, Clone)]
@@ -3763,6 +3784,8 @@ pub struct ListCompletedQuery {
     pub scheduled_for_before_now: Option<bool>,
     pub all_workspaces: Option<bool>,
     pub has_null_parent: Option<bool>,
+    pub label: Option<String>,
+    pub is_not_schedule: Option<bool>,
 }
 
 async fn list_completed_jobs(
@@ -3810,6 +3833,7 @@ async fn list_completed_jobs(
             "mem_peak",
             "tag",
             "priority",
+            "result->>'wm_label' as label",
             "'CompletedJob' as type",
         ],
     )
