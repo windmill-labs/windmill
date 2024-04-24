@@ -29,6 +29,18 @@
 	export let actions: TableAction[] | undefined = undefined
 	let runnableComponent: RunnableComponent | undefined = undefined
 
+	function clear() {
+		lastComponentInput = componentInput
+
+		setTimeout(() => {
+			aggrid?.clearRows()
+		}, 0)
+	}
+
+	let lastComponentInput = componentInput
+
+	$: JSON.stringify(lastComponentInput) !== JSON.stringify(componentInput) && clear()
+
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
 
@@ -61,14 +73,6 @@
 	})
 
 	let aggrid: AppAggridExplorerTable | undefined = undefined
-
-	function clear() {
-		if (componentInput?.type !== 'runnable') {
-			aggrid?.clearRows()
-		}
-	}
-
-	$: result && clear()
 
 	const datasource: IDatasource = {
 		rowCount: undefined,
