@@ -18,7 +18,7 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
-	import { CheckCircle2, Monitor, Loader2, XCircle } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, XCircle, Monitor } from 'lucide-svelte'
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
@@ -26,7 +26,8 @@
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
-	import Button from '../common/button/Button.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+
 
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
@@ -147,15 +148,10 @@
 										Test to see the result here
 									{/if}
 								</span>
-								<Button
-									href="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-									target="_blank"
-									startIcon={{ icon: Monitor }}
-									color="light"
-									size="xs2"
-								>
-									Rich Display
-								</Button>
+								<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering" icon={Monitor}>
+									The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
+								</Tooltip>
+
 							</div>
 						{/if}
 					</Pane>

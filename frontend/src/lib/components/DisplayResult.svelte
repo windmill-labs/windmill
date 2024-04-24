@@ -27,6 +27,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -304,21 +305,20 @@
 				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
-						<Button
-							href="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-							target="_blank"
-							startIcon={{ icon: Monitor }}
-							color="light"
-							size="xs2"
-						>
-							Rich Display
-						</Button>
+						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering" icon={Monitor} customSize="115%">
+							The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
+						</Tooltip>
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
-							><ClipboardCopy size={16} /></button
-						>
-						<button on:click={jsonViewer.openDrawer}><Expand size={16} /></button>
+							class="-mt-1">
+							<ClipboardCopy size={16} />
+						</button>
+						<button on:click={jsonViewer.openDrawer}
+							class="-mt-1">
+							<Expand size={16} />
+						</button>
 					{/if}
 				</div>
+										
 			</div>{#if !forceJson && resultKind == 'table-col'}
 				{@const data = 'table-col' in result ? result['table-col'] : result}
 				<AutoDataTable objects={transform(data)} />
