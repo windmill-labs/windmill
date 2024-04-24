@@ -98,6 +98,54 @@
 					fieldType: 'number'
 				}
 			}
+		} else if (
+			componentType === 'aggridinfinitecomponent' ||
+			componentType === 'aggridinfinitecomponentee'
+		) {
+			newFields['offset'] = {
+				type: 'evalv2',
+				expr: `${id}.params.offset`,
+				fieldType: 'number'
+			}
+			newFields['limit'] = {
+				type: 'evalv2',
+				expr: `${id}.params.limit`,
+				fieldType: 'number'
+			}
+			newFields['orderBy'] = {
+				type: 'evalv2',
+				expr: `${id}.params.orderBy`,
+				fieldType: 'string'
+			}
+			newFields['isDesc'] = {
+				type: 'evalv2',
+				expr: `${id}.params.isDesc`,
+				fieldType: 'boolean'
+			}
+			newFields['search'] = {
+				type: 'evalv2',
+				expr: `${id}.params.search`,
+				fieldType: 'string'
+			}
+		}
+	}
+
+	function assertConnections(newFields) {
+		if (
+			componentType === 'aggridinfinitecomponent' ||
+			componentType === 'aggridinfinitecomponentee'
+		) {
+			const fields = ['offset', 'limit', 'orderBy', 'isDesc', 'search']
+
+			fields.forEach((field) => {
+				if (newFields[field]?.type !== 'evalv2') {
+					newFields[field] = {
+						type: 'evalv2',
+						expr: `${id}.params.${field}`,
+						fieldType: newFields[field]?.fieldType ?? 'string'
+					}
+				}
+			})
 		}
 	}
 
@@ -111,6 +159,8 @@
 			if (!hadPreviousFields && Object.keys(newFields).length > 0) {
 				preConnect(newFields)
 			}
+
+			assertConnections(newFields)
 
 			if (!deepEqual(newFields, fields)) {
 				fields = newFields

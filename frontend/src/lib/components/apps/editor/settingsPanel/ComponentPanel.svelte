@@ -320,7 +320,7 @@
 											component.type === 'steppercomponent'}
 										overridenByComponent={component.type === 'aggridinfinitecomponent' ||
 										component.type === 'aggridinfinitecomponentee'
-											? ['offset', 'limit', 'orderBy', 'isDesc']
+											? ['offset', 'limit', 'orderBy', 'isDesc', 'search']
 											: []}
 									/>
 								</div>
@@ -373,6 +373,10 @@
 				bind:component={componentSettings.item.data}
 			/>
 		{:else if componentSettings.item.data.type === 'aggridcomponent'}
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+		{:else if componentSettings.item.data.type === 'aggridinfinitecomponent'}
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+		{:else if componentSettings.item.data.type === 'aggridinfinitecomponentee'}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
 		{:else if componentSettings.item.data.type === 'dbexplorercomponent'}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
