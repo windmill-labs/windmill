@@ -2298,7 +2298,7 @@ pub async fn restart_flow(
     check_license_key_valid().await?;
 
     let completed_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT * from completed_job WHERE id = $1 and workspace_id = $2",
+        "SELECT *, result->>'wm_label' as label from completed_job WHERE id = $1 and workspace_id = $2",
     )
     .bind(job_id)
     .bind(&w_id)
