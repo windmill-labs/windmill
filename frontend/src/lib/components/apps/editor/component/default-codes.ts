@@ -154,16 +154,16 @@ LIMIT :limit OFFSET :offset;`,
 SELECT * FROM demo
 WHERE COALESCE(@search, '') = '' OR REGEXP_CONTAINS(CONCAT(CAST(\`col1\` AS STRING),CAST(\`col2\` AS STRING)), '(?i)' || @search)
 LIMIT @limit OFFSET @offset;`,
-		snowflake: `-- ? quicksearch (text)
--- ? quicksearch (text)
--- ? quicksearch (text)
+		snowflake: `-- ? search (text)
+-- ? search (text)
+-- ? search (text)
 
 SELECT * FROM demo 
 WHERE LENGTH(?) = 0 OR CONCAT("ID") ILIKE CONCAT('%', ?, '%') OR CONCAT("NAME") ILIKE CONCAT('%', ?, '%') 
 LIMIT 100 OFFSET 0`,
 		mssql: `-- @p1 limit (int)
 -- @p2 offset (int)
--- @p3 quicksearch (text)
+-- @p3 search (text)
 SELECT * FROM Demo WHERE (@p3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @p3 + '%') 
 ORDER BY col1
 OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
@@ -214,16 +214,16 @@ LIMIT :limit OFFSET :offset;`,
 SELECT * FROM demo
 WHERE COALESCE(@search, '') = '' OR REGEXP_CONTAINS(CONCAT(CAST(\`col1\` AS STRING),CAST(\`col2\` AS STRING)), '(?i)' || @search)
 LIMIT @limit OFFSET @offset;`,
-		snowflake: `-- ? quicksearch (text)
--- ? quicksearch (text)
--- ? quicksearch (text)
+		snowflake: `-- ? search (text)
+-- ? search (text)
+-- ? search (text)
 
 SELECT * FROM demo 
 WHERE LENGTH(?) = 0 OR CONCAT("ID") ILIKE CONCAT('%', ?, '%') OR CONCAT("NAME") ILIKE CONCAT('%', ?, '%') 
 LIMIT 100 OFFSET 0`,
 		mssql: `-- @p1 limit (int)
 -- @p2 offset (int)
--- @p3 quicksearch (text)
+-- @p3 search (text)
 SELECT * FROM Demo WHERE (@p3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @p3 + '%') 
 ORDER BY col1
 OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
