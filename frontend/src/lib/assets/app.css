@@ -17,6 +17,17 @@
 		font-display: swap;
 	}
 
+	.prose-xs ul {
+		margin-top: 0.5rem;
+		list-style-type: '- ';
+		padding-left: 1.5rem;
+	}
+
+	.prose ul {
+		margin-top: 1.5rem;
+		list-style-type: '- ';
+		padding-left: 3rem;
+	}
 	.splitpanes--vertical > .splitpanes__pane {
 		transition: none !important;
 	}
