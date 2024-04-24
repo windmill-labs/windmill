@@ -219,7 +219,7 @@
 
 						<span class="text-xs absolute -top-4"
 							>Label <Tooltip
-								>Labels are values in the result of completed jobs at key 'wm_label' to easily
+								>Labels are string values in the array at the result field 'wm_labels' to easily
 								filter them</Tooltip
 							></span
 						>
