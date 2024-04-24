@@ -3854,7 +3854,7 @@ async fn get_completed_job<'a>(
     let job_o = sqlx::query("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
     CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
-    raw_lock, email, visible_to_owner, mem_peak, tag, priority FROM completed_job WHERE id = $1 AND workspace_id = $2")
+    raw_lock, email, visible_to_owner, mem_peak, tag, priority, result->'wm_labels' as labels FROM completed_job WHERE id = $1 AND workspace_id = $2")
         .bind(id)
         .bind(w_id)
         .fetch_optional(&db)
