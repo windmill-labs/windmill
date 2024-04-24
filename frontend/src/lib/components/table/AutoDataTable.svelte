@@ -1,14 +1,5 @@
 <script lang="ts">
-	import {
-		ArrowDown,
-		ArrowUp,
-		Download,
-		EyeIcon,
-		MoreVertical,
-		MoveVertical,
-		Columns,
-		EyeOff
-	} from 'lucide-svelte'
+	import { ArrowDown, ArrowUp, Download, MoreVertical, MoveVertical, Columns } from 'lucide-svelte'
 	import Dropdown from '../DropdownV2.svelte'
 	import Cell from './Cell.svelte'
 	import DataTable from './DataTable.svelte'
@@ -28,13 +19,35 @@
 	let perPage = 5
 	let search: string = ''
 
-	let nextId = 1
-	$: structuredObjects = objects.map((obj) => {
-		return {
-			_id: nextId++,
-			rowData: { ...obj }
+	$: structuredObjects = computeStructuredObjects(objects)
+
+	let headers: string[] = []
+
+	function computeStructuredObjects(objects: Array<Record<string, any>>) {
+		if (Array.isArray(objects)) {
+			let nextId = 1
+
+			let hds: string[] = []
+			let objs = objects.map((obj) => {
+				let rowData = obj && typeof obj == 'object' ? obj : {}
+				let ks = Object.keys(rowData)
+				ks.forEach((x) => {
+					if (!hds.includes(x)) {
+						hds.push(x)
+					}
+				})
+				return {
+					_id: nextId++,
+					rowData
+				}
+			})
+			headers = hds
+			return objs
+		} else {
+			headers = []
+			return []
 		}
-	})
+	}
 
 	function adjustCurrentPage() {
 		const totalItems = objects.length
@@ -47,24 +60,33 @@
 	$: perPage && adjustCurrentPage()
 
 	$: data = structuredObjects
-		.filter(({ rowData }) =>
-			Object.values(rowData).some((value) =>
-				JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
-			)
+		.filter(
+			({ rowData }) =>
+				search == undefined ||
+				search == '' ||
+				Object.values(rowData).some((value) =>
+					JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
+				)
 		)
 		.sort((a, b) => {
 			if (!activeSorting) return 0
 			const valA = a.rowData[activeSorting.column]
 			const valB = b.rowData[activeSorting.column]
-			if (activeSorting.direction === 'asc') {
+			const isAsc = activeSorting.direction === 'asc'
+			if (valA == undefined || valA == null) {
+				return isAsc ? -1 : 1
+			}
+			if (valB == undefined || valB == null) {
+				return isAsc ? 1 : -1
+			}
+			if (isAsc) {
 				return valA > valB ? 1 : -1
 			} else {
-				return valA < valB ? 1 : -1
+				return valA > valB ? -1 : 1
 			}
 		})
 		.slice((currentPage - 1) * perPage, currentPage * perPage)
 
-	let hiddenColumns = [] as Array<string>
 	let activeSorting:
 		| {
 				column: string
@@ -111,13 +133,11 @@
 	let darkMode = false
 	let wrapperWidth = 0
 
-	function isSortable(key: string) {
-		return (
-			(objects?.[0]?.[key] != undefined && typeof objects[0][key] === 'string') ||
-			typeof objects[0][key] === 'number' ||
-			typeof objects[0][key] === 'boolean'
-		)
-	}
+	// function isSortable(key: string) {
+	// 	let value = objects?.[0]?.[key]
+	// 	let typof = typeof value
+	// 	return (value != undefined && typof === 'string') || typof === 'number' || typof === 'boolean'
+	// }
 
 	function convertJsonToCsv(arr: Array<Record<string, any>>): string {
 		try {
@@ -141,24 +161,6 @@
 					<span class="text-xs text-gray-500 dark:text-gray-200">
 						{pluralize(selection?.length ?? 1, 'item') + ' selected'}
 					</span>
-				{/if}
-				{#if hiddenColumns.length > 0}
-					<div class="flex flex-row gap-2 justify-center items-center mx-2">
-						<span class="text-xs text-gray-500 dark:text-gray-200" />
-						<Button
-							size="xs2"
-							color="light"
-							variant="border"
-							on:click={() => {
-								hiddenColumns = []
-							}}
-							startIcon={{
-								icon: Columns
-							}}
-						>
-							Display hidden columns ({pluralize(hiddenColumns?.length ?? 1, 'column')})
-						</Button>
-					</div>
 				{/if}
 			</div>
 			<div class="flex flex-row items-center gap-2">
@@ -224,16 +226,6 @@
 							}
 						]
 
-						if (hiddenColumns.length > 0) {
-							actions.push({
-								displayName: 'Display hidden columns',
-								icon: EyeIcon,
-								action: () => {
-									hiddenColumns = []
-								}
-							})
-						}
-
 						if (selection.length > 0) {
 							actions.push({
 								displayName: 'Clear selection',
@@ -288,64 +280,38 @@
 							<Cell head first={true} last={false}>
 								<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
 							</Cell>
-							{#each Object.keys(data?.[0]?.rowData ?? {}) ?? [] as key, index}
-								<Cell head last={index == Object.keys(objects?.[0] ?? {}).length - 1}>
+							{#each headers ?? [] as key, index}
+								<Cell head last={index == headers.length - 1}>
 									<div class="flex flex-row gap-1 items-center">
 										{key}
-										{#if hiddenColumns.includes(key)}
+										{#if activeSorting?.column === key}
 											<button
 												class="p-1 w-6 h-6 flex justify-center items-center"
 												on:click={() => {
-													hiddenColumns = hiddenColumns.filter((col) => col !== key)
+													activeSorting = {
+														column: key,
+														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+													}
 												}}
 											>
-												<EyeOff size="16" class="hover:text-gray-600 text-gray-400 rounded-full " />
+												{#if activeSorting?.direction == 'asc'}
+													<ArrowDown size="16" />
+												{:else}
+													<ArrowUp size="16" />
+												{/if}
 											</button>
 										{:else}
 											<button
 												class="p-1 w-6 h-6 flex justify-center items-center"
 												on:click={() => {
-													hiddenColumns = [...hiddenColumns, key]
+													activeSorting = {
+														column: key,
+														direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
+													}
 												}}
 											>
-												<EyeIcon
-													size="16"
-													class="hover:text-gray-600 text-gray-400 rounded-full "
-												/>
+												<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
 											</button>
-										{/if}
-										{#if isSortable(key)}
-											{#if activeSorting?.column === key}
-												<button
-													class="p-1 w-6 h-6 flex justify-center items-center"
-													on:click={() => {
-														activeSorting = {
-															column: key,
-															direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-														}
-													}}
-													disabled={hiddenColumns.includes(key)}
-												>
-													{#if activeSorting?.direction == 'asc'}
-														<ArrowDown size="16" />
-													{:else}
-														<ArrowUp size="16" />
-													{/if}
-												</button>
-											{:else}
-												<button
-													class="p-1 w-6 h-6 flex justify-center items-center"
-													on:click={() => {
-														activeSorting = {
-															column: key,
-															direction: activeSorting?.direction == 'asc' ? 'desc' : 'asc'
-														}
-													}}
-													disabled={hiddenColumns.includes(key)}
-												>
-													<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
-												</button>
-											{/if}
 										{/if}
 									</div>
 								</Cell>
@@ -363,12 +329,10 @@
 										on:change={() => handleCheckboxChange(_id)}
 									/>
 								</Cell>
-								{#each Object.keys(data?.[0]?.rowData ?? {}) ?? [] as key, index}
+								{#each headers as key, index}
 									{@const value = rowData[key]}
 									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
-										{#if hiddenColumns.includes(key)}
-											...
-										{:else if Array.isArray(value) && value.length === 0}
+										{#if Array.isArray(value) && value.length === 0}
 											<div />
 										{:else if Array.isArray(value) && typeof value?.[0] === 'string'}
 											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
