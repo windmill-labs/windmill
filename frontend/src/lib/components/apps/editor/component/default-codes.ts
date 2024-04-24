@@ -12,7 +12,21 @@ export function defaultCode(component: string, language: string): string | undef
 export const DEFAULT_CODES: Partial<
 	Record<
 		AppComponent['type'],
-		Partial<Record<'deno' | 'python3' | 'go' | 'bash' | 'pgsql' | 'mysql' | 'postgresql', string>>
+		Partial<
+			Record<
+				| 'deno'
+				| 'python3'
+				| 'go'
+				| 'bash'
+				| 'pgsql'
+				| 'mysql'
+				| 'postgresql'
+				| 'snowflake'
+				| 'mssql'
+				| 'bigquery',
+				string
+			>
+		>
 	>
 > = {
 	tablecomponent: {
@@ -125,8 +139,34 @@ return [
 		postgresql: `-- $1 limit
 -- $2 offset
 -- $3 search
-SELECT * FROM demo WHERE id ILIKE '%' || $3 || '%'LIMIT $1::INT OFFSET $2::INT;
-`
+SELECT * FROM demo 
+WHERE COALESCE($3, '') = '' OR CONCAT(col1, col2) ILIKE '%' || $3::text || '%' 
+LIMIT $1::INT OFFSET $2::INT;`,
+		mysql: `-- :limit (int)
+-- :offset (int)
+-- :search (string)
+SELECT * FROM demo
+WHERE COALESCE(:search, '') = '' OR CONCAT(col1, col2) LIKE CONCAT('%', :search, '%')
+LIMIT :limit OFFSET :offset;`,
+		bigquery: `-- @limit (integer)
+-- @offset (integer)
+-- @search (string)
+SELECT * FROM demo
+WHERE COALESCE(@search, '') = '' OR REGEXP_CONTAINS(CONCAT(CAST(\`col1\` AS STRING),CAST(\`col2\` AS STRING)), '(?i)' || @search)
+LIMIT @limit OFFSET @offset;`,
+		snowflake: `-- ? search (text)
+-- ? search (text)
+-- ? search (text)
+
+SELECT * FROM demo 
+WHERE LENGTH(?) = 0 OR CONCAT("ID") ILIKE CONCAT('%', ?, '%') OR CONCAT("NAME") ILIKE CONCAT('%', ?, '%') 
+LIMIT 100 OFFSET 0`,
+		mssql: `-- @p1 limit (int)
+-- @p2 offset (int)
+-- @p3 search (text)
+SELECT * FROM Demo WHERE (@p3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @p3 + '%') 
+ORDER BY col1
+OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
 	},
 	aggridinfinitecomponentee: {
 		deno: `export async function main(offset: number, limit:number, orderBy: string, isDesc: boolean) {
@@ -159,8 +199,34 @@ return [
 		postgresql: `-- $1 limit
 -- $2 offset
 -- $3 search
-SELECT * FROM demo WHERE id ILIKE '%' || $3 || '%'LIMIT $1::INT OFFSET $2::INT;
-`
+SELECT * FROM demo 
+WHERE COALESCE($3, '') = '' OR CONCAT(col1, col2) ILIKE '%' || $3::text || '%' 
+LIMIT $1::INT OFFSET $2::INT;`,
+		mysql: `-- :limit (int)
+-- :offset (int)
+-- :search (string)
+SELECT * FROM demo
+WHERE COALESCE(:search, '') = '' OR CONCAT(col1, col2) LIKE CONCAT('%', :search, '%')
+LIMIT :limit OFFSET :offset;`,
+		bigquery: `-- @limit (integer)
+-- @offset (integer)
+-- @search (string)
+SELECT * FROM demo
+WHERE COALESCE(@search, '') = '' OR REGEXP_CONTAINS(CONCAT(CAST(\`col1\` AS STRING),CAST(\`col2\` AS STRING)), '(?i)' || @search)
+LIMIT @limit OFFSET @offset;`,
+		snowflake: `-- ? search (text)
+-- ? search (text)
+-- ? search (text)
+
+SELECT * FROM demo 
+WHERE LENGTH(?) = 0 OR CONCAT("ID") ILIKE CONCAT('%', ?, '%') OR CONCAT("NAME") ILIKE CONCAT('%', ?, '%') 
+LIMIT 100 OFFSET 0`,
+		mssql: `-- @p1 limit (int)
+-- @p2 offset (int)
+-- @p3 search (text)
+SELECT * FROM Demo WHERE (@p3 = '' OR CONCAT([col1], [col2], [col3]) LIKE '%' + @p3 + '%') 
+ORDER BY col1
+OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
 	},
 	textcomponent: {
 		deno: `export async function main() {
