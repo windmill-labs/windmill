@@ -6,15 +6,15 @@
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
-	import { forLater } from '$lib/forLater'
 
 	export let jobs: Job[] | undefined
 	export let user: string | null
+	export let label: string | null
 	export let folder: string | null
 	export let path: string | null
 	export let success: 'success' | 'failure' | 'running' | undefined = undefined
 	export let isSkipped: boolean = false
-	export let hideSchedules: boolean = false
+	export let showSchedules: boolean = false
 	export let argFilter: string | undefined
 	export let resultFilter: string | undefined = undefined
 	export let schedulePath: string | undefined = undefined
@@ -39,12 +39,13 @@
 	$: jobKinds = computeJobKinds(jobKindsCat)
 	$: ($workspaceStore && loadJobsIntern(true)) ||
 		(path &&
+			label &&
 			success &&
 			isSkipped != undefined &&
 			jobKinds &&
 			user &&
 			folder &&
-			hideSchedules != undefined &&
+			showSchedules != undefined &&
 			allWorkspaces != undefined &&
 			argFilter != undefined &&
 			resultFilter != undefined)
@@ -107,6 +108,8 @@
 			running: success == 'running' ? true : undefined,
 			isSkipped: isSkipped ? undefined : false,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			label: label === null || label === '' ? undefined : label,
+			isNotSchedule: showSchedules == false ? true : undefined,
 			args:
 				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
 			result:
@@ -141,12 +144,6 @@
 		try {
 			jobs = await fetchJobs(maxTs, minTs)
 			computeCompletedJobs()
-
-			if (hideSchedules && !schedulePath) {
-				jobs = jobs.filter(
-					(job) => !(job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for))
-				)
-			}
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
 			console.error(JSON.stringify(err))
@@ -215,13 +212,6 @@
 							.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
 						jobs = jobs
 						computeCompletedJobs()
-
-						if (hideSchedules && !schedulePath) {
-							jobs = jobs.filter(
-								(job) =>
-									!(job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for))
-							)
-						}
 					}
 
 					loading = false

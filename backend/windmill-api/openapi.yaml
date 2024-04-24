@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.313.0
+  version: 1.314.0
   title: Windmill API
 
   contact:
@@ -5248,6 +5248,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All queued jobs
@@ -5333,6 +5338,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/Label"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -5362,6 +5368,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All completed jobs
@@ -5381,6 +5392,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/Label"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -5420,6 +5432,11 @@ paths:
             type: boolean
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
           in: query
           schema:
             type: boolean
@@ -8029,6 +8046,12 @@ components:
     CreatedBy:
       name: created_by
       description: mask to filter exact matching user creator
+      in: query
+      schema:
+        type: string
+    Label:
+      name: label
+      description: mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string at key 'wm_label')
       in: query
       schema:
         type: string

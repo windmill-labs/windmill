@@ -14,12 +14,17 @@
 		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
 	}
 
+	let containsLabel = false
 	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
 		const groupedLogs: Record<string, Job[]> = {}
 
 		if (!jobs) return groupedLogs
 
+		let newContainsLabel = false
 		for (const job of jobs) {
+			if (job?.['label'] != undefined) {
+				newContainsLabel = true
+			}
 			const field: string | undefined = getTime(job)
 			if (field) {
 				const date = new Date(field)
@@ -38,6 +43,7 @@
 				groupedLogs[day].push(job)
 			}
 		}
+		containsLabel = newContainsLabel
 
 		for (const day in groupedLogs) {
 			groupedLogs[day].sort((a, b) => {
@@ -143,6 +149,9 @@
 		>
 		<div class="w-4/12 text-xs font-semibold">Timestamp</div>
 		<div class="w-4/12 text-xs font-semibold">Path</div>
+		{#if containsLabel}
+			<div class="w-3/12 text-xs font-semibold">Label</div>
+		{/if}
 		<div class="w-3/12 text-xs font-semibold">Triggered by</div>
 	</div>
 
@@ -165,6 +174,7 @@
 					{:else}
 						<div class="flex flex-row items-center h-full w-full">
 							<RunRow
+								{containsLabel}
 								job={jobOrDate.job}
 								{selectedId}
 								on:select={() => {
@@ -172,6 +182,7 @@
 									selectedId = jobOrDate.job.id
 									dispatch('select')
 								}}
+								on:filterByLabel
 								on:filterByPath
 								on:filterByUser
 								on:filterByFolder
