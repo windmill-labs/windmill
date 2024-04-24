@@ -29,7 +29,7 @@
 					{/each}
 				</div>
 			</div>
-		{:else if gridItem?.data?.type === 'aggridcomponent' || gridItem?.data?.type === 'aggridcomponentee' || gridItem?.data?.type === 'dbexplorercomponent'}
+		{:else if gridItem?.data?.type === 'aggridcomponent' || gridItem?.data?.type === 'aggridcomponentee' || gridItem?.data?.type === 'dbexplorercomponent' || gridItem?.data?.type === 'aggridinfinitecomponent' || gridItem?.data?.type === 'aggridinfinitecomponentee'}
 			<div>
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 				<div class="ml-4 mt-4">

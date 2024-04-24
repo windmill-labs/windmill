@@ -143,6 +143,7 @@
 	}
 
 	$: searchValue !== undefined && updateSearchInOutputs()
+	let previousResult: any[] = result ?? []
 </script>
 
 {#each Object.keys(components['aggridinfinitecomponent'].initialData.configuration) as key (key)}
@@ -175,8 +176,14 @@
 	bind:loading
 	bind:runnableComponent
 	{render}
-	autoRefresh={true}
+	autoRefresh={false}
 	allowConcurentRequests
+	on:done={() => {
+		if (result && JSON.stringify(previousResult) !== JSON.stringify(result)) {
+			previousResult = result
+			aggrid?.clearRows()
+		}
+	}}
 >
 	<div class="flex flex-col h-full">
 		{#if resolvedConfig.searchEnabled}
