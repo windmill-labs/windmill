@@ -163,7 +163,6 @@
 	{render}
 	autoRefresh={false}
 	allowConcurentRequests
-	noInitialize
 >
 	<AppAggridExplorerTable
 		{id}
