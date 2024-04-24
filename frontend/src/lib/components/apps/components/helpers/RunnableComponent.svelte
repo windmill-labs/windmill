@@ -24,7 +24,7 @@
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
-	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
+	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 
 	// Component props
 	export let id: string

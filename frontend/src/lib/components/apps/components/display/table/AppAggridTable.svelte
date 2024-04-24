@@ -17,7 +17,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
-	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
+	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import './theme/windmill-theme.css'
