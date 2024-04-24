@@ -4,7 +4,7 @@
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { ConfigService } from '$lib/gen'
+	import { ConfigService, WorkspaceService, type Workspace } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -129,6 +129,15 @@
 			}
 		}
 	}
+
+	let workspaceTag = ''
+	export let defaultTagPerWorkspace: boolean | undefined = undefined
+
+	let workspaces: Workspace[] = []
+	async function listWorkspaces() {
+		workspaces = await WorkspaceService.listWorkspacesAsSuperAdmin()
+	}
+	$: $superadmin && listWorkspaces()
 
 	const dispatch = createEventDispatcher()
 
@@ -317,12 +326,21 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTags.concat(nativeTags)
+										nconfig.worker_tags = defaultTagPerWorkspace
+											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+											: defaultTags.concat(nativeTags)
+
 										dirty = true
 									}
 								}}
+								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
-								Reset to all tags <Tooltip>{defaultTags.concat(nativeTags).join(', ')}</Tooltip>
+								Reset to all tags <Tooltip
+									>{(defaultTagPerWorkspace
+										? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+										: defaultTags.concat(nativeTags)
+									).join(', ')}</Tooltip
+								>
 							</Button>
 							<Button
 								variant="contained"
@@ -330,12 +348,20 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTags
+										nconfig.worker_tags = defaultTagPerWorkspace
+											? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+											: defaultTags
 										dirty = true
 									}
 								}}
+								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
-								Reset to all tags minus native ones <Tooltip>{defaultTags.join(', ')}</Tooltip>
+								Reset to all tags minus native ones <Tooltip
+									>{(defaultTagPerWorkspace
+										? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+										: defaultTags
+									).join(', ')}</Tooltip
+								>
 							</Button>
 							<Button
 								variant="contained"
@@ -343,13 +369,37 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = nativeTags
+										nconfig.worker_tags = defaultTagPerWorkspace
+											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+											: nativeTags
 										dirty = true
 									}
 								}}
+								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
-								Reset to native tags <Tooltip>{nativeTags.join(', ')}</Tooltip>
+								Reset to native tags <Tooltip
+									>{(defaultTagPerWorkspace
+										? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+										: nativeTags
+									).join(', ')}</Tooltip
+								>
 							</Button>
+
+							{#if defaultTagPerWorkspace}
+								<AutoComplete
+									bind:selectedItem={workspaceTag}
+									noInputStyles
+									hideArrow={true}
+									items={workspaces.map((w) => w.id)}
+									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary ' +
+										(!workspaceTag ? '!border-red-600/60 !dark:border-red-400/70' : '')}
+									dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
+									className="!font-gray-600 !font-primary !bg-surface-primary"
+									create
+									onCreate={(c) => c}
+									placeholder="Workspace ID"
+								/>
+							{/if}
 						</div>
 						<div class="max-w mt-2 items-center gap-1 pt-2">
 							{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
