@@ -79,9 +79,6 @@
 					</div>{/if}
 			{/if}
 		{/each}
-
-		<!-- Display overriden by component missing -->
-
 		{#if overridenByComponent.length > 0}
 			{#each overridenByComponent.filter((item) => Object.keys(finalInputSpecsConfiguration).indexOf(item) < 0) as k}
 				<div>

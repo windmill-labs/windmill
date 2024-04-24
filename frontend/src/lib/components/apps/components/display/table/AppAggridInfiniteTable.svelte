@@ -160,19 +160,19 @@
 	bind:result
 	bind:loading
 	bind:runnableComponent
-	render={false}
+	{render}
 	autoRefresh={false}
 	allowConcurentRequests
 	noInitialize
-/>
-
-<AppAggridExplorerTable
-	{id}
-	{datasource}
-	{resolvedConfig}
-	{customCss}
-	{outputs}
-	allowDelete={false}
-	{actions}
-	bind:this={aggrid}
-/>
+>
+	<AppAggridExplorerTable
+		{id}
+		{datasource}
+		{resolvedConfig}
+		{customCss}
+		{outputs}
+		allowDelete={false}
+		{actions}
+		bind:this={aggrid}
+	/>
+</RunnableWrapper>

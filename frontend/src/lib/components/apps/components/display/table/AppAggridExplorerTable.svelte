@@ -31,13 +31,11 @@
 		| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
 		| (typeof components)['aggridinfinitecomponentee']['initialData']['configuration']
 	>
-
 	export let datasource: IDatasource
 	export let state: any = undefined
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
 	export let actions: TableAction[] = []
-
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
@@ -240,8 +238,8 @@
 		return r
 	}
 
-	export let firstRow: number = 0
-	export let lastRow: number = 0
+	let firstRow: number = 0
+	let lastRow: number = 0
 
 	function validateColumnDefs(columnDefs: ColumnDef[]): { isValid: boolean; errors: string[] } {
 		let isValid = true
