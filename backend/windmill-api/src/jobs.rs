@@ -3747,6 +3747,7 @@ fn list_completed_jobs_query(
 
     if let Some(label) = &lq.label {
         sqlb.and_where("result->>'wm_label' = ?".bind(label));
+        sqlb.and_where("result ? 'wm_label'");
     }
 
     if lq.is_not_schedule.unwrap_or(false) {

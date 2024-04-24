@@ -93,12 +93,8 @@
 
 			if (componentOutputs.currentStepIndex) {
 				newFields['stepIndex'] = {
-					type: 'connected',
-					connection: {
-						componentId: id,
-						path: 'currentStepIndex'
-					},
-					value: componentOutputs.currentStepIndex.peak(),
+					type: 'evalv2',
+					expr: `${id}.currentStepIndex`,
 					fieldType: 'number'
 				}
 			}

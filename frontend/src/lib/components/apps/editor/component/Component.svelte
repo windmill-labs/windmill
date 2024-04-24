@@ -73,6 +73,8 @@
 	import AppDateSliderInput from '../../components/inputs/AppDateSliderInput.svelte'
 	import AppTimeInput from '../../components/inputs/AppTimeInput.svelte'
 	import AppDateTimeInput from '../../components/inputs/AppDateTimeInput.svelte'
+	import AppAggridInfiniteTable from '../../components/display/table/AppAggridInfiniteTable.svelte'
+	import AppAggridInfiniteTableEe from '../../components/display/table/AppAggridInfiniteTableEe.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -357,6 +359,27 @@
 			/>
 		{:else if component.type === 'aggridcomponentee'}
 			<AppAggridTableEe
+				license={component.license}
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				actions={component.actions ?? []}
+				{render}
+			/>
+		{:else if component.type === 'aggridinfinitecomponent'}
+			<AppAggridInfiniteTable
+				id={component.id}
+				configuration={component.configuration}
+				bind:initializing
+				componentInput={component.componentInput}
+				customCss={component.customCss}
+				actions={component.actions ?? []}
+				{render}
+			/>
+		{:else if component.type === 'aggridinfinitecomponentee'}
+			<AppAggridInfiniteTableEe
 				license={component.license}
 				id={component.id}
 				configuration={component.configuration}

@@ -610,6 +610,8 @@ export const quickStyleProperties: Record<
 	},
 	aggridcomponent: {},
 	aggridcomponentee: {},
+	aggridinfinitecomponent: {},
+	aggridinfinitecomponentee: {},
 	buttoncomponent: {
 		button: buttonDefaultProps,
 		container: containerDefaultProps
