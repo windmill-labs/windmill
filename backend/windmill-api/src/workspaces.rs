@@ -722,6 +722,16 @@ async fn edit_auto_invite(
 
             for user in users_to_auto_add.as_ref().unwrap() {
                 auto_add_user(&user.email, &w_id, &operator, &mut tx).await?;
+                send_email_if_possible(
+                    &format!("Added to Windmill's workspace: {w_id}"),
+                    &format!(
+                        "You have been granted access to Windmill's workspace {w_id} by {email}.
+                        
+                        Access the workspace at {}/?workspace={w_id}",
+                        BASE_URL.read().await.clone()
+                    ),
+                    &user.email,
+                );
             }
         } else {
             sqlx::query!(

@@ -113,6 +113,9 @@
 	}
 
 	let nbInviteDisplayed = 50
+
+	let showInvites = false
+	$: showInvites = invites?.length > 0 || (auto_invite_domain != undefined && !autoAdd)
 </script>
 
 <SearchItems
@@ -146,99 +149,129 @@
 		<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
 		<Search class="absolute left-2" size={14} />
 
-		{#if !isCloudHosted() && invites?.length === 0 && (!auto_invite_domain || autoAdd)}
-			<Popup
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-			>
-				<svelte:fragment slot="button">
-					<Button
-						color={auto_invite_domain != undefined ? 'green' : 'red'}
-						variant="border"
-						size="xs"
-						nonCaptureEvent={true}
-						startIcon={{ icon: Mails }}
-						>Auto-add: {auto_invite_domain != undefined ? 'ON' : 'OFF'}
-					</Button>
-				</svelte:fragment>
-				<div class="flex flex-col items-start">
-					<span class="text-sm leading-6 font-semibold">
-						{isCloudHosted()
-							? `Auto-add anyone from ${
-									auto_invite_domain != undefined ? auto_invite_domain : domain
-							  }`
-							: 'Auto-add anyone joining the instance'}
-					</span>
+		<Popup
+			floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+			containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+		>
+			<svelte:fragment slot="button">
+				<Button
+					color={auto_invite_domain != undefined ? 'green' : 'red'}
+					variant="border"
+					size="xs"
+					nonCaptureEvent={true}
+					startIcon={{ icon: Mails }}
+					>Auto-{showInvites && !autoAdd ? 'invite' : 'add'}: {auto_invite_domain != undefined
+						? 'ON'
+						: 'OFF'}
+				</Button>
+			</svelte:fragment>
+			<div class="flex flex-col items-start">
+				<span class="text-sm leading-6 font-semibold">
+					{isCloudHosted()
+						? `Auto-add anyone from ${
+								auto_invite_domain != undefined ? auto_invite_domain : domain
+						  }`
+						: `Auto-add anyone joining the instance`}
+				</span>
 
+				{#if showInvites}
 					<span class="text-xs mb-1 leading-6 pt-2"
-						>Role <Tooltip>Role of the auto-added users</Tooltip></span
-					>
+						>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
+					</span>
 					<ToggleButtonGroup
-						selected={operatorOnly ? 'operator' : 'developer'}
+						selected={autoAdd ? 'add' : 'invite'}
 						on:selected={async (e) => {
 							if (auto_invite_domain != undefined) {
 								await removeAllInvitesFromDomain()
 								await WorkspaceService.editAutoInvite({
 									workspace: $workspaceStore ?? '',
 									requestBody: {
-										operator: e.detail === 'operator',
+										operator: operatorOnly ?? false,
 										invite_all: !isCloudHosted(),
-										auto_add: true
+										auto_add: e.detail === 'add'
 									}
 								})
 								loadSettings()
 								listInvites()
 								listUsers()
 							} else {
-								operatorOnly = e.detail === 'operator'
+								autoAdd = e.detail === 'add'
 							}
 						}}
 					>
-						<ToggleButton
-							value="operator"
-							size="xs"
-							label="Operator"
-							tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-						/>
-						<ToggleButton
-							value="developer"
-							size="xs"
-							label="Developer"
-							tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-						/>
+						<ToggleButton value="invite" size="xs" label="Auto-invite" />
+						<ToggleButton value="add" size="xs" label="Auto-add" />
 					</ToggleButtonGroup>
-					<div class="pt-2">
-						<Toggle
-							size="xs"
-							checked={auto_invite_domain != undefined}
-							on:change={async (e) => {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: e.detail
-										? {
-												operator: operatorOnly ?? false,
-												invite_all: !isCloudHosted(),
-												auto_add: true
-										  }
-										: { operator: undefined, auto_add: undefined }
-								})
-								loadSettings()
-								listInvites()
-								listUsers()
-							}}
-							disabled={isCloudHosted() && !allowedAutoDomain}
-							options={{
-								right: 'Enabled'
-							}}
-						/>
-					</div>
-					{#if isCloudHosted() && !allowedAutoDomain}
-						<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
-					{/if}
+				{/if}
+
+				<span class="text-xs mb-1 leading-6 pt-2"
+					>Role <Tooltip>Role of the auto-added users</Tooltip></span
+				>
+				<ToggleButtonGroup
+					selected={operatorOnly ? 'operator' : 'developer'}
+					on:selected={async (e) => {
+						if (auto_invite_domain != undefined) {
+							await removeAllInvitesFromDomain()
+							await WorkspaceService.editAutoInvite({
+								workspace: $workspaceStore ?? '',
+								requestBody: {
+									operator: e.detail === 'operator',
+									invite_all: !isCloudHosted(),
+									auto_add: showInvites ? autoAdd ?? false : true
+								}
+							})
+							loadSettings()
+							listInvites()
+							listUsers()
+						} else {
+							operatorOnly = e.detail === 'operator'
+						}
+					}}
+				>
+					<ToggleButton
+						value="operator"
+						size="xs"
+						label="Operator"
+						tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+					/>
+					<ToggleButton
+						value="developer"
+						size="xs"
+						label="Developer"
+						tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+					/>
+				</ToggleButtonGroup>
+				<div class="pt-2">
+					<Toggle
+						size="xs"
+						checked={auto_invite_domain != undefined}
+						on:change={async (e) => {
+							await removeAllInvitesFromDomain()
+							await WorkspaceService.editAutoInvite({
+								workspace: $workspaceStore ?? '',
+								requestBody: e.detail
+									? {
+											operator: operatorOnly ?? false,
+											invite_all: !isCloudHosted(),
+											auto_add: showInvites ? autoAdd ?? false : true
+									  }
+									: { operator: undefined, auto_add: undefined }
+							})
+							loadSettings()
+							listInvites()
+							listUsers()
+						}}
+						disabled={isCloudHosted() && !allowedAutoDomain}
+						options={{
+							right: 'Enabled'
+						}}
+					/>
 				</div>
-			</Popup>
-		{/if}
+				{#if isCloudHosted() && !allowedAutoDomain}
+					<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
+				{/if}
+			</div>
+		</Popup>
 		<AddUser
 			on:new={() => {
 				listUsers()
@@ -404,7 +437,7 @@
 	</DataTable>
 </div>
 
-{#if isCloudHosted() || invites?.length > 0 || (auto_invite_domain != undefined && !autoAdd)}
+{#if showInvites}
 	<PageHeader
 		title="Invites ({invites.length ?? ''})"
 		primary={false}
@@ -412,127 +445,6 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 	>
 		<div class="flex gap-2 items-center">
-			<Popup
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-			>
-				<svelte:fragment slot="button">
-					<Button
-						color={auto_invite_domain != undefined ? 'green' : 'red'}
-						variant="border"
-						size="xs"
-						nonCaptureEvent={true}
-						startIcon={{ icon: Mails }}
-						>Auto-invite: {auto_invite_domain != undefined ? 'ON' : 'OFF'}
-					</Button>
-				</svelte:fragment>
-				<div class="flex flex-col items-start">
-					<!-- <span class="text-xs mb-1 leading-6">Who </span>
-				<span class="text-sm" /> -->
-
-					<span class="text-sm leading-6 font-semibold">
-						{isCloudHosted()
-							? `Auto-invite anyone from ${
-									auto_invite_domain != undefined ? auto_invite_domain : domain
-							  }`
-							: 'Auto-invite anyone joining the instance'}
-					</span>
-					<span class="text-xs mb-1 leading-6 pt-2"
-						>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-					</span>
-					<ToggleButtonGroup
-						selected={autoAdd ? 'add' : 'invite'}
-						on:selected={async (e) => {
-							if (auto_invite_domain != undefined) {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: {
-										operator: operatorOnly ?? false,
-										invite_all: !isCloudHosted(),
-										auto_add: e.detail === 'add'
-									}
-								})
-								loadSettings()
-								listInvites()
-								listUsers()
-							} else {
-								autoAdd = e.detail === 'add'
-							}
-						}}
-					>
-						<ToggleButton value="invite" size="xs" label="Auto-invite" />
-						<ToggleButton value="add" size="xs" label="Auto-add" />
-					</ToggleButtonGroup>
-
-					<span class="text-xs mb-1 leading-6 pt-2"
-						>Role <Tooltip>Role of the auto-invited users</Tooltip></span
-					>
-					<ToggleButtonGroup
-						selected={operatorOnly ? 'operator' : 'developer'}
-						on:selected={async (e) => {
-							if (auto_invite_domain != undefined) {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: {
-										operator: e.detail === 'operator',
-										invite_all: !isCloudHosted(),
-										auto_add: autoAdd ?? false
-									}
-								})
-								loadSettings()
-								listInvites()
-								listUsers()
-							} else {
-								operatorOnly = e.detail === 'operator'
-							}
-						}}
-					>
-						<ToggleButton
-							value="operator"
-							size="xs"
-							label="Operator"
-							tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-						/>
-						<ToggleButton
-							value="developer"
-							size="xs"
-							label="Developer"
-							tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-						/>
-					</ToggleButtonGroup>
-					<div class="pt-2">
-						<Toggle
-							size="xs"
-							checked={auto_invite_domain != undefined}
-							on:change={async (e) => {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: e.detail
-										? {
-												operator: operatorOnly ?? false,
-												invite_all: !isCloudHosted(),
-												auto_add: autoAdd ?? false
-										  }
-										: { operator: undefined, auto_add: undefined }
-								})
-								loadSettings()
-								listInvites()
-								listUsers()
-							}}
-							disabled={isCloudHosted() && !allowedAutoDomain}
-							options={{
-								right: 'Enabled'
-							}}
-						/>
-					</div>
-					{#if isCloudHosted() && !allowedAutoDomain}
-						<div class="text-red-400 text-xs">{domain} domain not allowed for auto-invite</div>
-					{/if}
-				</div>
-			</Popup>
 			<InviteUser on:new={listInvites} />
 		</div>
 	</PageHeader>
