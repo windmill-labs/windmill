@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.316.0](https://github.com/windmill-labs/windmill/compare/v1.315.1...v1.316.0) (2024-04-24)
+
+
+### Features
+
+* **frontend:** add search to AgGrid Infinite ([#3600](https://github.com/windmill-labs/windmill/issues/3600)) ([aece019](https://github.com/windmill-labs/windmill/commit/aece01908ba58b5f2a86f9a1f261ba8c5608e7b5))
+* support multiple labels for jobs (wm_label -&gt; wm_labels) ([0be55ae](https://github.com/windmill-labs/windmill/commit/0be55ae98cd0ef48bb3243c470a53e3305420662))
+
+
+### Bug Fixes
+
+* solve invite add conflict + deprecate invites ([#3594](https://github.com/windmill-labs/windmill/issues/3594)) ([1d3e826](https://github.com/windmill-labs/windmill/commit/1d3e82607a06edaeafa9c27d9675a86a51fe9a8e))
+
 ## [1.315.1](https://github.com/windmill-labs/windmill/compare/v1.315.0...v1.315.1) (2024-04-24)
 
 
