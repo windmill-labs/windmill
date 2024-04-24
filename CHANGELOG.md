@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.317.0](https://github.com/windmill-labs/windmill/compare/v1.316.2...v1.317.0) (2024-04-24)
+
+
+### Features
+
+* add planned later toggle on runs ([cec27a8](https://github.com/windmill-labs/windmill/commit/cec27a87b8abc2b6d3c8d68ca1951d627aa120b2))
+* **frontend:** Aggrid infinite default code ([#3604](https://github.com/windmill-labs/windmill/issues/3604)) ([200a321](https://github.com/windmill-labs/windmill/commit/200a3219751b95464dea21ef110c105d6c61ecdd))
+
+
+### Bug Fixes
+
+* **frontend:** Fix AgGrid infinit clear ([#3607](https://github.com/windmill-labs/windmill/issues/3607)) ([5d48603](https://github.com/windmill-labs/windmill/commit/5d486034db4aee0a3412b231b09fba9d3760d184))
+* improve autodata table ([613bc26](https://github.com/windmill-labs/windmill/commit/613bc267494aef10c2409b784e86895886a0ba50))
+
 ## [1.316.2](https://github.com/windmill-labs/windmill/compare/v1.316.0...v1.316.1) (2024-04-24)
 
 
