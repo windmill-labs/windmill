@@ -110,6 +110,11 @@
 				{#if job?.['duration_ms']}
 					<DurationMs duration_ms={job?.['duration_ms']} />
 				{/if}
+				{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
+					{#each job?.['labels'] as label}
+						<Badge>Label: {label}</Badge>
+					{/each}
+				{/if}
 			</div>
 			<div class="w-1/2 h-full overflow-auto">
 				<JobArgs args={job?.args} />
