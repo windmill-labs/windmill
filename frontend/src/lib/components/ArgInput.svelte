@@ -12,7 +12,6 @@
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
-	import Password from './Password.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import SchemaForm from './SchemaForm.svelte'
@@ -28,6 +27,7 @@
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
 	import autosize from '$lib/autosize'
+	import PasswordArgInput from './PasswordArgInput.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -651,7 +651,7 @@
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
-							<Password {disabled} bind:password={value} />
+							<PasswordArgInput {disabled} bind:value />
 						{:else}
 							{#key extra?.['minRows']}
 								<textarea
