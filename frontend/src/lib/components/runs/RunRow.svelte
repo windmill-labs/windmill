@@ -178,13 +178,16 @@
 	{#if containsLabel}
 		<div class="w-3/12 flex justify-start">
 			{#if job && job?.['labels']}
-				<div class="flex flex-row items-center gap-1">
+				<div class="flex flex-row items-center gap-1 overflow-x-auto">
 					{#if Array.isArray(job?.['labels'])}
 						{#each job?.['labels'] as label}
 							<Button
 								variant="border"
 								size="xs2"
-								btnClasses={activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : undefined}
+								btnClasses={twMerge(
+									activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+									'!text-2xs !font-normal truncate max-w-28'
+								)}
 								color="light"
 								on:click={() => {
 									dispatch('filterByLabel', label)
