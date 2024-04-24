@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.316.1](https://github.com/windmill-labs/windmill/compare/v1.316.0...v1.316.1) (2024-04-24)
+## [1.316.2](https://github.com/windmill-labs/windmill/compare/v1.316.0...v1.316.1) (2024-04-24)
 
 
 ### Bug Fixes
