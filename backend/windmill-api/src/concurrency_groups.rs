@@ -17,12 +17,15 @@ use std::collections::HashMap;
 use windmill_common::error::Error::{InternalErr, PermissionDenied};
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
+#[cfg(feature = "enterprise")]
+use uuid::Uuid;
 
 #[cfg(feature = "enterprise")]
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
         .route("/*id", delete(delete_concurrency_group))
+        .route("/key/*job_id", get(get_concurrency_key))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -122,4 +125,21 @@ async fn delete_concurrency_group(
 
     tx.commit().await?;
     Ok(Json(()))
+}
+
+#[cfg(feature = "enterprise")]
+async fn get_concurrency_key(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> JsonResult<String> {
+    if !authed.is_admin {
+        return Err(PermissionDenied("Only administrators can access concurrency_groups".to_string()))
+    }
+
+    let job = crate::jobs::get_job_internal(&db, &w_id, job_id, true).await?;
+
+
+    let concurrency_key = job.concurrency_key(&db).await?;
+    Ok(Json(concurrency_key))
 }
