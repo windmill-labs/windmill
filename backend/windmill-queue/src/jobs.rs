@@ -1996,12 +1996,12 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
 }
 
 pub async fn custom_concurrency_key(db: &Pool<Postgres>, job_id: Uuid) -> Result<Option<String>, sqlx::Error> {
-    Ok(sqlx::query_scalar!(
+    sqlx::query_scalar!(
         "SELECT concurrency_key FROM custom_concurrency_key WHERE job_id = $1",
         job_id
     )
     .fetch_optional(db)
-    .await?)
+    .await
 }
 
 async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> Result<String, sqlx::Error> {

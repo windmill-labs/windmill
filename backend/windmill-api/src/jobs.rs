@@ -9,6 +9,7 @@
 use axum::body::Body;
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
+use sqlx::Pool;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -73,7 +74,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     add_completed_job_error, append_logs, get_queued_job, get_result_by_id_from_running_flow,
-    job_is_complete, push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel,
+    job_is_complete, push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel, RE_ARG_TAG,
 };
 
 #[cfg(feature = "prometheus")]
@@ -624,7 +625,7 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     {join}
     WHERE id = $1 AND {table}.workspace_id = $2");
 }
-async fn get_job_internal(
+pub async fn get_job_internal(
     db: &DB,
     workspace_id: &str,
     job_id: Uuid,
@@ -1990,6 +1991,13 @@ impl Job {
         }
     }
 
+    pub fn is_flow(&self) -> bool {
+        matches!(
+            self.job_kind(),
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow
+        )
+    }
+
     pub fn job_kind(&self) -> &JobKind {
         match self {
             Job::QueuedJob(job) => &job.job_kind,
@@ -2004,6 +2012,75 @@ impl Job {
             Job::CompletedJob(job) => job.id,
             Job::CompletedJobWithFormattedResult(job) => job.cj.id,
         }
+    }
+
+    pub fn workspace_id(&self) -> &String {
+        match self {
+            Job::QueuedJob(job) => &job.workspace_id,
+            Job::CompletedJob(job) => &job.workspace_id,
+            Job::CompletedJobWithFormattedResult(job) => &job.cj.workspace_id,
+        }
+    }
+
+    pub fn script_path(&self) -> &str {
+        match self {
+            Job::QueuedJob(job) => job.script_path.as_ref(),
+            Job::CompletedJob(job) => job.script_path.as_ref(),
+            Job::CompletedJobWithFormattedResult(job) => job.cj.script_path.as_ref(),
+        }
+        .map(String::as_str)
+        .unwrap_or("tmp/main")
+    }
+
+    pub fn args(&self) -> Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>> {
+        match self {
+            Job::QueuedJob(job) => job.args.as_ref(),
+            Job::CompletedJob(job) => job.args.as_ref(),
+            Job::CompletedJobWithFormattedResult(job) => job.cj.args.as_ref(),
+        }
+    }
+
+    pub fn full_path_with_workspace(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.workspace_id(),
+            if self.is_flow() { "flow" } else { "script" },
+            self.script_path(),
+        )
+    }
+
+    pub async fn concurrency_key(&self, db: &Pool<Postgres>) -> Result<String, sqlx::Error> {
+        let concurrency_key = windmill_queue::custom_concurrency_key(db, self.id()).await?;
+        let k = match concurrency_key {
+            Some(custom_concurrency_key) => {
+                let workspaced =
+                    custom_concurrency_key.replace("$workspace", self.workspace_id().as_str());
+                if RE_ARG_TAG.is_match(&workspaced) {
+                    let mut interpolated = workspaced.clone();
+                    for cap in RE_ARG_TAG.captures_iter(&workspaced) {
+                        let arg_name = cap.get(1).unwrap().as_str();
+                        let arg_value = match self.args() {
+                            Some(sqlx::types::Json(args_map_json)) => {
+                                match args_map_json.get(arg_name) {
+                                    Some(arg_value_raw) => {
+                                        serde_json::to_string(arg_value_raw).unwrap_or_default()
+                                    }
+                                    None => "".to_string(),
+                                }
+                            }
+                            None => "".to_string(),
+                        };
+                        interpolated = interpolated
+                            .replace(format!("$args[{}]", arg_name).as_str(), arg_value.as_str());
+                    }
+                    interpolated
+                } else {
+                    workspaced
+                }
+            }
+            None => self.full_path_with_workspace(),
+        };
+        Ok(k)
     }
 }
 
@@ -2487,7 +2564,9 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: job.raw_lock,
-                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id).await.map_err(to_anyhow)?,
+                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id)
+                    .await
+                    .map_err(to_anyhow)?,
                 concurrent_limit: job.concurrent_limit,
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
