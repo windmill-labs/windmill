@@ -55,7 +55,7 @@
 />
 <div class="p-4 flex flex-col gap-2 items-start h-full">
 	{#if job}
-		<div class="flex gap-2">
+		<div class="flex gap-2 flex-wrap">
 			{#if job?.['priority']}
 				<Badge color="red">
 					priority: {job?.['priority']}
@@ -78,6 +78,11 @@
 				<Badge large>
 					Tag: {job.tag}
 				</Badge>
+			{/if}
+			{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
+				{#each job?.['labels'] as label}
+					<Badge baseClass="text-2xs">Label: {label}</Badge>
+				{/each}
 			{/if}
 		</div>
 		<a

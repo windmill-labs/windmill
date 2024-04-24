@@ -590,7 +590,7 @@
 						<Hourglass class="text-tertiary" size={14} />
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
-					<div class="flex flex-row gap-2 items-center">
+					<div class="flex flex-row gap-2 items-center flex-wrap">
 						{#if job.script_hash}
 							<a href="/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
 								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
@@ -624,6 +624,13 @@
 									>
 								</Badge></div
 							>
+						{/if}
+						{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
+							{#each job?.['labels'] as label}
+								<div>
+									<Badge>Label: {label}</Badge>
+								</div>
+							{/each}
 						{/if}
 					</div>
 				{/if}
