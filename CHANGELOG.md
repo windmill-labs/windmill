@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.317.1](https://github.com/windmill-labs/windmill/compare/v1.317.0...v1.317.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* improve list markdown rendering ([8bdebcf](https://github.com/windmill-labs/windmill/commit/8bdebcf2124e79f2044d87c1d0ee8fc7d74a696b))
+
 ## [1.317.0](https://github.com/windmill-labs/windmill/compare/v1.316.2...v1.317.0) (2024-04-24)
 
 
