@@ -27,7 +27,9 @@
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 	export let containerHeight: number | undefined = undefined
 	export let resolvedConfig: InitConfig<
-		(typeof components)['dbexplorercomponent']['initialData']['configuration']
+		| (typeof components)['dbexplorercomponent']['initialData']['configuration']
+		| (typeof components)['aggridinfinitecomponent']['initialData']['configuration']
+		| (typeof components)['aggridinfinitecomponentee']['initialData']['configuration']
 	>
 	export let datasource: IDatasource
 	export let state: any = undefined
@@ -236,8 +238,8 @@
 		return r
 	}
 
-	let firstRow = 0
-	let lastRow = 0
+	let firstRow: number = 0
+	let lastRow: number = 0
 
 	function validateColumnDefs(columnDefs: ColumnDef[]): { isValid: boolean; errors: string[] } {
 		let isValid = true
@@ -431,7 +433,11 @@
 				/>
 			</Popover>
 
-			{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+			{#if datasource?.rowCount}
+				{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+			{:else}
+				{firstRow}{'->'}{lastRow + 1}
+			{/if}
 		</div>
 	</div>
 {:else if resolvedConfig.columnDefs != undefined}

@@ -98,9 +98,11 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'drawercomponent':
 			return [open, close]
 		case 'aggridcomponent':
-			return [getAgGrid, setSelectedIndex]
 		case 'aggridcomponentee':
+		case 'aggridinfinitecomponent':
+		case 'aggridinfinitecomponentee':
 			return [getAgGrid, setSelectedIndex]
+
 		case 's3fileinputcomponent':
 			return [clearFiles]
 		case 'displaycomponent':
