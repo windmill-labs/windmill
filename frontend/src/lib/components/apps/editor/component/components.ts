@@ -797,6 +797,12 @@ const aggridinfinitecomponentconst = {
 				value: false,
 				tooltip:
 					'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
+			},
+			searchEnabled: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+				tooltip: 'Enable search in the table'
 			}
 		},
 		componentInput: {
