@@ -63,7 +63,7 @@ fn replace_import(x: String) -> String {
 }
 
 lazy_static! {
-    static ref RE: Regex = Regex::new(r"^\#\s?(\S+)$").unwrap();
+    static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
 }
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<String> {
