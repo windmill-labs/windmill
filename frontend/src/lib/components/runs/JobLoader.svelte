@@ -14,7 +14,8 @@
 	export let path: string | null
 	export let success: 'success' | 'failure' | 'running' | undefined = undefined
 	export let isSkipped: boolean = false
-	export let showSchedules: boolean = false
+	export let showSchedules: boolean = true
+	export let showFutureJobs: boolean = true
 	export let argFilter: string | undefined
 	export let resultFilter: string | undefined = undefined
 	export let schedulePath: string | undefined = undefined
@@ -45,6 +46,7 @@
 			jobKinds &&
 			user &&
 			folder &&
+			showFutureJobs != undefined &&
 			showSchedules != undefined &&
 			allWorkspaces != undefined &&
 			argFilter != undefined &&
@@ -110,6 +112,7 @@
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			label: label === null || label === '' ? undefined : label,
 			isNotSchedule: showSchedules == false ? true : undefined,
+			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
 			args:
 				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
 			result:
