@@ -143,7 +143,7 @@
 	}
 
 	$: searchValue !== undefined && updateSearchInOutputs()
-	let previousResult: any[] = result ?? []
+	let previousResult: any[] | undefined = undefined
 </script>
 
 {#each Object.keys(components['aggridinfinitecomponent'].initialData.configuration) as key (key)}
