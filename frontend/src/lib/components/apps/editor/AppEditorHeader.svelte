@@ -187,7 +187,9 @@
 					if (
 						(c.type === 'aggridcomponent' ||
 							c.type === 'aggridcomponentee' ||
-							c.type === 'dbexplorercomponent') &&
+							c.type === 'dbexplorercomponent' ||
+							c.type === 'aggridinfinitecomponent' ||
+							c.type === 'aggridinfinitecomponentee') &&
 						Array.isArray(c.actions)
 					) {
 						r.push(...c.actions.map((x) => ({ input: x.componentInput, id: x.id })))

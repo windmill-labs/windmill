@@ -124,7 +124,8 @@ return [
 ]`,
 		postgresql: `-- $1 limit
 -- $2 offset
-SELECT * FROM demo LIMIT $1::INT OFFSET $2::INT;
+-- $3 search
+SELECT * FROM demo WHERE id ILIKE '%' || $3 || '%'LIMIT $1::INT OFFSET $2::INT;
 `
 	},
 	aggridinfinitecomponentee: {
@@ -157,7 +158,8 @@ return [
 ]`,
 		postgresql: `-- $1 limit
 -- $2 offset
-SELECT * FROM demo LIMIT $1::INT OFFSET $2::INT;
+-- $3 search
+SELECT * FROM demo WHERE id ILIKE '%' || $3 || '%'LIMIT $1::INT OFFSET $2::INT;
 `
 	},
 	textcomponent: {

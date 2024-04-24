@@ -32,6 +32,10 @@
 	async function loadDiffEditor() {
 		await initializeVscode()
 
+		if (!diffDivEl) {
+			return
+		}
+
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
 			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
