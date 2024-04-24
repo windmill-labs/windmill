@@ -244,7 +244,7 @@ pub struct CompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub labels: Option<serde_json::Value>,
 }
 
 impl CompletedJob {
