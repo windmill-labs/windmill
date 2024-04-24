@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.315.1](https://github.com/windmill-labs/windmill/compare/v1.315.0...v1.315.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* fix label from completed_job ([534f877](https://github.com/windmill-labs/windmill/commit/534f877a7a9983b1808ce10b7f8fcac1547d7634))
+
+## [1.315.0](https://github.com/windmill-labs/windmill/compare/v1.314.0...v1.315.0) (2024-04-24)
+
+
+### Features
+
+* **frontend:** Aggrid infinite ([#3592](https://github.com/windmill-labs/windmill/issues/3592)) ([7a8ffbe](https://github.com/windmill-labs/windmill/commit/7a8ffbea46e81bfd031e4e064bb96ce41b3a77b3))
+
 ## [1.314.0](https://github.com/windmill-labs/windmill/compare/v1.313.0...v1.314.0) (2024-04-23)
 
 
