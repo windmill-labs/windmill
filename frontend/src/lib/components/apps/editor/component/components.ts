@@ -727,7 +727,7 @@ const aggridcomponentconst = {
 const aggridinfinitecomponentconst = {
 	name: 'AgGrid Infinite Table',
 	icon: Table2,
-	documentationLink: `${documentationBaseUrl}/aggrid_infinite_table`,
+	documentationLink: `${documentationBaseUrl}/aggrid_table#aggrid-infinite-table`,
 	dims: '3:10-6:10' as AppComponentDimensions,
 	customCss: {
 		container: { class: '', style: '' }
