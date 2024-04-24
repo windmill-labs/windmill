@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.315.0](https://github.com/windmill-labs/windmill/compare/v1.314.0...v1.315.0) (2024-04-24)
+
+
+### Features
+
+* **frontend:** Aggrid infinite ([#3592](https://github.com/windmill-labs/windmill/issues/3592)) ([7a8ffbe](https://github.com/windmill-labs/windmill/commit/7a8ffbea46e81bfd031e4e064bb96ce41b3a77b3))
+
 ## [1.314.0](https://github.com/windmill-labs/windmill/compare/v1.313.0...v1.314.0) (2024-04-23)
 
 
