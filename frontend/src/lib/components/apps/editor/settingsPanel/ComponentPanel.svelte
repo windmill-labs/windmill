@@ -377,6 +377,7 @@
 		{:else if componentSettings.item.data.type === 'aggridinfinitecomponent'}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
 		{:else if componentSettings.item.data.type === 'aggridinfinitecomponentee'}
+			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
 		{:else if componentSettings.item.data.type === 'dbexplorercomponent'}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
