@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.316.1](https://github.com/windmill-labs/windmill/compare/v1.316.0...v1.316.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* fix get_completed_job with labels ([963fc3d](https://github.com/windmill-labs/windmill/commit/963fc3deccd89a277e6363283f66d1903a35a031))
+
 ## [1.316.0](https://github.com/windmill-labs/windmill/compare/v1.315.1...v1.316.0) (2024-04-24)
 
 
