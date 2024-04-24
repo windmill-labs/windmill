@@ -8051,7 +8051,7 @@ components:
         type: string
     Label:
       name: label
-      description: mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string at key 'wm_label')
+      description: mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
       in: query
       schema:
         type: string
@@ -8780,6 +8780,10 @@ components:
           type: string
         priority:
           type: integer
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - id
         - created_by

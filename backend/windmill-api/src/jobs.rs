@@ -585,7 +585,7 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
         result,    
         deleted,    
         is_skipped,
-        result->>'wm_label' as label,
+        result->'wm_labels' as labels,
         CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result"
     } else {
         "scheduled_for,  
@@ -781,7 +781,7 @@ pub struct ListableCompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
+    pub labels: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -1179,7 +1179,7 @@ async fn list_jobs(
                 "null as concurrent_limit",
                 "null as concurrency_time_window_s",
                 "priority",
-                "result->>'wm_label' as label",
+                "result->'wm_labels' as labels",
             ],
         ))
     } else {
@@ -1246,7 +1246,7 @@ async fn list_jobs(
                 "concurrent_limit",
                 "concurrency_time_window_s",
                 "priority",
-                "null as label",
+                "null as labels",
             ],
         );
 
@@ -1979,7 +1979,7 @@ struct UnifiedJob {
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
     priority: Option<i16>,
-    label: Option<String>,
+    labels: Option<serde_json::Value>,
 }
 
 impl<'a> From<UnifiedJob> for Job {
@@ -2017,7 +2017,7 @@ impl<'a> From<UnifiedJob> for Job {
                 mem_peak: uj.mem_peak,
                 tag: uj.tag,
                 priority: uj.priority,
-                label: uj.label,
+                labels: uj.labels,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -2298,7 +2298,7 @@ pub async fn restart_flow(
     check_license_key_valid().await?;
 
     let completed_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, result->>'wm_label' as label from completed_job WHERE id = $1 and workspace_id = $2",
+        "SELECT *, result->'wm_labels' as labels from completed_job WHERE id = $1 and workspace_id = $2",
     )
     .bind(job_id)
     .bind(&w_id)
@@ -3746,8 +3746,10 @@ fn list_completed_jobs_query(
     }
 
     if let Some(label) = &lq.label {
-        sqlb.and_where("result->>'wm_label' = ?".bind(label));
-        sqlb.and_where("result ? 'wm_label'");
+        let mut wh = format!("result->'wm_labels' ? ");
+        wh.push_str(&format!("'{}'", &label.replace("'", "''")));
+        sqlb.and_where(&wh);
+        sqlb.and_where("result ? 'wm_labels'");
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
@@ -3834,7 +3836,7 @@ async fn list_completed_jobs(
             "mem_peak",
             "tag",
             "priority",
-            "result->>'wm_label' as label",
+            "result->'wm_labels' as labels",
             "'CompletedJob' as type",
         ],
     )

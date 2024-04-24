@@ -465,6 +465,7 @@
 					{#if jobs}
 						<RunsTable
 							{jobs}
+							activeLabel={label}
 							bind:selectedId
 							bind:selectedWorkspace
 							on:filterByPath={filterByPath}
@@ -629,6 +630,7 @@
 		</div>
 		<div class="grow">
 			<RunsTable
+				activeLabel={label}
 				{jobs}
 				bind:selectedId
 				bind:selectedWorkspace

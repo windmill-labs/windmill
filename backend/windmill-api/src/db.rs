@@ -136,12 +136,13 @@ impl Migrate for CustomMigrator {
                 migration.version,
                 migration.description
             );
-            if migration.version == 20240422144808 {
-                tracing::info!(
-                    "Special migration to add index concurrently on completed_job labels"
-                );
+            if migration.version == 20240424083501 {
+                tracing::info!("Special migration to add index concurrently on job labels 2");
                 sqlx::query!(
-                    "CREATE INDEX CONCURRENTLY labeled_jobs_on_completed_jobs ON completed_job USING GIN ((result -> 'wm_label')) WHERE result ? 'wm_label';"
+                    "DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs"
+                ).execute(&mut *self.inner).await?;
+                sqlx::query!(
+                    "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON completed_job USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_label';"
                 ).execute(&mut *self.inner).await?;
             }
             let r = self.inner.apply(migration).await;
