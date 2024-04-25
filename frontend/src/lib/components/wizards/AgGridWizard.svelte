@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Popup } from '../common'
+	import { Alert, Popup } from '../common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import Label from '../Label.svelte'
@@ -25,6 +25,7 @@
 		headerName: string
 		editable: boolean
 		filter: boolean
+		cellRendererType: 'text' | 'badge' | 'link'
 	}
 
 	export let value: Column | undefined
@@ -81,6 +82,10 @@
 	]
 
 	let renderCount = 0
+
+	$: if (value && value.cellRendererType === null) {
+		value.cellRendererType = 'text'
+	}
 </script>
 
 <Popup
@@ -269,6 +274,28 @@
 			<input type="number" placeholder="row group index" bind:value={value.rowGroupIndex} />
 		</Label>
 		 -->
+
+			<Label label="Type">
+				<select bind:value={value.cellRendererType}>
+					<option value="text">Text</option>
+					<option value="link">Link</option>
+				</select>
+			</Label>
+
+			{#if value.cellRendererType === 'link'}
+				<Alert type="info" title="Label" size="xs">
+					They are two ways to define a link:
+					<ul class="list-disc list-inside">
+						<li>
+							<strong>String</strong>: The string will be used as the link and the label.
+						</li>
+						<li>
+							<strong>Object</strong>: The object must have a <code>href</code> and a
+							<code>label</code> property.
+						</li>
+					</ul>
+				</Alert>
+			{/if}
 		</div>
 	{/if}
 </Popup>
