@@ -10,10 +10,11 @@
 	export let documentationLink: string | undefined = undefined
 	export let small = false
 	export let markdownTooltip: string | undefined = undefined
+	export let customSize: string = '100%';
 	const plugins = [gfmPlugin()]
 </script>
 
-<Popover notClickable {placement} class={wrapperClass}>
+<Popover notClickable {placement} class={wrapperClass} style="transform: scale({parseFloat(customSize) / 100});" >
 	<div
 		class="inline-flex w-3 mx-0.5 {light
 			? 'text-tertiary-inverse'
