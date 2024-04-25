@@ -22,7 +22,7 @@
 	import type { InitConfig } from '$lib/components/apps/editor/appUtils'
 	import { Button } from '$lib/components/common'
 	import { cellRendererFactory, defaultCellRenderer } from './utils'
-	import { Columns, Trash2 } from 'lucide-svelte'
+	import { Download, Trash2 } from 'lucide-svelte'
 	import type { ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -293,6 +293,7 @@
 								rowHeight: 44
 						  }),
 					suppressColumnMoveAnimation: true,
+					suppressDragLeaveHidesColumns: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 					rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 						? resolvedConfig.rowMultiselectWithClick
@@ -380,6 +381,7 @@
 				editable: resolvedConfig?.allEditable,
 				onCellValueChanged
 			},
+			suppressDragLeaveHidesColumns: true,
 			...(resolvedConfig?.wrapActions
 				? {
 						rowHeight: Math.max(44, actions.length * 48)
@@ -428,21 +430,21 @@
 		>
 			<div bind:this={eGui} style:height="100%" />
 		</div>
-		<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
-			<Popover>
-				<svelte:fragment slot="text">Restore columns</svelte:fragment>
-				<Button
-					startIcon={{ icon: Columns }}
-					color="light"
-					size="xs2"
-					on:click={() => {
-						// Restore the columnDefs to the original state
-						restoreColumns()
-					}}
-					iconOnly
-				/>
-			</Popover>
-
+		<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
+			<div>
+				<Popover>
+					<svelte:fragment slot="text">Download</svelte:fragment>
+					<Button
+						startIcon={{ icon: Download }}
+						color="light"
+						size="xs2"
+						on:click={() => {
+							api?.exportDataAsCsv()
+						}}
+						iconOnly
+					/>
+				</Popover>
+			</div>
 			{#if datasource?.rowCount}
 				{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
 			{:else}

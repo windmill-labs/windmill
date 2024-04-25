@@ -78,6 +78,7 @@ const display: ComponentSet = {
 const tables: ComponentSet = {
 	title: 'Tables',
 	components: [
+		'tablecomponent',
 		'aggridcomponent',
 		'aggridcomponentee',
 		'dbexplorercomponent',
@@ -98,3 +99,8 @@ const charts: ComponentSet = {
 } as const
 
 export const COMPONENT_SETS = [layout, tabs, buttons, inputs, tables, display, charts] as const
+
+export const DEPRECATED_COMPONENTS = {
+	tablecomponent:
+		'We will be removing this component in the future. we recommend using the AgGrid table instead.'
+}
