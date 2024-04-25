@@ -1,0 +1,8 @@
+{
+  "name": "@windmill-labs/windmill",
+  "version": "1.317.1",
+  "exports": "./dist/index.ts",
+  "publish": {
+    "exclude": ["!dist"]
+  }
+}
