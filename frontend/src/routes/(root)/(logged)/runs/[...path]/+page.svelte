@@ -30,7 +30,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { Calendar } from 'lucide-svelte'
+	import { Calendar, Clock } from 'lucide-svelte'
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
@@ -51,10 +51,16 @@
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
 
-	let showSchedules: boolean | undefined =
+	let showSchedules: boolean =
 		$page.url.searchParams.get('show_schedules') != undefined
 			? $page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
+			? false
+			: true
+	let showFutureJobs: boolean =
+		$page.url.searchParams.get('show_future_jobs') != undefined
+			? $page.url.searchParams.get('show_future_jobs') == 'true'
+			: localStorage.getItem('show_future_jobs') == 'false'
 			? false
 			: true
 
@@ -98,6 +104,7 @@
 		success !== undefined ||
 		isSkipped ||
 		showSchedules ||
+		showFutureJobs ||
 		argFilter ||
 		resultFilter ||
 		schedulePath ||
@@ -139,6 +146,12 @@
 			searchParams.set('show_schedules', showSchedules.toString())
 		} else {
 			searchParams.delete('show_schedules')
+		}
+
+		if (showFutureJobs) {
+			searchParams.set('show_future_jobs', showFutureJobs.toString())
+		} else {
+			searchParams.delete('show_future_jobs')
 		}
 
 		if (allWorkspaces && $workspaceStore == 'admins') {
@@ -265,6 +278,8 @@
 		folder = null
 		label = e.detail
 	}
+
+	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <JobLoader
@@ -279,6 +294,7 @@
 	{argFilter}
 	{resultFilter}
 	{showSchedules}
+	{showFutureJobs}
 	{schedulePath}
 	{jobKindsCat}
 	computeMinAndMax={manualDatePicker?.computeMinMax}
@@ -394,9 +410,20 @@
 						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
 					}}
 				/>
-				<span class="text-xs absolute -top-4">Jobs from schedules</span>
+				<span class="text-xs absolute -top-4">CRON Schedules</span>
 
 				<Calendar size={16} />
+			</div>
+			<div class="relative flex gap-2 items-center pr-8 w-40">
+				<span class="text-xs absolute -top-4">Planned later</span>
+				<Toggle
+					size="xs"
+					bind:checked={showFutureJobs}
+					on:change={() => {
+						localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
+					}}
+				/>
+				<Clock size={16} />
 			</div>
 			<div class="flex flex-row gap-1 w-full max-w-lg">
 				<div class="relative w-full">
@@ -416,6 +443,10 @@
 							label="Min datetimes"
 							on:change={async ({ detail }) => {
 								minTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
 							}}
 						/>
 					</div>
@@ -433,6 +464,10 @@
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
 							}}
 						/>
 					</div>
@@ -465,6 +500,7 @@
 					{#if jobs}
 						<RunsTable
 							{jobs}
+							activeLabel={label}
 							bind:selectedId
 							bind:selectedWorkspace
 							on:filterByPath={filterByPath}
@@ -554,17 +590,30 @@
 					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
 				>
 			</div>
-			<div class="relative flex gap-2 items-center pr-8 w-40">
-				<Toggle
-					size="xs"
-					bind:checked={showSchedules}
-					on:change={() => {
-						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
-					}}
-				/>
-				<span class="text-xs absolute -top-4">Schedules</span>
+			<div class="flex gap-2 py-1">
+				<div class="relative flex gap-2 items-center pr-8 w-40">
+					<Toggle
+						size="xs"
+						bind:checked={showSchedules}
+						on:change={() => {
+							localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
+						}}
+					/>
+					<span class="text-xs absolute -top-4">Schedules</span>
 
-				<Calendar size={16} />
+					<Calendar size={16} />
+				</div>
+				<div class="relative flex gap-2 items-center pr-8 w-40">
+					<span class="text-xs absolute -top-4">Planned later</span>
+					<Toggle
+						size="xs"
+						bind:checked={showFutureJobs}
+						on:change={() => {
+							localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
+						}}
+					/>
+					<Clock size={16} />
+				</div>
 			</div>
 			<div class="flex flex-row gap-1 w-full max-w-lg items-center">
 				<div class="relative w-full">
@@ -584,6 +633,10 @@
 							label="Min datetimes"
 							on:change={async ({ detail }) => {
 								minTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
 							}}
 						/>
 					</div>
@@ -601,6 +654,10 @@
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
 							}}
 						/>
 					</div>
@@ -629,6 +686,7 @@
 		</div>
 		<div class="grow">
 			<RunsTable
+				activeLabel={label}
 				{jobs}
 				bind:selectedId
 				bind:selectedWorkspace

@@ -294,7 +294,9 @@ export function getAllScriptNames(app: App): string[] {
 		if (
 			gridItem.data.type === 'aggridcomponent' ||
 			gridItem.data.type === 'aggridcomponentee' ||
-			gridItem.data.type === 'dbexplorercomponent'
+			gridItem.data.type === 'dbexplorercomponent' ||
+			gridItem.data.type === 'aggridinfinitecomponent' ||
+			gridItem.data.type === 'aggridinfinitecomponentee'
 		) {
 			gridItem.data.actions?.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {

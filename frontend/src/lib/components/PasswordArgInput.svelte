@@ -1,0 +1,65 @@
+<script lang="ts">
+	import { VariableService } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { generateRandomString } from '$lib/utils'
+	import Password from './Password.svelte'
+
+	export let value: string | undefined = undefined
+	export let disabled: boolean
+
+	let path = ''
+	let password = ''
+
+	async function getPasswordFromValue(value: string | undefined = undefined) {
+		if (value?.startsWith('$var:')) {
+			password = await VariableService.getVariableValue({
+				workspace: $workspaceStore!,
+				path: value.substring(5)
+			})
+		}
+	}
+
+	async function generateValue() {
+		let npath =
+			'u/' + ($userStore?.username ?? $userStore?.email) + '/secret_arg/' + generateRandomString(12)
+		let nvalue = '$var:' + npath
+		await VariableService.createVariable({
+			workspace: $workspaceStore!,
+			requestBody: {
+				value: password,
+				is_secret: true,
+				path: npath,
+				description: ''
+			}
+		})
+		path = npath
+		value = nvalue
+	}
+
+	async function updateValue() {
+		await VariableService.updateVariable({
+			workspace: $workspaceStore!,
+			path: path,
+			requestBody: {
+				value: password
+			}
+		})
+	}
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function debouncedUpdate() {
+		timeout && clearTimeout(timeout)
+		setTimeout(updateValue, 500)
+	}
+
+	$: password && debouncedUpdate()
+
+	$: (value == '' || value == undefined) &&
+		$workspaceStore &&
+		($userStore?.username || $userStore?.email) &&
+		generateValue()
+
+	$: value != '' && value != undefined && getPasswordFromValue(value)
+</script>
+
+<Password {disabled} bind:password />

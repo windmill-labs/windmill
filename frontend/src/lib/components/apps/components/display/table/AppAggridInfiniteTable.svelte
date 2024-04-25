@@ -16,7 +16,7 @@
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import AppAggridExplorerTable from './AppAggridExplorerTable.svelte'
-	import type { RunnableComponent } from '../..'
+	import { DebouncedInput, type RunnableComponent } from '../..'
 	import { getPrimaryKeys } from '../dbtable/utils'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 
@@ -25,9 +25,21 @@
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
-	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'aggridinfinitecomponent'> | undefined = undefined
 	export let actions: TableAction[] | undefined = undefined
 	let runnableComponent: RunnableComponent | undefined = undefined
+
+	function clear() {
+		lastComponentInput = componentInput
+
+		setTimeout(() => {
+			aggrid?.clearRows()
+		}, 0)
+	}
+
+	let lastComponentInput = componentInput
+
+	$: JSON.stringify(lastComponentInput) !== JSON.stringify(componentInput) && clear()
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
@@ -55,19 +67,12 @@
 			offset: 0,
 			limit: 10,
 			orderBy: resolvedConfig.columnDefs?.[0]?.field,
-			isDesc: false
+			isDesc: false,
+			search: ''
 		}
 	})
 
 	let aggrid: AppAggridExplorerTable | undefined = undefined
-
-	function clear() {
-		if (componentInput?.type !== 'runnable') {
-			aggrid?.clearRows()
-		}
-	}
-
-	$: result && clear()
 
 	const datasource: IDatasource = {
 		rowCount: undefined,
@@ -81,7 +86,8 @@
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
 				orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
-				isDesc: params.sortModel?.[0]?.sort === 'desc'
+				isDesc: params.sortModel?.[0]?.sort === 'desc',
+				search: resolvedConfig.searchEnabled ? searchValue : ''
 			}
 
 			outputs.params.set(currentParams)
@@ -129,9 +135,21 @@
 			})
 		}
 	}
+
+	let searchValue: string = ''
+
+	function updateSearchInOutputs() {
+		outputs.params.set({
+			...outputs.params.peak(),
+			search: searchValue
+		})
+		aggrid?.clearRows()
+	}
+
+	$: searchValue !== undefined && updateSearchInOutputs()
 </script>
 
-{#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['aggridinfinitecomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
@@ -161,17 +179,26 @@
 	bind:loading
 	bind:runnableComponent
 	{render}
-	autoRefresh={false}
+	autoRefresh={true}
 	allowConcurentRequests
 >
-	<AppAggridExplorerTable
-		{id}
-		{datasource}
-		{resolvedConfig}
-		{customCss}
-		{outputs}
-		allowDelete={false}
-		{actions}
-		bind:this={aggrid}
-	/>
+	<div class="flex flex-col h-full">
+		{#if resolvedConfig.searchEnabled}
+			<div class="flex flex-row w-full justify-between items-center h-12">
+				<div class="grow max-w-[300px]">
+					<DebouncedInput placeholder="Search..." bind:value={searchValue} parentClass="h-full " />
+				</div>
+			</div>
+		{/if}
+		<AppAggridExplorerTable
+			{id}
+			{datasource}
+			{resolvedConfig}
+			{customCss}
+			{outputs}
+			allowDelete={false}
+			{actions}
+			bind:this={aggrid}
+		/></div
+	>
 </RunnableWrapper>

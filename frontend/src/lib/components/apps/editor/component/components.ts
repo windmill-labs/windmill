@@ -727,7 +727,7 @@ const aggridcomponentconst = {
 const aggridinfinitecomponentconst = {
 	name: 'AgGrid Infinite Table',
 	icon: Table2,
-	documentationLink: `${documentationBaseUrl}/aggrid_infinite_table`,
+	documentationLink: `${documentationBaseUrl}/aggrid_table#aggrid-infinite-table`,
 	dims: '3:10-6:10' as AppComponentDimensions,
 	customCss: {
 		container: { class: '', style: '' }
@@ -797,6 +797,12 @@ const aggridinfinitecomponentconst = {
 				value: false,
 				tooltip:
 					'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
+			},
+			searchEnabled: {
+				type: 'static',
+				fieldType: 'boolean',
+				value: false,
+				tooltip: 'Enable search in the table'
 			}
 		},
 		componentInput: {

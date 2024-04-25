@@ -7,6 +7,7 @@
 
 	export let date: string | undefined
 	export let label: string
+	export let useDropdown: boolean = false
 
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
@@ -33,6 +34,7 @@
 		<div class="pb-1 text-sm text-secondary">{label}</div>
 		<div class="flex w-full">
 			<DateTimeInput
+				{useDropdown}
 				value={date}
 				on:change={(e) => {
 					date = e.detail

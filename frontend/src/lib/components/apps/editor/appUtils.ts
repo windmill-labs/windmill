@@ -76,7 +76,9 @@ export function dfs(
 		} else if (
 			(item.data.type == 'aggridcomponent' ||
 				item.data.type == 'aggridcomponentee' ||
-				item.data.type == 'dbexplorercomponent') &&
+				item.data.type == 'dbexplorercomponent' ||
+				item.data.type == 'aggridinfinitecomponent' ||
+				item.data.type == 'aggridinfinitecomponentee') &&
 			item.data.actions?.find((x) => id == x.id)
 		) {
 			return [item.id, id]
@@ -176,7 +178,9 @@ export function allsubIds(app: App, parentId: string): string[] {
 			if (
 				(item.data.type === 'aggridcomponent' ||
 					item.data.type === 'aggridcomponentee' ||
-					item.data.type === 'dbexplorercomponent') &&
+					item.data.type === 'dbexplorercomponent' ||
+					item.data.type === 'aggridinfinitecomponent' ||
+					item.data.type === 'aggridinfinitecomponentee') &&
 				Array.isArray(item.data.actions)
 			) {
 				subIds.push(...item.data.actions?.map((x) => x.id))
@@ -201,7 +205,9 @@ export function getNextGridItemId(app: App): string {
 		} else if (
 			(x.data.type === 'aggridcomponent' ||
 				x.data.type === 'aggridcomponentee' ||
-				x.data.type === 'dbexplorercomponent') &&
+				x.data.type === 'dbexplorercomponent' ||
+				x.data.type === 'aggridinfinitecomponent' ||
+				x.data.type === 'aggridinfinitecomponentee') &&
 			Array.isArray(x.data.actions)
 		) {
 			return [x.id, ...x.data.actions.map((x) => x.id)]
@@ -446,7 +452,9 @@ export function copyComponent(
 			} else if (
 				item.data.type === 'aggridcomponent' ||
 				item.data.type === 'aggridcomponentee' ||
-				item.data.type === 'dbexplorercomponent'
+				item.data.type === 'dbexplorercomponent' ||
+				item.data.type === 'aggridinfinitecomponent' ||
+				item.data.type === 'aggridinfinitecomponentee'
 			) {
 				return {
 					...item.data,
@@ -503,7 +511,9 @@ export function getAllSubgridsAndComponentIds(
 	if (
 		component.type === 'aggridcomponent' ||
 		component.type === 'aggridcomponentee' ||
-		component.type === 'dbexplorercomponent'
+		component.type === 'dbexplorercomponent' ||
+		component.type === 'aggridinfinitecomponent' ||
+		component.type === 'aggridinfinitecomponentee'
 	) {
 		components.push(...(component.actions?.map((x) => x.id) ?? []))
 	}
@@ -538,7 +548,9 @@ export function getAllGridItems(app: App): GridItem[] {
 			} else if (
 				(x?.data?.type === 'aggridcomponent' ||
 					x?.data?.type === 'aggridcomponentee' ||
-					x?.data?.type === 'dbexplorercomponent') &&
+					x?.data?.type === 'dbexplorercomponent' ||
+					x?.data?.type === 'aggridinfinitecomponent' ||
+					x?.data?.type === 'aggridinfinitecomponentee') &&
 				Array.isArray(x?.data?.actions)
 			) {
 				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]

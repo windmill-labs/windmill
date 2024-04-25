@@ -1026,7 +1026,7 @@ async fn listen_for_uuid_on(
 
 async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
 
-    sqlx::query_as::<_, CompletedJob>("SELECT *, result->>'wm_label' as label FROM completed_job  WHERE id = $1").bind(uuid)
+    sqlx::query_as::<_, CompletedJob>("SELECT *, result->'wm_labels' as labels FROM completed_job  WHERE id = $1").bind(uuid)
         .fetch_one(db)
         .await
         .unwrap()

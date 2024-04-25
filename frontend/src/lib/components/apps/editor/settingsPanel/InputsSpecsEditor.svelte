@@ -5,6 +5,7 @@
 
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import OneOfInputSpecsEditor from './OneOfInputSpecsEditor.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let id: string
 	export let inputSpecs: RichConfigurations
@@ -86,7 +87,13 @@
 					<span class="text-xs font-semibold truncate text-primary">
 						{k}
 					</span>
-					<div class="text-tertiary text-xs">Managed by the component</div>
+					<div class="text-tertiary text-xs">
+						Managed by the component
+						<Tooltip light>
+							The input is managed by the component and cannot be edited here: It will be injected
+							by the component itself.
+						</Tooltip>
+					</div>
 				</div>
 			{/each}
 		{/if}

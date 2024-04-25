@@ -8,6 +8,7 @@
 	export let jobs: Job[] | undefined = undefined
 	export let selectedId: string | undefined = undefined
 	export let selectedWorkspace: string | undefined = undefined
+	export let activeLabel: string | null = null
 	// const loadMoreQuantity: number = 100
 
 	function getTime(job: Job): string | undefined {
@@ -22,7 +23,7 @@
 
 		let newContainsLabel = false
 		for (const job of jobs) {
-			if (job?.['label'] != undefined) {
+			if (job?.['labels'] != undefined) {
 				newContainsLabel = true
 			}
 			const field: string | undefined = getTime(job)
@@ -182,6 +183,7 @@
 									selectedId = jobOrDate.job.id
 									dispatch('select')
 								}}
+								{activeLabel}
 								on:filterByLabel
 								on:filterByPath
 								on:filterByUser

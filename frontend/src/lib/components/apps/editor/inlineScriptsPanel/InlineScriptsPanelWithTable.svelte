@@ -34,7 +34,7 @@
 	{/each}
 {/if}
 
-{#if (gridItem?.data?.type === 'aggridcomponent' || gridItem?.data?.type === 'aggridcomponentee' || gridItem?.data?.type === 'dbexplorercomponent') && Array.isArray(gridItem.data.actions)}
+{#if (gridItem?.data?.type === 'aggridcomponent' || gridItem?.data?.type === 'aggridcomponentee' || gridItem?.data?.type === 'dbexplorercomponent' || gridItem?.data?.type === 'aggridinfinitecomponent' || gridItem?.data?.type === 'aggridinfinitecomponentee') && Array.isArray(gridItem.data.actions)}
 	{#each gridItem.data.actions as actionButton, index (index)}
 		{#if actionButton?.id === $selectedComponentInEditor || actionButton?.id + '_transformer' === $selectedComponentInEditor}
 			<InlineScriptEditorPanel

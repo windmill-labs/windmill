@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.317.1](https://github.com/windmill-labs/windmill/compare/v1.317.0...v1.317.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* improve list markdown rendering ([8bdebcf](https://github.com/windmill-labs/windmill/commit/8bdebcf2124e79f2044d87c1d0ee8fc7d74a696b))
+
+## [1.317.0](https://github.com/windmill-labs/windmill/compare/v1.316.2...v1.317.0) (2024-04-24)
+
+
+### Features
+
+* add planned later toggle on runs ([cec27a8](https://github.com/windmill-labs/windmill/commit/cec27a87b8abc2b6d3c8d68ca1951d627aa120b2))
+* **frontend:** Aggrid infinite default code ([#3604](https://github.com/windmill-labs/windmill/issues/3604)) ([200a321](https://github.com/windmill-labs/windmill/commit/200a3219751b95464dea21ef110c105d6c61ecdd))
+
+
+### Bug Fixes
+
+* **frontend:** Fix AgGrid infinit clear ([#3607](https://github.com/windmill-labs/windmill/issues/3607)) ([5d48603](https://github.com/windmill-labs/windmill/commit/5d486034db4aee0a3412b231b09fba9d3760d184))
+* improve autodata table ([613bc26](https://github.com/windmill-labs/windmill/commit/613bc267494aef10c2409b784e86895886a0ba50))
+
+## [1.316.2](https://github.com/windmill-labs/windmill/compare/v1.316.0...v1.316.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* fix get_completed_job with labels ([963fc3d](https://github.com/windmill-labs/windmill/commit/963fc3deccd89a277e6363283f66d1903a35a031))
+
+## [1.316.0](https://github.com/windmill-labs/windmill/compare/v1.315.1...v1.316.0) (2024-04-24)
+
+
+### Features
+
+* **frontend:** add search to AgGrid Infinite ([#3600](https://github.com/windmill-labs/windmill/issues/3600)) ([aece019](https://github.com/windmill-labs/windmill/commit/aece01908ba58b5f2a86f9a1f261ba8c5608e7b5))
+* support multiple labels for jobs (wm_label -&gt; wm_labels) ([0be55ae](https://github.com/windmill-labs/windmill/commit/0be55ae98cd0ef48bb3243c470a53e3305420662))
+
+
+### Bug Fixes
+
+* solve invite add conflict + deprecate invites ([#3594](https://github.com/windmill-labs/windmill/issues/3594)) ([1d3e826](https://github.com/windmill-labs/windmill/commit/1d3e82607a06edaeafa9c27d9675a86a51fe9a8e))
+
 ## [1.315.1](https://github.com/windmill-labs/windmill/compare/v1.315.0...v1.315.1) (2024-04-24)
 
 
