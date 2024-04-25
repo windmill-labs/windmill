@@ -202,13 +202,13 @@
 									<div class="w-20 relative">
 										{#if DEPRECATED_COMPONENTS[item]}
 											<div
-												class="absolute -top-2 -right-2 text-2xs bg-indigo-100 text-indigo-900 dark:bg-indigo-800 dark:text-indigo-100 py-0.5 px-1 rounded-md flex flex-row gap-1 items-center"
+												class="absolute -top-2 -right-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 rounded-md py-0.5 px-1 flex flex-row gap-1 items-center"
 											>
 												<Popover>
 													<div slot="text">
 														{DEPRECATED_COMPONENTS[item]}
 													</div>
-													Deprecated
+													<div class="font-normal text-2xs"> Deprecated </div>
 												</Popover>
 											</div>
 										{/if}
