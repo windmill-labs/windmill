@@ -16,7 +16,7 @@
 	export let objects: Array<Record<string, any>> = []
 
 	let currentPage = 1
-	let perPage = 5
+	let perPage = 25
 	let search: string = ''
 
 	$: structuredObjects = computeStructuredObjects(objects)
@@ -85,7 +85,8 @@
 				return valA > valB ? -1 : 1
 			}
 		})
-		.slice((currentPage - 1) * perPage, currentPage * perPage)
+
+	$: slicedData = data.slice((currentPage - 1) * perPage, currentPage * perPage)
 
 	let activeSorting:
 		| {
@@ -109,9 +110,9 @@
 
 	// Function to handle select all checkbox change
 	function handleSelectAllChange() {
-		if (selection.length === 0 || selection.length < data.length) {
+		if (selection.length === 0 || selection.length < slicedData.length) {
 			// Select all rows
-			selection = data.map((row) => row._id)
+			selection = slicedData.map((row) => row._id)
 		} else {
 			// Deselect all rows
 			selection = []
@@ -274,6 +275,7 @@
 						currentPage = event.detail
 					}}
 					showNext={currentPage * perPage < objects.length}
+					rowCount={data.length}
 				>
 					<Head>
 						<tr>
@@ -319,7 +321,7 @@
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each data as { _id, rowData }, index (index)}
+						{#each slicedData as { _id, rowData }, index (index)}
 							<Row dividable selected={selection.includes(_id)}>
 								<Cell first={true} last={false} class="w-6">
 									<input

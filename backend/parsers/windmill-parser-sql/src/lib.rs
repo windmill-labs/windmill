@@ -292,22 +292,29 @@ pub fn parse_pg_typ(typ: &str) -> Typ {
         Typ::List(Box::new(base_typ))
     } else {
         match typ {
-            "varchar" => Typ::Str(None),
+            "varchar" | "character varying" => Typ::Str(None),
             "text" => Typ::Str(None),
-            "int" => Typ::Int,
+            "int" | "integer" | "int4" => Typ::Int,
             "bigint" => Typ::Int,
-            "bool" => Typ::Bool,
-            "char" => Typ::Str(None),
-            "smallint" => Typ::Int,
-            "smallserial" => Typ::Int,
-            "serial" => Typ::Int,
-            "bigserial" => Typ::Int,
-            "real" => Typ::Float,
-            "double precision" => Typ::Float,
-            "numeric" => Typ::Float,
-            "decimal" => Typ::Float,
+            "bool" | "boolean" => Typ::Bool,
+            "char" | "character" => Typ::Str(None),
+            "smallint" | "int2" => Typ::Int,
+            "smallserial" | "serial2" => Typ::Int,
+            "serial" | "serial4" => Typ::Int,
+            "bigserial" | "serial8" => Typ::Int,
+            "real" | "float4" => Typ::Float,
+            "double" | "double precision" | "float8" => Typ::Float,
+            "numeric" | "decimal" => Typ::Float,
             "oid" => Typ::Int,
-            "date" | "time" | "timestamp" | "timestamptz" => Typ::Datetime,
+            "date"
+            | "time"
+            | "timetz"
+            | "time with time zone"
+            | "time without time zone"
+            | "timestamp"
+            | "timestamptz"
+            | "timestamp with time zone"
+            | "timestamp without time zone" => Typ::Datetime,
             _ => Typ::Str(None),
         }
     }

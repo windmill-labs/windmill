@@ -109,33 +109,93 @@ export async function main(db: Postgresql) {
 `
 	},
 	aggridinfinitecomponent: {
-		deno: `export async function main(offset: number, limit:number, orderBy: string, isDesc: boolean) {
-    return [
-        {
-            "id": 1,
-            "name": "A cell with a long name",
-            "age": 42
-        },
-        {
-            "id": 2,
-            "name": "A briefer cell",
-            "age": 84
-        }
-    ]
-}`,
-		python3: `def main(offset: int, limit: int, orderBy: str, isDesc: bool):
-return [
-    {
-        "id": 1,
-        "name": "A cell with a long name",
-        "age": 42
-    },
-    {
-        "id": 2,
-        "name": "A briefer cell",
-        "age": 84
+		deno: `type User = {
+    id: number;
+    name: string;
+    email: string;
+    created_at: string;
+    };
+    const GLOBAL_COUNT = 25000;
+
+    function getUsers(limit: number, offset: number): User[] {
+
+    if (offset > GLOBAL_COUNT) {
+        return []
     }
-]`,
+
+    // In this example, we have 25000 users at most
+    return Array.from({ length: offset + limit >= GLOBAL_COUNT ? GLOBAL_COUNT - offset : limit }, (_, index) => ({
+        id: offset + index,
+        name: \`User \${offset + index}\`,
+        email: \`user\${offset + index}@example.com\`,
+        created_at: new Date().toISOString(),
+    }));
+    }
+
+    export async function main(offset: number, limit: number, orderBy: string, isDesc: boolean, search: string): Promise<User[]> {
+    let users = getUsers(limit, offset);
+
+    if (orderBy && Object.keys(users[0]).includes(orderBy)) {
+        users.sort((a, b) => {
+        const aValue = a[orderBy as keyof User];
+        const bValue = b[orderBy as keyof User];
+
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+            return isDesc ? bValue.localeCompare(aValue) : aValue.localeCompare(bValue);
+        }
+        return 0;
+        });
+    }
+
+    if (search) {
+        return users.filter(user =>
+        Object.values(user).some(value =>
+            typeof value === 'string' && value.toLowerCase().includes(search.toLowerCase())
+        )
+        );
+    }
+
+    return users;
+}`,
+		python3: `from datetime import datetime, timezone
+from typing import List
+
+GLOBAL_COUNT = 25000
+
+def get_users(limit: int, offset: int) -> List:
+    if offset > GLOBAL_COUNT:
+        return []
+    else:
+        return [
+            {
+                "id": offset + index,
+                "name": f"User {offset + index}",
+                "email": f"user{offset + index}@example.com",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for index in range(
+                GLOBAL_COUNT - offset if offset + limit >= GLOBAL_COUNT else limit
+            )
+        ]
+
+
+def main(offset: int, limit: int, order_by: str, is_desc: bool, search: str) -> List:
+    users = get_users(limit, offset)
+
+    if order_by:
+        users.sort(key=lambda user: getattr(user, order_by, ""), reverse=is_desc)
+
+    if search:
+        search_lower = search.lower()
+        users = [
+            user
+            for user in users
+            if search_lower in user["name"].lower()
+            or search_lower in user["email"].lower()
+        ]
+
+    return users        
+`,
 		postgresql: `-- $1 limit
 -- $2 offset
 -- $3 search
@@ -169,33 +229,93 @@ ORDER BY col1
 OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
 	},
 	aggridinfinitecomponentee: {
-		deno: `export async function main(offset: number, limit:number, orderBy: string, isDesc: boolean) {
-    return [
-        {
-            "id": 1,
-            "name": "A cell with a long name",
-            "age": 42
-        },
-        {
-            "id": 2,
-            "name": "A briefer cell",
-            "age": 84
-        }
-    ]
-}`,
-		python3: `def main(offset: int, limit: int, orderBy: str, isDesc: bool):
-return [
-    {
-        "id": 1,
-        "name": "A cell with a long name",
-        "age": 42
-    },
-    {
-        "id": 2,
-        "name": "A briefer cell",
-        "age": 84
+		deno: `type User = {
+    id: number;
+    name: string;
+    email: string;
+    created_at: string;
+    };
+    const GLOBAL_COUNT = 25000;
+
+    function getUsers(limit: number, offset: number): User[] {
+
+    if (offset > GLOBAL_COUNT) {
+        return []
     }
-]`,
+
+    // In this example, we have 25000 users at most
+    return Array.from({ length: offset + limit >= GLOBAL_COUNT ? GLOBAL_COUNT - offset : limit }, (_, index) => ({
+        id: offset + index,
+        name: \`User \${offset + index}\`,
+        email: \`user\${offset + index}@example.com\`,
+        created_at: new Date().toISOString(),
+    }));
+    }
+
+    export async function main(offset: number, limit: number, orderBy: string, isDesc: boolean, search: string): Promise<User[]> {
+    let users = getUsers(limit, offset);
+
+    if (orderBy && Object.keys(users[0]).includes(orderBy)) {
+        users.sort((a, b) => {
+        const aValue = a[orderBy as keyof User];
+        const bValue = b[orderBy as keyof User];
+
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+            return isDesc ? bValue.localeCompare(aValue) : aValue.localeCompare(bValue);
+        }
+        return 0;
+        });
+    }
+
+    if (search) {
+        return users.filter(user =>
+        Object.values(user).some(value =>
+            typeof value === 'string' && value.toLowerCase().includes(search.toLowerCase())
+        )
+        );
+    }
+
+    return users;
+        }`,
+		python3: `from datetime import datetime, timezone
+from typing import List
+
+GLOBAL_COUNT = 25000
+
+def get_users(limit: int, offset: int) -> List:
+    if offset > GLOBAL_COUNT:
+        return []
+    else:
+        return [
+            {
+                "id": offset + index,
+                "name": f"User {offset + index}",
+                "email": f"user{offset + index}@example.com",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for index in range(
+                GLOBAL_COUNT - offset if offset + limit >= GLOBAL_COUNT else limit
+            )
+        ]
+
+
+def main(offset: int, limit: int, order_by: str, is_desc: bool, search: str) -> List:
+    users = get_users(limit, offset)
+
+    if order_by:
+        users.sort(key=lambda user: getattr(user, order_by, ""), reverse=is_desc)
+
+    if search:
+        search_lower = search.lower()
+        users = [
+            user
+            for user in users
+            if search_lower in user["name"].lower()
+            or search_lower in user["email"].lower()
+        ]
+
+    return users        
+`,
 		postgresql: `-- $1 limit
 -- $2 offset
 -- $3 search

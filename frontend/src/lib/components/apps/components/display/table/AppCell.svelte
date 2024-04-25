@@ -3,11 +3,7 @@
 	import { createEventDispatcher, tick } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
-
-	type LinkObject = {
-		href: string
-		label: string
-	}
+	import { isLinkObject } from './utils'
 
 	export let type: 'text' | 'badge' | 'link' = 'text'
 	export let value: any
@@ -17,10 +13,6 @@
 	let tempValue = value
 
 	const dispatch = createEventDispatcher()
-
-	function isLinkObject(value: any): value is LinkObject {
-		return value && typeof value === 'object' && 'href' in value && 'label' in value
-	}
 
 	async function toggleEdit() {
 		$isEditable = !$isEditable
