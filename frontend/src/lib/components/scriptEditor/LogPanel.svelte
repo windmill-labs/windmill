@@ -18,7 +18,7 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
-	import { CheckCircle2, Loader2, XCircle, Monitor } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, XCircle } from 'lucide-svelte'
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
@@ -148,7 +148,7 @@
 										Test to see the result here
 									{/if}
 								</span>
-								<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering" icon={Monitor}>
+								<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering">
 									The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
 								</Tooltip>
 

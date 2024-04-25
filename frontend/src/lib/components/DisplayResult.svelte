@@ -11,8 +11,7 @@
 		PanelRightOpen,
 		Table2,
 		Braces,
-		Highlighter,
-		Monitor
+		Highlighter
 	} from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -305,7 +304,7 @@
 				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
-						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering" icon={Monitor} customSize="115%">
+						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering" customSize="115%">
 							The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
 						</Tooltip>
 						<button on:click={() => copyToClipboard(toJsonStr(result))}
