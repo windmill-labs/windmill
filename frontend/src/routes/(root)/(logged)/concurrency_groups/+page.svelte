@@ -73,7 +73,7 @@
 			<ul>
 				{#each selectedGroup?.job_uuids as jobUuid}
 					<li>
-						{jobUuid}
+						<a target="_blank" rel="noreferrer" href="/run/{jobUuid}"> {jobUuid} </a>
 					</li>
 				{/each}
 			</ul>
@@ -100,7 +100,7 @@
 		<div class="relative mb-20 pt-8">
 			<TableCustom>
 				<tr slot="header-row">
-					<th>Concurrency ID</th>
+					<th>Concurrency key</th>
 					<th>Jobs running</th>
 					<th />
 				</tr>

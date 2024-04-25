@@ -7990,6 +7990,22 @@ paths:
               schema:
                 type: object
                 properties: {}
+  /concurrency_groups/w/{workspace}/{id}:
+    get:
+      summary: Get the concurrency key for a job that's active in the concurrency_group
+      operationId: getConcurrencyKey
+      tags:
+        - concurrencyGroups
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: concurrency key returned
+          content:
+            application/json:
+              schema:
+                type: string
 
 components:
   securitySchemes:

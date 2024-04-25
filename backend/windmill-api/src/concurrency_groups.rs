@@ -25,7 +25,7 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
         .route("/*id", delete(delete_concurrency_group))
-        .route("/key/*job_id", get(get_concurrency_key))
+        .route("/w/:workspace_id/:job_id", get(get_concurrency_key))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -133,13 +133,8 @@ async fn get_concurrency_key(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
 ) -> JsonResult<String> {
-    if !authed.is_admin {
-        return Err(PermissionDenied("Only administrators can access concurrency_groups".to_string()))
-    }
 
     let job = crate::jobs::get_job_internal(&db, &w_id, job_id, true).await?;
 
-
-    let concurrency_key = job.concurrency_key(&db).await?;
-    Ok(Json(concurrency_key))
+    Ok(Json(job.concurrency_key(&db).await?))
 }
