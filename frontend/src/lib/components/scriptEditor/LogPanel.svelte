@@ -26,6 +26,8 @@
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+
 
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
@@ -117,31 +119,39 @@
 					<Pane>
 						{#if previewJob != undefined && 'result' in previewJob}
 							<div class="relative w-full h-full p-2">
-								<DisplayResult
-									workspaceId={previewJob?.workspace_id}
-									jobId={previewJob?.id}
-									result={previewJob.result}
-								>
-									<svelte:fragment slot="copilot-fix">
-										{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
-											<ScriptFix
-												error={JSON.stringify(previewJob.result.error)}
-												{lang}
-												{editor}
-												{diffEditor}
-												{args}
-											/>
-										{/if}
-									</svelte:fragment>
-								</DisplayResult>
+								<div class="relative">
+									<DisplayResult
+										workspaceId={previewJob?.workspace_id}
+										jobId={previewJob?.id}
+										result={previewJob.result}
+									>
+										<svelte:fragment slot="copilot-fix">
+											{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
+												<ScriptFix
+													error={JSON.stringify(previewJob.result.error)}
+													{lang}
+													{editor}
+													{diffEditor}
+													{args}
+												/>
+											{/if}
+										</svelte:fragment>
+									</DisplayResult>
+								</div>
 							</div>
 						{:else}
-							<div class="text-sm text-tertiary p-2">
-								{#if previewIsLoading}
-									<Loader2 class="animate-spin" />
-								{:else}
-									Test to see the result here
-								{/if}
+							<div class="text-sm text-tertiary p-2 flex justify-between items-center">
+								<span>
+									{#if previewIsLoading}
+										<Loader2 class="animate-spin" />
+									{:else}
+										Test to see the result here
+									{/if}
+								</span>
+								<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering">
+									The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
+								</Tooltip>
+
 							</div>
 						{/if}
 					</Pane>
