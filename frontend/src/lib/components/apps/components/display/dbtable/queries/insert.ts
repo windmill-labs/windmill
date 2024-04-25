@@ -2,26 +2,12 @@ import type { AppInput } from '$lib/components/apps/inputType'
 import { buildParameters, ColumnIdentity, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
-function mapDataTypeToDbType(dataType: string): string {
-	if (dataType === 'integer') {
-		return 'int'
-	}
-
-	if (dataType === 'boolean') {
-		return 'bool'
-	}
-
-	return dataType
-}
-
 function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: number = 1): string {
 	switch (dbType) {
 		case 'mysql':
 			return columns.map((c) => `:${c.field}`).join(', ')
 		case 'postgresql':
-			return columns
-				.map((c, i) => `$${startIndex + i}::${mapDataTypeToDbType(c.datatype)}`)
-				.join(', ')
+			return columns.map((c, i) => `$${startIndex + i}::${c.datatype}`).join(', ')
 		case 'ms_sql_server':
 			return columns.map((c, i) => `@p${startIndex + i}`).join(', ')
 		case 'snowflake':
