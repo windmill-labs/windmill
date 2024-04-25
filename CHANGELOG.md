@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.318.0](https://github.com/windmill-labs/windmill/compare/v1.317.1...v1.318.0) (2024-04-25)
+
+
+### Features
+
+* app select policy ([#3610](https://github.com/windmill-labs/windmill/issues/3610)) ([c09ae3e](https://github.com/windmill-labs/windmill/commit/c09ae3ebc6eab23434e74aadae887536e8f97c4d))
+
+
+### Bug Fixes
+
+* **frontend:** Improve AgGrid Infinite table default codes + deprecat… ([#3609](https://github.com/windmill-labs/windmill/issues/3609)) ([f26d3e6](https://github.com/windmill-labs/windmill/commit/f26d3e62f6d9b8d80c4e4d555c94b9b213e7c362))
+* support all pg types from db studio ([#3613](https://github.com/windmill-labs/windmill/issues/3613)) ([5def8cb](https://github.com/windmill-labs/windmill/commit/5def8cb52c24b5bf877275964aec35c05c91d7b6))
+
 ## [1.317.1](https://github.com/windmill-labs/windmill/compare/v1.317.0...v1.317.1) (2024-04-24)
 
 
