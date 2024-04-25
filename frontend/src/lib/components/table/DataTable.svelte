@@ -20,7 +20,7 @@
 	export let perPage: number | undefined = undefined
 	export let shouldHidePagination: boolean = false
 	export let noBorder: boolean = false
-	export let rowCount: number
+	export let rowCount: number | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -46,12 +46,15 @@
 			class="bg-surface border-t flex flex-row justify-between p-1 items-center gap-2 sticky bottom-0"
 		>
 			<div>
-				<span class="text-xs mx-2"> {rowCount} items</span>
+				{#if rowCount}
+					<span class="text-xs mx-2"> {rowCount} items</span>
+				{/if}
 			</div>
+
 			<div class="flex flex-row gap-2 items-center">
 				<span class="text-xs">
 					Page: {currentPage}
-					{perPage ? `/ ${Math.ceil(rowCount / perPage)}` : ''}
+					{perPage && rowCount ? `/ ${Math.ceil(rowCount / perPage)}` : ''}
 				</span>
 
 				{#if perPage !== undefined}
