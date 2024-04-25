@@ -82,6 +82,7 @@
 	import { getInsertInput } from '../components/display/dbtable/queries/insert'
 	import { getUpdateInput } from '../components/display/dbtable/queries/update'
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
+	import { collectOneOfFields } from './appUtils'
 
 	async function hash(message) {
 		try {
@@ -267,7 +268,8 @@
 
 		console.log('allTriggers', allTriggers)
 
-		policy.triggerables = Object.fromEntries(
+		delete policy.triggerables
+		policy.triggerables_v2 = Object.fromEntries(
 			allTriggers.filter(Boolean) as [string, Record<string, any>][]
 		)
 	}
@@ -278,15 +280,19 @@
 		fields: Record<string, any>
 	): Promise<[string, Record<string, any>] | undefined> {
 		const staticInputs = collectStaticFields(fields)
+		const oneOfInputs = collectOneOfFields(fields, $app)
 		if (runnable?.type == 'runnableByName') {
 			console.log('processRunnable:content', runnable.inlineScript?.content)
 
 			let hex = await hash(runnable.inlineScript?.content)
 			console.log('hex', hex, id)
-			return [`${id}:rawscript/${hex}`, staticInputs]
+			return [`${id}:rawscript/${hex}`, { static_inputs: staticInputs, one_of_inputs: oneOfInputs }]
 		} else if (runnable?.type == 'runnableByPath') {
 			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
-			return [`${id}:${prefix}/${runnable.path}`, staticInputs]
+			return [
+				`${id}:${prefix}/${runnable.path}`,
+				{ static_inputs: staticInputs, one_of_inputs: oneOfInputs }
+			]
 		}
 	}
 
