@@ -1,5 +1,5 @@
 {
-  "name": "@windmill-labs/windmill",
+  "name": "@windmill/windmill",
   "version": "1.317.1",
   "exports": "./src/index.ts",
   "publish": {
