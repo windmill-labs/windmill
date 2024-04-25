@@ -6,7 +6,8 @@
 		presets as presetsRecord,
 		COMPONENT_SETS,
 		type AppComponent,
-		type TypedComponent
+		type TypedComponent,
+		DEPRECATED_COMPONENTS
 	} from '../component'
 	import ListItem from './ListItem.svelte'
 	import { appComponentFromType, copyComponent, insertNewGridItem } from '../appUtils'
@@ -18,6 +19,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import ComponentsList from './CustomComponentsList.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -149,14 +151,14 @@
 	$: componentsFiltered = COMPONENT_SETS.map((set) => ({
 		...set,
 		components: set.components.filter((component) => {
-			const name = componentsRecord[component].name.toLowerCase();
-			return name.includes(search.toLowerCase().trim());
+			const name = componentsRecord[component].name.toLowerCase()
+			return name.includes(search.toLowerCase().trim())
 		}),
 		presets: set.presets?.filter((preset) => {
-			const presetName = presetsRecord[preset].name.toLowerCase();
-			return presetName.includes(search.toLowerCase().trim());
+			const presetName = presetsRecord[preset].name.toLowerCase()
+			return presetName.includes(search.toLowerCase().trim())
 		})
-	}));
+	}))
 
 	$: {
 		if ($workspaceStore) {
@@ -197,7 +199,19 @@
 						<ListItem title={`${title}`} subtitle={`(${components.length})`}>
 							<div class="flex flex-wrap gap-3 py-2">
 								{#each components as item (item)}
-									<div class="w-20">
+									<div class="w-20 relative">
+										{#if DEPRECATED_COMPONENTS[item]}
+											<div
+												class="absolute -top-2 -right-2 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 rounded-md py-0.5 px-1 flex flex-row gap-1 items-center"
+											>
+												<Popover>
+													<div slot="text">
+														{DEPRECATED_COMPONENTS[item]}
+													</div>
+													<div class="font-normal text-2xs"> Deprecated </div>
+												</Popover>
+											</div>
+										{/if}
 										<button
 											id={item}
 											on:pointerdown={async (e) => {

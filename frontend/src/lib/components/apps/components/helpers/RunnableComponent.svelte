@@ -20,7 +20,7 @@
 	} from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
-	import { selectId } from '../../editor/appUtils'
+	import { collectOneOfFields, selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
@@ -315,10 +315,13 @@
 					}
 				}
 
+				const oneOfRunnableInputs = collectOneOfFields(fields, $app)
+
 				const requestBody = {
 					args: nonStaticRunnableInputs,
 					component: id,
-					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
+					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
+					force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs
 				}
 
 				if (runnable?.type === 'runnableByName') {

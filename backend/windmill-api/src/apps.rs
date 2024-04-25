@@ -143,6 +143,7 @@ pub struct AppHistoryUpdate {
 }
 
 pub type StaticFields = HashMap<String, Box<RawValue>>;
+pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -153,6 +154,12 @@ pub enum ExecutionMode {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PolicyTriggerableInputs {
+    static_inputs: StaticFields,
+    one_of_inputs: OneOfFields,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
     pub on_behalf_of_email: Option<String>,
@@ -160,7 +167,10 @@ pub struct Policy {
     // - script/<path>
     // - flow/<path>
     // - rawscript/<sha256>
-    pub triggerables: HashMap<String, StaticFields>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triggerables: Option<HashMap<String, StaticFields>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
     pub execution_mode: ExecutionMode,
 }
 
@@ -934,6 +944,7 @@ pub struct ExecuteApp {
     pub raw_code: Option<RawCode>,
     // if set, the app is executed as viewer with the given static fields
     pub force_viewer_static_fields: Option<StaticFields>,
+    pub force_viewer_one_of_fields: Option<OneOfFields>,
 }
 
 fn digest(code: &str) -> String {
@@ -966,39 +977,56 @@ async fn execute_component(
 
     let path = path.to_path();
 
-    let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
-        let mut hm = HashMap::new();
+    let policy = match payload.clone() {
+        ExecuteApp {
+            force_viewer_static_fields: Some(static_fields),
+            force_viewer_one_of_fields: Some(one_of_fields),
+            ..
+        } => {
+            let mut hm = HashMap::new();
 
-        if let Some(path) = payload.path.clone() {
-            hm.insert(format!("{}:{path}", payload.component), static_fields);
-        } else {
-            hm.insert(
-                format!(
-                    "{}:{}",
-                    payload.component,
-                    digest(payload.raw_code.clone().unwrap().content.as_str())
-                ),
-                static_fields,
-            );
+            if let Some(path) = payload.path.clone() {
+                hm.insert(
+                    format!("{}:{path}", payload.component),
+                    PolicyTriggerableInputs {
+                        static_inputs: static_fields,
+                        one_of_inputs: one_of_fields,
+                    },
+                );
+            } else {
+                hm.insert(
+                    format!(
+                        "{}:{}",
+                        payload.component,
+                        digest(payload.raw_code.clone().unwrap().content.as_str())
+                    ),
+                    PolicyTriggerableInputs {
+                        static_inputs: static_fields,
+                        one_of_inputs: one_of_fields,
+                    },
+                );
+            }
+            Policy {
+                execution_mode: ExecutionMode::Viewer,
+                triggerables: None,
+                triggerables_v2: Some(hm),
+                on_behalf_of: None,
+                on_behalf_of_email: None,
+            }
         }
-        Policy {
-            execution_mode: ExecutionMode::Viewer,
-            triggerables: hm,
-            on_behalf_of: None,
-            on_behalf_of_email: None,
+        _ => {
+            let policy_o = sqlx::query_scalar!(
+                "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+                path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+
+            let policy = not_found_if_none(policy_o, "App", path)?;
+
+            serde_json::from_value::<Policy>(policy).map_err(to_anyhow)?
         }
-    } else {
-        let policy_o = sqlx::query_scalar!(
-            "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
-            path,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?;
-
-        let policy = not_found_if_none(policy_o, "App", path)?;
-
-        serde_json::from_value::<Policy>(policy).map_err(to_anyhow)?
     };
 
     let (username, permissioned_as, email) = match policy.execution_mode {
@@ -1133,22 +1161,106 @@ fn build_args(
     path: String,
     args: HashMap<String, Box<RawValue>>,
 ) -> Result<PushArgs<HashMap<String, Box<RawValue>>>> {
-    // disallow var and res access in args coming from the user for security reasons
-    let mut safe_args: HashMap<String, Box<RawValue>> = args.clone();
+
+    let key = format!("{}:{}", component, &path);
+    let (static_inputs, one_of_inputs) = match policy {
+        Policy { triggerables_v2: Some(t), .. } => {
+            let PolicyTriggerableInputs { static_inputs, one_of_inputs } = t
+                .get(&key)
+                .or_else(|| t.get(&path))
+                .map(|x| x.clone())
+                .or_else(|| {
+                    if matches!(policy.execution_mode, ExecutionMode::Viewer) {
+                        Some(PolicyTriggerableInputs {
+                            static_inputs: HashMap::new(),
+                            one_of_inputs: HashMap::new(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| {
+                    Error::BadRequest(format!("path {} is not allowed in the app policy", path))
+                })?;
+
+            (static_inputs, one_of_inputs)
+        }
+        Policy { triggerables: Some(t), .. } => {
+            let static_inputs = t
+                .get(&key)
+                .or_else(|| t.get(&path))
+                .map(|x| x.clone())
+                .or_else(|| {
+                    if matches!(policy.execution_mode, ExecutionMode::Viewer) {
+                        Some(HashMap::new())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| {
+                    Error::BadRequest(format!("path {} is not allowed in the app policy", path))
+                })?;
+
+            (static_inputs, HashMap::new())
+        }
+        _ => Err(Error::BadRequest(format!(
+            "Policy is missing triggerables for {}",
+            key
+        )))?,
+    };
+
+    let mut args = args.clone();
+    let mut safe_args = HashMap::<String, Box<RawValue>>::new();
+
+    for (k, v) in one_of_inputs {
+        if let Some(arg_val) = args.get(&k) {
+            let arg_str = arg_val.get();
+
+            let options_str_vec = v.iter().map(|x| x.get()).collect::<Vec<&str>>();
+            if options_str_vec.contains(&arg_str) {
+                safe_args.insert(k.to_string(), arg_val.clone());
+                args.remove(&k);
+                continue;
+            }
+
+            // check if multiselect
+            if let Ok(args_str_vec) = serde_json::from_str::<Vec<Box<RawValue>>>(arg_val.get()) {
+                if args_str_vec
+                    .iter()
+                    .all(|x| options_str_vec.contains(&x.get()))
+                {
+                    safe_args.insert(k.to_string(), arg_val.clone());
+                    args.remove(&k);
+                    continue;
+                }
+            }
+
+            return Err(Error::BadRequest(format!(
+                "argument {} with value {} must be one of [{}]",
+                k,
+                arg_str,
+                options_str_vec.join(",")
+            )));
+        }
+    }
+
     for (k, v) in args {
-        let args_str = serde_json::to_string(&v).unwrap_or_else(|_| "".to_string());
-        if args_str.contains("$var:") || args_str.contains("$res:") {
+        let arg_str = serde_json::to_string(&v).unwrap_or_else(|_| "".to_string());
+
+        if !arg_str.contains("$var:") && !arg_str.contains("$res:") {
+            safe_args.insert(k.to_string(), v);
+        } else {
             safe_args.insert(
                 k.to_string(),
                 RawValue::from_string(
-                    args_str
+                    arg_str
                         .replace(
                             "$var:",
-                            "The following variable has been ommited for security reasons: ",
+                            "The following variable has been omitted for security reasons: ",
                         )
                         .replace(
                             "$res:",
-                            "The following resource has been ommited for security reasons: ",
+                            "The following resource has been omitted for security reasons: ",
                         ),
                 )
                 .map_err(|e| {
@@ -1160,24 +1272,8 @@ fn build_args(
             );
         }
     }
-    let key = format!("{}:{}", component, &path);
-    let static_args = policy
-        .triggerables
-        .get(&key)
-        .or_else(|| policy.triggerables.get(&path))
-        .map(|x| x.clone())
-        .or_else(|| {
-            if matches!(policy.execution_mode, ExecutionMode::Viewer) {
-                Some(HashMap::new())
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| {
-            Error::BadRequest(format!("path {} is not allowed in the app policy", path))
-        })?;
     let mut extra = HashMap::new();
-    for (k, v) in static_args {
+    for (k, v) in static_inputs {
         extra.insert(k.to_string(), v.to_owned());
     }
     Ok(PushArgs { extra, args: sqlx::types::Json(safe_args) })

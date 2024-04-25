@@ -4,6 +4,7 @@
 	export let format: string
 	export let value: any
 	export let disablePortal = false
+	export let unsupported = false
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -33,13 +34,20 @@
 </script>
 
 <div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
-	<LightweightResourcePicker
-		{disablePortal}
-		on:change={(e) => {
-			path = e.detail
-			resourceToValue()
-		}}
-		bind:value={path}
-		resourceType={format.split('-').length > 1 ? format.substring('resource-'.length) : undefined}
-	/>
+	{#if unsupported}
+		<div class=" text-xs text-yellow-600 dark:text-yellow-500">
+			Resource argument is unsupported for security reasons and won't be displayed, use the resource
+			select component instead.
+		</div>
+	{:else}
+		<LightweightResourcePicker
+			{disablePortal}
+			on:change={(e) => {
+				path = e.detail
+				resourceToValue()
+			}}
+			bind:value={path}
+			resourceType={format.split('-').length > 1 ? format.substring('resource-'.length) : undefined}
+		/>
+	{/if}
 </div>
