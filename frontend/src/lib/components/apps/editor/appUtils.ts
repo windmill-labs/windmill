@@ -26,7 +26,8 @@ import type {
 	EvalAppInput,
 	EvalV2AppInput,
 	InputConnectionEval,
-	StaticAppInputOnDemand
+	StaticAppInputOnDemand,
+	AppInputs
 } from '../inputType'
 import { get, type Writable } from 'svelte/store'
 import { deepMergeWithPriority } from '$lib/utils'
@@ -901,4 +902,59 @@ export function recursivelyFilterKeyInJSON(
 		}
 	})
 	return filteredJSON
+}
+
+export function collectOneOfFields(fields: AppInputs, app: App) {
+	return Object.fromEntries(
+		Object.entries(fields ?? {})
+			.filter(([k, v]) => v.type == 'evalv2')
+			.map(([k, v]) => {
+				let field = v as EvalV2AppInput
+				if (field.connections.length !== 1) {
+					return [k, undefined]
+				}
+				const c = field.connections[0]
+
+				const gridItem = findGridItem(app, c.componentId)
+
+				if (field.expr !== c.componentId + '.' + c.id) {
+					return [k, undefined]
+				}
+
+				if (gridItem) {
+					const c = gridItem.data as AppComponent
+					if (
+						c.type == 'resourceselectcomponent' ||
+						c.type === 'selectcomponent' ||
+						c.type === 'multiselectcomponent'
+					) {
+						if (
+							(c.type === 'selectcomponent' || c.type === 'multiselectcomponent') &&
+							c.configuration.create.type === 'static' &&
+							c.configuration.create.value === true
+						) {
+							return [k, undefined]
+						}
+						if (c.configuration.items.type === 'static') {
+							const items = c.configuration.items.value
+							if (items && Array.isArray(items)) {
+								if (c.type === 'multiselectcomponent') {
+									return [k, items]
+								} else {
+									const options = items
+										.filter(
+											(item) => item && typeof item === 'object' && 'value' in item && item.value
+										)
+										.map((item) => item.value)
+
+									return [k, options]
+								}
+							}
+						}
+					}
+				}
+
+				return [k, undefined]
+			})
+	)
 }

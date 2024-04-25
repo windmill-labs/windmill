@@ -2101,6 +2101,7 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'labeledresource',
+					allowTypeChange: false,
 					value: []
 				} as StaticAppInput,
 				placeholder: {

@@ -4907,6 +4907,8 @@ paths:
                     - language
                 force_viewer_static_fields:
                   type: object
+                force_viewer_one_of_fields:
+                  type: object
               required:
                 - args
                 - component
@@ -9881,6 +9883,10 @@ components:
       type: object
       properties:
         triggerables:
+          type: object
+          additionalProperties:
+            type: object
+        triggerables_v2:
           type: object
           additionalProperties:
             type: object
