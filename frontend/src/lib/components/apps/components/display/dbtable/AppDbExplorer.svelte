@@ -39,7 +39,7 @@
 	import { getSelectInput } from './queries/select'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import { CancelablePromise } from '$lib/gen'
-	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
+	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations

@@ -1,5 +1,89 @@
 # Changelog
 
+## [1.317.1](https://github.com/windmill-labs/windmill/compare/v1.317.0...v1.317.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* improve list markdown rendering ([8bdebcf](https://github.com/windmill-labs/windmill/commit/8bdebcf2124e79f2044d87c1d0ee8fc7d74a696b))
+
+## [1.317.0](https://github.com/windmill-labs/windmill/compare/v1.316.2...v1.317.0) (2024-04-24)
+
+
+### Features
+
+* add planned later toggle on runs ([cec27a8](https://github.com/windmill-labs/windmill/commit/cec27a87b8abc2b6d3c8d68ca1951d627aa120b2))
+* **frontend:** Aggrid infinite default code ([#3604](https://github.com/windmill-labs/windmill/issues/3604)) ([200a321](https://github.com/windmill-labs/windmill/commit/200a3219751b95464dea21ef110c105d6c61ecdd))
+
+
+### Bug Fixes
+
+* **frontend:** Fix AgGrid infinit clear ([#3607](https://github.com/windmill-labs/windmill/issues/3607)) ([5d48603](https://github.com/windmill-labs/windmill/commit/5d486034db4aee0a3412b231b09fba9d3760d184))
+* improve autodata table ([613bc26](https://github.com/windmill-labs/windmill/commit/613bc267494aef10c2409b784e86895886a0ba50))
+
+## [1.316.2](https://github.com/windmill-labs/windmill/compare/v1.316.0...v1.316.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* fix get_completed_job with labels ([963fc3d](https://github.com/windmill-labs/windmill/commit/963fc3deccd89a277e6363283f66d1903a35a031))
+
+## [1.316.0](https://github.com/windmill-labs/windmill/compare/v1.315.1...v1.316.0) (2024-04-24)
+
+
+### Features
+
+* **frontend:** add search to AgGrid Infinite ([#3600](https://github.com/windmill-labs/windmill/issues/3600)) ([aece019](https://github.com/windmill-labs/windmill/commit/aece01908ba58b5f2a86f9a1f261ba8c5608e7b5))
+* support multiple labels for jobs (wm_label -&gt; wm_labels) ([0be55ae](https://github.com/windmill-labs/windmill/commit/0be55ae98cd0ef48bb3243c470a53e3305420662))
+
+
+### Bug Fixes
+
+* solve invite add conflict + deprecate invites ([#3594](https://github.com/windmill-labs/windmill/issues/3594)) ([1d3e826](https://github.com/windmill-labs/windmill/commit/1d3e82607a06edaeafa9c27d9675a86a51fe9a8e))
+
+## [1.315.1](https://github.com/windmill-labs/windmill/compare/v1.315.0...v1.315.1) (2024-04-24)
+
+
+### Bug Fixes
+
+* fix label from completed_job ([534f877](https://github.com/windmill-labs/windmill/commit/534f877a7a9983b1808ce10b7f8fcac1547d7634))
+
+## [1.315.0](https://github.com/windmill-labs/windmill/compare/v1.314.0...v1.315.0) (2024-04-24)
+
+
+### Features
+
+* **frontend:** Aggrid infinite ([#3592](https://github.com/windmill-labs/windmill/issues/3592)) ([7a8ffbe](https://github.com/windmill-labs/windmill/commit/7a8ffbea46e81bfd031e4e064bb96ce41b3a77b3))
+
+## [1.314.0](https://github.com/windmill-labs/windmill/compare/v1.313.0...v1.314.0) (2024-04-23)
+
+
+### Features
+
+* add label and schedule filters to runs page ([fcff457](https://github.com/windmill-labs/windmill/commit/fcff4574623a8a11932cc343940410ef8c505e0d))
+* ui helper for workspaced worker tags ([#3595](https://github.com/windmill-labs/windmill/issues/3595)) ([0ab3d1b](https://github.com/windmill-labs/windmill/commit/0ab3d1bb8e151db55d3fa3d8f6274ed09528bef6))
+
+## [1.313.0](https://github.com/windmill-labs/windmill/compare/v1.312.0...v1.313.0) (2024-04-23)
+
+
+### Features
+
+* add support for readonly application intent in mssql ([#3591](https://github.com/windmill-labs/windmill/issues/3591)) ([ae7f978](https://github.com/windmill-labs/windmill/commit/ae7f9781806609842b2412751220c888827307bb))
+* update git sync for azure devops service principal ([#3588](https://github.com/windmill-labs/windmill/issues/3588)) ([ff361d9](https://github.com/windmill-labs/windmill/commit/ff361d9026752fab848596dbb684a2f9e12a5823))
+
+## [1.312.0](https://github.com/windmill-labs/windmill/compare/v1.311.0...v1.312.0) (2024-04-22)
+
+
+### Features
+
+* **frontend:** Fix style panel zIndex ([#3581](https://github.com/windmill-labs/windmill/issues/3581)) ([464a2c4](https://github.com/windmill-labs/windmill/commit/464a2c4f66f761bb83bdb281b67c91fccb7ed5eb))
+* hide scripts with on function main from operators + badge/filter for devs ([#3584](https://github.com/windmill-labs/windmill/issues/3584)) ([8ae16d9](https://github.com/windmill-labs/windmill/commit/8ae16d90edbd65ff02929977262647d3e18bf036))
+
+
+### Bug Fixes
+
+* **frontend:** Fix the table selection + improve the ComponentInputTypeEditor ([#3585](https://github.com/windmill-labs/windmill/issues/3585)) ([f3d0bb3](https://github.com/windmill-labs/windmill/commit/f3d0bb3814865ad715e9fe024d7e9f921425af09))
+
 ## [1.311.0](https://github.com/windmill-labs/windmill/compare/v1.310.0...v1.311.0) (2024-04-21)
 
 

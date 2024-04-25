@@ -528,7 +528,7 @@
 					</div>
 				</div>
 			{:else if !forceJson && resultKind == 'markdown'}
-				<div class="prose-xs dark:prose-invert">
+				<div class="prose-xs dark:prose-invert !list-disc !list-outside">
 					<Markdown md={result?.md ?? result?.markdown} />
 				</div>
 			{:else if !forceJson && isTableDisplay && richRender}

@@ -44,7 +44,7 @@
 	import { EyeIcon, Plug2 } from 'lucide-svelte'
 	import AppCell from './AppCell.svelte'
 	import sum from 'hash-sum'
-	import RefreshButton from '$lib/components/apps/components/RefreshButton.svelte'
+	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -445,7 +445,7 @@
 								{@const isLastRow = index === filteredResult.length - 1}
 								{@const rowIndex = row.original['__index']}
 								<tr
-									class={classNames(
+									class={twMerge(
 										isLastRow ? '!border-b-0' : '',
 										'divide-x w-full',
 										index % 2 === 0 ? 'bg-gray-50/50' : '',

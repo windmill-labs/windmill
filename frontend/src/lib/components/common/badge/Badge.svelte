@@ -20,7 +20,7 @@
 		blue: 'bg-blue-100 text-blue-800 dark:bg-blue-200 dark:text-blue-800',
 		red: 'bg-red-100 text-red-800 dark:bg-red-200 dark:text-red-900',
 		green: 'bg-green-100 text-green-800 dark:bg-green-200 dark:text-green-900',
-		yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-200 dark:text-yellow-900',
+		yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-100 dark:text-yellow-900',
 		indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-200 dark:text-indigo-900',
 		['dark-gray']: 'bg-gray-500 text-gray-100',
 		['dark-blue']: 'bg-blue-500 text-blue-100',

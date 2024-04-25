@@ -2076,7 +2076,7 @@ async fn get_result_by_id_from_original_flow(
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     let flow_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        "SELECT *, null as labels FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
     .bind(completed_flow_id)
     .bind(w_id)
@@ -3469,7 +3469,7 @@ async fn restarted_flows_resolution(
     Error,
 > {
     let completed_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT * FROM completed_job WHERE id = $1 and workspace_id = $2",
+        "SELECT *, null as labels FROM completed_job WHERE id = $1 and workspace_id = $2",
     )
     .bind(completed_flow_id)
     .bind(workspace_id)

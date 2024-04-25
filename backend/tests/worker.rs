@@ -1026,7 +1026,7 @@ async fn listen_for_uuid_on(
 
 async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
 
-    sqlx::query_as::<_, CompletedJob>("SELECT * FROM completed_job  WHERE id = $1").bind(uuid)
+    sqlx::query_as::<_, CompletedJob>("SELECT *, result->'wm_labels' as labels FROM completed_job  WHERE id = $1").bind(uuid)
         .fetch_one(db)
         .await
         .unwrap()
@@ -3164,6 +3164,7 @@ async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: Stri
             deployment_message: None,
             concurrency_key: None,
             visible_to_runner_only: None,
+            no_main_func: None,
         },
     ).await.unwrap();
 

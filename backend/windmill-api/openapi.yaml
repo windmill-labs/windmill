@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.311.0
+  version: 1.317.1
   title: Windmill API
 
   contact:
@@ -3401,6 +3401,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: hide_without_main
+          description: |
+            (default false)
+            hide the scripts without an exported main function
+          in: query
+          schema:
+            type: boolean
         - name: is_template
           description: |
             (default regardless)
@@ -5241,6 +5248,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All queued jobs
@@ -5326,6 +5338,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/Label"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -5355,6 +5368,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All completed jobs
@@ -5374,6 +5392,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/Label"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -5413,6 +5432,11 @@ paths:
             type: boolean
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
           in: query
           schema:
             type: boolean
@@ -8025,6 +8049,12 @@ components:
       in: query
       schema:
         type: string
+    Label:
+      name: label
+      description: mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+      in: query
+      schema:
+        type: string
     ParentJob:
       name: parent_job
       description:
@@ -8356,6 +8386,8 @@ components:
           type: boolean
         visible_to_runner_only:
           type: boolean
+        no_main_func:
+          type: boolean
       required:
         - hash
         - path
@@ -8371,6 +8403,7 @@ components:
         - language
         - kind
         - starred
+        - no_main_func
 
     NewScript:
       type: object
@@ -8443,6 +8476,8 @@ components:
         concurrency_key:
           type: string
         visible_to_runner_only:
+          type: boolean
+        no_main_func:
           type: boolean
       required:
         - path
@@ -8745,6 +8780,10 @@ components:
           type: string
         priority:
           type: integer
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - id
         - created_by

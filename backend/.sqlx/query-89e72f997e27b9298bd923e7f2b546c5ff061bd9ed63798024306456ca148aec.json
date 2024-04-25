@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON completed_job USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_label';",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "89e72f997e27b9298bd923e7f2b546c5ff061bd9ed63798024306456ca148aec"
+}

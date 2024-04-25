@@ -39,12 +39,12 @@
 
 	const openBackground = {
 		blue: 'bg-blue-50 dark:bg-frost-800',
-		indigo: 'bg-indigo-50 dark:bg-indigo-800'
+		indigo: 'bg-indigo-50 dark:bg-indigo-700/50'
 	}
 
 	const manuallyOpenColor = {
-		blue: 'text-primary bg-gray-300 rounded-sm',
-		indigo: 'text-primary bg-gray-300 rounded-sm'
+		blue: 'text-primary dark:text-gray-50 bg-gray-300 rounded-sm dark:bg-gray-600',
+		indigo: 'text-primary bg-gray-300 dark:text-gray-50 rounded-sm dark:bg-gray-600'
 	}
 
 	const idClass = {
@@ -93,7 +93,9 @@
 		if (
 			item?.data.type == 'aggridcomponent' ||
 			item?.data.type == 'aggridcomponentee' ||
-			item?.data.type == 'dbexplorercomponent'
+			item?.data.type == 'dbexplorercomponent' ||
+			item?.data.type == 'aggridinfinitecomponent' ||
+			item?.data.type == 'aggridinfinitecomponentee'
 		) {
 			for (let c of item.data.actions ?? []) {
 				let old = c.id
@@ -126,7 +128,9 @@
 		if (
 			(data.type == 'aggridcomponent' ||
 				data.type == 'aggridcomponentee' ||
-				data.type == 'dbexplorercomponent') &&
+				data.type == 'dbexplorercomponent' ||
+				data.type == 'aggridinfinitecomponent' ||
+				data.type == 'aggridinfinitecomponentee') &&
 			Array.isArray(data.actions)
 		) {
 			for (let c of data.actions) {

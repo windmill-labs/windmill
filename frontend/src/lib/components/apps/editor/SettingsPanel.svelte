@@ -36,7 +36,9 @@
 				} else if (
 					x?.data?.type === 'aggridcomponent' ||
 					x?.data?.type === 'aggridcomponentee' ||
-					x?.data?.type === 'dbexplorercomponent'
+					x?.data?.type === 'dbexplorercomponent' ||
+					x?.data?.type === 'aggridinfinitecomponent' ||
+					x?.data?.type === 'aggridinfinitecomponentee'
 				) {
 					if (x?.data?.actions) {
 						const tableAction = x.data.actions.find((x) => x.id === id)
@@ -96,7 +98,9 @@
 					if (
 						(parent.data.type === 'aggridcomponent' ||
 							parent.data.type === 'aggridcomponentee' ||
-							parent.data.type === 'dbexplorercomponent') &&
+							parent.data.type === 'dbexplorercomponent' ||
+							parent.data.type === 'aggridinfinitecomponent' ||
+							parent.data.type === 'aggridinfinitecomponentee') &&
 						Array.isArray(parent.data.actions)
 					) {
 						parent.data.actions = parent.data.actions.filter(

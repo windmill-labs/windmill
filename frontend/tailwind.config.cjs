@@ -21,14 +21,14 @@ const lightThemeRgb = makeRgb(lightTheme)
 const darkTheme = {
 	surface: '#2e3440',
 	surfaceSecondary: '#3b4252',
-	surfaceHover: '#4c566a',
-	surfaceDisabled: '#2a2f3a',
+	surfaceHover: '#454F64',
+	surfaceDisabled: '#212732',
 	surfaceSelected: '#434c5e',
 
-	textPrimary: '#f3f6f8',
-	textSecondary: '#e0e7ed',
-	textTertiary: '#c7ccd6',
-	textDisabled: '#a0aec0',
+	textPrimary: '#EEEEEE',
+	textSecondary: '#C2C9D1',
+	textTertiary: '#A8AEB7',
+	textDisabled: '#989DA5',
 
 	border: '#3e4c60',
 	borderHover: '#3e4c60'
@@ -381,6 +381,14 @@ const config = {
 				900: '#2b394f',
 				950: '#1d2534'
 			},
+			marine: {
+				50: '#E9E9F4',
+				100: '#859AC7',
+				200: '#586F9E',
+				300: '#4A5F8A',
+				400: '#394A6D',
+				500: '#323F5B'
+			},
 			surface: 'rgb(var(--color-surface) / <alpha-value>)',
 			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
 			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
@@ -663,7 +671,7 @@ const config = {
 				'button:disabled,button[disabled=true],a:disabled,a[disabled=true]': {
 					pointerEvents: 'none',
 					cursor: 'default',
-					filter: 'grayscale(1)'
+					opacity: '0.90'
 				},
 				'pre code.hljs': {
 					padding: '0px !important',

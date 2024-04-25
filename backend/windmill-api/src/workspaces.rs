@@ -722,6 +722,16 @@ async fn edit_auto_invite(
 
             for user in users_to_auto_add.as_ref().unwrap() {
                 auto_add_user(&user.email, &w_id, &operator, &mut tx).await?;
+                send_email_if_possible(
+                    &format!("Added to Windmill's workspace: {w_id}"),
+                    &format!(
+                        "You have been granted access to Windmill's workspace {w_id} by {email}.
+                        
+                        Access the workspace at {}/?workspace={w_id}",
+                        BASE_URL.read().await.clone()
+                    ),
+                    &user.email,
+                );
             }
         } else {
             sqlx::query!(
@@ -1936,6 +1946,22 @@ async fn invite_user(
 
     let mut tx = db.begin().await?;
 
+    let already_in_workspace = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
+        &w_id,
+        nu.email
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if already_in_workspace {
+        return Err(Error::BadRequest(format!(
+            "user with email {} already exists in workspace {}",
+            nu.email, w_id
+        )));
+    }
+
     sqlx::query!(
         "INSERT INTO workspace_invite
             (workspace_id, email, is_admin, operator)
@@ -2042,6 +2068,14 @@ async fn add_user(
         username,
         nu.is_admin,
         nu.operator
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2",
+        &w_id,
+        nu.email
     )
     .execute(&mut *tx)
     .await?;
@@ -2183,6 +2217,8 @@ struct ScriptMetadata {
     pub restart_unless_cancelled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_main_func: Option<bool>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -2459,6 +2495,7 @@ async fn tarball_workspace(
                 delete_after_use: script.delete_after_use,
                 restart_unless_cancelled: script.restart_unless_cancelled,
                 visible_to_runner_only: script.visible_to_runner_only,
+                no_main_func: script.no_main_func,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive

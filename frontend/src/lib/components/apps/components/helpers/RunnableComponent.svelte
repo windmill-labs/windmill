@@ -20,11 +20,11 @@
 	} from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
-	import RefreshButton from './RefreshButton.svelte'
 	import { selectId } from '../../editor/appUtils'
 	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
+	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 
 	// Component props
 	export let id: string
@@ -722,7 +722,7 @@
 		{/if}
 		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50 app-component-refresh-btn">
-				<RefreshButton {loading} componentId={id} />
+				<RefreshButton {loading} {id} />
 			</div>
 		{/if}
 	</div>

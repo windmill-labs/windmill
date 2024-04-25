@@ -28,6 +28,8 @@
 	export let job: Job
 	export let selectedId: string | undefined = undefined
 	export let containerWidth: number = 0
+	export let containsLabel: boolean = false
+	export let activeLabel: string | null
 
 	let scheduleEditor: ScheduleEditor
 </script>
@@ -107,7 +109,10 @@
 					<div class="whitespace-nowrap text-xs font-semibold truncate">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
-								<a href="/run/{job.id}?workspace={job.workspace_id}" class="truncate w-30">
+								<a
+									href="/run/{job.id}?workspace={job.workspace_id}"
+									class="truncate w-30 dark:text-blue-400"
+								>
 									{job.script_path}
 								</a>
 								<Button
@@ -170,6 +175,33 @@
 			{/if}
 		{/if}
 	</div>
+	{#if containsLabel}
+		<div class="w-3/12 flex justify-start">
+			{#if job && job?.['labels']}
+				<div class="flex flex-row items-center gap-1 overflow-x-auto">
+					{#if Array.isArray(job?.['labels'])}
+						{#each job?.['labels'] as label}
+							<Button
+								variant="border"
+								size="xs2"
+								btnClasses={twMerge(
+									activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+									'!text-2xs !font-normal truncate max-w-28'
+								)}
+								color="light"
+								on:click={() => {
+									dispatch('filterByLabel', label)
+								}}
+							>
+								{label}
+								<ListFilter size={10} />
+							</Button>
+						{/each}
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
 	<div class="w-3/12 flex justify-start">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">

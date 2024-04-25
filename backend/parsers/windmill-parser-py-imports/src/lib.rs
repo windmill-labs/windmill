@@ -51,6 +51,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "tenable" => "pytenable",
     "ns1" => "ns1-python",
     "pymsql" => "PyMySQL",
+    "haystack" => "haystack-ai",
 };
 
 fn replace_import(x: String) -> String {
@@ -62,7 +63,7 @@ fn replace_import(x: String) -> String {
 }
 
 lazy_static! {
-    static ref RE: Regex = Regex::new(r"^\#\s?(\S+)$").unwrap();
+    static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
 }
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<String> {
