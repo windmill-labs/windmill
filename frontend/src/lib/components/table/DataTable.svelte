@@ -20,6 +20,7 @@
 	export let perPage: number | undefined = undefined
 	export let shouldHidePagination: boolean = false
 	export let noBorder: boolean = false
+	export let rowCount: number
 
 	const dispatch = createEventDispatcher()
 
@@ -42,18 +43,22 @@
 	</div>
 	{#if paginated && !shouldHidePagination}
 		<div
-			class="bg-surface border-t flex flex-row justify-end p-1 items-center gap-2 sticky bottom-0"
+			class="bg-surface border-t flex flex-row justify-between p-1 items-center gap-2 sticky bottom-0"
 		>
+			<div>
+				<span class="text-xs mx-2"> {rowCount} items</span>
+			</div>
 			<div class="flex flex-row gap-2 items-center">
-				<span class="text-xs">Page: {currentPage}</span>
+				<span class="text-xs">
+					Page: {currentPage}
+					{perPage ? `/ ${Math.ceil(rowCount / perPage)}` : ''}
+				</span>
 
 				{#if perPage !== undefined}
 					<select class="!text-xs !w-16" bind:value={perPage}>
-						<option value={5}>5</option>
-						<option value={10}>10</option>
 						<option value={25}>25</option>
-						<option value={50}>50</option>
 						<option value={100}>100</option>
+						<option value={1000}>1000</option>
 					</select>
 				{/if}
 				<Button

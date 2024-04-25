@@ -28,7 +28,7 @@
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
-	import { cellRendererFactory } from './utils'
+	import { cellRendererFactory, isLinkObject } from './utils'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -222,6 +222,22 @@
 		})
 	})
 
+	function cellRenderer(params, cellRendererType: string) {
+		if (cellRendererType === 'link') {
+			if (isLinkObject(params.value)) {
+				const value = params.value
+
+				return `<a href=${value.href} class="underline" target="_blank">${value.label}</a>`
+			} else if (params.value) {
+				return `<a href=${params.value} class="underline" target="_blank">${params.value}</a>`
+			} else {
+				return params.value
+			}
+		} else {
+			return params.value
+		}
+	}
+
 	function mountGrid() {
 		if (eGui) {
 			try {
@@ -246,7 +262,10 @@
 					eGui,
 					{
 						rowData: value,
-						columnDefs: columnDefs,
+						columnDefs: columnDefs.map((fields) => ({
+							...fields,
+							cellRenderer: (params) => cellRenderer(params, fields.cellRendererType)
+						})),
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						defaultColDef: {
@@ -368,7 +387,10 @@
 
 			api?.updateGridOptions({
 				rowData: value,
-				columnDefs: columnDefs,
+				columnDefs: columnDefs.map((fields) => ({
+					...fields,
+					cellRenderer: (params) => cellRenderer(params, fields.cellRendererType)
+				})),
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				defaultColDef: {

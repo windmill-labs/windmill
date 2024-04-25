@@ -67,3 +67,12 @@ export function cellRendererFactory(
 	}
 	return Renderer
 }
+
+export type LinkObject = {
+	href: string
+	label: string
+}
+
+export function isLinkObject(value: any): value is LinkObject {
+	return value && typeof value === 'object' && 'href' in value && 'label' in value
+}

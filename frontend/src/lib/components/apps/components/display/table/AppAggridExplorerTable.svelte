@@ -16,7 +16,7 @@
 	import type { Output } from '$lib/components/apps/rx'
 	import type { InitConfig } from '$lib/components/apps/editor/appUtils'
 	import { Button } from '$lib/components/common'
-	import { cellRendererFactory } from './utils'
+	import { cellRendererFactory, isLinkObject } from './utils'
 	import { Columns, Trash2 } from 'lucide-svelte'
 	import type { ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
@@ -182,6 +182,22 @@
 		})
 	})
 
+	function cellRenderer(params, cellRendererType: string) {
+		if (cellRendererType === 'link') {
+			if (isLinkObject(params.value)) {
+				const value = params.value
+
+				return `<a href=${value.href} class="underline" target="_blank">${value.label}</a>`
+			} else if (params.value) {
+				return `<a href=${params.value} class="underline" target="_blank">${params.value}</a>`
+			} else {
+				return params.value
+			}
+		} else {
+			return params.value
+		}
+	}
+
 	function transformColumnDefs(columnDefs: any[]) {
 		const { isValid, errors } = validateColumnDefs(columnDefs)
 
@@ -235,7 +251,11 @@
 				...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 			})
 		}
-		return r
+
+		return r.map((fields) => ({
+			...fields,
+			cellRenderer: (params) => cellRenderer(params, fields.cellRendererType)
+		}))
 	}
 
 	let firstRow: number = 0

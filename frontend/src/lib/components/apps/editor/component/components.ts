@@ -1848,7 +1848,7 @@ This is a paragraph.
 	aggridcomponent: aggridcomponentconst,
 	aggridcomponentee: { ...aggridcomponentconst, name: 'AgGrid Table EE' },
 	aggridinfinitecomponent: aggridinfinitecomponentconst,
-	aggridinfinitecomponentee: { ...aggridinfinitecomponentconst, name: 'AgGrid Infinite EE' },
+	aggridinfinitecomponentee: { ...aggridinfinitecomponentconst, name: 'AgGrid Infinite Table EE' },
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,

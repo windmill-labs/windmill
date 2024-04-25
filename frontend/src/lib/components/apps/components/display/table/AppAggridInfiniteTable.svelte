@@ -85,7 +85,7 @@
 			const currentParams = {
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
-				orderBy: params.sortModel?.[0]?.colId ?? resolvedConfig.columnDefs?.[0]?.field,
+				orderBy: params.sortModel?.[0]?.colId ?? undefined,
 				isDesc: params.sortModel?.[0]?.sort === 'desc',
 				search: resolvedConfig.searchEnabled ? searchValue : ''
 			}
