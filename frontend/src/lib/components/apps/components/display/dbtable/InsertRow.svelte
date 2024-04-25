@@ -1,13 +1,7 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
-	import {
-		ColumnIdentity,
-		getFieldType,
-		type ColumnMetadata,
-		type DbType,
-		type ColumnDef
-	} from './utils'
+	import { ColumnIdentity, type ColumnMetadata, type DbType, type ColumnDef } from './utils'
 
 	import init, {
 		parse_sql,
@@ -34,7 +28,6 @@
 		name: string
 		isPrimaryKey: boolean
 		defaultValue: string | undefined
-		fieldType: 'text' | 'number' | 'checkbox' | 'date'
 		identity: ColumnIdentity
 		nullable: 'YES' | 'NO'
 	}
@@ -50,14 +43,12 @@
 			const name = column.field
 			const isPrimaryKey = column.isprimarykey
 			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-			const fieldType = getFieldType(type, dbType)
 
 			return {
 				type,
 				name,
 				isPrimaryKey,
 				defaultValue,
-				fieldType,
 				identity: column.isidentity,
 				nullable: column.isnullable
 			}
@@ -114,15 +105,10 @@
 
 			const parsedArg = columnDefs.find((arg) => arg.field === field.name)
 			if (parsedArg) {
-				let typ: any = rawTypeToSchemaType(parseSQLArgs(parsedArg.datatype, dbType))
-				argSigToJsonSchemaType(typ, schemaProperty)
-				console.log(
-					'schemaProperty',
-					schemaProperty,
-					field.name,
-					typ,
-					parseSQLArgs(parsedArg.datatype, dbType)
+				let typ: any = rawTypeToSchemaType(
+					parseSQLArgs(parsedArg.datatype.split('(')[0].trim(), dbType)
 				)
+				argSigToJsonSchemaType(typ, schemaProperty)
 			}
 
 			if (field.defaultValue) {
