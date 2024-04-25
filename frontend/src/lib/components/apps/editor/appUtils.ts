@@ -922,7 +922,7 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 			.filter(([k, v]) => v.type == 'evalv2')
 			.map(([k, v]) => {
 				let field = v as EvalV2AppInput
-				if (field.connections.length !== 1) {
+				if (!field.connections || field.connections.length !== 1) {
 					return [k, undefined]
 				}
 				const c = field.connections[0]
@@ -935,31 +935,33 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 
 				if (gridItem) {
 					const c = gridItem.data as AppComponent
-					if (
-						c.type == 'resourceselectcomponent' ||
-						c.type === 'selectcomponent' ||
-						c.type === 'multiselectcomponent'
-					) {
+					if (c) {
 						if (
-							(c.type === 'selectcomponent' || c.type === 'multiselectcomponent') &&
-							c.configuration.create.type === 'static' &&
-							c.configuration.create.value === true
+							c.type === 'resourceselectcomponent' ||
+							c.type === 'selectcomponent' ||
+							c.type === 'multiselectcomponent'
 						) {
-							return [k, undefined]
-						}
-						if (c.configuration.items.type === 'static') {
-							const items = c.configuration.items.value
-							if (items && Array.isArray(items)) {
-								if (c.type === 'multiselectcomponent') {
-									return [k, items]
-								} else {
-									const options = items
-										.filter(
-											(item) => item && typeof item === 'object' && 'value' in item && item.value
-										)
-										.map((item) => item.value)
+							if (
+								(c.type === 'selectcomponent' || c.type === 'multiselectcomponent') &&
+								c.configuration?.create?.type === 'static' &&
+								c.configuration?.create?.value === true
+							) {
+								return [k, undefined]
+							}
+							if (c.configuration?.items?.type === 'static') {
+								const items = c.configuration.items.value
+								if (items && Array.isArray(items)) {
+									if (c.type === 'multiselectcomponent') {
+										return [k, items]
+									} else {
+										const options = items
+											.filter(
+												(item) => item && typeof item === 'object' && 'value' in item && item.value
+											)
+											.map((item) => item.value)
 
-									return [k, options]
+										return [k, options]
+									}
 								}
 							}
 						}
