@@ -1,16 +1,19 @@
 use std::{collections::HashMap, process::Stdio};
 
+use bytes::{Buf, Bytes};
 use itertools::Itertools;
+use object_store::path::Path;
 use serde_json::value::RawValue;
 use tokio::{
     fs::{create_dir, DirBuilder, File},
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
 };
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
+    s3_helpers::OBJECT_STORE_CACHE_SETTINGS,
     utils::calculate_hash,
     worker::CLOUD_HOSTED,
 };
@@ -20,8 +23,9 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        start_child_process, write_file,
+        start_child_process, write_file, write_file_binary,
     },
+    global_cache::{attempt_fetch_bytes, pull_from_tar},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
@@ -31,6 +35,96 @@ const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config
 
 lazy_static::lazy_static! {
     static ref GO_PATH: String = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
+}
+
+pub async fn save_cache(
+    bin_path: &str,
+    job_dir: &str,
+    hash: &str,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> windmill_common::error::Result<()> {
+    let job_main_path = format!("{job_dir}/main");
+    let mut cached_to_s3 = false;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+        let hash_path = hash_to_os_path(hash);
+        if let Err(e) = os
+            .put(
+                &Path::from(hash_path.clone()),
+                Bytes::from(std::fs::read(&job_main_path)?),
+            )
+            .await
+        {
+            tracing::error!(
+                "Failed to put go bin to object store: {hash_path}. Error: {:?}",
+                e
+            );
+        } else {
+            cached_to_s3 = true;
+        }
+    }
+
+    if !*CLOUD_HOSTED {
+        tokio::fs::copy(&job_main_path, bin_path).await?;
+        append_logs(
+            job.id.clone(),
+            job.workspace_id.to_string(),
+            format!(
+                "\nwrite cached binary: {} (backed by object store: {cached_to_s3})\n",
+                bin_path
+            ),
+            db,
+        )
+        .await;
+    } else if cached_to_s3 {
+        append_logs(
+            job.id.clone(),
+            job.workspace_id.to_string(),
+            format!("write cached binary to object store {}\n", bin_path),
+            db,
+        )
+        .await;
+    }
+
+    Ok(())
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+async fn write_binary_file(main_path: &str, byts: &mut Bytes) -> error::Result<()> {
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+    let mut file = File::create(main_path).await?;
+    file.write_buf(byts).await?;
+    file.set_permissions(Permissions::from_mode(0o755)).await?;
+    file.flush().await?;
+    Ok(())
+}
+
+fn hash_to_os_path(hash: &str) -> String {
+    format!("gobin/{hash}")
+}
+
+async fn load_cache(bin_path: &str, hash: &str) -> (bool, String) {
+    if tokio::fs::metadata(&bin_path).await.is_ok() {
+        (true, format!("loaded bin from local cache: {}\n", bin_path))
+    } else {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+            if let Ok(mut x) = attempt_fetch_bytes(os, &hash_to_os_path(hash)).await {
+                if let Err(e) = write_binary_file(bin_path, &mut x).await {
+                    tracing::error!("could not write binary file: {e:?}");
+                    return (
+                        false,
+                        "error writing binary file from object store".to_string(),
+                    );
+                }
+                tracing::info!("loaded bin from object store {}", bin_path);
+                return (true, format!("loaded bin from object store {}", bin_path));
+            }
+        }
+        (false, "".to_string())
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -50,21 +144,19 @@ pub async fn handle_go_job(
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
-    let bin_path = format!(
-        "{}/{}",
-        GO_BIN_CACHE_DIR,
-        calculate_hash(&format!(
-            "{}{}",
-            inner_content,
-            requirements_o
-                .as_ref()
-                .map(|x| x.to_string())
-                .unwrap_or_default()
-        ))
-    );
-    let bin_exists = !*CLOUD_HOSTED && tokio::fs::metadata(&bin_path).await.is_ok();
+    let hash = calculate_hash(&format!(
+        "{}{}v2",
+        inner_content,
+        requirements_o
+            .as_ref()
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    ));
+    let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR,);
 
-    let (skip_go_mod, skip_tidy) = if bin_exists {
+    let (cache, cache_logs) = load_cache(&bin_path, &hash).await;
+
+    let (skip_go_mod, skip_tidy) = if cache {
         create_dir(job_dir).await?;
         (true, true)
     } else if let Some(requirements) = requirements_o {
@@ -73,8 +165,8 @@ pub async fn handle_go_job(
         (false, false)
     };
 
-    if !bin_exists {
-        let logs1 = "\n\n--- GO DEPENDENCIES SETUP ---\n".to_string();
+    let cache_logs = if !cache {
+        let logs1 = format!("{cache_logs}\n\n--- GO DEPENDENCIES SETUP ---\n");
         append_logs(job.id.clone(), job.workspace_id.to_string(), logs1, db).await;
 
         install_go_dependencies(
@@ -91,9 +183,6 @@ pub async fn handle_go_job(
             &job.workspace_id,
         )
         .await?;
-
-        let logs2 = "\n\n--- GO CODE EXECUTION ---\n".to_string();
-        append_logs(job.id.clone(), job.workspace_id.to_string(), logs2, db).await;
 
         create_args_and_out_file(client, job, job_dir, db).await?;
         {
@@ -209,33 +298,24 @@ func Run(req Req) (interface{{}}, error){{
         )
         .await?;
 
-        if !*CLOUD_HOSTED {
-            create_dir(&bin_path).await?;
-            let target = format!("{bin_path}/main");
-            tokio::fs::copy(format!("{job_dir}/main"), &target).await?;
-            append_logs(
-                job.id.clone(),
-                job.workspace_id.to_string(),
-                format!("write cached binary: {}\n", bin_path),
-                db,
-            )
-            .await;
+        if let Err(e) = save_cache(&bin_path, &job_dir, &hash, &job, db).await {
+            tracing::error!("could not save {bin_path} to go cache: {e:?}");
         }
+        "".to_string()
     } else {
-        let path = format!("{bin_path}/main");
-        let mut logs2 = "".to_string();
-        logs2.push_str(&format!("found cached binary: {path}\n"));
         let target = format!("{job_dir}/main");
-        tokio::fs::symlink(&path, &target).await.map_err(|e| {
+        tokio::fs::symlink(&bin_path, &target).await.map_err(|e| {
             Error::ExecutionErr(format!(
-                "could not copy cached binary from {path} to {job_dir}/main: {e:?}"
+                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))
         })?;
 
-        logs2.push_str("\n\n--- GO CODE EXECUTION ---\n");
-        append_logs(job.id.clone(), job.workspace_id.to_string(), logs2, db).await;
         create_args_and_out_file(client, job, job_dir, db).await?;
-    }
+        cache_logs
+    };
+
+    let logs2 = format!("{cache_logs}\n\n--- GO CODE EXECUTION ---\n");
+    append_logs(job.id.clone(), job.workspace_id.to_string(), logs2, db).await;
 
     let client = &client.get_authed().await;
 
