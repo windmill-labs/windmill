@@ -95,8 +95,8 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'S3/Azure for Python Cache & Large Logs',
-			description: 'Bucket to store large logs and cache for distributed python jobs.',
+			label: 'S3/Azure for Python/Go Cache & Large Logs',
+			description: 'Bucket to store large logs and global cache for Python and Go.',
 			key: 'object_store_cache_config',
 			fieldType: 'object_store_config',
 			storage: 'setting',
