@@ -774,18 +774,17 @@
 
 		--internal-padding: 0 0 0 16px;
 
-		border: var(--border, 1px solid #d8dbdf);
 		border-radius: var(--border-radius, 6px);
 		min-height: var(--height, 42px);
 		position: relative;
 		display: flex;
 		align-items: stretch;
 		padding: var(--padding, var(--internal-padding));
-		background: var(--background, #fff);
 		margin: var(--margin, 0);
 		width: var(--width, 100%);
 		font-size: var(--font-size, 16px);
 		max-height: var(--max-height);
+		@apply !rounded-md border border-gray-300 dark:!border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
 	}
 
 	* {
