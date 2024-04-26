@@ -171,7 +171,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=downloader --chmod=755 /deno /usr/bin/deno
 
-COPY --from=oven/bun:1.1.0 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.5 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
