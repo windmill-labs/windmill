@@ -1,10 +1,5 @@
 <script lang="ts">
-	import {
-		GridApi,
-		createGrid,
-		type IDatasource,
-		type ICellRendererParams
-	} from 'ag-grid-community'
+	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
@@ -243,8 +238,7 @@
 
 		return r.map((fields) => ({
 			...fields,
-			cellRenderer: (params: ICellRendererParams) =>
-				defaultCellRenderer(params, fields.cellRendererType)
+			cellRenderer: defaultCellRenderer(fields.cellRendererType)
 		}))
 	}
 
