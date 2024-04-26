@@ -1,11 +1,10 @@
 use std::{collections::HashMap, process::Stdio};
 
-use bytes::Bytes;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::{
     fs::{create_dir, DirBuilder, File},
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncReadExt,
     process::Command,
 };
 use uuid::Uuid;
@@ -37,12 +36,12 @@ lazy_static::lazy_static! {
 pub async fn save_cache(
     bin_path: &str,
     job_dir: &str,
-    hash: &str,
+    _hash: &str,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<()> {
     let job_main_path = format!("{job_dir}/main");
-    let mut cached_to_s3 = false;
+    let mut _cached_to_s3 = false;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
         .read()
@@ -51,11 +50,11 @@ pub async fn save_cache(
     {
         use object_store::path::Path;
 
-        let hash_path = hash_to_os_path(hash);
+        let hash_path = hash_to_os_path(_hash);
         if let Err(e) = os
             .put(
                 &Path::from(hash_path.clone()),
-                Bytes::from(std::fs::read(&job_main_path)?),
+                bytes::Bytes::from(std::fs::read(&job_main_path)?),
             )
             .await
         {
@@ -64,7 +63,7 @@ pub async fn save_cache(
                 e
             );
         } else {
-            cached_to_s3 = true;
+            _cached_to_s3 = true;
         }
     }
 
@@ -74,13 +73,13 @@ pub async fn save_cache(
             job.id.clone(),
             job.workspace_id.to_string(),
             format!(
-                "\nwrite cached binary: {} (backed by object store: {cached_to_s3})\n",
+                "\nwrite cached binary: {} (backed by object store: {_cached_to_s3})\n",
                 bin_path
             ),
             db,
         )
         .await;
-    } else if cached_to_s3 {
+    } else if _cached_to_s3 {
         append_logs(
             job.id.clone(),
             job.workspace_id.to_string(),
@@ -94,9 +93,11 @@ pub async fn save_cache(
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-async fn write_binary_file(main_path: &str, byts: &mut Bytes) -> error::Result<()> {
+async fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
+    use tokio::io::AsyncWriteExt;
+
     let mut file = File::create(main_path).await?;
     file.write_buf(byts).await?;
     file.set_permissions(Permissions::from_mode(0o755)).await?;
@@ -104,11 +105,12 @@ async fn write_binary_file(main_path: &str, byts: &mut Bytes) -> error::Result<(
     Ok(())
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 fn hash_to_os_path(hash: &str) -> String {
     format!("gobin/{hash}")
 }
 
-async fn load_cache(bin_path: &str, hash: &str) -> (bool, String) {
+async fn load_cache(bin_path: &str, _hash: &str) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded bin from local cache: {}\n", bin_path))
     } else {
@@ -120,7 +122,7 @@ async fn load_cache(bin_path: &str, hash: &str) -> (bool, String) {
         {
             use crate::global_cache::attempt_fetch_bytes;
 
-            if let Ok(mut x) = attempt_fetch_bytes(os, &hash_to_os_path(hash)).await {
+            if let Ok(mut x) = attempt_fetch_bytes(os, &hash_to_os_path(_hash)).await {
                 if let Err(e) = write_binary_file(bin_path, &mut x).await {
                     tracing::error!("could not write binary file: {e:?}");
                     return (
