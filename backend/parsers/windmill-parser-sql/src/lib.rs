@@ -298,6 +298,7 @@ pub fn parse_pg_typ(typ: &str) -> Typ {
             "bigint" => Typ::Int,
             "bool" | "boolean" => Typ::Bool,
             "char" | "character" => Typ::Str(None),
+            "json" | "jsonb" => Typ::Object(vec![]),
             "smallint" | "int2" => Typ::Int,
             "smallserial" | "serial2" => Typ::Int,
             "serial" | "serial4" => Typ::Int,
