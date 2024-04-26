@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.319.0](https://github.com/windmill-labs/windmill/compare/v1.318.0...v1.319.0) (2024-04-26)
+
+
+### Features
+
+* add distributed global cache for go ([c73e7db](https://github.com/windmill-labs/windmill/commit/c73e7dbd8c3aa2f749176b6478a2bb351b39d210))
+* add distributed global cache for go ([4188383](https://github.com/windmill-labs/windmill/commit/4188383d3ede69fd3d320f187ef18072aa888f01))
+* pg add json support ([#3620](https://github.com/windmill-labs/windmill/issues/3620)) ([fee22fc](https://github.com/windmill-labs/windmill/commit/fee22fc060b3cfc2e6a30badb907ae828fc6272f))
+
+
+### Bug Fixes
+
+* make configurable footer for aggrid in apps ([41f6bcd](https://github.com/windmill-labs/windmill/commit/41f6bcdaa154bd2d21a65b26455802cdbafe5dc1))
+
 ## [1.318.0](https://github.com/windmill-labs/windmill/compare/v1.317.1...v1.318.0) (2024-04-25)
 
 
