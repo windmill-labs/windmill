@@ -77,7 +77,11 @@ export const POSTGRES_TYPES = [
 	'TIME',
 	'TIME[]',
 	'TIMESTAMP',
-	'TIMESTAMP[]'
+	'TIMESTAMP[]',
+	'JSON',
+	'JSON[]',
+	'JSONB',
+	'JSONB[]'
 ]
 
 export const MYSQL_TYPES = [
