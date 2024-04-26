@@ -257,7 +257,7 @@
 						rowData: value,
 						columnDefs: columnDefs.map((fields) => ({
 							...fields,
-							cellRenderer: (params) => defaultCellRenderer(params, fields.cellRendererType)
+							cellRenderer: defaultCellRenderer(fields.cellRendererType)
 						})),
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
@@ -385,7 +385,7 @@
 				rowData: value,
 				columnDefs: columnDefs.map((fields) => ({
 					...fields,
-					cellRenderer: (params) => defaultCellRenderer(params, fields.cellRendererType)
+					cellRenderer: defaultCellRenderer(fields.cellRendererType)
 				})),
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
