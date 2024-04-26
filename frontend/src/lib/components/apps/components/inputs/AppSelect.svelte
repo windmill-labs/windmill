@@ -79,6 +79,13 @@
 	function handleItems() {
 		listItems = Array.isArray(resolvedConfig.items)
 			? resolvedConfig.items.map((item) => {
+					if (!item || typeof item !== 'object') {
+						console.error('Select component items should be an array of objects')
+						return {
+							label: 'not object',
+							value: 'not object'
+						}
+					}
 					return {
 						label: item?.label ?? 'undefined',
 						value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
@@ -209,7 +216,7 @@
 			}
 		}}
 	>
-		{#if Array.isArray(listItems) && listItems.every((x) => typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
+		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			<Select
 				inAppEditor={true}
 				--border-radius="0"
