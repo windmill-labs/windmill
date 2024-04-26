@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.319.1](https://github.com/windmill-labs/windmill/compare/v1.319.0...v1.319.1) (2024-04-26)
+
+
+### Bug Fixes
+
+* improve dnd on app editor for large screens ([3875eec](https://github.com/windmill-labs/windmill/commit/3875eec46fde26f108f3ba0ad17d9e5005208cea))
+
 ## [1.319.0](https://github.com/windmill-labs/windmill/compare/v1.318.0...v1.319.0) (2024-04-26)
 
 
