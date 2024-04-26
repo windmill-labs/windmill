@@ -378,7 +378,7 @@
 											</a>
 										{:else}
 											{@const txt =
-												value == undefined
+												value == undefined || value == null
 													? ''
 													: typeof value != 'string'
 													? JSON.stringify(value)
@@ -391,7 +391,7 @@
 												<div
 													class="max-w-80 text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
 												>
-													{txt.length > 100 ? txt.slice(0, 100) + '...' : txt}
+													{txt?.length > 100 ? txt.slice(0, 100) + '...' : txt}
 												</div>
 												<svelte:fragment slot="text">{txt}</svelte:fragment>
 											</Popover>
