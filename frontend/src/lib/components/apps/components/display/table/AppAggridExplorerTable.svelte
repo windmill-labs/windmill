@@ -5,14 +5,13 @@
 		type IDatasource,
 		type ICellRendererParams
 	} from 'ag-grid-community'
-	import { isObject, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
 
 	import type { TableAction, components } from '$lib/components/apps/editor/component'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
-
+	import SyncColumnDefs from './SyncColumnDefs.svelte'
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import { twMerge } from 'tailwind-merge'
@@ -41,6 +40,7 @@
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
 	export let actions: TableAction[] = []
+	export let result: any[] | undefined = undefined
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
@@ -408,7 +408,7 @@
 	/>
 {/each}
 
-{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
+<SyncColumnDefs {id} columnDefs={resolvedConfig.columnDefs} {result}>
 	<div
 		class={twMerge(
 			'flex flex-col h-full component-wrapper divide-y',
@@ -452,16 +452,7 @@
 			{/if}
 		</div>
 	</div>
-{:else if resolvedConfig.columnDefs != undefined}
-	<Alert title="Parsing issues" type="error" size="xs">
-		The columnDefs should be an array of objects, received:
-		<pre class="overflow-auto">
-				{JSON.stringify(resolvedConfig.columnDefs)}
-			</pre>
-	</Alert>
-{:else}
-	<Alert title="Parsing issues" type="error" size="xs">The columnDefs are undefined</Alert>
-{/if}
+</SyncColumnDefs>
 
 <style>
 	.ag-theme-alpine {

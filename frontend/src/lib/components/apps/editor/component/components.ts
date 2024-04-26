@@ -738,11 +738,7 @@ const aggridinfinitecomponentconst = {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'ag-grid',
-				value: [
-					{ field: 'id', flex: 1 },
-					{ field: 'name', editable: true, flex: 1 },
-					{ field: 'age', flex: 1 }
-				]
+				value: []
 			} as StaticAppInput,
 			flex: {
 				type: 'static',
@@ -806,22 +802,11 @@ const aggridinfinitecomponentconst = {
 			}
 		},
 		componentInput: {
-			type: 'static',
-			fieldType: 'array',
-			subFieldType: 'object',
-			value: [
-				{
-					id: 1,
-					name: 'A cell with a long name',
-					age: 42
-				},
-				{
-					id: 2,
-					name: 'A briefer cell',
-					age: 84
-				}
-			]
-		} as StaticAppInput
+			type: 'runnable',
+			fieldType: 'any',
+			fields: {},
+			runnable: undefined
+		}
 	}
 } as const
 
