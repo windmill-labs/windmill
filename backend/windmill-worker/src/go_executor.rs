@@ -394,6 +394,13 @@ func Run(req Req) (interface{{}}, error){{
         false,
     )
     .await?;
+
+    if cache && *CLOUD_HOSTED {
+        //do not keep the binary in the cache if it is cloud hosted to avoid filling up the disk
+        if let Err(e) = tokio::fs::remove_file(&bin_path).await {
+            tracing::error!("could not remove {bin_path} from go cache: {e:?}");
+        }
+    }
     read_result(job_dir).await
 }
 
