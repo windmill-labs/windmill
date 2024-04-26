@@ -1,8 +1,7 @@
 use std::{collections::HashMap, process::Stdio};
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use itertools::Itertools;
-use object_store::path::Path;
 use serde_json::value::RawValue;
 use tokio::{
     fs::{create_dir, DirBuilder, File},
@@ -13,7 +12,6 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
-    s3_helpers::OBJECT_STORE_CACHE_SETTINGS,
     utils::calculate_hash,
     worker::CLOUD_HOSTED,
 };
@@ -23,9 +21,8 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        start_child_process, write_file, write_file_binary,
+        start_child_process, write_file,
     },
-    global_cache::{attempt_fetch_bytes, pull_from_tar},
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
@@ -47,7 +44,13 @@ pub async fn save_cache(
     let job_main_path = format!("{job_dir}/main");
     let mut cached_to_s3 = false;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        .read()
+        .await
+        .clone()
+    {
+        use object_store::path::Path;
+
         let hash_path = hash_to_os_path(hash);
         if let Err(e) = os
             .put(
@@ -110,7 +113,13 @@ async fn load_cache(bin_path: &str, hash: &str) -> (bool, String) {
         (true, format!("loaded bin from local cache: {}\n", bin_path))
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+        if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .clone()
+        {
+            use crate::global_cache::attempt_fetch_bytes;
+
             if let Ok(mut x) = attempt_fetch_bytes(os, &hash_to_os_path(hash)).await {
                 if let Err(e) = write_binary_file(bin_path, &mut x).await {
                     tracing::error!("could not write binary file: {e:?}");
