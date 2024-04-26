@@ -478,88 +478,91 @@
 						{/if}
 					{/key}
 				</div>
-				<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
-					<div>
-						<Popover>
-							<svelte:fragment slot="text">Download</svelte:fragment>
-							<Button
-								startIcon={{ icon: Download }}
-								color="light"
-								size="xs2"
-								on:click={() => {
-									api?.exportDataAsCsv()
-								}}
-								iconOnly
-							/>
-						</Popover>
-					</div>
-					<div class="flex flex-row gap-1 items-center">
-						{#if resolvedConfig?.pagination}
-							{#key refreshCount}
-								<div class="text-xs mx-2 text-primary">
-									{(api?.paginationGetPageSize() ?? 0) * (api?.paginationGetCurrentPage() ?? 0) + 1}
-									to {Math.min(
-										api?.paginationGetRowCount() ?? 0,
-										((api?.paginationGetCurrentPage() ?? 0) + 1) *
-											(api?.paginationGetPageSize() ?? 0)
-									)}
-									of {api?.paginationGetRowCount()}
-								</div>
+				{#if resolvedConfig.footer}
+					<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
+						<div>
+							<Popover>
+								<svelte:fragment slot="text">Download</svelte:fragment>
+								<Button
+									startIcon={{ icon: Download }}
+									color="light"
+									size="xs2"
+									on:click={() => {
+										api?.exportDataAsCsv()
+									}}
+									iconOnly
+								/>
+							</Popover>
+						</div>
+						<div class="flex flex-row gap-1 items-center">
+							{#if resolvedConfig?.pagination}
+								{#key refreshCount}
+									<div class="text-xs mx-2 text-primary">
+										{(api?.paginationGetPageSize() ?? 0) * (api?.paginationGetCurrentPage() ?? 0) +
+											1}
+										to {Math.min(
+											api?.paginationGetRowCount() ?? 0,
+											((api?.paginationGetCurrentPage() ?? 0) + 1) *
+												(api?.paginationGetPageSize() ?? 0)
+										)}
+										of {api?.paginationGetRowCount()}
+									</div>
 
-								<Button
-									iconOnly
-									startIcon={{ icon: SkipBack }}
-									color="light"
-									size="xs2"
-									disabled={api?.paginationGetCurrentPage() == 0}
-									on:click={() => {
-										api?.paginationGoToFirstPage()
-										refreshCount++
-									}}
-								/>
-								<Button
-									iconOnly
-									startIcon={{ icon: ChevronLeft }}
-									color="light"
-									size="xs2"
-									disabled={api?.paginationGetCurrentPage() == 0}
-									on:click={() => {
-										api?.paginationGoToPreviousPage()
-										refreshCount++
-									}}
-								/>
-								<div class="text-xs mx-2 text-primary">
-									Page {(api?.paginationGetCurrentPage() ?? 0) + 1} of {api?.paginationGetTotalPages() ??
-										0}
-								</div>
-								<Button
-									iconOnly
-									startIcon={{ icon: ChevronRight }}
-									color="light"
-									size="xs2"
-									disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
-										api?.paginationGetTotalPages()}
-									on:click={() => {
-										api?.paginationGoToNextPage()
-										refreshCount++
-									}}
-								/>
-								<Button
-									iconOnly
-									startIcon={{ icon: SkipForward }}
-									color="light"
-									size="xs2"
-									disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
-										api?.paginationGetTotalPages()}
-									on:click={() => {
-										api?.paginationGoToLastPage()
-										refreshCount++
-									}}
-								/>
-							{/key}
-						{/if}
+									<Button
+										iconOnly
+										startIcon={{ icon: SkipBack }}
+										color="light"
+										size="xs2"
+										disabled={api?.paginationGetCurrentPage() == 0}
+										on:click={() => {
+											api?.paginationGoToFirstPage()
+											refreshCount++
+										}}
+									/>
+									<Button
+										iconOnly
+										startIcon={{ icon: ChevronLeft }}
+										color="light"
+										size="xs2"
+										disabled={api?.paginationGetCurrentPage() == 0}
+										on:click={() => {
+											api?.paginationGoToPreviousPage()
+											refreshCount++
+										}}
+									/>
+									<div class="text-xs mx-2 text-primary">
+										Page {(api?.paginationGetCurrentPage() ?? 0) + 1} of {api?.paginationGetTotalPages() ??
+											0}
+									</div>
+									<Button
+										iconOnly
+										startIcon={{ icon: ChevronRight }}
+										color="light"
+										size="xs2"
+										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
+											api?.paginationGetTotalPages()}
+										on:click={() => {
+											api?.paginationGoToNextPage()
+											refreshCount++
+										}}
+									/>
+									<Button
+										iconOnly
+										startIcon={{ icon: SkipForward }}
+										color="light"
+										size="xs2"
+										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
+											api?.paginationGetTotalPages()}
+										on:click={() => {
+											api?.paginationGoToLastPage()
+											refreshCount++
+										}}
+									/>
+								{/key}
+							{/if}
+						</div>
 					</div>
-				</div>
+				{/if}
 			</div>
 		{:else if resolvedConfig.columnDefs != undefined}
 			<Alert title="Parsing issues" type="error" size="xs">
