@@ -102,16 +102,12 @@ async function push(opts: GlobalOptions, filePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-<<<<<<< Updated upstream
   await pushApp(
     workspace.workspaceId,
     filePath,
     undefined,
     parseFromFile(filePath)
   );
-=======
-  await pushApp(workspace.workspaceId, filePath, parseFromFile(filePath));
->>>>>>> Stashed changes
   console.log(colors.bold.underline.green("App pushed"));
 }
 

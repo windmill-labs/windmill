@@ -129,7 +129,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
     const seen_names = new Set<string>();
     function assignPath(
       summary: string | undefined,
-      language: RawScript.language
+      language: RawScript["language"]
     ): string {
       let name;
 

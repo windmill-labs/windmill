@@ -17,16 +17,16 @@ async function pull(opts: GlobalOptions) {
 
   const userInfo = await requireLogin(opts);
 
-  const uid = await SettingService.getGlobal({
+  const uid = (await SettingService.getGlobal({
     key: "uid",
-  });
+  })) as string;
 
   const hubBaseUrl =
     (await SettingService.getGlobal({
       key: "hubBaseUrl",
     })) ?? "https://hub.windmill.dev";
 
-  const headers = {
+  const headers: Record<string, string> = {
     Accept: "application/json",
     "X-email": userInfo.email,
   };
@@ -99,8 +99,7 @@ async function pull(opts: GlobalOptions) {
       workspace.workspaceId,
       x.name + ".resource-type.json",
       undefined,
-      x,
-      true
+      x
     );
   }
 }
