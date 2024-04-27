@@ -183,7 +183,7 @@ export async function handleFile(
         requestBody: {
           content,
           description: typed?.description ?? "",
-          language: language as NewScript.language,
+          language: language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           kind: typed?.kind,
@@ -213,7 +213,7 @@ export async function handleFile(
         requestBody: {
           content,
           description: typed?.description ?? "",
-          language: language as NewScript.language,
+          language: language,
           path: remotePath.replaceAll("\\", "/"),
           summary: typed?.summary ?? "",
           kind: typed?.kind,
