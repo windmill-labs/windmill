@@ -172,14 +172,23 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
         if (m.value.type == "rawscript") {
           const path = assignPath(m.summary, m.value.language);
           const content = m.value.content;
+          const r = [{ path: path, content: content }];
           m.value.content = "!inline " + path;
-          return [{ path: path, content: content }];
+          const lock = m.value.lock;
+          if (lock) {
+            const lockPath = path + ".lock";
+            m.value.lock = "!inline " + lockPath;
+            r.push({ path: lockPath, content: lock });
+          }
+          return r;
         } else if (m.value.type == "forloopflow") {
           return extractInlineScripts(m.value.modules);
         } else if (m.value.type == "branchall") {
           return m.value.branches.flatMap((b) =>
             extractInlineScripts(b.modules)
           );
+        } else if (m.value.type == "whileloopflow") {
+          return extractInlineScripts(m.value.modules);
         } else if (m.value.type == "branchone") {
           return [
             ...m.value.branches.flatMap((b) => extractInlineScripts(b.modules)),
@@ -339,9 +348,18 @@ export async function elementsToMap(
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
 
     if (
-      !["json", "yaml", "go", "sh", "ts", "py", "sql", "gql", "ps1"].includes(
-        path.split(".").pop() ?? ""
-      )
+      ![
+        "json",
+        "yaml",
+        "go",
+        "sh",
+        "ts",
+        "py",
+        "sql",
+        "gql",
+        "ps1",
+        "lock",
+      ].includes(path.split(".").pop() ?? "")
     )
       continue;
     const content = await entry.getContentText();

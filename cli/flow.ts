@@ -55,6 +55,16 @@ export async function pushFlow(
       if (m.value.type == "rawscript") {
         const path = m.value.content.split(" ")[1];
         m.value.content = Deno.readTextFileSync(localFlowPath + path);
+        const lock = m.value.lock;
+
+        if (
+          lock &&
+          typeof lock == "string" &&
+          lock.trimStart().startsWith("!inline ")
+        ) {
+          const path = lock.split(" ")[1];
+          m.value.lock = Deno.readTextFileSync(localFlowPath + path);
+        }
       } else if (m.value.type == "forloopflow") {
         replaceInlineScripts(m.value.modules);
       } else if (m.value.type == "branchall") {
@@ -194,12 +204,15 @@ async function run(
   log.info(jobInfo.result ?? {});
 }
 
-export function bootstrap(opts: GlobalOptions & {summary: string, description: string}, flowPath: string) {
+export function bootstrap(
+  opts: GlobalOptions & { summary: string; description: string },
+  flowPath: string
+) {
   if (!validatePath(flowPath)) {
     return;
   }
 
-  const flowDirFullPath = `${flowPath}.flow`
+  const flowDirFullPath = `${flowPath}.flow`;
   Deno.mkdirSync(flowDirFullPath, { recursive: false });
 
   const newFlowDefinition = defaultFlowDefinition();
@@ -210,13 +223,12 @@ export function bootstrap(opts: GlobalOptions & {summary: string, description: s
     newFlowDefinition.description = opts.description;
   }
 
-  const newFlowDefinitionYaml = yamlStringify(newFlowDefinition as Record<string, any>);
+  const newFlowDefinitionYaml = yamlStringify(
+    newFlowDefinition as Record<string, any>
+  );
 
   const flowYamlPath = `${flowDirFullPath}/flow.yaml`;
-  Deno.writeTextFile(
-    flowYamlPath,
-    newFlowDefinitionYaml,
-    { createNew: true });
+  Deno.writeTextFile(flowYamlPath, newFlowDefinitionYaml, { createNew: true });
 }
 
 const command = new Command()
