@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.320.3](https://github.com/windmill-labs/windmill/compare/v1.320.2...v1.320.3) (2024-04-28)
+
+
+### Bug Fixes
+
+* **cli:** improve support for frontend scripts cli sync ([82e628a](https://github.com/windmill-labs/windmill/commit/82e628a11185b2af27d2cd53aa4619b413ee0e6a))
+
 ## [1.320.2](https://github.com/windmill-labs/windmill/compare/v1.320.1...v1.320.2) (2024-04-28)
 
 
