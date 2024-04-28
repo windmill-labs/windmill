@@ -183,7 +183,8 @@ export function getTypeStrFromPath(
     parsed.ext == ".py" ||
     parsed.ext == ".sql" ||
     parsed.ext == ".gql" ||
-    parsed.ext == ".ps1"
+    parsed.ext == ".ps1" ||
+    parsed.ext == ".js"
   ) {
     return "script";
   }
