@@ -267,7 +267,7 @@
 	bind:this={contextualVariablePicker}
 	pickCallback={(path, name) => {
 		if (!editor) return
-		if (lang == 'deno' || lang == 'nativets') {
+		if (lang == 'deno') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
 		} else if (lang === 'bun') {
 			editor.insertAtCursor(`Bun.env["${name}"]`)
@@ -285,6 +285,8 @@
 			editor.insertAtCursor(`$${name}`)
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Env:${name}`)
+		} else if (lang == 'nativets') {
+			editor.insertAtCursor(name)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -332,10 +334,12 @@
 			)
 		} else if (lang == 'nativets') {
 			editor.insertAtCursor(
-				'(await fetch(`${Deno.env.get("BASE_INTERNAL_URL")}/api/w/${Deno.env.get("WM_WORKSPACE")}/variables/get_value/' +
+				'await fetch(`${BASE_INTERNAL_URL}/api/w/${WM_WORKSPACE}/variables/get_value/' +
 					path +
-					'`, { headers: { Authorization: `Bearer ${Deno.env.get("WM_TOKEN")}` }}))'
+					'`, {\nheaders: { Authorization: `Bearer ${WM_TOKEN}` }'
 			)
+			editor.arrowDown()
+			editor.insertAtCursor('.then(res => res.json())')
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -397,10 +401,12 @@
 			)
 		} else if (lang == 'nativets') {
 			editor.insertAtCursor(
-				'(await fetch(`${Deno.env.get("BASE_INTERNAL_URL")}/api/w/${Deno.env.get("WM_WORKSPACE")}/resources/get_value_interpolated/' +
+				'await fetch(`${BASE_INTERNAL_URL}/api/w/${WM_WORKSPACE}/resources/get_value_interpolated/' +
 					path +
-					'`, { headers: { Authorization: `Bearer ${Deno.env.get("WM_TOKEN")}` }}))'
+					'`, {\nheaders: { Authorization: `Bearer ${WM_TOKEN}` }'
 			)
+			editor.arrowDown()
+			editor.insertAtCursor('.then(res => res.json())')
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
