@@ -79,13 +79,27 @@
 	let showResourcePicker = false
 	let showResourceTypePicker = false
 
-	$: showContextVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(
+	$: showContextVarPicker = [
+		'python3',
+		'bash',
+		'powershell',
+		'go',
+		'deno',
+		'bun',
+		'nativets'
+	].includes(lang ?? '')
+	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun', 'nativets'].includes(
 		lang ?? ''
 	)
-	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang ?? '')
-	$: showResourcePicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(
-		lang ?? ''
-	)
+	$: showResourcePicker = [
+		'python3',
+		'bash',
+		'powershell',
+		'go',
+		'deno',
+		'bun',
+		'nativets'
+	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) || lang === 'python3'
 
@@ -253,7 +267,7 @@
 	bind:this={contextualVariablePicker}
 	pickCallback={(path, name) => {
 		if (!editor) return
-		if (lang == 'deno') {
+		if (lang == 'deno' || lang == 'nativets') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
 		} else if (lang === 'bun') {
 			editor.insertAtCursor(`Bun.env["${name}"]`)
@@ -316,6 +330,12 @@
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/variables/get_value/${path}"`
 			)
+		} else if (lang == 'nativets') {
+			editor.insertAtCursor(
+				'(await fetch(`${Deno.env.get("BASE_INTERNAL_URL")}/api/w/${Deno.env.get("WM_WORKSPACE")}/variables/get_value/' +
+					path +
+					'`, { headers: { Authorization: `Bearer ${Deno.env.get("WM_TOKEN")}` }}))'
+			)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -374,6 +394,12 @@
 			editor.arrowDown()
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/resources/get_value_interpolated/${path}"`
+			)
+		} else if (lang == 'nativets') {
+			editor.insertAtCursor(
+				'(await fetch(`${Deno.env.get("BASE_INTERNAL_URL")}/api/w/${Deno.env.get("WM_WORKSPACE")}/resources/get_value_interpolated/' +
+					path +
+					'`, { headers: { Authorization: `Bearer ${Deno.env.get("WM_TOKEN")}` }}))'
 			)
 		}
 		sendUserToast(`${path} inserted at cursor`)
