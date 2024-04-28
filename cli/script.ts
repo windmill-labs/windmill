@@ -640,7 +640,8 @@ async function generateMetadata(
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
-          p.includes(".flow/")
+          p.includes(".flow/") ||
+          p.includes(".app/")
         );
       },
       false,

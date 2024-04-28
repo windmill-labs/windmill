@@ -3938,6 +3938,14 @@ async fn lock_modules_app(
                                 .unwrap_or_default()
                                 .to_string();
                             let mut logs = "".to_string();
+                            if v.get("lock")
+                                .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
+                            {
+                                logs.push_str(
+                                    "Found already locked inline script. Skipping lock...\n",
+                                );
+                                return Ok(Value::Object(m.clone()));
+                            }
                             logs.push_str("Found lockable inline script. Generating lock...\n");
                             let new_lock = capture_dependency_job(
                                 &job.id,

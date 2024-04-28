@@ -111,7 +111,8 @@ export async function pushObj(
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    await pushApp(workspace, p, befObj, newObj, message);
+    const appName = p.split(".app" + path.sep)[0];
+    await pushApp(workspace, appName, appName + ".app", message);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
@@ -170,6 +171,9 @@ export function getTypeStrFromPath(
   | "settings" {
   if (p.includes(".flow" + path.sep)) {
     return "flow";
+  }
+  if (p.includes(".app" + path.sep)) {
+    return "app";
   }
   const parsed = path.parse(p);
   if (
