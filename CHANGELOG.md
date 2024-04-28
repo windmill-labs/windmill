@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.320.1](https://github.com/windmill-labs/windmill/compare/v1.320.0...v1.320.1) (2024-04-28)
+
+
+### Bug Fixes
+
+* add button to easily bump git sync version ([0fcd54b](https://github.com/windmill-labs/windmill/commit/0fcd54bc070483dafdbbc0f592e090d0b71361c3))
+
 ## [1.320.0](https://github.com/windmill-labs/windmill/compare/v1.319.1...v1.320.0) (2024-04-28)
 
 
