@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.320.0](https://github.com/windmill-labs/windmill/compare/v1.319.1...v1.320.0) (2024-04-28)
+
+
+### Features
+
+* **cli:** split inline sscripts for apps like for flows ([22226e8](https://github.com/windmill-labs/windmill/commit/22226e883e89199a1d1c5095e87fc8c6f90b252d))
+* **cli:** split lockfiles from script metadata ([c39f3a8](https://github.com/windmill-labs/windmill/commit/c39f3a84d645caee345c3274b37d6b81f653fede))
+* **cli:** use separate lockfiles for rawscipt of flows ([6c69889](https://github.com/windmill-labs/windmill/commit/6c698898741982d8f01fa8d5a47a2da46ad361e0))
+
 ## [1.319.1](https://github.com/windmill-labs/windmill/compare/v1.319.0...v1.319.1) (2024-04-26)
 
 
