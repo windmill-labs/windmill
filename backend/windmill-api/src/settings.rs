@@ -21,13 +21,12 @@ use axum::{
     Json, Router,
 };
 
-use mail_send::{mail_builder::MessageBuilder, SmtpClientBuilder};
 use serde::Deserialize;
-use tokio::time::timeout;
 use windmill_common::{
-    error::{self, to_anyhow, JsonResult, Result},
+    error::{self, JsonResult, Result},
     global_settings::{AUTOMATE_USERNAME_CREATION_SETTING, ENV_SETTINGS, HUB_BASE_URL_SETTING},
     server::Smtp,
+    utils::send_email,
 };
 
 pub fn global_service() -> Router {
@@ -67,34 +66,17 @@ pub async fn test_email(
     require_super_admin(&db, &authed.email).await?;
     let smtp = test_email.smtp;
     let to = test_email.to;
-    let mut client = SmtpClientBuilder::new(smtp.host, smtp.port)
-        .implicit_tls(smtp.tls_implicit.unwrap_or(false));
-    if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
-        client = client.allow_invalid_certs();
-    }
-    let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
-        if !username.is_empty() {
-            client.credentials((username, password))
-        } else {
-            client
-        }
-    } else {
-        client
-    };
-    let message = MessageBuilder::new()
-        .from(("Windmill", smtp.from.as_str()))
-        .to(to.clone())
-        .subject("Test email from Windmill")
-        .text_body("Test email content");
-    let dur = Duration::from_secs(3);
-    timeout(dur, client.connect())
-        .await
-        .map_err(to_anyhow)?
-        .map_err(to_anyhow)?
-        .send(message)
-        .await
-        .map_err(to_anyhow)?;
-    tracing::info!("Sent test email to {to}");
+
+    let client_timeout = Duration::from_secs(3);
+    send_email(
+        "Test email from Windmill",
+        "Test email content",
+        vec![to],
+        smtp,
+        Some(client_timeout),
+    )
+    .await?;
+
     Ok("Sent test email".to_string())
 }
 

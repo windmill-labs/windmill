@@ -13,7 +13,7 @@ use std::{
     vec,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use async_recursion::async_recursion;
 use axum::{
     body::Bytes,
@@ -61,8 +61,9 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
+    utils::report_critical_error_if_configured,
     worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
-    DB, METRICS_ENABLED,
+    BASE_URL, DB, METRICS_ENABLED,
 };
 
 #[cfg(feature = "enterprise")]
@@ -646,7 +647,7 @@ pub async fn add_completed_job<
                     schedule_handlers_tx.commit().await?;
                 }
                 Err(err) => {
-                    skip_downstream_error_handlers = true;
+                    skip_downstream_error_handlers = false;
                     tracing::error!("Could not apply schedule handlers with error: {}", err);
                 }
             };
@@ -774,6 +775,24 @@ pub async fn add_completed_job<
                 e
             );
         }
+    } else if queued_job.email == ERROR_HANDLER_USER_EMAIL && !success {
+        let result = serde_json::from_str(
+            &serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()),
+        )
+        .unwrap_or_else(|_| json!({}));
+        let result = if result.is_object() || result.is_null() {
+            result
+        } else {
+            json!({ "error": result })
+        };
+        report_critical_error_if_configured(format!(
+            "Error handler job {}/run/{}?workspace={} failed with error: {:#?}",
+            BASE_URL.read().await,
+            queued_job.id,
+            queued_job.workspace_id,
+            result
+        ))
+        .await;
     }
 
     if !queued_job.is_flow_step && queued_job.job_kind == JobKind::Script && canceled_by.is_none() {
@@ -1165,7 +1184,7 @@ async fn apply_schedule_handlers<
     job_id: Uuid,
     started_at: DateTime<Utc>,
     job_priority: Option<i16>,
-) -> windmill_common::error::Result<(bool, QueueTransaction<'c, R>)> {
+) -> anyhow::Result<(bool, QueueTransaction<'c, R>)> {
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
     if schedule.is_none() {
@@ -1230,20 +1249,10 @@ async fn apply_schedule_handlers<
                     tx = ntx;
                 }
                 Err(err) => {
-                    sqlx::query!(
-                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                        format!("Could not trigger error handler: {err}"),
-                        &schedule.workspace_id,
-                        &schedule.path
-                    )
-                    .execute(db)
-                    .await?;
-                    tracing::warn!(
+                    return Err(anyhow!(format!(
                         "Could not trigger error handler for {}: {}",
-                        schedule_path,
-                        err
-                    );
-                    return Err(err);
+                        schedule_path, err
+                    )));
                 }
             }
         }
@@ -1295,20 +1304,10 @@ async fn apply_schedule_handlers<
                         tx = ntx;
                     }
                     Err(err) => {
-                        sqlx::query!(
-                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                            format!("Could not trigger recovery handler: {err}"),
-                            &schedule.workspace_id,
-                            &schedule.path
-                        )
-                        .execute(db)
-                        .await?;
-                        tracing::warn!(
+                        return Err(anyhow!(format!(
                             "Could not trigger recovery handler for {}: {}",
-                            schedule_path,
-                            err
-                        );
-                        return Err(err);
+                            schedule_path, err
+                        )));
                     }
                 }
             }

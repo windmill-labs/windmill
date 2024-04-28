@@ -16,7 +16,7 @@
 	import { capitalize } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
-	import { AlertTriangle, Plus } from 'lucide-svelte'
+	import { AlertTriangle, Plus, X } from 'lucide-svelte'
 	import CustomSso from './CustomSso.svelte'
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
@@ -24,6 +24,7 @@
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import Password from './Password.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
+	import { fade } from 'svelte/transition'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -498,6 +499,53 @@
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
 												/>
+											{:else if setting.fieldType == 'email_array'}
+												<div class="w-full">
+													{#if Array.isArray(values[setting.key])}
+														{#each values[setting.key] ?? [] as v, i}
+															<div class="flex max-w-md mt-1 w-full items-center">
+																<input
+																	type="email"
+																	placeholder={setting.placeholder}
+																	bind:value={v}
+																/>
+																<button
+																	transition:fade|local={{ duration: 100 }}
+																	class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+																	aria-label="Clear"
+																	on:click={() => {
+																		values[setting.key] = values[setting.key].filter(
+																			(_, index) => index !== i
+																		)
+																	}}
+																>
+																	<X size={14} />
+																</button>
+															</div>
+														{/each}
+													{/if}
+												</div>
+												<div class="flex mt-2 gap-20 items-baseline">
+													<Button
+														variant="border"
+														color="light"
+														size="xs"
+														btnClasses="mt-1"
+														on:click={() => {
+															if (
+																values[setting.key] == undefined ||
+																!Array.isArray(values[setting.key])
+															) {
+																values[setting.key] = []
+															}
+															values[setting.key] = values[setting.key].concat('')
+														}}
+														id="arg-input-add-item"
+														startIcon={{ icon: Plus }}
+													>
+														Add item
+													</Button>
+												</div>
 											{:else if setting.fieldType == 'object_store_config'}
 												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
 											{:else if setting.fieldType == 'number'}

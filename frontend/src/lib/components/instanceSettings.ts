@@ -17,6 +17,7 @@ export interface Setting {
 		| 'email'
 		| 'license_key'
 		| 'object_store_config'
+		| 'email_array'
 	storage: SettingStorage
 	isValid?: (value: any) => boolean
 	error?: string
@@ -101,6 +102,13 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'object_store_config',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Critical Error Email Addresses',
+			description: 'Email addresses to send critical errors to. SMTP must be configured.',
+			key: 'critical_error_emails',
+			fieldType: 'email_array',
+			storage: 'setting'
 		},
 		{
 			label: 'Azure OpenAI base path',
