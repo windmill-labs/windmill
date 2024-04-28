@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.320.2](https://github.com/windmill-labs/windmill/compare/v1.320.1...v1.320.2) (2024-04-28)
+
+
+### Bug Fixes
+
+* bump git sync script version ([e8dcd5b](https://github.com/windmill-labs/windmill/commit/e8dcd5b4956ce06047b74486eabccd5d5d4380fc))
+
 ## [1.320.1](https://github.com/windmill-labs/windmill/compare/v1.320.0...v1.320.1) (2024-04-28)
 
 
