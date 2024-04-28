@@ -112,16 +112,15 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
     p: string,
     f: JSZip.JSZipObject
   ): Promise<DynFSElement[]> {
-    const isFlow = p.endsWith("flow.json");
-    function transformPath() {
-      if (isFlow) {
-        return p.replace("flow.json", "flow");
-      } else {
-        return useYaml && p.endsWith(".json")
-          ? p.replaceAll(".json", ".yaml")
-          : p;
-      }
-    }
+    const kind: "flow" | "app" | "script" | "other" = p.endsWith("flow.json")
+      ? "flow"
+      : p.endsWith("app.json")
+      ? "app"
+      : p.endsWith("script.json")
+      ? "script"
+      : "other";
+
+    const isJson = p.endsWith(".json");
 
     interface InlineScript {
       path: string;
@@ -166,12 +165,15 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "graphql") ext = "gql";
       else if (language == "bun") ext = "bun.ts";
       else if (language == "nativets") ext = "native.ts";
-      else ext = "noext";
+      else if (language == "frontend") ext = "frontend.js";
+      else ext = "no_ext";
 
       return [`${name}.inline_script.`, ext];
     }
 
-    function extractInlineScripts(modules: FlowModule[]): InlineScript[] {
+    function extractInlineScriptsForFlows(
+      modules: FlowModule[]
+    ): InlineScript[] {
       return modules.flatMap((m) => {
         if (m.value.type == "rawscript") {
           const [basePath, ext] = assignPath(m.summary, m.value.language);
@@ -187,17 +189,19 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
           }
           return r;
         } else if (m.value.type == "forloopflow") {
-          return extractInlineScripts(m.value.modules);
+          return extractInlineScriptsForFlows(m.value.modules);
         } else if (m.value.type == "branchall") {
           return m.value.branches.flatMap((b) =>
-            extractInlineScripts(b.modules)
+            extractInlineScriptsForFlows(b.modules)
           );
         } else if (m.value.type == "whileloopflow") {
-          return extractInlineScripts(m.value.modules);
+          return extractInlineScriptsForFlows(m.value.modules);
         } else if (m.value.type == "branchone") {
           return [
-            ...m.value.branches.flatMap((b) => extractInlineScripts(b.modules)),
-            ...extractInlineScripts(m.value.default),
+            ...m.value.branches.flatMap((b) =>
+              extractInlineScriptsForFlows(b.modules)
+            ),
+            ...extractInlineScriptsForFlows(m.value.default),
           ];
         } else {
           return [];
@@ -205,15 +209,63 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       });
     }
 
+    function extractInlineScriptsForApps(rec: any): InlineScript[] {
+      if (!rec) {
+        return [];
+      }
+      if (typeof rec == "object") {
+        return Object.entries(rec).flatMap(([k, v]) => {
+          if (k == "inlineScript" && typeof v == "object") {
+            const o: Record<string, any> = v as any;
+            const name = rec["name"];
+            const [basePath, ext] = assignPath(name, o["language"]);
+            const r = [];
+            if (o["content"]) {
+              const content = o["content"];
+              o["content"] = "!inline " + basePath + ext;
+              r.push({
+                path: basePath + ext,
+                content: content,
+              });
+            }
+            if (o["lock"]) {
+              const lock = o["lock"];
+              o["lock"] = "!inline " + basePath + "lock";
+              r.push({
+                path: basePath + "lock",
+                content: lock,
+              });
+            }
+            return r;
+          } else {
+            return extractInlineScriptsForApps(v);
+          }
+        });
+      }
+      return [];
+    }
+
+    function transformPath() {
+      if (kind == "flow") {
+        return p.replace("flow.json", "flow");
+      } else if (kind == "app") {
+        return p.replace("app.json", "app");
+      } else {
+        return useYaml && isJson ? p.replaceAll(".json", ".yaml") : p;
+      }
+    }
+
     const finalPath = transformPath();
     const r = [
       {
-        isDirectory: isFlow,
+        isDirectory: kind == "flow" || kind == "app",
         path: finalPath,
         async *getChildren(): AsyncIterable<DynFSElement> {
-          if (isFlow) {
+          if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScripts(flow.value.modules);
+            const inlineScripts = extractInlineScriptsForFlows(
+              flow.value.modules
+            );
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -235,20 +287,37 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
                 return yamlStringify(flow, yamlOptions);
               },
             };
+          } else if (kind == "app") {
+            const app = JSON.parse(await f.async("text"));
+            const inlineScripts = extractInlineScriptsForApps(app?.["value"]);
+            for (const s of inlineScripts) {
+              yield {
+                isDirectory: false,
+                path: path.join(finalPath, s.path),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return s.content;
+                },
+              };
+            }
+
+            yield {
+              isDirectory: false,
+              path: path.join(finalPath, "app.yaml"),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return yamlStringify(app, yamlOptions);
+              },
+            };
           }
         },
-        // async getContentBytes(): Promise<Uint8Array> {
-        //   return await f.async("uint8array");
-        // },
+
         async getContentText(): Promise<string> {
           const content = await f.async("text");
-          // if (p.endsWith(".script.json")) {
-          //   if (parsed["lock"]) {
-          //     parsed["lock"] = "!inline " + p + ".lock";
-          //     yield {}
-          //   }
-          // }
-          if (p.endsWith(".script.json")) {
+
+          if (kind == "script") {
             const parsed = JSON.parse(content);
             if (parsed["lock"]) {
               parsed["lock"] = "!inline " + removeSuffix(p, ".json") + ".lock";
@@ -258,13 +327,13 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
               : JSON.stringify(parsed, null, 2);
           }
 
-          return useYaml && p.endsWith(".json")
+          return useYaml && isJson
             ? yamlStringify(JSON.parse(content), yamlOptions)
             : content;
         },
       },
     ];
-    if (p.endsWith("script.json")) {
+    if (kind == "script") {
       const content = await f.async("text");
       const parsed = JSON.parse(content);
       const lock = parsed["lock"];
@@ -1066,7 +1135,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
           case "app":
             await AppService.deleteApp({
               workspace: workspaceId,
-              path: removeSuffix(change.path, ".app.json"),
+              path: removeSuffix(change.path, ".app/app.json"),
             });
             break;
           case "schedule":

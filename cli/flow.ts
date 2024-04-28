@@ -27,13 +27,13 @@ const alreadySynced: string[] = [];
 export async function pushFlow(
   workspace: string,
   remotePath: string,
-  localFlowPath: string,
+  localPath: string,
   message?: string
 ): Promise<void> {
-  if (alreadySynced.includes(localFlowPath)) {
+  if (alreadySynced.includes(localPath)) {
     return;
   }
-  alreadySynced.push(localFlowPath);
+  alreadySynced.push(localPath);
   let flow: Flow | undefined = undefined;
   try {
     flow = await FlowService.getFlowByPath({
@@ -44,17 +44,17 @@ export async function pushFlow(
     // flow doesn't exist
   }
 
-  if (!localFlowPath.endsWith(SEP)) {
-    localFlowPath += SEP;
+  if (!localPath.endsWith(SEP)) {
+    localPath += SEP;
   }
-  const localFlowRaw = await Deno.readTextFile(localFlowPath + "flow.yaml");
+  const localFlowRaw = await Deno.readTextFile(localPath + "flow.yaml");
   const localFlow = yamlParse(localFlowRaw) as FlowFile;
 
   function replaceInlineScripts(modules: FlowModule[]) {
     modules.forEach((m) => {
       if (m.value.type == "rawscript") {
         const path = m.value.content.split(" ")[1];
-        m.value.content = Deno.readTextFileSync(localFlowPath + path);
+        m.value.content = Deno.readTextFileSync(localPath + path);
         const lock = m.value.lock;
 
         if (
@@ -64,7 +64,7 @@ export async function pushFlow(
         ) {
           const path = lock.split(" ")[1];
           try {
-            m.value.lock = Deno.readTextFileSync(localFlowPath + path);
+            m.value.lock = Deno.readTextFileSync(localPath + path);
           } catch {
             log.error(`Lock file ${path} not found`);
           }
