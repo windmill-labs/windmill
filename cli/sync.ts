@@ -108,7 +108,10 @@ export const yamlOptions = {
 };
 
 function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
-  function _internal_file(p: string, f: JSZip.JSZipObject): DynFSElement {
+  async function _internal_file(
+    p: string,
+    f: JSZip.JSZipObject
+  ): Promise<DynFSElement[]> {
     const isFlow = p.endsWith("flow.json");
     function transformPath() {
       if (isFlow) {
@@ -130,7 +133,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
     function assignPath(
       summary: string | undefined,
       language: RawScript["language"]
-    ): string {
+    ): [string, string] {
       let name;
 
       const INLINE_SCRIPT = "inline_script";
@@ -163,20 +166,22 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "graphql") ext = "gql";
       else if (language == "bun") ext = "bun.ts";
       else if (language == "nativets") ext = "native.ts";
+      else ext = "noext";
 
-      return `${name}.inline_script.${ext}`;
+      return [`${name}.inline_script.`, ext];
     }
 
     function extractInlineScripts(modules: FlowModule[]): InlineScript[] {
       return modules.flatMap((m) => {
         if (m.value.type == "rawscript") {
-          const path = assignPath(m.summary, m.value.language);
+          const [basePath, ext] = assignPath(m.summary, m.value.language);
+          const path = basePath + ext;
           const content = m.value.content;
           const r = [{ path: path, content: content }];
           m.value.content = "!inline " + path;
           const lock = m.value.lock;
           if (lock) {
-            const lockPath = path + ".lock";
+            const lockPath = basePath + "lock";
             m.value.lock = "!inline " + lockPath;
             r.push({ path: lockPath, content: lock });
           }
@@ -200,47 +205,82 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       });
     }
 
-    const flowPath = transformPath();
-    return {
-      isDirectory: isFlow,
-      path: flowPath,
-      async *getChildren(): AsyncIterable<DynFSElement> {
-        if (isFlow) {
-          const flow: OpenFlow = JSON.parse(await f.async("text"));
-          const inlineScripts = extractInlineScripts(flow.value.modules);
-          for (const s of inlineScripts) {
+    const finalPath = transformPath();
+    const r = [
+      {
+        isDirectory: isFlow,
+        path: finalPath,
+        async *getChildren(): AsyncIterable<DynFSElement> {
+          if (isFlow) {
+            const flow: OpenFlow = JSON.parse(await f.async("text"));
+            const inlineScripts = extractInlineScripts(flow.value.modules);
+            for (const s of inlineScripts) {
+              yield {
+                isDirectory: false,
+                path: path.join(finalPath, s.path),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return s.content;
+                },
+              };
+            }
+
             yield {
               isDirectory: false,
-              path: path.join(flowPath, s.path),
+              path: path.join(finalPath, "flow.yaml"),
               async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
-                return s.content;
+                return yamlStringify(flow, yamlOptions);
               },
             };
           }
+        },
+        // async getContentBytes(): Promise<Uint8Array> {
+        //   return await f.async("uint8array");
+        // },
+        async getContentText(): Promise<string> {
+          const content = await f.async("text");
+          // if (p.endsWith(".script.json")) {
+          //   if (parsed["lock"]) {
+          //     parsed["lock"] = "!inline " + p + ".lock";
+          //     yield {}
+          //   }
+          // }
+          if (p.endsWith(".script.json")) {
+            const parsed = JSON.parse(content);
+            if (parsed["lock"]) {
+              parsed["lock"] = "!inline " + removeSuffix(p, ".json") + ".lock";
+            }
+            return useYaml
+              ? yamlStringify(parsed, yamlOptions)
+              : JSON.stringify(parsed, null, 2);
+          }
 
-          yield {
-            isDirectory: false,
-            path: path.join(flowPath, "flow.yaml"),
-            async *getChildren() {},
-            // deno-lint-ignore require-await
-            async getContentText() {
-              return yamlStringify(flow, yamlOptions);
-            },
-          };
-        }
+          return useYaml && p.endsWith(".json")
+            ? yamlStringify(JSON.parse(content), yamlOptions)
+            : content;
+        },
       },
-      // async getContentBytes(): Promise<Uint8Array> {
-      //   return await f.async("uint8array");
-      // },
-      async getContentText(): Promise<string> {
-        const content = await f.async("text");
-        return useYaml && p.endsWith(".json")
-          ? yamlStringify(JSON.parse(content), yamlOptions)
-          : content;
-      },
-    };
+    ];
+    if (p.endsWith("script.json")) {
+      const content = await f.async("text");
+      const parsed = JSON.parse(content);
+      const lock = parsed["lock"];
+      if (lock) {
+        r.push({
+          isDirectory: false,
+          path: removeSuffix(finalPath, ".json") + ".lock",
+          async *getChildren() {},
+          // deno-lint-ignore require-await
+          async getContentText() {
+            return lock;
+          },
+        });
+      }
+    }
+    return r;
   }
   function _internal_folder(p: string, zip: JSZip): DynFSElement {
     return {
@@ -254,7 +294,10 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
             const e = zip.folder(file.name)!;
             yield _internal_folder(totalPath, e);
           } else {
-            yield _internal_file(totalPath, file);
+            const fs = await _internal_file(totalPath, file);
+            for (const f of fs) {
+              yield f;
+            }
           }
         }
       },

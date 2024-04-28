@@ -63,7 +63,11 @@ export async function pushFlow(
           lock.trimStart().startsWith("!inline ")
         ) {
           const path = lock.split(" ")[1];
-          m.value.lock = Deno.readTextFileSync(localFlowPath + path);
+          try {
+            m.value.lock = Deno.readTextFileSync(localFlowPath + path);
+          } catch {
+            log.error(`Lock file ${path} not found`);
+          }
         }
       } else if (m.value.type == "forloopflow") {
         replaceInlineScripts(m.value.modules);
