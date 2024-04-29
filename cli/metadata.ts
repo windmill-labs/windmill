@@ -178,6 +178,16 @@ async function updateScriptLock(
   metadataContent: Record<string, any>,
   rawDeps: string | undefined
 ): Promise<void> {
+  if (
+    !(
+      language == "bun" ||
+      language == "python3" ||
+      language == "go" ||
+      language == "deno"
+    )
+  ) {
+    return;
+  }
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
   const rawResponse = await fetch(
