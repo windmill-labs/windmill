@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.321.4](https://github.com/windmill-labs/windmill/compare/v1.321.3...v1.321.4) (2024-04-29)
+
+
+### Bug Fixes
+
+* **cli:** handle better missing lockfile for generating metadata ([5315726](https://github.com/windmill-labs/windmill/commit/53157262bdb38d7b83d94ff9df02322bb0ab06c7))
+
 ## [1.321.3](https://github.com/windmill-labs/windmill/compare/v1.321.2...v1.321.3) (2024-04-29)
 
 
