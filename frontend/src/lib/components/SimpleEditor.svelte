@@ -203,6 +203,11 @@
 
 			disableTabCond = editor.createContextKey('disableTabCond', !code)
 			editor.addCommand(KeyCode.Tab, function () {}, 'disableTabCond')
+
+			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
+				// CMD + slash (toggle comment) on some EU keyboards
+				editor?.trigger('keyboard', 'editor.action.commentLine', {})
+			})
 		})
 
 		if (autoHeight) {

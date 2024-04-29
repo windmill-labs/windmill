@@ -458,6 +458,8 @@
 			dispatch('focus')
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
+
+			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

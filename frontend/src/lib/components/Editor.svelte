@@ -1175,6 +1175,11 @@
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 
+			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
+				// CMD + slash (toggle comment) on some EU keyboards
+				editor?.trigger('keyboard', 'editor.action.commentLine', {})
+			})
+
 			if (
 				!websocketAlive.black &&
 				!websocketAlive.deno &&

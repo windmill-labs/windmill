@@ -79,13 +79,27 @@
 	let showResourcePicker = false
 	let showResourceTypePicker = false
 
-	$: showContextVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(
+	$: showContextVarPicker = [
+		'python3',
+		'bash',
+		'powershell',
+		'go',
+		'deno',
+		'bun',
+		'nativets'
+	].includes(lang ?? '')
+	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun', 'nativets'].includes(
 		lang ?? ''
 	)
-	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(lang ?? '')
-	$: showResourcePicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun'].includes(
-		lang ?? ''
-	)
+	$: showResourcePicker = [
+		'python3',
+		'bash',
+		'powershell',
+		'go',
+		'deno',
+		'bun',
+		'nativets'
+	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) || lang === 'python3'
 
@@ -271,6 +285,8 @@
 			editor.insertAtCursor(`$${name}`)
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Env:${name}`)
+		} else if (lang == 'nativets') {
+			editor.insertAtCursor(name)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -316,6 +332,14 @@
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/variables/get_value/${path}"`
 			)
+		} else if (lang == 'nativets') {
+			editor.insertAtCursor(
+				'await fetch(`${BASE_INTERNAL_URL}/api/w/${WM_WORKSPACE}/variables/get_value/' +
+					path +
+					'`, {\nheaders: { Authorization: `Bearer ${WM_TOKEN}` }'
+			)
+			editor.arrowDown()
+			editor.insertAtCursor('.then(res => res.json())')
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -375,6 +399,14 @@
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/resources/get_value_interpolated/${path}"`
 			)
+		} else if (lang == 'nativets') {
+			editor.insertAtCursor(
+				'await fetch(`${BASE_INTERNAL_URL}/api/w/${WM_WORKSPACE}/resources/get_value_interpolated/' +
+					path +
+					'`, {\nheaders: { Authorization: `Bearer ${WM_TOKEN}` }'
+			)
+			editor.arrowDown()
+			editor.insertAtCursor('.then(res => res.json())')
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
