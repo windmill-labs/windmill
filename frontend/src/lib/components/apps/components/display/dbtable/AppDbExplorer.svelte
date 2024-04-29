@@ -628,7 +628,7 @@
 	bind:runnableComponent
 	bind:result
 	componentInput={input}
-	autoRefresh={true}
+	autoRefresh={false}
 	bind:loading
 	{render}
 	{id}
