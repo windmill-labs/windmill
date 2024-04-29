@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.321.0](https://github.com/windmill-labs/windmill/compare/v1.320.3...v1.321.0) (2024-04-29)
+
+
+### Features
+
+* add resource and variable picker for rest scripts ([#3628](https://github.com/windmill-labs/windmill/issues/3628)) ([3956d01](https://github.com/windmill-labs/windmill/commit/3956d012ad08e37062f24823dbc0d7ca1bb564ef))
+
+
+### Bug Fixes
+
+* **python-client:** improve error message for wait_job ([0e022c9](https://github.com/windmill-labs/windmill/commit/0e022c9e4edc0d03abe2325c87546a8244434a5f))
+* toggle comment shortcut on some EU keyboards ([#3630](https://github.com/windmill-labs/windmill/issues/3630)) ([b529784](https://github.com/windmill-labs/windmill/commit/b5297846fea880c18f4895010aad3c39e5f582b1))
+
+## [1.320.3](https://github.com/windmill-labs/windmill/compare/v1.320.2...v1.320.3) (2024-04-28)
+
+
+### Bug Fixes
+
+* **cli:** improve support for frontend scripts cli sync ([82e628a](https://github.com/windmill-labs/windmill/commit/82e628a11185b2af27d2cd53aa4619b413ee0e6a))
+
+## [1.320.2](https://github.com/windmill-labs/windmill/compare/v1.320.1...v1.320.2) (2024-04-28)
+
+
+### Bug Fixes
+
+* bump git sync script version ([e8dcd5b](https://github.com/windmill-labs/windmill/commit/e8dcd5b4956ce06047b74486eabccd5d5d4380fc))
+
+## [1.320.1](https://github.com/windmill-labs/windmill/compare/v1.320.0...v1.320.1) (2024-04-28)
+
+
+### Bug Fixes
+
+* add button to easily bump git sync version ([0fcd54b](https://github.com/windmill-labs/windmill/commit/0fcd54bc070483dafdbbc0f592e090d0b71361c3))
+
 ## [1.320.0](https://github.com/windmill-labs/windmill/compare/v1.319.1...v1.320.0) (2024-04-28)
 
 

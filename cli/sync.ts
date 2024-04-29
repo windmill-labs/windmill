@@ -470,6 +470,7 @@ export async function elementsToMap(
         "sql",
         "gql",
         "ps1",
+        "js",
         "lock",
       ].includes(path.split(".").pop() ?? "")
     )

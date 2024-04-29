@@ -170,7 +170,7 @@ class Windmill:
             timeout = timeout.total_seconds()
 
         while True:
-            result_res = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", False).json()
+            result_res = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", True).json()
 
             started = result_res["started"]
             completed = result_res["completed"]

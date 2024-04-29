@@ -89,8 +89,8 @@ use crate::{
     bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
     bun_executor::{gen_lockfile, get_trusted_deps, handle_bun_job},
     common::{
-        build_args_map, get_cached_resource_value_if_valid, hash_args, read_result, save_in_cache,
-        write_file, NO_LOGS_AT_ALL, SLOW_LOGS,
+        build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
+        read_result, save_in_cache, write_file, NO_LOGS_AT_ALL, SLOW_LOGS,
     },
     deno_executor::{generate_deno_lock, handle_deno_job},
     go_executor::{handle_go_job, install_go_dependencies},
@@ -3203,9 +3203,16 @@ async fn handle_code_execution_job(
             db,
         )
         .await;
+
+        let reserved_variables = get_reserved_variables(job, &client.get_token().await, db).await?;
+
         let code = format!(
-            "const BASE_URL = '{base_internal_url}';\nconst WM_TOKEN = '{}';\n{}",
-            &client.get_token().await,
+            "const BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\n{}\n{}",
+            reserved_variables
+                .iter()
+                .map(|(k, v)| format!("const {} = '{}';\n", k, v))
+                .collect::<Vec<String>>()
+                .join("\n"),
             inner_content
         );
         let (result, ts_logs) =
