@@ -14,6 +14,7 @@
 	export let noInitialize = false
 	export let hideRefreshButton: boolean | undefined = undefined
 	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
+	export let overrideAutoRefresh: boolean = false
 
 	type SideEffectAction =
 		| {
@@ -258,6 +259,7 @@
 		transformer={componentInput.transformer}
 		{autoRefresh}
 		{overrideCallback}
+		{overrideAutoRefresh}
 		recomputableByRefreshButton={componentInput.autoRefresh ?? true}
 		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}

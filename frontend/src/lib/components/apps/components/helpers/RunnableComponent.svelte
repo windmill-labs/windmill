@@ -55,6 +55,7 @@
 	export let allowConcurentRequests = false
 	export let noInitialize = false
 	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
+	export let overrideAutoRefresh: boolean = false
 
 	const {
 		worldStore,
@@ -560,7 +561,7 @@
 		}
 
 		$runnableComponents[id] = {
-			autoRefresh: autoRefresh && recomputableByRefreshButton,
+			autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
 			refreshOnStart: refreshOnStart,
 			cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 		}

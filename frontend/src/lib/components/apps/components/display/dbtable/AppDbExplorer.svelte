@@ -205,12 +205,6 @@
 		})
 	}
 
-	function setAutoRefresh() {
-		$runnableComponents[id].autoRefresh = true
-	}
-
-	$: $runnableComponents[id] && setAutoRefresh()
-
 	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
 
@@ -626,6 +620,7 @@
 			aggrid?.clearRows()
 			resolve()
 		})}
+	overrideAutoRefresh={true}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
 		{#if !(hideSearch === true && hideInsert === true)}
