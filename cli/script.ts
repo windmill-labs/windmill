@@ -83,7 +83,11 @@ export async function handleScriptMetadata(
   message: string | undefined,
   globalDeps: GlobalDeps
 ): Promise<boolean> {
-  if (path.endsWith(".script.json") || path.endsWith(".script.yaml")) {
+  if (
+    path.endsWith(".script.json") ||
+    path.endsWith(".script.yaml") ||
+    path.endsWith(".script.lock")
+  ) {
     const contentPath = await findContentFile(path);
     return handleFile(
       contentPath,
@@ -242,6 +246,8 @@ export async function handleFile(
 export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? exts.map((x) => filePath.replace(".script.json", x))
+    : filePath.endsWith("script.lock")
+    ? exts.map((x) => filePath.replace(".script.lock", x))
     : exts.map((x) => filePath.replace(".script.yaml", x));
 
   const validCandidates = (
