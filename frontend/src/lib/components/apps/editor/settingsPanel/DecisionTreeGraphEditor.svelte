@@ -28,7 +28,7 @@
 	setContext('DecisionTreeEditor', { selectedNodeId })
 </script>
 
-<Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
+<Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px" alwaysOpen>
 	<DrawerContent
 		title="Decision tree"
 		on:close={drawer.closeDrawer}
