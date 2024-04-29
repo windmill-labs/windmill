@@ -111,7 +111,7 @@
 		}, 1000)
 	}
 
-	const { app, worldStore, mode, selectedComponent, runnableComponents } =
+	const { app, worldStore, mode, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
