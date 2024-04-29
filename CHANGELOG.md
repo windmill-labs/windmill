@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.321.3](https://github.com/windmill-labs/windmill/compare/v1.321.2...v1.321.3) (2024-04-29)
+
+
+### Bug Fixes
+
+* **cli:** skip deleting script when lockfile delete ([959ae8d](https://github.com/windmill-labs/windmill/commit/959ae8d2526d631a14b91a8657ef6957355467b3))
+
 ## [1.321.2](https://github.com/windmill-labs/windmill/compare/v1.321.1...v1.321.2) (2024-04-29)
 
 
