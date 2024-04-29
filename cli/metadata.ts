@@ -459,9 +459,17 @@ export async function parseMetadataFile(
       await Deno.stat(metadataFilePath);
       const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
       if (payload?.["lock"].startsWith("!inline ")) {
-        payload["lock"] = await Deno.readTextFile(
-          payload["lock"].split(" ")[1]
-        );
+        try {
+          const lockPath = payload["lock"].split(" ")[1];
+          payload["lock"] = await Deno.readTextFile(lockPath);
+        } catch (e) {
+          log.info(
+            colors.yellow(
+              `Failed to read lockfile, doing as if it was empty: ${e}`
+            )
+          );
+          payload["lock"] = "";
+        }
       }
       if (Array.isArray(payload?.["lock"])) {
         payload["lock"] = payload["lock"].join("\n");
