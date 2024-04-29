@@ -205,28 +205,11 @@
 		})
 	}
 
-	let isCallbackAdded = false
-
-	function addOnRecomputeCallback() {
-		$runnableComponents[id].cb = [
-			() =>
-				new CancelablePromise(async (resolve) => {
-					await dbExplorerCount?.computeCount(true)
-
-					aggrid?.clearRows()
-					resolve()
-				})
-		]
-		isCallbackAdded = true
-	}
-
 	function setAutoRefresh() {
 		$runnableComponents[id].autoRefresh = true
 	}
 
 	$: $runnableComponents[id] && setAutoRefresh()
-
-	$: $runnableComponents[id]?.cb && !isCallbackAdded && addOnRecomputeCallback()
 
 	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
@@ -636,6 +619,13 @@
 	{render}
 	{id}
 	{outputs}
+	overrideCallback={() =>
+		new CancelablePromise(async (resolve) => {
+			await dbExplorerCount?.computeCount(true)
+
+			aggrid?.clearRows()
+			resolve()
+		})}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
 		{#if !(hideSearch === true && hideInsert === true)}
