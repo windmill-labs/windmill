@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.321.1](https://github.com/windmill-labs/windmill/compare/v1.321.0...v1.321.1) (2024-04-29)
+
+
+### Bug Fixes
+
+* pg types conversion dbstudio ([#3636](https://github.com/windmill-labs/windmill/issues/3636)) ([f6e8f45](https://github.com/windmill-labs/windmill/commit/f6e8f45af1df9009a6086ee76b7a7cfa9845ff17))
+
 ## [1.321.0](https://github.com/windmill-labs/windmill/compare/v1.320.3...v1.321.0) (2024-04-29)
 
 
