@@ -318,22 +318,13 @@ pub async fn delete_expired_items(db: &DB) -> () {
                                 tracing::error!("Error deleting job stats: {:?}", e);
                             }
                             if let Err(e) = sqlx::query!(
-                                "DELETE FROM custom_concurrency_key_ended WHERE  ended_at <= now() - ($1::bigint::text || ' s')::interval ",
+                                "DELETE FROM concurrency_key WHERE  ended_at <= now() - ($1::bigint::text || ' s')::interval ",
                                 job_retention_secs
                             )
                             .execute(&mut *tx)
                             .await
                             {
                                 tracing::error!("Error deleting  custom concurrency key: {:?}", e);
-                            }
-                            if let Err(e) = sqlx::query!(
-                                "DELETE FROM custom_concurrency_key WHERE job_id = ANY($1)",
-                                &deleted_jobs,
-                            )
-                            .execute(&mut *tx)
-                            .await
-                            {
-                                tracing::error!("Error deleting from custom_concurrency_key: {:?}", e);
                             }
                         }
                     }

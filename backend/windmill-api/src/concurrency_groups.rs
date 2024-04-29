@@ -56,6 +56,16 @@ async fn list_concurrency_groups(
     .fetch_all(&db)
     .await?;
 
+    // let completed_count = sqlx::query!(
+    //     "SELECT COUNT(*) as count, COALESCE(MAX(ended_at), now() - INTERVAL '1 second' * $2)  as max_ended_at FROM concurrency_key WHERE key = $1 AND ended_at >=  (now() - INTERVAL '1 second' * $2)",
+    //     job_concurrency_key,
+    //     f64::from(job_custom_concurrency_time_window_s),
+    // ).fetch_one(&mut tx).await.map_err(|e| {
+    //     Error::InternalErr(format!(
+    //         "Error getting completed count for key {job_concurrency_key}: {e}"
+    //     ))
+    // })?;
+
     let mut concurrency_groups: Vec<ConcurrencyGroups> = vec![];
     for (concurrency_id, job_uuids_json) in concurrency_groups_raw {
         let job_uuids_map = serde_json::from_value::<HashMap<String, serde_json::Value>>(
@@ -117,7 +127,7 @@ async fn delete_concurrency_group(
     .await?;
 
     sqlx::query!(
-        "DELETE FROM custom_concurrency_key_ended  WHERE key = $1",
+        "DELETE FROM concurrency_key WHERE key = $1",
         concurrency_id.clone(),
     )
     .execute(&mut *tx)
