@@ -242,9 +242,9 @@ export async function add(
         )
       );
       const automateUsernameCreation: boolean =
-        (await SettingService.getGlobal({
+        ((await SettingService.getGlobal({
           key: "automate_username_creation",
-        })) ?? false;
+        })) as any) ?? false;
       await WorkspaceService.createWorkspace({
         requestBody: {
           id: workspaceId,

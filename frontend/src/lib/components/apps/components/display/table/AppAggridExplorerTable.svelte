@@ -1,10 +1,5 @@
 <script lang="ts">
-	import {
-		GridApi,
-		createGrid,
-		type IDatasource,
-		type ICellRendererParams
-	} from 'ag-grid-community'
+	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
@@ -243,8 +238,7 @@
 
 		return r.map((fields) => ({
 			...fields,
-			cellRenderer: (params: ICellRendererParams) =>
-				defaultCellRenderer(params, fields.cellRendererType)
+			cellRenderer: defaultCellRenderer(fields.cellRendererType)
 		}))
 	}
 
@@ -430,27 +424,29 @@
 		>
 			<div bind:this={eGui} style:height="100%" />
 		</div>
-		<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
-			<div>
-				<Popover>
-					<svelte:fragment slot="text">Download</svelte:fragment>
-					<Button
-						startIcon={{ icon: Download }}
-						color="light"
-						size="xs2"
-						on:click={() => {
-							api?.exportDataAsCsv()
-						}}
-						iconOnly
-					/>
-				</Popover>
+		{#if resolvedConfig && 'footer' in resolvedConfig && resolvedConfig.footer}
+			<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
+				<div>
+					<Popover>
+						<svelte:fragment slot="text">Download</svelte:fragment>
+						<Button
+							startIcon={{ icon: Download }}
+							color="light"
+							size="xs2"
+							on:click={() => {
+								api?.exportDataAsCsv()
+							}}
+							iconOnly
+						/>
+					</Popover>
+				</div>
+				{#if datasource?.rowCount}
+					{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+				{:else}
+					{firstRow}{'->'}{lastRow + 1}
+				{/if}
 			</div>
-			{#if datasource?.rowCount}
-				{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
-			{:else}
-				{firstRow}{'->'}{lastRow + 1}
-			{/if}
-		</div>
+		{/if}
 	</div>
 {:else if resolvedConfig.columnDefs != undefined}
 	<Alert title="Parsing issues" type="error" size="xs">

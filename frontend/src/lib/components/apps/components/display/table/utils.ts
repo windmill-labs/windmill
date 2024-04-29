@@ -77,17 +77,19 @@ export function isLinkObject(value: any): value is LinkObject {
 	return value && typeof value === 'object' && 'href' in value && 'label' in value
 }
 
-export function defaultCellRenderer(params: ICellRendererParams, cellRendererType: string) {
+export function defaultCellRenderer(cellRendererType: string) {
 	if (cellRendererType === 'link') {
-		if (isLinkObject(params.value)) {
-			const value = params.value
-			return `<a href=${value.href} class="underline" target="_blank">${value.label}</a>`
-		} else if (params.value) {
-			return `<a href=${params.value} class="underline" target="_blank">${params.value}</a>`
-		} else {
-			return params.value
+		return (params: ICellRendererParams) => {
+			if (isLinkObject(params.value)) {
+				const value = params.value
+				return `<a href=${value.href} class="underline" target="_blank">${value.label}</a>`
+			} else if (params.value) {
+				return `<a href=${params.value} class="underline" target="_blank">${params.value}</a>`
+			} else {
+				return params.value
+			}
 		}
 	} else {
-		return params.value
+		return undefined
 	}
 }

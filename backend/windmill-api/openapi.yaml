@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.317.1
+  version: 1.320.3
   title: Windmill API
 
   contact:
@@ -4906,6 +4906,8 @@ paths:
                     - content
                     - language
                 force_viewer_static_fields:
+                  type: object
+                force_viewer_one_of_fields:
                   type: object
               required:
                 - args
@@ -9885,6 +9887,10 @@ components:
       type: object
       properties:
         triggerables:
+          type: object
+          additionalProperties:
+            type: object
+        triggerables_v2:
           type: object
           additionalProperties:
             type: object

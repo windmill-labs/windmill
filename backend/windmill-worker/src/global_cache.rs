@@ -72,45 +72,57 @@ pub async fn build_tar_and_push(
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
+pub async fn attempt_fetch_bytes(
+    client: Arc<dyn ObjectStore>,
+    path: &str,
+) -> error::Result<bytes::Bytes> {
     use object_store::path::Path;
-    let folder_name = folder.split("/").last().unwrap();
 
-    tracing::info!("Attempting to pull piptar {folder_name} from bucket");
-
-    let start = Instant::now();
-    let tar_path = format!("tar/pip/{folder_name}.tar");
-
-    let object = client.get(&Path::from(tar_path.clone())).await;
+    let object = client.get(&Path::from(path.clone())).await;
     if let Err(e) = object {
-        tracing::info!("Failed to pull tar from s3: {tar_path}. Error: {:?}", e);
+        tracing::info!(
+            "Failed to pull bytes from object store at path {path}. Error: {:?}",
+            e
+        );
         return Err(error::Error::ExecutionErr(format!(
-            "Failed to pull tar from s3: {tar_path}"
+            "Failed to pull bytes from object store: {path}"
         )));
     }
 
     let bytes = object.unwrap().bytes().await;
     if bytes.is_err() {
         tracing::info!(
-            "Failed to read tar from s3: {tar_path}. Error: {:?}",
+            "Failed to read bytes from object store: {path}. Error: {:?}",
             bytes.err()
         );
         return Err(error::Error::ExecutionErr(format!(
-            "Failed to read tar from s3: {tar_path}"
+            "Failed to read bytes from object store: {path}"
         )));
     }
     let bytes = bytes.unwrap();
-    tracing::info!("{tar_path} len: {}", bytes.len());
+
+    tracing::info!("{path} len: {}", bytes.len());
 
     if bytes.len() == 0 {
-        tracing::info!(
-            "piptar {folder_name} not found in bucket. Took {:?}ms",
-            start.elapsed().as_millis()
-        );
+        tracing::info!("object {path} not found in bucket, bytes empty",);
         return Err(error::Error::ExecutionErr(format!(
-            "tar {folder_name} does not exist in bucket"
+            "object {path} does not exist in bucket"
         )));
     }
+
+    return Ok(bytes);
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
+    let folder_name = folder.split("/").last().unwrap();
+
+    tracing::info!("Attempting to pull piptar {folder_name} from bucket");
+
+    let start = Instant::now();
+    let tar_path = format!("tar/pip/{folder_name}.tar");
+    let bytes = attempt_fetch_bytes(client, &tar_path).await?;
+
     // tracing::info!("B: {target} {folder}");
 
     extract_pip_tar(bytes, &folder).await.map_err(|e| {

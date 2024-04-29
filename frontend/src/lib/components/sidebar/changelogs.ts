@@ -6,6 +6,21 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'AgGrid Infinite Table',
+		href: 'https://www.windmill.dev/changelog/aggrid-infinite-table',
+		date: '2024-04-24'
+	},
+	{
+		label: 'Jobs Labels',
+		href: 'https://www.windmill.dev/changelog/jobs-labels',
+		date: '2024-04-24'
+	},
+	{
+		label: 'AgGrid Actions',
+		href: 'https://www.windmill.dev/changelog/aggrid-actions',
+		date: '2024-04-12'
+	},
+	{
 		label: 'Continue on error with error as step`s return',
 		href: 'https://www.windmill.dev/changelog/continue-on-error',
 		date: '2024-04-02'
