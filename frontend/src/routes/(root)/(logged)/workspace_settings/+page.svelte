@@ -134,6 +134,7 @@
 			| 'error_handler') ?? 'users'
 	let usingOpenaiClientCredentialsOauth = false
 
+	const latestGitSyncHubScript = `hub/8775/sync-script-to-git-repo-windmill`
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
 	// 		{
@@ -1363,6 +1364,7 @@
 								>
 							{/key}
 						</div>
+
 						<div class="flex mb-5 text-normal text-2xs gap-1">
 							{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === gitSyncRepository.git_repo_resource_path).length > 1}
 								<span class="text-red-700">Using the same resource twice is not allowed.</span>
@@ -1386,7 +1388,30 @@
 						</div>
 
 						<div class="flex flex-col mt-5 mb-1 gap-4">
-							{#if gitSyncSettings}
+							{#if gitSyncSettings && gitSyncRepository}
+								{#if gitSyncRepository.script_path != latestGitSyncHubScript}
+									<Alert type="warning" title="Script version mismatch">
+										The git sync version for this repository is not latest. Current: <a
+											target="_blank"
+											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/5813/versions"
+											>{gitSyncRepository.script_path}</a
+										>, latest:
+										<a
+											target="_blank"
+											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/5813/versions"
+											>{latestGitSyncHubScript}</a
+										>
+										<div class="flex mt-2">
+											<Button
+												size="xs"
+												color="dark"
+												on:click={() => {
+													gitSyncRepository.script_path = latestGitSyncHubScript
+												}}>Update git sync script (require save git settings to be applied)</Button
+											>
+										</div>
+									</Alert>
+								{/if}
 								<Toggle
 									disabled={emptyString(gitSyncRepository.git_repo_resource_path)}
 									bind:checked={gitSyncRepository.use_individual_branch}
@@ -1502,7 +1527,7 @@
 							gitSyncSettings.repositories = [
 								...gitSyncSettings.repositories,
 								{
-									script_path: 'hub/8773/sync-script-to-git-repo-windmill',
+									script_path: latestGitSyncHubScript,
 									git_repo_resource_path: '',
 									use_individual_branch: false,
 									group_by_folder: false,

@@ -16,7 +16,8 @@ export async function downloadZip(
   includeSettings?: boolean,
   defaultTs?: "bun" | "deno"
 ): Promise<JSZip | undefined> {
-  const requestHeaders: HeadersInit = new Headers();
+  const requestHeaders: HeadersInit & { set(x: string, y: string): void } =
+    new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
   requestHeaders.set("Content-Type", "application/octet-stream");
 

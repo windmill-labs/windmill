@@ -21,14 +21,7 @@
 	import 'ag-grid-community/styles/ag-grid.css'
 	import './theme/windmill-theme.css'
 
-	import {
-		ChevronLeft,
-		ChevronRight,
-		Download,
-		Loader2,
-		SkipBack,
-		SkipForward
-	} from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, Download, SkipBack, SkipForward } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
@@ -54,7 +47,7 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	const { app, worldStore, selectedComponent, componentControl, darkMode } = context
+	const { app, worldStore, componentControl } = context
 
 	const rowHeights = {
 		normal: 40,
@@ -150,9 +143,6 @@
 	}
 
 	$: outputs?.result?.set(result ?? [])
-
-	let clientHeight
-	let clientWidth
 
 	function onCellValueChanged(event) {
 		if (result) {
@@ -257,7 +247,7 @@
 						rowData: value,
 						columnDefs: columnDefs.map((fields) => ({
 							...fields,
-							cellRenderer: (params) => defaultCellRenderer(params, fields.cellRendererType)
+							cellRenderer: defaultCellRenderer(fields.cellRendererType)
 						})),
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
@@ -385,7 +375,7 @@
 				rowData: value,
 				columnDefs: columnDefs.map((fields) => ({
 					...fields,
-					cellRenderer: (params) => defaultCellRenderer(params, fields.cellRendererType)
+					cellRenderer: defaultCellRenderer(fields.cellRendererType)
 				})),
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
@@ -451,113 +441,97 @@
 				'wm-aggrid-container'
 			)}
 			style={css?.container?.style}
-			bind:clientHeight
-			bind:clientWidth
 		>
 			{#if componentInput?.type === 'runnable' && componentInput.autoRefresh}
 				<div class="absolute top-2 right-2 z-50">
 					<RefreshButton {id} {loading} />
 				</div>
+				{#if resolvedConfig.footer}
+					<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
+						<div>
+							<Popover>
+								<svelte:fragment slot="text">Download</svelte:fragment>
+								<Button
+									startIcon={{ icon: Download }}
+									color="light"
+									size="xs2"
+									on:click={() => {
+										api?.exportDataAsCsv()
+									}}
+									iconOnly
+								/>
+							</Popover>
+						</div>
+						<div class="flex flex-row gap-1 items-center">
+							{#if resolvedConfig?.pagination}
+								{#key refreshCount}
+									<div class="text-xs mx-2 text-primary">
+										{(api?.paginationGetPageSize() ?? 0) * (api?.paginationGetCurrentPage() ?? 0) +
+											1}
+										to {Math.min(
+											api?.paginationGetRowCount() ?? 0,
+											((api?.paginationGetCurrentPage() ?? 0) + 1) *
+												(api?.paginationGetPageSize() ?? 0)
+										)}
+										of {api?.paginationGetRowCount()}
+									</div>
+
+									<Button
+										iconOnly
+										startIcon={{ icon: SkipBack }}
+										color="light"
+										size="xs2"
+										disabled={api?.paginationGetCurrentPage() == 0}
+										on:click={() => {
+											api?.paginationGoToFirstPage()
+											refreshCount++
+										}}
+									/>
+									<Button
+										iconOnly
+										startIcon={{ icon: ChevronLeft }}
+										color="light"
+										size="xs2"
+										disabled={api?.paginationGetCurrentPage() == 0}
+										on:click={() => {
+											api?.paginationGoToPreviousPage()
+											refreshCount++
+										}}
+									/>
+									<div class="text-xs mx-2 text-primary">
+										Page {(api?.paginationGetCurrentPage() ?? 0) + 1} of {api?.paginationGetTotalPages() ??
+											0}
+									</div>
+									<Button
+										iconOnly
+										startIcon={{ icon: ChevronRight }}
+										color="light"
+										size="xs2"
+										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
+											api?.paginationGetTotalPages()}
+										on:click={() => {
+											api?.paginationGoToNextPage()
+											refreshCount++
+										}}
+									/>
+									<Button
+										iconOnly
+										startIcon={{ icon: SkipForward }}
+										color="light"
+										size="xs2"
+										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
+											api?.paginationGetTotalPages()}
+										on:click={() => {
+											api?.paginationGoToLastPage()
+											refreshCount++
+										}}
+									/>
+								{/key}
+							{/if}
+						</div>
+					</div>
+				{/if}
 			{/if}
-
-			<div
-				on:pointerdown|stopPropagation={() => {
-					$selectedComponent = [id]
-				}}
-				style:height="{clientHeight}px"
-				style:width="{clientWidth}px"
-				class="ag-theme-alpine relative"
-				class:ag-theme-alpine-dark={$darkMode}
-			>
-				{#key resolvedConfig?.pagination}
-					{#if loaded}
-						<div bind:this={eGui} style:height="100%" />
-					{:else}
-						<Loader2 class="animate-spin" />
-					{/if}
-				{/key}
-			</div>
-			<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
-				<div>
-					<Popover>
-						<svelte:fragment slot="text">Download</svelte:fragment>
-						<Button
-							startIcon={{ icon: Download }}
-							color="light"
-							size="xs2"
-							on:click={() => {
-								api?.exportDataAsCsv()
-							}}
-							iconOnly
-						/>
-					</Popover>
-				</div>
-				<div class="flex flex-row gap-1 items-center">
-					{#if resolvedConfig?.pagination}
-						{#key refreshCount}
-							<div class="text-xs mx-2 text-primary">
-								{(api?.paginationGetPageSize() ?? 0) * (api?.paginationGetCurrentPage() ?? 0) + 1}
-								to {Math.min(
-									api?.paginationGetRowCount() ?? 0,
-									((api?.paginationGetCurrentPage() ?? 0) + 1) * (api?.paginationGetPageSize() ?? 0)
-								)}
-								of {api?.paginationGetRowCount()}
-							</div>
-
-							<Button
-								iconOnly
-								startIcon={{ icon: SkipBack }}
-								color="light"
-								size="xs2"
-								disabled={api?.paginationGetCurrentPage() == 0}
-								on:click={() => {
-									api?.paginationGoToFirstPage()
-									refreshCount++
-								}}
-							/>
-							<Button
-								iconOnly
-								startIcon={{ icon: ChevronLeft }}
-								color="light"
-								size="xs2"
-								disabled={api?.paginationGetCurrentPage() == 0}
-								on:click={() => {
-									api?.paginationGoToPreviousPage()
-									refreshCount++
-								}}
-							/>
-							<div class="text-xs mx-2 text-primary">
-								Page {(api?.paginationGetCurrentPage() ?? 0) + 1} of {api?.paginationGetTotalPages() ??
-									0}
-							</div>
-							<Button
-								iconOnly
-								startIcon={{ icon: ChevronRight }}
-								color="light"
-								size="xs2"
-								disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
-									api?.paginationGetTotalPages()}
-								on:click={() => {
-									api?.paginationGoToNextPage()
-									refreshCount++
-								}}
-							/>
-							<Button
-								iconOnly
-								startIcon={{ icon: SkipForward }}
-								color="light"
-								size="xs2"
-								disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
-									api?.paginationGetTotalPages()}
-								on:click={() => {
-									api?.paginationGoToLastPage()
-									refreshCount++
-								}}
-							/>
-						{/key}
-					{/if}
-				</div>
-			</div>
 		</div>
 	</SyncColumnDefs>
 </RunnableWrapper>

@@ -342,6 +342,7 @@ enum PgType {
     Timestamp(chrono::NaiveDateTime),
     None(Option<bool>),
     Array(Vec<PgType>),
+    Json(serde_json::Value),
 }
 
 impl ToSql for PgType {
@@ -367,6 +368,7 @@ impl ToSql for PgType {
             PgType::Timestamp(ref val) => val.to_sql(ty, out),
             PgType::None(ref val) => val.to_sql(ty, out),
             PgType::Array(ref val) => val.to_sql(ty, out),
+            PgType::Json(ref val) => val.to_sql(ty, out),
         }
     }
 
@@ -429,7 +431,7 @@ fn convert_val(value: &Value, arg_t: &String, typ: &Typ) -> windmill_common::err
                 chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
             Ok(PgType::Date(date))
         }
-        Value::String(s) if arg_t == "time" => {
+        Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
             let time =
                 chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
             Ok(PgType::Time(time))
@@ -439,6 +441,7 @@ fn convert_val(value: &Value, arg_t: &String, typ: &Typ) -> windmill_common::err
                 .unwrap_or_default();
             Ok(PgType::Timestamp(datetime))
         }
+        Value::Object(_) => Ok(PgType::Json(value.clone())),
         Value::String(s) => Ok(PgType::String(s.clone())),
         _ => Err(Error::ExecutionErr(format!(
             "Unsupported type in query: {:?} and signature {arg_t:?}",

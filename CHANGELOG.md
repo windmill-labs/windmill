@@ -1,5 +1,69 @@
 # Changelog
 
+## [1.320.3](https://github.com/windmill-labs/windmill/compare/v1.320.2...v1.320.3) (2024-04-28)
+
+
+### Bug Fixes
+
+* **cli:** improve support for frontend scripts cli sync ([82e628a](https://github.com/windmill-labs/windmill/commit/82e628a11185b2af27d2cd53aa4619b413ee0e6a))
+
+## [1.320.2](https://github.com/windmill-labs/windmill/compare/v1.320.1...v1.320.2) (2024-04-28)
+
+
+### Bug Fixes
+
+* bump git sync script version ([e8dcd5b](https://github.com/windmill-labs/windmill/commit/e8dcd5b4956ce06047b74486eabccd5d5d4380fc))
+
+## [1.320.1](https://github.com/windmill-labs/windmill/compare/v1.320.0...v1.320.1) (2024-04-28)
+
+
+### Bug Fixes
+
+* add button to easily bump git sync version ([0fcd54b](https://github.com/windmill-labs/windmill/commit/0fcd54bc070483dafdbbc0f592e090d0b71361c3))
+
+## [1.320.0](https://github.com/windmill-labs/windmill/compare/v1.319.1...v1.320.0) (2024-04-28)
+
+
+### Features
+
+* **cli:** split inline sscripts for apps like for flows ([22226e8](https://github.com/windmill-labs/windmill/commit/22226e883e89199a1d1c5095e87fc8c6f90b252d))
+* **cli:** split lockfiles from script metadata ([c39f3a8](https://github.com/windmill-labs/windmill/commit/c39f3a84d645caee345c3274b37d6b81f653fede))
+* **cli:** use separate lockfiles for rawscipt of flows ([6c69889](https://github.com/windmill-labs/windmill/commit/6c698898741982d8f01fa8d5a47a2da46ad361e0))
+
+## [1.319.1](https://github.com/windmill-labs/windmill/compare/v1.319.0...v1.319.1) (2024-04-26)
+
+
+### Bug Fixes
+
+* improve dnd on app editor for large screens ([3875eec](https://github.com/windmill-labs/windmill/commit/3875eec46fde26f108f3ba0ad17d9e5005208cea))
+
+## [1.319.0](https://github.com/windmill-labs/windmill/compare/v1.318.0...v1.319.0) (2024-04-26)
+
+
+### Features
+
+* add distributed global cache for go ([c73e7db](https://github.com/windmill-labs/windmill/commit/c73e7dbd8c3aa2f749176b6478a2bb351b39d210))
+* add distributed global cache for go ([4188383](https://github.com/windmill-labs/windmill/commit/4188383d3ede69fd3d320f187ef18072aa888f01))
+* pg add json support ([#3620](https://github.com/windmill-labs/windmill/issues/3620)) ([fee22fc](https://github.com/windmill-labs/windmill/commit/fee22fc060b3cfc2e6a30badb907ae828fc6272f))
+
+
+### Bug Fixes
+
+* make configurable footer for aggrid in apps ([41f6bcd](https://github.com/windmill-labs/windmill/commit/41f6bcdaa154bd2d21a65b26455802cdbafe5dc1))
+
+## [1.318.0](https://github.com/windmill-labs/windmill/compare/v1.317.1...v1.318.0) (2024-04-25)
+
+
+### Features
+
+* app select policy ([#3610](https://github.com/windmill-labs/windmill/issues/3610)) ([c09ae3e](https://github.com/windmill-labs/windmill/commit/c09ae3ebc6eab23434e74aadae887536e8f97c4d))
+
+
+### Bug Fixes
+
+* **frontend:** Improve AgGrid Infinite table default codes + deprecat… ([#3609](https://github.com/windmill-labs/windmill/issues/3609)) ([f26d3e6](https://github.com/windmill-labs/windmill/commit/f26d3e62f6d9b8d80c4e4d555c94b9b213e7c362))
+* support all pg types from db studio ([#3613](https://github.com/windmill-labs/windmill/issues/3613)) ([5def8cb](https://github.com/windmill-labs/windmill/commit/5def8cb52c24b5bf877275964aec35c05c91d7b6))
+
 ## [1.317.1](https://github.com/windmill-labs/windmill/compare/v1.317.0...v1.317.1) (2024-04-24)
 
 

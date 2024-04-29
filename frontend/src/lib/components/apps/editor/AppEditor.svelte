@@ -630,7 +630,7 @@
 										class={classNames(
 											'mx-auto w-full h-full z-50',
 											$appStore.fullscreen ? '' : 'max-w-7xl',
-											$componentActive ? 'absolute' : 'overflow-auto'
+											$componentActive ? 'absolute right-0 left-0' : 'overflow-auto'
 										)}
 										style={$componentActive ? `top: -${$yTop}px;` : ''}
 									>

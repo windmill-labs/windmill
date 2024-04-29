@@ -5,15 +5,13 @@ import {
   colors,
   Command,
   ListableApp,
+  log,
   Policy,
+  SEP,
   Table,
+  yamlParse,
 } from "./deps.ts";
-import {
-  GlobalOptions,
-  isSuperset,
-  parseFromFile,
-  removeType,
-} from "./types.ts";
+import { GlobalOptions, isSuperset } from "./types.ts";
 
 export interface AppFile {
   value: any;
@@ -21,14 +19,20 @@ export interface AppFile {
   policy: Policy;
 }
 
+const alreadySynced: string[] = [];
+
 export async function pushApp(
   workspace: string,
-  filePath: string,
-  app: AppFile | undefined,
-  newApp: AppFile,
+  remotePath: string,
+  localPath: string,
   message?: string
 ): Promise<void> {
-  const remotePath = removeType(filePath, "app");
+  if (alreadySynced.includes(localPath)) {
+    return;
+  }
+  alreadySynced.push(localPath);
+
+  let app: any = undefined;
   // deleting old app if it exists in raw mode
   try {
     app = await AppService.getAppByPath({
@@ -39,28 +43,61 @@ export async function pushApp(
     //ignore
   }
 
-  if (app) {
-    if (isSuperset(newApp, app)) {
+  if (!localPath.endsWith(SEP)) {
+    localPath += SEP;
+  }
+  const localAppRaw = await Deno.readTextFile(localPath + "app.yaml");
+  const localApp = yamlParse(localAppRaw) as AppFile;
+
+  function replaceInlineScripts(rec: any) {
+    if (!rec) {
       return;
     }
+    if (typeof rec == "object") {
+      return Object.entries(rec).flatMap(([k, v]) => {
+        if (k == "inlineScript" && typeof v == "object") {
+          const o: Record<string, any> = v as any;
+          if (o["content"] && o["content"].startsWith("!inline")) {
+            const basePath = localPath + o["content"].split(" ")[1];
+            o["content"] = Deno.readTextFileSync(basePath);
+          }
+          if (o["lock"] && o["lock"].startsWith("!inline")) {
+            const basePath = localPath + o["lock"].split(" ")[1];
+            o["lock"] = Deno.readTextFileSync(basePath);
+          }
+        } else {
+          replaceInlineScripts(v);
+        }
+      });
+    }
+    return [];
+  }
+
+  replaceInlineScripts(localApp.value);
+
+  if (app) {
+    if (isSuperset(localApp, app)) {
+      log.info(colors.green(`App ${remotePath} is up to date`));
+      return;
+    }
+    log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
     await AppService.updateApp({
       workspace,
       path: remotePath.replaceAll("\\", "/"),
       requestBody: {
         deployment_message: message,
-        ...newApp,
+        ...localApp,
       },
     });
   } else {
-    console.log(colors.yellow.bold("Creating new app..."));
+    log.info(colors.yellow.bold("Creating new app..."));
 
-    console.log(message);
     await AppService.createApp({
       workspace,
       requestBody: {
         path: remotePath.replaceAll("\\", "/"),
         deployment_message: message,
-        ...newApp,
+        ...localApp,
       },
     });
   }
@@ -94,32 +131,22 @@ async function list(opts: GlobalOptions) {
     .render();
 }
 
-async function push(opts: GlobalOptions, filePath: string) {
-  const remotePath = filePath.split(".")[0];
+async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   if (!validatePath(remotePath)) {
     return;
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-<<<<<<< Updated upstream
-  await pushApp(
-    workspace.workspaceId,
-    filePath,
-    undefined,
-    parseFromFile(filePath)
-  );
-=======
-  await pushApp(workspace.workspaceId, filePath, parseFromFile(filePath));
->>>>>>> Stashed changes
-  console.log(colors.bold.underline.green("App pushed"));
+  await pushApp(workspace.workspaceId, remotePath, filePath);
+  log.info(colors.bold.underline.green("Flow pushed"));
 }
 
 const command = new Command()
   .description("app related commands")
   .action(list as any)
   .command("push", "push a local app ")
-  .arguments("<file_path:file>")
+  .arguments("<file_path:string> <remote_path:string>")
   .action(push as any);
 
 export default command;
