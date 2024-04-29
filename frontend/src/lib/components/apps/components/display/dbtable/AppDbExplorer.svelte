@@ -209,7 +209,6 @@
 
 	function addOnRecomputeCallback() {
 		$runnableComponents[id].cb = [
-			...$runnableComponents[id].cb,
 			() =>
 				new CancelablePromise(async (resolve) => {
 					await dbExplorerCount?.computeCount(true)
@@ -220,6 +219,12 @@
 		]
 		isCallbackAdded = true
 	}
+
+	function setAutoRefresh() {
+		$runnableComponents[id].autoRefresh = true
+	}
+
+	$: $runnableComponents[id] && setAutoRefresh()
 
 	$: $runnableComponents[id]?.cb && !isCallbackAdded && addOnRecomputeCallback()
 

@@ -3655,6 +3655,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: false,
 					tooltip:
 						'When true, actions will wrap to the next line. Otherwise, the column will grow to fit the actions.'
+				},
+				footer: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+					tooltip: 'Allow visible footer for pagination and download'
 				}
 			},
 			componentInput: undefined
