@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.321.2](https://github.com/windmill-labs/windmill/compare/v1.321.1...v1.321.2) (2024-04-29)
+
+
+### Bug Fixes
+
+* **cli:** improve lockfile support on cli ([b7f9ecb](https://github.com/windmill-labs/windmill/commit/b7f9ecbda1e481191aac90497c850da533a55732))
+* **cli:** improve lockfile support on cli ([35b2423](https://github.com/windmill-labs/windmill/commit/35b2423fe193a5425f2fa9d940d9ca15b8a5b33c))
+* **cli:** improve lockfile support on cli ([05e70a8](https://github.com/windmill-labs/windmill/commit/05e70a849ea1ade6a2652d73ea1dcaaad3e2f6ce))
+
 ## [1.321.1](https://github.com/windmill-labs/windmill/compare/v1.321.0...v1.321.1) (2024-04-29)
 
 
