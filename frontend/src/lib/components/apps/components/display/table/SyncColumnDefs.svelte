@@ -60,7 +60,7 @@
 
 {#if Array.isArray(result) && result.every(isObject)}
 	{#if Array.isArray(columnDefs) && columnDefs.every(isObject)}
-		{#if $mode === 'dnd' && columnDefs.length === 0}
+		{#if $mode === 'dnd' && columnDefs.length === 0 && result.length > 0}
 			<div class="m-16">
 				<Alert title="Missing column definitions">
 					<div class="flex flex-col items-start gap-2">

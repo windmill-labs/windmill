@@ -255,6 +255,10 @@
 		let isValid = true
 		const errors: string[] = []
 
+		if (!Array.isArray(columnDefs)) {
+			return { isValid: false, errors: ['Column definitions must be an array.'] }
+		}
+
 		// Validate each column definition
 		columnDefs.forEach((colDef, index) => {
 			// Check if 'field' property exists and is a non-empty string
