@@ -25,13 +25,13 @@ function updateWithAllValues(
 			const conditions = columns
 				.map(
 					(c, i) =>
-						`($${i + 2}::${c.datatype} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${i + 2}::${
-							c.datatype
-						})`
+						`($${i + 2}::text::${c.datatype} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${
+							i + 2
+						}::text::${c.datatype})`
 				)
 				.join('\n    AND ')
 
-			query += `\nUPDATE ${table} SET ${column.field} = $1::${column.datatype} \nWHERE ${conditions}	RETURNING 1`
+			query += `\nUPDATE ${table} SET ${column.field} = $1::text::${column.datatype} \nWHERE ${conditions}	RETURNING 1`
 			return query
 		}
 		case 'mysql': {
