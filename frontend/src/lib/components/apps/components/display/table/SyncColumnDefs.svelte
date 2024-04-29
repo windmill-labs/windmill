@@ -11,6 +11,7 @@
 	export let id: string
 	export let columnDefs: Array<any> = []
 	export let result: Array<any> = []
+	export let allowColumnDefsActions: boolean = false
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -60,7 +61,7 @@
 
 {#if Array.isArray(result) && result.every(isObject)}
 	{#if Array.isArray(columnDefs) && columnDefs.every(isObject)}
-		{#if $mode === 'dnd' && columnDefs?.length === 0 && result?.length > 0}
+		{#if $mode === 'dnd' && columnDefs?.length === 0 && result?.length > 0 && allowColumnDefsActions}
 			<div class="m-16">
 				<Alert title="Missing column definitions">
 					<div class="flex flex-col items-start gap-2">
@@ -89,16 +90,18 @@
 					<pre class="overflow-auto">
 {JSON.stringify(columnDefs)}
 				</pre>
-					<div class="w-full flex fles-row justify-end">
-						<Button
-							startIcon={{ icon: RefreshCw }}
-							size="xs"
-							color="red"
-							on:click={setEmptyColumns}
-						>
-							Fix columns definitions
-						</Button>
-					</div>
+					{#if allowColumnDefsActions}
+						<div class="w-full flex fles-row justify-end">
+							<Button
+								startIcon={{ icon: RefreshCw }}
+								size="xs"
+								color="red"
+								on:click={setEmptyColumns}
+							>
+								Fix columns definitions
+							</Button>
+						</div>
+					{/if}
 				</div>
 			</Alert>
 		</div>
@@ -107,16 +110,18 @@
 			<Alert title="Parsing issues" type="error" size="xs">
 				<div class="flex flex-col items-start gap-2">
 					The columnDefs are undefined.
-					<div class="w-full flex fles-row justify-end">
-						<Button
-							startIcon={{ icon: RefreshCw }}
-							size="xs"
-							color="red"
-							on:click={setEmptyColumns}
-						>
-							Fix columns definitions
-						</Button>
-					</div>
+					{#if allowColumnDefsActions}
+						<div class="w-full flex fles-row justify-end">
+							<Button
+								startIcon={{ icon: RefreshCw }}
+								size="xs"
+								color="red"
+								on:click={setEmptyColumns}
+							>
+								Fix columns definitions
+							</Button>
+						</div>
+					{/if}
 				</div>
 			</Alert>
 		</div>

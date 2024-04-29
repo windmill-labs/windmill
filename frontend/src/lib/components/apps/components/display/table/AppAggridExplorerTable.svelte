@@ -20,7 +20,6 @@
 	import type { ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
@@ -36,38 +35,13 @@
 	export let allowDelete: boolean
 	export let actions: TableAction[] = []
 	export let result: any[] | undefined = undefined
+	export let allowColumnDefsActions: boolean = true
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, selectedComponent, componentControl, darkMode } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
-
-	// let result: any[] | undefined = undefined
-
-	// $: result && setValues()
-
-	// let value: any[] = Array.isArray(result)
-	// 	? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
-	// 	: [{ error: 'input was not an array' }]
-
-	// let loaded = false
-	// async function setValues() {
-	// 	value = Array.isArray(result)
-	// 		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
-	// 		: [{ error: 'input was not an array' }]
-	// 	if (api && loaded) {
-	// 		let selected = api.getSelectedNodes()
-	// 		if (selected && selected.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
-	// 			let data = { ...selected[0].data }
-	// 			delete data['__index']
-	// 			outputs?.selectedRow?.set(data)
-	// 		}
-	// 	}
-	// 	if (!loaded) {
-	// 		loaded = true
-	// 	}
-	// }
 
 	let selectedRowIndex = -1
 
@@ -413,7 +387,7 @@
 	/>
 {/each}
 
-<SyncColumnDefs {id} columnDefs={resolvedConfig.columnDefs} {result}>
+<SyncColumnDefs {id} columnDefs={resolvedConfig.columnDefs} {result} {allowColumnDefsActions}>
 	<div
 		class={twMerge(
 			'flex flex-col h-full component-wrapper divide-y',

@@ -681,6 +681,7 @@
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
+					allowColumnDefsActions={false}
 					{actions}
 				/>
 			{/key}
