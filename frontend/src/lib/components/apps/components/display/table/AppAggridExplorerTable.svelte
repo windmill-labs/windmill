@@ -182,7 +182,11 @@
 		})
 	})
 
-	function transformColumnDefs(columnDefs: any[]) {
+	function transformColumnDefs(columnDefs: any[] | undefined) {
+		if (!columnDefs) {
+			return []
+		}
+
 		const { isValid, errors } = validateColumnDefs(columnDefs)
 
 		if (!isValid) {
@@ -245,7 +249,10 @@
 	let firstRow: number = 0
 	let lastRow: number = 0
 
-	function validateColumnDefs(columnDefs: ColumnDef[]): { isValid: boolean; errors: string[] } {
+	function validateColumnDefs(columnDefs: ColumnDef[]): {
+		isValid: boolean
+		errors: string[]
+	} {
 		let isValid = true
 		const errors: string[] = []
 
