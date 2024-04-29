@@ -573,7 +573,6 @@
 	$: hideInsert = resolvedConfig.hideInsert as boolean
 
 	let loading: boolean = false
-	let result: any[] | undefined = undefined
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -626,7 +625,6 @@
 	allowConcurentRequests
 	noInitialize
 	bind:runnableComponent
-	bind:result
 	componentInput={input}
 	autoRefresh={false}
 	bind:loading
@@ -671,7 +669,6 @@
 				<AppAggridExplorerTable
 					bind:this={aggrid}
 					bind:state
-					{result}
 					{id}
 					{datasource}
 					{resolvedConfig}

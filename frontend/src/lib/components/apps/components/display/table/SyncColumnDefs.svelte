@@ -10,7 +10,7 @@
 
 	export let id: string
 	export let columnDefs: Array<any> = []
-	export let result: Array<any> = []
+	export let result: Array<any> | undefined = []
 	export let allowColumnDefsActions: boolean = false
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
