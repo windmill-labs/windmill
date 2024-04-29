@@ -214,7 +214,9 @@ async function updateScriptLock(
         )}`
       );
     }
-    metadataContent.lock = lock;
+    const lockPath = remotePath + ".script.lock";
+    await Deno.writeTextFile(lockPath, lock);
+    metadataContent.lock = "!inline " + lockPath;
   } catch (e) {
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
@@ -446,6 +448,11 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
       const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
+      if (payload?.["lock"].startsWith("!inline ")) {
+        payload["lock"] = await Deno.readTextFile(
+          payload["lock"].split(" ")[1]
+        );
+      }
       if (Array.isArray(payload?.["lock"])) {
         payload["lock"] = payload["lock"].join("\n");
       }
