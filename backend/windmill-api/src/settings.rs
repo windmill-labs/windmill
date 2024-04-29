@@ -29,6 +29,9 @@ use windmill_common::{
     utils::send_email,
 };
 
+#[cfg(feature = "parquet")]
+use windmill_common::error::to_anyhow;
+
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
