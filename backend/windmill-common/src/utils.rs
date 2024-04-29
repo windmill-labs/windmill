@@ -183,7 +183,7 @@ pub enum Mode {
 pub async fn report_critical_error_if_configured(error_message: String) -> () {
     let criticial_error_emails = CRITICAL_ERROR_EMAILS.read().await.clone();
 
-    tracing::info!("Reporting critical error: {error_message}");
+    tracing::error!("CRITICAL ERROR: {error_message}");
 
     if !criticial_error_emails.is_empty() {
         if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
@@ -202,17 +202,17 @@ pub async fn report_critical_error_if_configured(error_message: String) -> () {
                 .await
                 {
                     tracing::error!(
-                        "Failed to send emails to {:#?}: {}",
+                        "Failed to report critical error by email to {:#?}: {}",
                         criticial_error_emails,
                         e
                     );
                 }
             });
         } else {
-            tracing::warn!("No SMTP server configured, critical error not reported")
+            tracing::warn!("No SMTP server configured, critical error not sent")
         }
     } else {
-        tracing::warn!("No critical error emails configured, critical error not reported")
+        tracing::warn!("No critical error emails configured, critical error not sent")
     }
 }
 

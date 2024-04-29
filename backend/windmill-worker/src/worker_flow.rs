@@ -1205,6 +1205,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
         match handle_maybe_scheduled_job(
             tx,
+            rsmq.clone(),
             db,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),

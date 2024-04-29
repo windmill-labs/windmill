@@ -117,8 +117,12 @@ const MAX_FREE_EXECS: i32 = 1000;
 const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
+const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
+const SCHEDULE_RECOVERY_HANDLER_USERNAME: &str = "schedule_recovery_handler";
 const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
+const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
+const SCHEDULE_RECOVERY_HANDLER_USER_EMAIL: &str = "schedule_recovery_handler@windmill.dev";
 
 #[derive(Clone, Debug)]
 pub struct CanceledBy {
@@ -613,10 +617,21 @@ pub async fn add_completed_job<
         }
     } else {
         if queued_job.schedule_path.is_some() && queued_job.script_path.is_some() {
-            let schedule_handlers_tx: QueueTransaction<'_, R> =
-                (rsmq.clone(), db.begin().await?).into();
+            if !queued_job.is_flow() {
+                // script only
+                tx = handle_maybe_scheduled_job(
+                    tx,
+                    rsmq.clone(),
+                    db,
+                    queued_job.schedule_path.as_ref().unwrap(),
+                    queued_job.script_path.as_ref().unwrap(),
+                    &queued_job.workspace_id,
+                )
+                .await?;
+            }
+
             match apply_schedule_handlers(
-                schedule_handlers_tx,
+                rsmq.clone(),
                 db,
                 queued_job.schedule_path.as_ref().unwrap(),
                 queued_job.script_path.as_ref().unwrap(),
@@ -629,26 +644,27 @@ pub async fn add_completed_job<
             )
             .await
             {
-                Ok((skip, mut schedule_handlers_tx)) => {
+                Ok(skip) => {
                     skip_downstream_error_handlers = skip;
-
-                    if !queued_job.is_flow() {
-                        // script only
-                        schedule_handlers_tx = handle_maybe_scheduled_job(
-                            schedule_handlers_tx,
-                            db,
-                            queued_job.schedule_path.as_ref().unwrap(),
-                            queued_job.script_path.as_ref().unwrap(),
-                            &queued_job.workspace_id,
-                        )
-                        .await?;
-                    }
-
-                    schedule_handlers_tx.commit().await?;
                 }
                 Err(err) => {
-                    skip_downstream_error_handlers = false;
                     tracing::error!("Could not apply schedule handlers with error: {}", err);
+                    skip_downstream_error_handlers = true;
+                    if !success {
+                        let base_url = BASE_URL.read().await;
+                        let w_id: &String = &queued_job.workspace_id;
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            rsmq.clone(),
+                            &queued_job,
+                            db,
+                            format!(
+                                "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                                queued_job.id,
+                                err
+                            )
+                        )
+                        .await;
+                    }
                 }
             };
         }
@@ -760,7 +776,7 @@ pub async fn add_completed_job<
             );
         }
 
-        if let Err(e) = send_error_to_workspace_handler(
+        if let Err(err) = send_error_to_workspace_handler(
             rsmq.clone(),
             &queued_job,
             canceled_by.is_some(),
@@ -769,28 +785,44 @@ pub async fn add_completed_job<
         )
         .await
         {
-            tracing::error!(
-                "Could not run workspace error handler for job {}: {}",
-                &queued_job.id,
-                e
-            );
+            let base_url = BASE_URL.read().await;
+            let w_id: &String = &queued_job.workspace_id;
+            report_critical_error_if_configured(format!(
+                "Could not push workspace error handler for failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                queued_job.id,
+                err
+            ))
+            .await;
         }
-    } else if queued_job.email == ERROR_HANDLER_USER_EMAIL && !success {
-        let result = serde_json::from_str(
-            &serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()),
+    } else if queued_job.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL && !success {
+        let base_url = BASE_URL.read().await;
+        let w_id = &queued_job.workspace_id;
+        report_error_to_workspace_handler_or_critical_side_channel(
+            rsmq.clone(),
+            &queued_job,
+            db,
+            format!(
+                "Schedule error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
+                queued_job.id,
+                queued_job
+                    .parent_job
+                    .map(|id| format!(
+                        " trying to handle failed job: {base_url}/run/{id}?workspace={w_id}"
+                    ))
+                    .unwrap_or("".to_string()),
+            ),
         )
-        .unwrap_or_else(|_| json!({}));
-        let result = if result.is_object() || result.is_null() {
-            result
-        } else {
-            json!({ "error": result })
-        };
+        .await;
+    } else if queued_job.email == ERROR_HANDLER_USER_EMAIL && !success {
+        let base_url = BASE_URL.read().await;
+        let w_id = &queued_job.workspace_id;
         report_critical_error_if_configured(format!(
-            "Error handler job {}/run/{}?workspace={} failed with error: {:#?}",
-            BASE_URL.read().await,
+            "Workspace error handler job ({base_url}/run/{}?workspace={w_id}) errored{}",
             queued_job.id,
-            queued_job.workspace_id,
-            result
+            queued_job
+                .parent_job
+                .map(|id| format!(" for failed job ({base_url}/run/{id}?workspace={w_id})"))
+                .unwrap_or("".to_string()),
         ))
         .await;
     }
@@ -872,109 +904,38 @@ pub async fn add_completed_job<
     Ok(queued_job.id)
 }
 
-pub async fn run_error_handler<
+pub async fn handle_failed_job<
     'a,
     T: Serialize + Send + Sync,
     R: rsmq_async::RsmqConnection + Clone + Send,
 >(
     rsmq: Option<R>,
-    queued_job: &QueuedJob,
+    job: &QueuedJob,
     db: &Pool<Postgres>,
     result: Json<&'a T>,
     error_handler_path: &str,
     error_handler_extra_args: Option<serde_json::Value>,
     is_global: bool,
 ) -> Result<(), Error> {
-    let w_id = &queued_job.workspace_id;
-    let handler_w_id = if is_global { "admins" } else { w_id }; // script workspace id
-    let job_id = queued_job.id;
-    let (job_payload, tag) =
-        get_payload_tag_from_prefixed_path(&error_handler_path, db, handler_w_id).await?;
-
-    let mut extra = HashMap::new();
-    extra.insert("workspace_id".to_string(), to_raw_value(&handler_w_id));
-    extra.insert("job_id".to_string(), to_raw_value(&job_id));
-    extra.insert("path".to_string(), to_raw_value(&queued_job.script_path));
-    extra.insert(
-        "is_flow".to_string(),
-        to_raw_value(&queued_job.raw_flow.is_some()),
-    );
-    extra.insert(
-        "started_at".to_string(),
-        to_raw_value(&queued_job.started_at),
-    );
-    extra.insert("email".to_string(), to_raw_value(&queued_job.email));
-
-    if let Some(schedule_path) = &queued_job.schedule_path {
-        extra.insert("schedule_path".to_string(), to_raw_value(schedule_path));
-    }
-
-    // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
-    if error_handler_path
-        .to_string()
-        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
-    {
-        // default slack error handler being used -> we need to inject the slack token
-        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
-    }
-
-    if let Some(extra_args) = error_handler_extra_args {
-        if let serde_json::Value::Object(args_m) = extra_args {
-            for (k, v) in args_m {
-                extra.insert(k, to_raw_value(&v));
-            }
-        } else {
-            return Err(error::Error::ExecutionErr(
-                "args of scripts needs to be dict".to_string(),
-            ));
-        }
-    }
-
-    let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
-
-    let (uuid, tx) = push(
-        &db,
-        tx,
-        handler_w_id,
-        job_payload,
-        PushArgs { extra, args: result.to_owned() },
-        if is_global {
-            "global"
-        } else {
-            ERROR_HANDLER_USERNAME
-        },
-        if is_global {
-            SUPERADMIN_SECRET_EMAIL
-        } else {
-            ERROR_HANDLER_USER_EMAIL
-        },
-        if is_global {
-            SUPERADMIN_SECRET_EMAIL.to_string()
-        } else {
-            ERROR_HANDLER_USER_GROUP.to_string()
-        },
+    push_error_handler(
+        db,
+        rsmq,
+        job.id,
+        job.schedule_path.clone(),
+        job.script_path.clone(),
+        job.is_flow(),
+        &job.workspace_id,
+        error_handler_path,
+        result,
         None,
-        None,
-        Some(job_id),
-        Some(job_id),
-        None,
+        job.started_at,
+        error_handler_extra_args,
+        &job.email,
         false,
-        false,
-        None,
-        true,
-        tag,
-        None,
-        None,
+        is_global,
         None,
     )
     .await?;
-    tx.commit().await?;
-
-    let error_handler_type = if is_global { "global" } else { "workspace" };
-    tracing::info!(
-        "Sent error of job {job_id} to {error_handler_type} error handler under uuid {uuid}"
-    );
 
     Ok(())
 }
@@ -997,7 +958,7 @@ pub async fn send_error_to_global_handler<
         } else {
             format!("script/{}", global_error_handler)
         };
-        run_error_handler(
+        handle_failed_job(
             rsmq,
             queued_job,
             db,
@@ -1010,6 +971,59 @@ pub async fn send_error_to_global_handler<
     }
 
     Ok(())
+}
+
+pub async fn report_error_to_workspace_handler_or_critical_side_channel<
+    R: rsmq_async::RsmqConnection + Clone + Send,
+>(
+    rsmq: Option<R>,
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    error_message: String,
+) -> () {
+    let w_id = &queued_job.workspace_id;
+    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
+        "SELECT error_handler, error_handler_extra_args FROM workspace_settings WHERE workspace_id = $1",
+    ).bind(&w_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or((None, None));
+
+    if let Some(error_handler) = error_handler {
+        if let Err(err) = push_error_handler(
+            db,
+            rsmq,
+            queued_job.id,
+            queued_job.schedule_path.clone(),
+            queued_job.script_path.clone(), 
+            queued_job.is_flow(),
+            w_id,
+            &error_handler,
+            Json(&json!({
+                "error": error_message
+            })),
+            None,
+            queued_job.started_at,
+            error_handler_extra_args,
+            &queued_job.email,
+            false,
+            false,
+            None,
+        )
+        .await
+        {
+            tracing::error!(
+                "Could not push workspace error handler for failed job {}: {}",
+                queued_job.id,
+                err
+            );
+            report_critical_error_if_configured(error_message).await;
+        }
+    } else {
+        report_critical_error_if_configured(error_message).await;
+    }
 }
 
 pub async fn send_error_to_workspace_handler<
@@ -1064,7 +1078,7 @@ pub async fn send_error_to_workspace_handler<
         let muted = ws_error_handler_muted.unwrap_or(false);
         if !muted {
             tracing::info!("workspace error handled for job {}", &queued_job.id);
-            run_error_handler(
+            handle_failed_job(
                 rsmq,
                 queued_job,
                 db,
@@ -1083,6 +1097,7 @@ pub async fn send_error_to_workspace_handler<
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
+    rsmq: Option<R>,
     db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
@@ -1118,7 +1133,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                     .args
                     .and_then(|e| serde_json::to_value(e).map_or(None, |v| Some(v))),
                 extra_perms: serde_json::to_value(schedule.extra_perms).expect("hashmap -> json"),
-                email: schedule.email,
+                email: schedule.email.clone(),
                 error: None,
                 on_failure: schedule.on_failure,
                 on_failure_times: schedule.on_failure_times,
@@ -1147,6 +1162,30 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 .execute(db)
                 .await?;
                 tracing::warn!("Could not schedule job for {}: {}", schedule_path, err);
+
+                match err {
+                    Error::QuotaExceeded(_) => {},
+                    _ => {
+                        let base_url = BASE_URL.read().await;
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            rsmq,
+                            &QueuedJob { 
+                                script_path: Some(script_path.to_string()),
+                                workspace_id: w_id.to_string(),
+                                schedule_path: Some(schedule_path.to_string()),
+                                email: schedule.email,
+                                job_kind: if schedule.is_flow { JobKind::Flow } else { JobKind::Script },
+                                ..Default::default() 
+                            },
+                            db,
+                            format!(
+                                "Failed to schedule {schedule_path} ({base_url}/schedules?workspace_id={}): {err}",
+                                schedule.workspace_id
+                            ),
+                        )
+                        .await;
+                    }
+                }
                 Err(err)
             }
         }
@@ -1174,7 +1213,7 @@ async fn apply_schedule_handlers<
     T: Serialize + Send + Sync,
     R: rsmq_async::RsmqConnection + Clone + Send + 'c,
 >(
-    mut tx: QueueTransaction<'c, R>,
+    rsmq: Option<R>,
     db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
@@ -1184,14 +1223,15 @@ async fn apply_schedule_handlers<
     job_id: Uuid,
     started_at: DateTime<Utc>,
     job_priority: Option<i16>,
-) -> anyhow::Result<(bool, QueueTransaction<'c, R>)> {
+) -> anyhow::Result<bool> {
+    let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
     let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
 
     if schedule.is_none() {
         tracing::error!(
             "Schedule {schedule_path} in {w_id} not found. Impossible to apply schedule handlers"
         );
-        return Ok((false, tx));
+        return Ok(false);
     }
 
     let schedule = schedule.unwrap();
@@ -1222,39 +1262,39 @@ async fn apply_schedule_handlers<
                 };
 
                 if !match_times {
-                    return Ok((skip_downstream_error_handlers, tx));
+                    return Ok(skip_downstream_error_handlers);
                 }
             }
 
-            let on_failure_result = handle_on_failure(
+            tx.commit().await?;
+
+            if let Err(err) = push_error_handler(
                 db,
-                tx,
+                rsmq,
                 job_id,
-                schedule_path,
-                script_path,
+                Some(schedule_path.to_string()),
+                Some(script_path.to_string()),
                 schedule.is_flow,
                 w_id,
                 &on_failure_path,
                 result,
-                times,
-                started_at,
+                Some(times),
+                Some(started_at),
                 schedule.on_failure_extra_args,
                 &schedule.email,
+                true,
+                false,
                 job_priority,
             )
-            .await;
-
-            match on_failure_result {
-                Ok((_, ntx)) => {
-                    tx = ntx;
-                }
-                Err(err) => {
-                    return Err(anyhow!(format!(
-                        "Could not trigger error handler for {}: {}",
-                        schedule_path, err
-                    )));
-                }
+            .await
+            {
+                return Err(anyhow!(format!(
+                    "Could not trigger error handler for {}: {}",
+                    schedule_path, err
+                )));
             }
+        } else {
+            tx.commit().await?;
         }
     } else {
         if let Some(on_recovery_path) = schedule.on_recovery.clone() {
@@ -1267,22 +1307,22 @@ async fn apply_schedule_handlers<
                 &schedule.script_path,
                 job_id,
                 times as i64,
-            ).fetch_all(&mut tx).await?;
+            ).fetch_all(db).await?;
 
             if past_jobs.len() < times as usize {
-                return Ok((skip_downstream_error_handlers, tx));
+                return Ok(skip_downstream_error_handlers);
             }
 
             let n_times_successful = past_jobs[..(times - 1) as usize].iter().all(|j| j.success);
 
             if !n_times_successful {
-                return Ok((skip_downstream_error_handlers, tx));
+                return Ok(skip_downstream_error_handlers);
             }
 
             let failed_job = past_jobs[past_jobs.len() - 1].clone();
 
             if !failed_job.success {
-                let on_recovery_result = handle_on_recovery(
+                let on_recovery_result = handle_recovered_schedule(
                     db,
                     tx,
                     job_id,
@@ -1312,43 +1352,56 @@ async fn apply_schedule_handlers<
                 }
             }
         }
+        tx.commit().await?;
     }
 
-    Ok((skip_downstream_error_handlers, tx))
+    Ok(skip_downstream_error_handlers)
 }
 
-pub async fn handle_on_failure<
+pub async fn push_error_handler<
     'a,
     'c,
     T: Serialize + Send + Sync,
     R: rsmq_async::RsmqConnection + Clone + Send + 'c,
 >(
     db: &Pool<Postgres>,
-    tx: QueueTransaction<'c, R>,
+    rsmq: Option<R>,
     job_id: Uuid,
-    schedule_path: &str,
-    script_path: &str,
+    schedule_path: Option<String>,
+    script_path: Option<String>,
     is_flow: bool,
     w_id: &str,
     on_failure_path: &str,
     result: Json<&'a T>,
-    failed_times: i32,
-    started_at: DateTime<Utc>,
+    failed_times: Option<i32>,
+    started_at: Option<DateTime<Utc>>,
     extra_args: Option<serde_json::Value>,
     email: &str,
+    is_schedule_error_handler: bool,
+    is_global_error_handler: bool,
     priority: Option<i16>,
-) -> windmill_common::error::Result<(Uuid, QueueTransaction<'c, R>)> {
-    let (payload, tag) = get_payload_tag_from_prefixed_path(on_failure_path, db, w_id).await?;
+) -> windmill_common::error::Result<Uuid> {
+    let handler_w_id = if is_global_error_handler {
+        "admins"
+    } else {
+        w_id
+    }; // script workspace id
+    let (payload, tag) =
+        get_payload_tag_from_prefixed_path(on_failure_path, db, handler_w_id).await?;
 
     let mut extra = HashMap::new();
-    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
-    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    if let Some(schedule_path) = schedule_path {
+        extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    }
+    extra.insert("workspace_id".to_string(), to_raw_value(&handler_w_id));
     extra.insert("job_id".to_string(), to_raw_value(&job_id));
     extra.insert("path".to_string(), to_raw_value(&script_path));
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
     extra.insert("started_at".to_string(), to_raw_value(&started_at));
     extra.insert("email".to_string(), to_raw_value(&email));
-    extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
+    if let Some(failed_times) = failed_times {
+        extra.insert("failed_times".to_string(), to_raw_value(&failed_times));
+    }
 
     if let Some(args_v) = extra_args {
         if let serde_json::Value::Object(args_m) = args_v {
@@ -1372,16 +1425,32 @@ pub async fn handle_on_failure<
         extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
-    let tx = PushIsolationLevel::Transaction(tx);
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
     let (uuid, tx) = push(
         &db,
         tx,
         w_id,
         payload,
         PushArgs { extra, args: result.to_owned() },
-        ERROR_HANDLER_USERNAME,
-        ERROR_HANDLER_USER_EMAIL,
-        ERROR_HANDLER_USER_GROUP.to_string(),
+        if is_global_error_handler {
+            "global"
+        } else if is_schedule_error_handler {
+            SCHEDULE_ERROR_HANDLER_USERNAME
+        } else {
+            ERROR_HANDLER_USERNAME
+        },
+        if is_global_error_handler {
+            SUPERADMIN_SECRET_EMAIL
+        } else if is_schedule_error_handler {
+            SCHEDULE_ERROR_HANDLER_USER_EMAIL
+        } else {
+            ERROR_HANDLER_USER_EMAIL
+        },
+        if is_global_error_handler {
+            SUPERADMIN_SECRET_EMAIL.to_string()
+        } else {
+            ERROR_HANDLER_USER_GROUP.to_string()
+        },
         None,
         None,
         Some(job_id),
@@ -1397,12 +1466,8 @@ pub async fn handle_on_failure<
         priority,
     )
     .await?;
-    tracing::info!(
-        "Pushed on_failure job {} for {} to queue",
-        uuid,
-        schedule_path
-    );
-    return Ok((uuid, tx));
+    tx.commit().await?;
+    return Ok(uuid);
 }
 
 // #[derive(Serialize)]
@@ -1413,7 +1478,7 @@ pub async fn handle_on_failure<
 //     is_flow: boolean,
 //     extra_args: serde_json::Value
 // }
-async fn handle_on_recovery<
+async fn handle_recovered_schedule<
     'a,
     'c,
     T: Serialize + Send + Sync,
@@ -1480,8 +1545,8 @@ async fn handle_on_recovery<
         w_id,
         payload,
         args,
-        ERROR_HANDLER_USERNAME,
-        ERROR_HANDLER_USER_EMAIL,
+        SCHEDULE_RECOVERY_HANDLER_USERNAME,
+        SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
         ERROR_HANDLER_USER_GROUP.to_string(),
         None,
         None,
@@ -2671,6 +2736,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 
             if !is_super_admin {
                 if email != ERROR_HANDLER_USER_EMAIL
+                    && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
+                    && email != SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
                     && email != SUPERADMIN_SYNC_EMAIL
@@ -2697,7 +2764,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         && !matches!(job_payload, JobPayload::FlowDependencies { .. })
                         && !matches!(job_payload, JobPayload::AppDependencies { .. })
                     {
-                        return Err(error::Error::BadRequest(format!(
+                        return Err(error::Error::QuotaExceeded(format!(
                             "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
                     }
@@ -2709,7 +2776,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                             .unwrap_or(0);
 
                     if in_queue > MAX_FREE_EXECS.into() {
-                        return Err(error::Error::BadRequest(format!(
+                        return Err(error::Error::QuotaExceeded(format!(
                             "User {email} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
                     }
@@ -2723,7 +2790,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     .unwrap_or(0);
 
                     if concurrent_runs > MAX_FREE_CONCURRENT_RUNS.into() {
-                        return Err(error::Error::BadRequest(format!(
+                        return Err(error::Error::QuotaExceeded(format!(
                             "User {email} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
                         )));
                     }
@@ -2751,7 +2818,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         && !matches!(job_payload, JobPayload::FlowDependencies { .. })
                         && !matches!(job_payload, JobPayload::AppDependencies { .. })
                     {
-                        return Err(error::Error::BadRequest(format!(
+                        return Err(error::Error::QuotaExceeded(format!(
                             "Workspace {workspace_id} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
                     }
@@ -2765,7 +2832,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     .unwrap_or(0);
 
                     if in_queue_workspace > MAX_FREE_EXECS.into() {
-                        return Err(error::Error::BadRequest(format!(
+                        return Err(error::Error::QuotaExceeded(format!(
                             "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
                     }
@@ -2779,7 +2846,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                     .unwrap_or(0);
 
                     if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS.into() {
-                        return Err(error::Error::BadRequest(format!(
+                        return Err(error::Error::QuotaExceeded(format!(
                             "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
                         )));
                     }
