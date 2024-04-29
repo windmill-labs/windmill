@@ -18,9 +18,9 @@
 		let gridItem = findGridItem($app, id)
 
 		if (gridItem && result) {
-			if (gridItem.data.configuration.columnDefs.type === 'static') {
-				const keys = Object.keys(result[0])
+			const keys = Object.keys(result[0] ?? {}) ?? []
 
+			if (gridItem.data.configuration.columnDefs.type === 'static') {
 				gridItem.data.configuration.columnDefs.value = keys.map((key) => ({
 					field: key,
 					headerName: key,
@@ -28,7 +28,7 @@
 				}))
 			} else if (gridItem.data.configuration.columnDefs.type === 'evalv2') {
 				gridItem.data.configuration.columnDefs.expr = JSON.stringify(
-					Object.keys(result[0]).map((key, index) => ({
+					keys.map((key, index) => ({
 						field: key,
 						headerName: key,
 						flex: 1
