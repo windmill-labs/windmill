@@ -1090,7 +1090,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {
-        if (change.name.endsWith(".lock")) {
+        if (change.path.endsWith(".lock")) {
           continue;
         }
         const typ = getTypeStrFromPath(change.path);
