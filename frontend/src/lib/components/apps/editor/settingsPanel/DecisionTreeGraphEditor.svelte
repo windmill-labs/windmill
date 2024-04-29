@@ -28,7 +28,15 @@
 	setContext('DecisionTreeEditor', { selectedNodeId })
 </script>
 
-<Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px" alwaysOpen>
+<Drawer
+	bind:this={drawer}
+	on:close={() => {}}
+	on:open={() => {
+		renderCount++
+	}}
+	size="1200px"
+	alwaysOpen
+>
 	<DrawerContent
 		title="Decision tree"
 		on:close={drawer.closeDrawer}
@@ -38,16 +46,15 @@
 		<Splitpanes>
 			<Pane size={60}>
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
-					<DecisionTreePreview
-						bind:nodes
-						bind:component
-						{rebuildOnChange}
-						{paneHeight}
-						{paneWidth}
-						on:render={() => {
-							renderCount++
-						}}
-					/>
+					{#key renderCount}
+						<DecisionTreePreview
+							bind:nodes
+							bind:component
+							{rebuildOnChange}
+							{paneHeight}
+							{paneWidth}
+						/>
+					{/key}
 				</div>
 			</Pane>
 			<Pane size={40}>
