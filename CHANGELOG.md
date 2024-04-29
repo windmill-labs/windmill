@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.321.0](https://github.com/windmill-labs/windmill/compare/v1.320.3...v1.321.0) (2024-04-29)
+
+
+### Features
+
+* add resource and variable picker for rest scripts ([#3628](https://github.com/windmill-labs/windmill/issues/3628)) ([3956d01](https://github.com/windmill-labs/windmill/commit/3956d012ad08e37062f24823dbc0d7ca1bb564ef))
+
+
+### Bug Fixes
+
+* **python-client:** improve error message for wait_job ([0e022c9](https://github.com/windmill-labs/windmill/commit/0e022c9e4edc0d03abe2325c87546a8244434a5f))
+* toggle comment shortcut on some EU keyboards ([#3630](https://github.com/windmill-labs/windmill/issues/3630)) ([b529784](https://github.com/windmill-labs/windmill/commit/b5297846fea880c18f4895010aad3c39e5f582b1))
+
 ## [1.320.3](https://github.com/windmill-labs/windmill/compare/v1.320.2...v1.320.3) (2024-04-28)
 
 
