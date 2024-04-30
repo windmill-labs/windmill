@@ -58,6 +58,8 @@ pub enum Error {
     JsonErr(serde_json::Value),
     #[error("{0}")]
     OpenAIError(String),
+    #[error("Critical error: {0}")]
+    CriticalError(String),
 }
 
 impl Error {

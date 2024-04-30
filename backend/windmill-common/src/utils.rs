@@ -180,7 +180,7 @@ pub enum Mode {
     Standalone,
 }
 
-pub async fn report_critical_error_if_configured(error_message: String) -> () {
+pub async fn report_critical_error(error_message: String) -> () {
     let criticial_error_emails = CRITICAL_ERROR_EMAILS.read().await.clone();
 
     tracing::error!("CRITICAL ERROR: {error_message}");

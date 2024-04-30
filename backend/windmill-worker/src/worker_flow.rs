@@ -42,9 +42,11 @@ use windmill_common::{
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
+use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_queued_job,
-    handle_maybe_scheduled_job, CanceledBy, PushIsolationLevel, WrappedError,
+    handle_maybe_scheduled_job, report_error_to_workspace_handler_or_critical_side_channel,
+    CanceledBy, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -766,6 +768,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 rsmq.clone(),
                 worker_name,
                 true,
+                false,
             )
             .await?;
         } else {
@@ -801,6 +804,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
+                    false,
                 )
                 .await?;
             } else {
@@ -818,6 +822,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
+                    false,
                 )
                 .await?;
             }
@@ -854,6 +859,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     e,
                     rsmq.clone(),
                     worker_name,
+                    true,
                     true,
                 )
                 .await;
@@ -1201,24 +1207,47 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         && flow_job.script_path.is_some()
         && status.step == 0
     {
-        let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+        let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
 
-        match handle_maybe_scheduled_job(
-            tx,
-            rsmq.clone(),
-            db,
-            flow_job.schedule_path.as_ref().unwrap(),
-            flow_job.script_path.as_ref().unwrap(),
-            &flow_job.workspace_id,
-        )
-        .await
-        {
-            Ok(tx) => {
-                tx.commit().await?;
+        let schedule_path = flow_job.schedule_path.as_ref().unwrap();
+
+        let schedule =
+            get_schedule_opt(tx.transaction_mut(), &flow_job.workspace_id, schedule_path).await?;
+
+        if let Some(schedule) = schedule {
+            match handle_maybe_scheduled_job(
+                tx,
+                db,
+                schedule,
+                flow_job.script_path.as_ref().unwrap(),
+                &flow_job.workspace_id,
+            )
+            .await
+            {
+                Ok(tx) => {
+                    tx.commit().await?;
+                }
+                Err(e) => {
+                    tracing::error!("Error during handle_maybe_scheduled_job: {e}");
+                    match e {
+                        Error::CriticalError(_) => {
+                            report_error_to_workspace_handler_or_critical_side_channel(
+                                rsmq.clone(),
+                                flow_job,
+                                db,
+                                e.to_string(),
+                            )
+                            .await;
+                        }
+                        _ => {}
+                    }
+                }
             }
-            Err(e) => {
-                tracing::error!("Error during handle_maybe_scheduled_job: {e}");
-            }
+        } else {
+            tracing::error!(
+                "Schedule {schedule_path} in {} not found. Impossible to schedule again",
+                &flow_job.workspace_id
+            );
         }
     }
 

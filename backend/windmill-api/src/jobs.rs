@@ -1066,6 +1066,7 @@ async fn cancel_all(
                         rsmq.clone(),
                         "server",
                         true,
+                        false,
                     )
                     .await;
                     if let Err(e) = add_job {
