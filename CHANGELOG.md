@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.321.5](https://github.com/windmill-labs/windmill/compare/v1.321.4...v1.321.5) (2024-04-30)
+
+
+### Bug Fixes
+
+* fix console logs in REST scripts ([1f983c2](https://github.com/windmill-labs/windmill/commit/1f983c241404715e71ddc05cae5630a7696d590e))
+* make sure folder updater keep write permissions if not admin ([ae165b9](https://github.com/windmill-labs/windmill/commit/ae165b9f878a6960901026412e9dc815ebd2c472))
+* prevent overflowing for long description and default in schema ([450201d](https://github.com/windmill-labs/windmill/commit/450201deb8f4cd1ef426d0ff6987615f6fbbf5df))
+* **python:** supports folders starting with numbers for execution ([cf6ffef](https://github.com/windmill-labs/windmill/commit/cf6ffef48af5508a219048f0885001ed59c1bf06))
+
 ## [1.321.4](https://github.com/windmill-labs/windmill/compare/v1.321.3...v1.321.4) (2024-04-29)
 
 
