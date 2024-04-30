@@ -34,7 +34,7 @@ globalThis.URLSearchParams = url.URLSearchParams;
 globalThis.Headers = headers.Headers;
 globalThis.FileReader = fileReader.FileReader;
 globalThis.console = new console.Console((msg, level) =>
-  globalThis.Deno.core.ops.op_log([msg])
+  globalThis.Deno.core.ops.op_log(msg)
 );
 // Object.assign(globalThis, {
 //   console: nonEnumerable(
