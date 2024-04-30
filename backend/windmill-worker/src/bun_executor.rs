@@ -902,6 +902,10 @@ pub async fn start_worker(
         let spread = args.into_iter().map(|x| x.name).join(",");
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
+
+        let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
+        let print_lines = if is_debug { "stdout.write(lines);" } else { "" };
+
         let wrapper_content: String = format!(
             r#"
 import {{ main }} from "./main.ts";
@@ -917,6 +921,7 @@ stdout.write('start\n');
 
 for await (const chunk of Bun.stdin.stream()) {{
     const lines = Buffer.from(chunk).toString();
+    {print_lines}
     let exit = false;
     for (const line of lines.trim().split("\n")) {{
         if (line === "end") {{
