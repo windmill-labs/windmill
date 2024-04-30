@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ResourceService } from '$lib/gen'
+	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { copyToClipboard, truncate } from '$lib/utils'
 	import { ClipboardCopy, Expand } from 'lucide-svelte'
@@ -17,8 +17,17 @@
 	}
 
 	async function getResource(path: string) {
-		jsonViewerContent = (await ResourceService.getResource({ workspace: $workspaceStore!, path }))
-			.value
+		jsonViewerContent = await ResourceService.getResourceValue({
+			workspace: $workspaceStore!,
+			path
+		})
+	}
+
+	async function getVariable(path: string) {
+		jsonViewerContent = await VariableService.getVariableValue({
+			workspace: $workspaceStore!,
+			path
+		})
 	}
 </script>
 
@@ -54,6 +63,14 @@
 		class="text-xs text-blue-500"
 		on:click={async () => {
 			await getResource(value.substring('$res:'.length))
+			jsonViewer.toggleDrawer()
+		}}>{value}</button
+	>
+{:else if isString(value) && value.startsWith('$var:')}
+	<button
+		class="text-xs text-blue-500"
+		on:click={async () => {
+			await getVariable(value.substring('$res:'.length))
 			jsonViewer.toggleDrawer()
 		}}>{value}</button
 	>
