@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.321.6](https://github.com/windmill-labs/windmill/compare/v1.321.5...v1.321.6) (2024-04-30)
+
+
+### Bug Fixes
+
+* fix aggrid table actions ([c1f582f](https://github.com/windmill-labs/windmill/commit/c1f582f6e4a32bd7a3ee5be3824678d72fe71881))
+
 ## [1.321.5](https://github.com/windmill-labs/windmill/compare/v1.321.4...v1.321.5) (2024-04-30)
 
 
