@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.322.0](https://github.com/windmill-labs/windmill/compare/v1.321.6...v1.322.0) (2024-04-30)
+
+
+### Features
+
+* import export worker group config ([#3649](https://github.com/windmill-labs/windmill/issues/3649)) ([df586fc](https://github.com/windmill-labs/windmill/commit/df586fc68e6d39ce84dce6c65354ab7cbcf2cdb0))
+
+
+### Bug Fixes
+
+* improve password ui ([0b23d90](https://github.com/windmill-labs/windmill/commit/0b23d90f6015e27203be64ccf3801938ce745648))
+
 ## [1.321.6](https://github.com/windmill-labs/windmill/compare/v1.321.5...v1.321.6) (2024-04-30)
 
 
