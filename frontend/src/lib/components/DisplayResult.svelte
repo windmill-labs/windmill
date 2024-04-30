@@ -111,11 +111,11 @@
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
 				// Check if the result is an image
-				if (['png', 'svg', 'jpeg', 'html'].includes(keys[0]) && keys.length == 1) {
+				if (['png', 'svg', 'jpeg', 'html', 'gif'].includes(keys[0]) && keys.length == 1) {
 					// Check if the image is too large (10mb)
 					largeObject = roughSizeOfObject(result) > 10000000
 
-					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html'
+					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html' | 'gif'
 				}
 
 				let length = roughSizeOfObject(result)
@@ -304,20 +304,21 @@
 				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
-						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering" customSize="115%">
-							The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
+						<Tooltip
+							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+							customSize="115%"
+						>
+							The result renderer in Windmill supports rich display rendering, allowing you to
+							customize the display format of your results.
 						</Tooltip>
-						<button on:click={() => copyToClipboard(toJsonStr(result))}
-							class="-mt-1">
+						<button on:click={() => copyToClipboard(toJsonStr(result))} class="-mt-1">
 							<ClipboardCopy size={16} />
 						</button>
-						<button on:click={jsonViewer.openDrawer}
-							class="-mt-1">
+						<button on:click={jsonViewer.openDrawer} class="-mt-1">
 							<Expand size={16} />
 						</button>
 					{/if}
 				</div>
-										
 			</div>{#if !forceJson && resultKind == 'table-col'}
 				{@const data = 'table-col' in result ? result['table-col'] : result}
 				<AutoDataTable objects={transform(data)} />

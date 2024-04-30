@@ -271,7 +271,7 @@ async fn update_folder(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
-    Json(ng): Json<UpdateFolder>,
+    Json(mut ng): Json<UpdateFolder>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
@@ -281,6 +281,25 @@ async fn update_folder(
 
     if let Some(display_name) = ng.display_name {
         sqlb.set("display_name", "?".bind(&display_name));
+    }
+
+    if !authed.is_admin {
+        let prefixed_username = format!("u/{}", authed.username);
+        if ng.owners.as_ref().is_some_and(|x| {
+            !x.contains(&prefixed_username)
+                && !authed.groups.iter().any(|g| x.contains(&format!("g/{g}")))
+        }) {
+            ng.owners.as_mut().unwrap().push(prefixed_username.clone());
+            if ng.extra_perms.is_none() {
+                ng.extra_perms = Some(serde_json::Value::Object(serde_json::Map::new()));
+            }
+            ng.extra_perms
+                .as_mut()
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert(prefixed_username, serde_json::json!(true));
+        }
     }
     if let Some(owners) = ng.owners {
         sqlb.set(
@@ -310,8 +329,15 @@ async fn update_folder(
         .sql()
         .map_err(|e| error::Error::InternalErr(e.to_string()))?;
     let nfolder = sqlx::query_as::<_, Folder>(&sql)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
+
+    let nfolder = nfolder.ok_or_else(|| {
+        windmill_common::error::Error::NotAuthorized(format!(
+            "You are not an owner of {} and hence cannot modify it",
+            name
+        ))
+    })?;
 
     if let Some(extra_perms) = nfolder.extra_perms.as_object() {
         for o in nfolder.owners {
