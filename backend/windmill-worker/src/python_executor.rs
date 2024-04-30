@@ -1193,6 +1193,7 @@ for line in sys.stdin:
         jobs_rx,
         worker_name,
         db,
+        script_path,
     )
     .await
 }
