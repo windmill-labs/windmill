@@ -38,6 +38,7 @@
 	import { cellRendererFactory, defaultCellRenderer } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
+	import de from 'date-fns/locale/de'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -255,10 +256,13 @@
 					eGui,
 					{
 						rowData: value,
-						columnDefs: columnDefs.map((fields) => ({
-							...fields,
-							cellRenderer: defaultCellRenderer(fields.cellRendererType)
-						})),
+						columnDefs: columnDefs.map((fields) => {
+							let cr = defaultCellRenderer(fields.cellRendererType)
+							return {
+								...fields,
+								...(cr ? { cellRenderer: cr } : {})
+							}
+						}),
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
@@ -383,10 +387,13 @@
 
 			api?.updateGridOptions({
 				rowData: value,
-				columnDefs: columnDefs.map((fields) => ({
-					...fields,
-					cellRenderer: defaultCellRenderer(fields.cellRendererType)
-				})),
+				columnDefs: columnDefs.map((fields) => {
+					let cr = defaultCellRenderer(fields.cellRendererType)
+					return {
+						...fields,
+						...(cr ? { cellRenderer: cr } : {})
+					}
+				}),
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,
