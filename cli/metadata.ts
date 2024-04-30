@@ -178,6 +178,16 @@ async function updateScriptLock(
   metadataContent: Record<string, any>,
   rawDeps: string | undefined
 ): Promise<void> {
+  if (
+    !(
+      language == "bun" ||
+      language == "python3" ||
+      language == "go" ||
+      language == "deno"
+    )
+  ) {
+    return;
+  }
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
   const rawResponse = await fetch(
@@ -214,7 +224,9 @@ async function updateScriptLock(
         )}`
       );
     }
-    metadataContent.lock = lock;
+    const lockPath = remotePath + ".script.lock";
+    await Deno.writeTextFile(lockPath, lock);
+    metadataContent.lock = "!inline " + lockPath;
   } catch (e) {
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
@@ -446,6 +458,19 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
       const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
+      if (payload?.["lock"].startsWith("!inline ")) {
+        try {
+          const lockPath = payload["lock"].split(" ")[1];
+          payload["lock"] = await Deno.readTextFile(lockPath);
+        } catch (e) {
+          log.info(
+            colors.yellow(
+              `Failed to read lockfile, doing as if it was empty: ${e}`
+            )
+          );
+          payload["lock"] = "";
+        }
+      }
       if (Array.isArray(payload?.["lock"])) {
         payload["lock"] = payload["lock"].join("\n");
       }

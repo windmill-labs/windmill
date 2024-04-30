@@ -255,10 +255,13 @@
 					eGui,
 					{
 						rowData: value,
-						columnDefs: columnDefs.map((fields) => ({
-							...fields,
-							cellRenderer: defaultCellRenderer(fields.cellRendererType)
-						})),
+						columnDefs: columnDefs.map((fields) => {
+							let cr = defaultCellRenderer(fields.cellRendererType)
+							return {
+								...fields,
+								...(cr ? { cellRenderer: cr } : {})
+							}
+						}),
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
@@ -383,10 +386,13 @@
 
 			api?.updateGridOptions({
 				rowData: value,
-				columnDefs: columnDefs.map((fields) => ({
-					...fields,
-					cellRenderer: defaultCellRenderer(fields.cellRendererType)
-				})),
+				columnDefs: columnDefs.map((fields) => {
+					let cr = defaultCellRenderer(fields.cellRendererType)
+					return {
+						...fields,
+						...(cr ? { cellRenderer: cr } : {})
+					}
+				}),
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,

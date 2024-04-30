@@ -2155,6 +2155,9 @@ async fn spawn_dedicated_worker(
             } {
                 tracing::error!("error in dedicated worker: {:?}", e);
             };
+            if let Err(e) = killpill_tx.clone().send(()) {
+                tracing::error!("failed to send final killpill to dedicated worker: {:?}", e);
+            }
         });
         return Some((node_id.unwrap_or(path2), dedicated_worker_tx, Some(handle)));
         // (Some(dedi_path), Some(dedicated_worker_tx), Some(handle))

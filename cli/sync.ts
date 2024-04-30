@@ -1056,7 +1056,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
       } else if (change.name === "added") {
         if (
           change.path.endsWith(".script.json") ||
-          change.path.endsWith(".script.yaml")
+          change.path.endsWith(".script.yaml") ||
+          change.path.endsWith(".lock")
         ) {
           continue;
         } else if (
@@ -1089,6 +1090,9 @@ async function push(opts: GlobalOptions & SyncOptions) {
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {
+        if (change.path.endsWith(".lock")) {
+          continue;
+        }
         const typ = getTypeStrFromPath(change.path);
 
         if (typ == "script") {

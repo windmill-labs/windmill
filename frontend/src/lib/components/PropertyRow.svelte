@@ -5,6 +5,7 @@
 	import SchemaEditorProperty from './SchemaEditorProperty.svelte'
 	import { Button } from './common'
 	import { Pen, Trash } from 'lucide-svelte'
+	import { truncate } from '$lib/utils'
 
 	export let displayInfo: PropertyDisplayInfo
 	export let isAnimated: boolean
@@ -44,8 +45,15 @@
 	<SchemaEditorProperty property={displayInfo.property} />
 </td>
 {#if !lightMode}
-	<td>{displayInfo.property.default ? JSON.stringify(displayInfo.property.default) : ''}</td>
-	<td>{displayInfo.property.description ?? ''}</td>
+	<td class="truncate max-w-xs !text-2xs"
+		>{truncate(
+			displayInfo.property.default ? JSON.stringify(displayInfo.property.default) : '',
+			100
+		)}</td
+	>
+	<td class="truncate max-w-xs !text-2xs"
+		>{truncate(displayInfo.property.description ?? '', 100)}</td
+	>
 {/if}
 <td />
 <td class="justify-end flex">

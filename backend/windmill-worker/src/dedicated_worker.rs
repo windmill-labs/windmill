@@ -58,6 +58,7 @@ pub async fn handle_dedicated_process(
     mut jobs_rx: Receiver<Arc<QueuedJob>>,
     worker_name: &str,
     db: &DB,
+    script_path: &str,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
     let mut child = {
@@ -147,6 +148,7 @@ pub async fn handle_dedicated_process(
                     tracing::debug!("processed job: {line}");
                     if line.starts_with("wm_res[") {
                         let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
+                        tracing::info!("job completed on dedicated worker {script_path}: {}", job.id);
                         match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res[success]:", "").replace("wm_res[error]:", "")) {
                             Ok(result) => {
                                 append_logs(job.id, job.workspace_id.clone(),  logs.clone(), db).await;
@@ -174,8 +176,9 @@ pub async fn handle_dedicated_process(
             job = conditional_polling(jobs_rx.recv(), alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS) => {
                 // i += 1;
                 if let Some(job) = job {
-                    tracing::debug!("received job");
                     jobs.push_back(job.clone());
+                    tracing::info!("received job and adding to queue on dedicated worker for {script_path}: {} (queue_size: {})", job.id, jobs.len());
+
                     // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
                     write_stdin(&mut stdin, &serde_json::to_string(&job.args).expect("serialize")).await?;
                     stdin.flush().await.context("stdin flush")?;
