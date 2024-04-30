@@ -904,11 +904,16 @@ pub async fn start_worker(
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
 
         let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
-        let print_lines = if is_debug { "stdout.write(lines);" } else { "" };
+        let print_lines = if is_debug {
+            r#"stdout.write(line+'\n');"#
+        } else {
+            ""
+        };
 
         let wrapper_content: String = format!(
             r#"
 import {{ main }} from "./main.ts";
+import {{ createInterface }} from "node:readline"
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -919,27 +924,21 @@ BigInt.prototype.toJSON = function () {{
 let stdout = Bun.stdout.writer();
 stdout.write('start\n'); 
 
-for await (const chunk of Bun.stdin.stream()) {{
-    const lines = Buffer.from(chunk).toString();
+for await (const line of createInterface({{ input: process.stdin }})) {{
     {print_lines}
-    let exit = false;
-    for (const line of lines.trim().split("\n")) {{
-        if (line === "end") {{
-            exit = true;
-            break;
-        }}
-        try {{
-            let {{ {spread} }} = JSON.parse(line) 
-            let res: any = await main(...[ {spread} ]);
-            stdout.write("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
-        }} catch (e) {{
-            stdout.write("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
-        }}
-        stdout.flush();
-    }}
-    if (exit) {{
+
+    if (line === "end") {{
         break;
     }}
+    try {{
+        let {{ {spread} }} = JSON.parse(line) 
+        let res: any = await main(...[ {spread} ]);
+        stdout.write("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
+    }} catch (e) {{
+        stdout.write("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+    }}
+    stdout.flush();
+
 }}
 "#,
         );
