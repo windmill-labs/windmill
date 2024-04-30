@@ -16,6 +16,7 @@
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
+	import YAML from 'yaml'
 
 	export let name: string
 	export let config:
@@ -815,6 +816,23 @@
 			<div class="flex flex-row gap-1 items-center">
 				{config == undefined ? 'create' : 'edit'} config
 			</div>
+		</Button>
+
+		<Button
+			color="light"
+			size="xs"
+			on:click={() => {
+				loadNConfig()
+				navigator.clipboard.writeText(
+					YAML.stringify({
+						name,
+						...nconfig
+					})
+				)
+				sendUserToast('Worker config copied to clipboard as YAML')
+			}}
+		>
+			copy config
 		</Button>
 
 		{#if config}
