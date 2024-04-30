@@ -129,6 +129,7 @@ pub async fn handle_dedicated_process(
             },
             line = err_reader.next_line() => {
                 if let Some(line) = line.expect("line is ok") {
+                    tracing::debug!("stderr dedicated worker: {line}");
                     logs.push_str("[stderr] ");
                     logs.push_str(&line);
                     logs.push_str("\n");
