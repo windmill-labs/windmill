@@ -38,7 +38,6 @@
 	import { cellRendererFactory, defaultCellRenderer } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
-	import de from 'date-fns/locale/de'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
