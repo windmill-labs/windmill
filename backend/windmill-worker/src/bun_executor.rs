@@ -983,6 +983,7 @@ plugin(p)
         jobs_rx,
         worker_name,
         db,
+        script_path,
     )
     .await
 }
