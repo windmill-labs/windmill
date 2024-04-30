@@ -107,6 +107,7 @@
 
 	export function openDrawer(nproperty: ModalSchemaProperty): void {
 		drawer.openDrawer()
+		error = ''
 		property = nproperty
 	}
 
