@@ -1772,7 +1772,7 @@ This is a paragraph.
 		}
 	},
 	tablecomponent: {
-		name: 'Table',
+		name: 'TanStack Table',
 		icon: Table2,
 		documentationLink: `${documentationBaseUrl}/table`,
 		dims: '3:10-6:10' as AppComponentDimensions,
