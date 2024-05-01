@@ -59,6 +59,8 @@
 	let runnable: Script | Flow | undefined
 	let args: Record<string, any> = {}
 
+	let argLoader = 0
+
 	export function openEdit(ePath: string, isFlow: boolean) {
 		is_flow = isFlow
 		initialPath = ePath
@@ -277,6 +279,7 @@
 				recoveryHandlerItemKind = 'script'
 			}
 			args = s.args ?? {}
+			argLoader++
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 			tag = s.tag
 		} catch (err) {
@@ -538,13 +541,15 @@
 				<div class="mt-6">
 					{#if runnable}
 						{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-							<SchemaForm
-								showReset
-								disabled={!can_write}
-								schema={runnable.schema}
-								bind:isValid
-								bind:args
-							/>
+							{#key argLoader}
+								<SchemaForm
+									showReset
+									disabled={!can_write}
+									schema={runnable.schema}
+									bind:isValid
+									bind:args
+								/>
+							{/key}
 						{:else}
 							<div class="text-xs texg-gray-700">
 								This {is_flow ? 'flow' : 'script'} takes no argument
