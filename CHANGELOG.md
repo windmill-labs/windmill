@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.323.1](https://github.com/windmill-labs/windmill/compare/v1.323.0...v1.323.1) (2024-05-01)
+
+
+### Bug Fixes
+
+* **cli:** improve generate metadata lock for new scripts ([54acc22](https://github.com/windmill-labs/windmill/commit/54acc22a271c26ea5e47f0adcf0bcc083064f434))
+* **frontend:** improve default select styling for apps ([#3656](https://github.com/windmill-labs/windmill/issues/3656)) ([2b34730](https://github.com/windmill-labs/windmill/commit/2b3473093aaeb7f78a8eaaf8d50021937acb6a50))
+* **frontend:** Restore AgGrid borders and remove the outer border pro… ([#3658](https://github.com/windmill-labs/windmill/issues/3658)) ([92492ab](https://github.com/windmill-labs/windmill/commit/92492ab6b7c579bf01043e422b5c768099ff3120))
+
 ## [1.323.0](https://github.com/windmill-labs/windmill/compare/v1.322.0...v1.323.0) (2024-05-01)
 
 
