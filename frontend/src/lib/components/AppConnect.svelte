@@ -138,9 +138,15 @@
 		}
 		return r
 	}
-	$: linkedSecret = linkedSecretCandidates?.sort(
-		(ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua)
-	)?.[0]
+
+	function forceSecretValue(resourceType: string): string | undefined {
+		if (resourceType == 'git_repository') {
+			return 'url'
+		}
+	}
+	$: linkedSecret =
+		forceSecretValue(resourceType) ??
+		linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
