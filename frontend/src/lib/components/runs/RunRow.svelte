@@ -165,10 +165,9 @@
 				</div>
 			{:else}
 				<div class="flex flex-row gap-1 items-center">
-					<Bot size={12} class="text-secondary" />
-					<span class="mx-1 text-xs">
-						Parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
-							{job.parent_job}
+					<span class="text-2xs text-tertiary truncate">
+						parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+							{truncateRev(job.parent_job, 10)}
 						</a>
 					</span>
 				</div>
