@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.323.2](https://github.com/windmill-labs/windmill/compare/v1.323.1...v1.323.2) (2024-05-01)
+
+
+### Bug Fixes
+
+* **frontend:** Disable the insert button when required fields are empty strings ([#3659](https://github.com/windmill-labs/windmill/issues/3659)) ([7df4f02](https://github.com/windmill-labs/windmill/commit/7df4f02529de6e0d37135c9bef3da528be3e21a2))
+* **frontend:** use normal password mask for the sensitive fields of the resource editor ([c8b439d](https://github.com/windmill-labs/windmill/commit/c8b439df5b6f1e48cced5f9cc2fd7882fc88d407))
+
 ## [1.323.1](https://github.com/windmill-labs/windmill/compare/v1.323.0...v1.323.1) (2024-05-01)
 
 
