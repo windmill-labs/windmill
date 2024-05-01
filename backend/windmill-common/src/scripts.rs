@@ -128,10 +128,13 @@ impl Display for ScriptKind {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Hash)]
-#[serde(tag = "type")]
-pub enum Codebase {
-    BuntarV1 { sha256: String, relative_path: String },
+pub enum CodebaseKind {
+    TarbunV1,
+}
+pub struct Codebase {
+    sha256: String,
+    relative_path: String,
+    kind: Code,
 }
 
 #[derive(Serialize, sqlx::FromRow)]

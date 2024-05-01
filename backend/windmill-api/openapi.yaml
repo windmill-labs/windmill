@@ -8391,7 +8391,7 @@ components:
         no_main_func:
           type: boolean
         codebase:
-          type: {}
+          type: object
       required:
         - hash
         - path
@@ -8484,7 +8484,7 @@ components:
         no_main_func:
           type: boolean
         codebase:
-          type: {}
+          type: object
       required:
         - path
         - summary
