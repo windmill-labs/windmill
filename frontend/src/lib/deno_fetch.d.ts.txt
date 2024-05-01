@@ -405,3 +405,9 @@ declare function fetch(
   input: URL | Request | string,
   init?: RequestInit,
 ): Promise<Response>;
+
+interface Console {
+    log(...data: any[]): void;
+}
+
+declare var console: Console;

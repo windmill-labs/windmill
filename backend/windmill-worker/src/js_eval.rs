@@ -774,6 +774,7 @@ fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<String>> {
 
 #[op2(fast)]
 fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
+    // tracing::error!("log: |{}|", log);
     op_state
         .borrow_mut()
         .borrow_mut::<LogString>()

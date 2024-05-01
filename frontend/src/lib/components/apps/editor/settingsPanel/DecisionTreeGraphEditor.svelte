@@ -38,16 +38,18 @@
 		<Splitpanes>
 			<Pane size={60}>
 				<div class="w-full h-full" bind:clientWidth={paneWidth} bind:clientHeight={paneHeight}>
-					<DecisionTreePreview
-						bind:nodes
-						bind:component
-						{rebuildOnChange}
-						{paneHeight}
-						{paneWidth}
-						on:render={() => {
-							renderCount++
-						}}
-					/>
+					{#if paneWidth && paneHeight}
+						<DecisionTreePreview
+							bind:nodes
+							bind:component
+							{rebuildOnChange}
+							{paneHeight}
+							{paneWidth}
+							on:render={() => {
+								renderCount++
+							}}
+						/>
+					{/if}
 				</div>
 			</Pane>
 			<Pane size={40}>
