@@ -77,7 +77,7 @@
 <InitializeComponent {id} />
 
 {#if render}
-	<div class="w-full h-full p-1">
+	<div class="w-full h-full">
 		<FileInput
 			bind:this={fileInput}
 			accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}

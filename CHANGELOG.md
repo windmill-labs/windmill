@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.323.0](https://github.com/windmill-labs/windmill/compare/v1.322.0...v1.323.0) (2024-05-01)
+
+
+### Features
+
+* **frontend:** Improve inputs ([#3651](https://github.com/windmill-labs/windmill/issues/3651)) ([790f263](https://github.com/windmill-labs/windmill/commit/790f263e561917ccb8b68d26a2b1bae8f5a17fea))
+
+
+### Bug Fixes
+
+* **frontend:** improve result, flow status and log components ([#3653](https://github.com/windmill-labs/windmill/issues/3653)) ([aa6204f](https://github.com/windmill-labs/windmill/commit/aa6204ff99f78c8f5936701649d2829bd7e0afff))
+* **frontend:** remove red from autodatable badges ([#3652](https://github.com/windmill-labs/windmill/issues/3652)) ([d7d2f03](https://github.com/windmill-labs/windmill/commit/d7d2f03e2328e63bc460048570c26389a7d0d5e0))
+* **frontend:** sync columnDefs + improve columnDefs management ([#3632](https://github.com/windmill-labs/windmill/issues/3632)) ([ca209e9](https://github.com/windmill-labs/windmill/commit/ca209e9c48990dfd0c4c8085d74c5d7ba14b466b))
+
+## [1.322.0](https://github.com/windmill-labs/windmill/compare/v1.321.6...v1.322.0) (2024-04-30)
+
+
+### Features
+
+* import export worker group config ([#3649](https://github.com/windmill-labs/windmill/issues/3649)) ([df586fc](https://github.com/windmill-labs/windmill/commit/df586fc68e6d39ce84dce6c65354ab7cbcf2cdb0))
+
+
+### Bug Fixes
+
+* improve password ui ([0b23d90](https://github.com/windmill-labs/windmill/commit/0b23d90f6015e27203be64ccf3801938ce745648))
+
+## [1.321.6](https://github.com/windmill-labs/windmill/compare/v1.321.5...v1.321.6) (2024-04-30)
+
+
+### Bug Fixes
+
+* fix aggrid table actions ([c1f582f](https://github.com/windmill-labs/windmill/commit/c1f582f6e4a32bd7a3ee5be3824678d72fe71881))
+
+## [1.321.5](https://github.com/windmill-labs/windmill/compare/v1.321.4...v1.321.5) (2024-04-30)
+
+
+### Bug Fixes
+
+* fix console logs in REST scripts ([1f983c2](https://github.com/windmill-labs/windmill/commit/1f983c241404715e71ddc05cae5630a7696d590e))
+* make sure folder updater keep write permissions if not admin ([ae165b9](https://github.com/windmill-labs/windmill/commit/ae165b9f878a6960901026412e9dc815ebd2c472))
+* prevent overflowing for long description and default in schema ([450201d](https://github.com/windmill-labs/windmill/commit/450201deb8f4cd1ef426d0ff6987615f6fbbf5df))
+* **python:** supports folders starting with numbers for execution ([cf6ffef](https://github.com/windmill-labs/windmill/commit/cf6ffef48af5508a219048f0885001ed59c1bf06))
+
 ## [1.321.4](https://github.com/windmill-labs/windmill/compare/v1.321.3...v1.321.4) (2024-04-29)
 
 

@@ -122,11 +122,10 @@
 
 	let renderCount = 0
 
-	const badgeColors: BadgeColor[] = ['gray', 'blue', 'red', 'green', 'yellow', 'indigo']
+	const badgeColors: BadgeColor[] = ['gray', 'blue', 'green', 'yellow', 'indigo']
 	const darkBadgeColors: BadgeColor[] = [
 		'dark-gray',
 		'dark-blue',
-		'dark-red',
 		'dark-green',
 		'dark-yellow',
 		'dark-indigo'

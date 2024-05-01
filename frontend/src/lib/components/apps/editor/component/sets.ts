@@ -78,12 +78,12 @@ const display: ComponentSet = {
 const tables: ComponentSet = {
 	title: 'Tables',
 	components: [
-		'tablecomponent',
 		'aggridcomponent',
 		'aggridcomponentee',
 		'dbexplorercomponent',
 		'aggridinfinitecomponent',
-		'aggridinfinitecomponentee'
+		'aggridinfinitecomponentee',
+		'tablecomponent'
 	]
 } as const
 

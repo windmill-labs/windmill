@@ -111,7 +111,7 @@
 		}, 1000)
 	}
 
-	const { app, worldStore, mode, selectedComponent, runnableComponents } =
+	const { app, worldStore, mode, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -204,24 +204,6 @@
 			}
 		})
 	}
-
-	let isCallbackAdded = false
-
-	function addOnRecomputeCallback() {
-		$runnableComponents[id].cb = [
-			...$runnableComponents[id].cb,
-			() =>
-				new CancelablePromise(async (resolve) => {
-					await dbExplorerCount?.computeCount(true)
-
-					aggrid?.clearRows()
-					resolve()
-				})
-		]
-		isCallbackAdded = true
-	}
-
-	$: $runnableComponents[id]?.cb && !isCallbackAdded && addOnRecomputeCallback()
 
 	async function listTables() {
 		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
@@ -626,11 +608,19 @@
 	noInitialize
 	bind:runnableComponent
 	componentInput={input}
-	autoRefresh={true}
+	autoRefresh={false}
 	bind:loading
 	{render}
 	{id}
 	{outputs}
+	overrideCallback={() =>
+		new CancelablePromise(async (resolve) => {
+			await dbExplorerCount?.computeCount(true)
+
+			aggrid?.clearRows()
+			resolve()
+		})}
+	overrideAutoRefresh={true}
 >
 	<div class="h-full" bind:clientHeight={componentContainerHeight}>
 		{#if !(hideSearch === true && hideInsert === true)}
@@ -678,6 +668,7 @@
 					containerHeight={componentContainerHeight - (buttonContainerHeight ?? 0)}
 					on:update={onUpdate}
 					on:delete={onDelete}
+					allowColumnDefsActions={false}
 					{actions}
 				/>
 			{/key}

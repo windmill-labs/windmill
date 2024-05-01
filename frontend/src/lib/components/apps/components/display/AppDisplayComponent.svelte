@@ -66,10 +66,10 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-	<div class="flex flex-col w-full h-full">
+	<div class="flex flex-col w-full h-full component-wrapper">
 		<div
 			class={twMerge(
-				'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
+				'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
 				css?.header?.class,
 				'wm-rich-result-header'
 			)}
