@@ -231,6 +231,10 @@
 	padding-right: var(--ag-grid-size);
 }
 
+.ag-theme-alpine .ag-root-wrapper {
+	border: none;
+}
+
 .ag-theme-alpine .ag-tab,
 .ag-theme-alpine-dark .ag-tab,
 .ag-theme-alpine-auto-dark .ag-tab {
