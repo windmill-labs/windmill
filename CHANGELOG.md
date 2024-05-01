@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.323.0](https://github.com/windmill-labs/windmill/compare/v1.322.0...v1.323.0) (2024-05-01)
+
+
+### Features
+
+* **frontend:** Improve inputs ([#3651](https://github.com/windmill-labs/windmill/issues/3651)) ([790f263](https://github.com/windmill-labs/windmill/commit/790f263e561917ccb8b68d26a2b1bae8f5a17fea))
+
+
+### Bug Fixes
+
+* **frontend:** improve result, flow status and log components ([#3653](https://github.com/windmill-labs/windmill/issues/3653)) ([aa6204f](https://github.com/windmill-labs/windmill/commit/aa6204ff99f78c8f5936701649d2829bd7e0afff))
+* **frontend:** remove red from autodatable badges ([#3652](https://github.com/windmill-labs/windmill/issues/3652)) ([d7d2f03](https://github.com/windmill-labs/windmill/commit/d7d2f03e2328e63bc460048570c26389a7d0d5e0))
+* **frontend:** sync columnDefs + improve columnDefs management ([#3632](https://github.com/windmill-labs/windmill/issues/3632)) ([ca209e9](https://github.com/windmill-labs/windmill/commit/ca209e9c48990dfd0c4c8085d74c5d7ba14b466b))
+
 ## [1.322.0](https://github.com/windmill-labs/windmill/compare/v1.321.6...v1.322.0) (2024-04-30)
 
 
