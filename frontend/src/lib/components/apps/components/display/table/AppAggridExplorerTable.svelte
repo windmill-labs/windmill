@@ -214,10 +214,13 @@
 			})
 		}
 
-		return r.map((fields) => ({
-			...fields,
-			cellRenderer: defaultCellRenderer(fields.cellRendererType)
-		}))
+		return r.map((fields) => {
+			let cr = defaultCellRenderer(fields.cellRendererType)
+			return {
+				...fields,
+				...(cr ? { cellRenderer: cr } : {})
+			}
+		})
 	}
 
 	let firstRow: number = 0

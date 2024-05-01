@@ -12,9 +12,9 @@ function deleteWithAllValues(table: string, columns: ColumnDef[], dbType: DbType
 			const conditions = columns
 				.map(
 					(c, i) =>
-						`($${i + 1}::${c.datatype} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${i + 1}::${
-							c.datatype
-						})`
+						`($${i + 1}::text::${c.datatype} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${
+							i + 1
+						}::text::${c.datatype})`
 				)
 				.join('\n    AND ')
 

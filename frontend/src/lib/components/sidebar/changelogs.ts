@@ -6,6 +6,11 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'CLI and Git Sync major improvements',
+		href: 'https://www.windmill.dev/changelog/cli-lockfiles',
+		date: '2024-04-28'
+	},
+	{
 		label: 'AgGrid Infinite Table',
 		href: 'https://www.windmill.dev/changelog/aggrid-infinite-table',
 		date: '2024-04-24'

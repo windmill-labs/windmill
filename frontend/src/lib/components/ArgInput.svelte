@@ -307,7 +307,7 @@
 		{/if}
 		{#if description}
 			<div class="text-xs italic pb-1 text-secondary">
-				<pre class="font-main">{description}</pre>
+				<pre class="font-main whitespace-normal">{description}</pre>
 			</div>
 		{/if}
 		<div class="flex space-x-1">

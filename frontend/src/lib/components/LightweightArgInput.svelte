@@ -178,7 +178,7 @@
 
 			{#if description}
 				<div class={twMerge('text-xs italic pb-1', css?.description?.class)}>
-					<pre class="font-main">{description}</pre>
+					<pre class="font-main whitespace-normal">{description}</pre>
 				</div>
 			{/if}
 

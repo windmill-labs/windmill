@@ -312,9 +312,9 @@
 	<!--json schema or table view-->
 	<div class="h-full">
 		{#if !viewJsonSchema}
-			<div class="h-full">
+			<div class="h-full overflow-auto">
 				{#if schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
-					<TableCustom>
+					<TableCustom wFull>
 						<tr slot="header-row">
 							<th>Name</th>
 							<th>Type</th>
@@ -327,7 +327,7 @@
 						<tbody slot="body">
 							{#key schema.required}
 								{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfoKey(displayInfo))}
-									<tr animate:flip={{ duration: moveAnimationDuration }}>
+									<tr class="w-full" animate:flip={{ duration: moveAnimationDuration }}>
 										<PropertyRow
 											{displayInfo}
 											{isAnimated}

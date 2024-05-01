@@ -472,7 +472,13 @@ async fn prepare_wrapper(
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
-    let script_path_splitted = script_path.split("/");
+    let script_path_splitted = script_path.split("/").map(|x| {
+        if x.starts_with(|x: char| x.is_ascii_digit()) {
+            format!("_{}", x)
+        } else {
+            x.to_string()
+        }
+    });
     let dirs_full = script_path_splitted
         .clone()
         .take(script_path_splitted.clone().count() - 1)
@@ -496,12 +502,6 @@ async fn prepare_wrapper(
         .to_lowercase();
     let module_dir = format!("{}/{}", job_dir, dirs);
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
-
-    let last = if last.starts_with(|x: char| x.is_ascii_digit()) {
-        format!("_{}", last)
-    } else {
-        last
-    };
 
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
     if relative_imports {
@@ -1178,6 +1178,10 @@ for line in sys.stdin:
     proc_envs.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     proc_envs.insert("PATH".to_string(), PATH_ENV.to_string());
     proc_envs.insert("TZ".to_string(), TZ_ENV.to_string());
+    proc_envs.insert(
+        "BASE_INTERNAL_URL".to_string(),
+        base_internal_url.to_string(),
+    );
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
     handle_dedicated_process(
         &*PYTHON_PATH,
@@ -1193,6 +1197,8 @@ for line in sys.stdin:
         jobs_rx,
         worker_name,
         db,
+        script_path,
+        "python",
     )
     .await
 }

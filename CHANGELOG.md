@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.322.0](https://github.com/windmill-labs/windmill/compare/v1.321.6...v1.322.0) (2024-04-30)
+
+
+### Features
+
+* import export worker group config ([#3649](https://github.com/windmill-labs/windmill/issues/3649)) ([df586fc](https://github.com/windmill-labs/windmill/commit/df586fc68e6d39ce84dce6c65354ab7cbcf2cdb0))
+
+
+### Bug Fixes
+
+* improve password ui ([0b23d90](https://github.com/windmill-labs/windmill/commit/0b23d90f6015e27203be64ccf3801938ce745648))
+
+## [1.321.6](https://github.com/windmill-labs/windmill/compare/v1.321.5...v1.321.6) (2024-04-30)
+
+
+### Bug Fixes
+
+* fix aggrid table actions ([c1f582f](https://github.com/windmill-labs/windmill/commit/c1f582f6e4a32bd7a3ee5be3824678d72fe71881))
+
+## [1.321.5](https://github.com/windmill-labs/windmill/compare/v1.321.4...v1.321.5) (2024-04-30)
+
+
+### Bug Fixes
+
+* fix console logs in REST scripts ([1f983c2](https://github.com/windmill-labs/windmill/commit/1f983c241404715e71ddc05cae5630a7696d590e))
+* make sure folder updater keep write permissions if not admin ([ae165b9](https://github.com/windmill-labs/windmill/commit/ae165b9f878a6960901026412e9dc815ebd2c472))
+* prevent overflowing for long description and default in schema ([450201d](https://github.com/windmill-labs/windmill/commit/450201deb8f4cd1ef426d0ff6987615f6fbbf5df))
+* **python:** supports folders starting with numbers for execution ([cf6ffef](https://github.com/windmill-labs/windmill/commit/cf6ffef48af5508a219048f0885001ed59c1bf06))
+
+## [1.321.4](https://github.com/windmill-labs/windmill/compare/v1.321.3...v1.321.4) (2024-04-29)
+
+
+### Bug Fixes
+
+* **cli:** handle better missing lockfile for generating metadata ([5315726](https://github.com/windmill-labs/windmill/commit/53157262bdb38d7b83d94ff9df02322bb0ab06c7))
+
+## [1.321.3](https://github.com/windmill-labs/windmill/compare/v1.321.2...v1.321.3) (2024-04-29)
+
+
+### Bug Fixes
+
+* **cli:** skip deleting script when lockfile delete ([959ae8d](https://github.com/windmill-labs/windmill/commit/959ae8d2526d631a14b91a8657ef6957355467b3))
+
+## [1.321.2](https://github.com/windmill-labs/windmill/compare/v1.321.1...v1.321.2) (2024-04-29)
+
+
+### Bug Fixes
+
+* **cli:** improve lockfile support on cli ([b7f9ecb](https://github.com/windmill-labs/windmill/commit/b7f9ecbda1e481191aac90497c850da533a55732))
+* **cli:** improve lockfile support on cli ([35b2423](https://github.com/windmill-labs/windmill/commit/35b2423fe193a5425f2fa9d940d9ca15b8a5b33c))
+* **cli:** improve lockfile support on cli ([05e70a8](https://github.com/windmill-labs/windmill/commit/05e70a849ea1ade6a2652d73ea1dcaaad3e2f6ce))
+
+## [1.321.1](https://github.com/windmill-labs/windmill/compare/v1.321.0...v1.321.1) (2024-04-29)
+
+
+### Bug Fixes
+
+* pg types conversion dbstudio ([#3636](https://github.com/windmill-labs/windmill/issues/3636)) ([f6e8f45](https://github.com/windmill-labs/windmill/commit/f6e8f45af1df9009a6086ee76b7a7cfa9845ff17))
+
 ## [1.321.0](https://github.com/windmill-labs/windmill/compare/v1.320.3...v1.321.0) (2024-04-29)
 
 
