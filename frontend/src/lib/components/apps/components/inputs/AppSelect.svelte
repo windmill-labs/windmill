@@ -21,6 +21,7 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -219,8 +220,7 @@
 		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			<Select
 				inAppEditor={true}
-				--border-radius="0"
-				--border-color="#999"
+				--border-radius="0.375rem"
 				bind:filterText
 				on:filter={handleFilter}
 				on:clear={onClear}
@@ -228,13 +228,11 @@
 				items={listItems}
 				listAutoWidth={resolvedConfig.fullWidth}
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: #999;' +
-					($darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) +
-					css?.input?.style}
+				containerStyles={($darkMode
+					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
 				{value}
-				class={css?.input?.class}
+				class={twMerge($darkMode ? '!border-gray-500' : '!border-gray-300', css?.input?.class)}
 				placeholder={resolvedConfig.placeholder}
 				disabled={resolvedConfig.disabled}
 				on:focus={() => {
