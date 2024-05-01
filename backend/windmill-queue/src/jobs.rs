@@ -736,15 +736,7 @@ pub async fn add_completed_job<
         && queued_job.parent_job.is_none()
         && !success
     {
-        let result = serde_json::from_str(
-            &serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()),
-        )
-        .unwrap_or_else(|_| json!({}));
-        let result = if result.is_object() || result.is_null() {
-            result
-        } else {
-            json!({ "error": result })
-        };
+        let result = sanitize_result(result);
         tracing::info!(
             "Sending error of job {} to error handlers (if any)",
             queued_job.id
@@ -1373,13 +1365,15 @@ pub async fn handle_on_failure<
         extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
+    let result = sanitize_result(result);
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
         tx,
         w_id,
         payload,
-        PushArgs { extra, args: result.to_owned() },
+        PushArgs { extra, args: Json(&result) },
         ERROR_HANDLER_USERNAME,
         ERROR_HANDLER_USER_EMAIL,
         ERROR_HANDLER_USER_GROUP.to_string(),
@@ -1404,6 +1398,18 @@ pub async fn handle_on_failure<
         schedule_path
     );
     return Ok((uuid, tx));
+}
+
+fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> serde_json::Value {
+    let result =
+        serde_json::from_str(&serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()))
+            .unwrap_or_else(|_| json!({}));
+    let result = if result.is_object() || result.is_null() {
+        result
+    } else {
+        json!({ "error": result })
+    };
+    result
 }
 
 // #[derive(Serialize)]
