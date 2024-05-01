@@ -2051,6 +2051,7 @@ This is a paragraph.
 		},
 		initialData: {
 			componentInput: undefined,
+			verticalAlignment: 'center',
 			configuration: {
 				items: {
 					type: 'static',

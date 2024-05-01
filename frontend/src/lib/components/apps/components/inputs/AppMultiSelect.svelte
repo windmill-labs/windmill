@@ -20,6 +20,7 @@
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
@@ -129,68 +130,72 @@
 
 <InitializeComponent {id} />
 
-<AlignWrapper {render} hFull>
+<AlignWrapper {render} hFull {verticalAlignment}>
 	<div
-		class="w-full h-full"
+		class="w-full"
 		on:pointerdown={(e) => {
+			$selectedComponent = [id]
+
 			if (!e.shiftKey) {
 				e.stopPropagation()
 			}
+			selectedComponent.set([id])
 		}}
 		use:floatingRef
 		bind:clientWidth={w}
 		bind:clientHeight={h}
 	>
 		{#if !value || Array.isArray(value)}
-			<div style={`height:${h}px;`}>
-				<MultiSelect
-					bind:outerDiv
-					outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
-					ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
-					ulOptionsClass={'p-2 !bg-surface-secondary'}
-					bind:selected={value}
-					options={Array.isArray(items) ? items : []}
-					placeholder={resolvedConfig.placeholder}
-					allowUserOptions={resolvedConfig.create}
-					on:change={(event) => {
-						if (event?.detail?.type === 'removeAll') {
-							outputs?.result.set([])
-						} else {
-							outputs?.result.set([...(value ?? [])])
-						}
+			<MultiSelect
+				bind:outerDiv
+				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
+				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
+				ulOptionsClass={'p-2 !bg-surface-secondary'}
+				bind:selected={value}
+				options={Array.isArray(items) ? items : []}
+				placeholder={resolvedConfig.placeholder}
+				allowUserOptions={resolvedConfig.create}
+				on:change={(event) => {
+					if (event?.detail?.type === 'removeAll') {
+						outputs?.result.set([])
+					} else {
+						outputs?.result.set([...(value ?? [])])
+					}
+				}}
+				on:open={() => {
+					$selectedComponent = [id]
+					open = true
+				}}
+				on:close={() => {
+					open = false
+				}}
+				let:option
+			>
+				<!-- needed because portal doesn't work for mouseup event en mobile -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<div
+					class="w-full"
+					on:mouseup|stopPropagation
+					on:pointerdown|stopPropagation={(e) => {
+						let newe = new MouseEvent('mouseup')
+						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
-					on:open={() => {
-						$selectedComponent = [id]
-						open = true
-					}}
-					on:close={() => {
-						open = false
-					}}
-					let:option
 				>
-					<!-- needed because portal doesn't work for mouseup event en mobile -->
+					{option}
+				</div>
+			</MultiSelect>
+			<Portal>
+				<div use:floatingContent class="z5000" hidden={!open}>
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						class="w-full"
-						on:mouseup|stopPropagation
-						on:pointerdown|stopPropagation={(e) => {
-							let newe = new MouseEvent('mouseup')
-							e.target?.['parentElement']?.dispatchEvent(newe)
-						}}>{option}</div
-					>
-				</MultiSelect>
-				<Portal>
-					<div use:floatingContent class="z5000" hidden={!open}>
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							bind:this={portalRef}
-							class="multiselect"
-							style={`min-width: ${w}px;`}
-							on:click|stopPropagation
-						/>
-					</div>
-				</Portal>
-			</div>
+						bind:this={portalRef}
+						class="multiselect"
+						style={`min-width: ${w}px;`}
+						on:click|stopPropagation
+					/>
+				</div>
+			</Portal>
 		{:else}
 			Value {value} is not an array
 		{/if}
