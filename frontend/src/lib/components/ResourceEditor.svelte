@@ -203,6 +203,7 @@
 						<Skeleton layout={[[4]]} />
 					{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 						<SchemaForm
+							onlyMaskPassword
 							noDelete
 							disabled={!can_write}
 							compact

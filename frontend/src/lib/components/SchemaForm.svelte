@@ -33,6 +33,7 @@
 	export let disablePortal = false
 	export let showSchemaExplorer = false
 	export let showReset = false
+	export let onlyMaskPassword = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -156,6 +157,7 @@
 								extra={schema.properties[argName]}
 								{showSchemaExplorer}
 								simpleTooltip={schemaFieldTooltip[argName]}
+								{onlyMaskPassword}
 							>
 								<svelte:fragment slot="actions">
 									{#if linkedSecretCandidates?.includes(argName)}
