@@ -220,7 +220,7 @@
 		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			<Select
 				inAppEditor={true}
-				--border-radius="0.375rem"
+				--border-radius="0.250rem"
 				bind:filterText
 				on:filter={handleFilter}
 				on:clear={onClear}

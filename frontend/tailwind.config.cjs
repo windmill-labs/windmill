@@ -429,6 +429,9 @@ const config = {
 			border: {
 				color: 'red'
 			},
+			borderRadius: {
+				input: '0.250rem'
+			},
 			maxHeight: {
 				'1/2': '50vh',
 				'2/3': '66vh',
