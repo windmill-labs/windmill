@@ -8409,6 +8409,16 @@ components:
         - starred
         - no_main_func
 
+    Codebase:
+      type: object
+      properties:
+        sha256:
+          type: string
+        relative_path:
+          type: string
+        kind:
+          type: string
+          enum: "tarbun_v1"
     NewScript:
       type: object
       properties:

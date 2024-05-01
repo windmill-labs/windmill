@@ -128,13 +128,17 @@ impl Display for ScriptKind {
     }
 }
 
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Hash)]
+#[serde(rename_all(serialize = "lowercase"))]
 pub enum CodebaseKind {
     TarbunV1,
 }
+
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Hash)]
 pub struct Codebase {
     sha256: String,
     relative_path: String,
-    kind: Code,
+    kind: CodebaseKind,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
