@@ -440,7 +440,6 @@
 
 <style>
 	.ag-theme-alpine {
-		/* disable all borders */
 		--ag-row-border-style: solid;
 		--ag-border-color: rgb(209 213 219);
 		--ag-header-border-style: solid;
