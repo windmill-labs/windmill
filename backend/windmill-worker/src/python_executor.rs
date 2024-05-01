@@ -1198,6 +1198,7 @@ for line in sys.stdin:
         worker_name,
         db,
         script_path,
+        "python",
     )
     .await
 }
