@@ -27,6 +27,7 @@
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridinfinitecomponent'> | undefined = undefined
 	export let actions: TableAction[] | undefined = undefined
+
 	let runnableComponent: RunnableComponent | undefined = undefined
 
 	function clear() {
@@ -196,9 +197,10 @@
 			{resolvedConfig}
 			{customCss}
 			{outputs}
-			allowDelete={false}
+			{result}
 			{actions}
+			allowDelete={false}
 			bind:this={aggrid}
-		/></div
-	>
+		/>
+	</div>
 </RunnableWrapper>
