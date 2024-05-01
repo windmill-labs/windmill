@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.323.5](https://github.com/windmill-labs/windmill/compare/v1.323.4...v1.323.5) (2024-05-01)
+
+
+### Bug Fixes
+
+* re-release nit ([caa11c6](https://github.com/windmill-labs/windmill/commit/caa11c6506656e451352a4d437813ddfd2893225))
+
 ## [1.323.4](https://github.com/windmill-labs/windmill/compare/v1.323.3...v1.323.4) (2024-05-01)
 
 
