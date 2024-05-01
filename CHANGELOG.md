@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.323.4](https://github.com/windmill-labs/windmill/compare/v1.323.3...v1.323.4) (2024-05-01)
+
+
+### Bug Fixes
+
+* handle list of errors for schedule error handler ([96760b2](https://github.com/windmill-labs/windmill/commit/96760b296462855c2819d559687fa8b12c6336b0))
+* improve schedule editor UX ([774a35f](https://github.com/windmill-labs/windmill/commit/774a35f223b86444877f04b1a18b2f138ed75420))
+
 ## [1.323.3](https://github.com/windmill-labs/windmill/compare/v1.323.2...v1.323.3) (2024-05-01)
 
 
