@@ -154,3 +154,7 @@
 .component-wrapper {
 	@apply rounded-md border overflow-hidden border-gray-300 dark:border-gray-600;
 }
+
+.app-editor-input {
+	@apply rounded-md border border-gray-300 dark:border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
+}

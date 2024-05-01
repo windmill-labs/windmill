@@ -73,9 +73,10 @@
 	let css = initCss($app.css?.[appCssKey], customCss)
 
 	$: classInput = twMerge(
-		'windmillapp w-full  py-1.5 text-sm focus:ring-indigo-100 px-2',
+		'windmillapp w-full py-1.5 px-2 text-sm',
 		css?.input?.class ?? '',
 		resolvedConfig.disabled ? 'placeholder:text-gray-400 dark:placeholder:text-gray-600' : '',
+		'app-editor-input',
 		'wm-text-input'
 	)
 
