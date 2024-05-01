@@ -148,8 +148,9 @@
 	$: if (schema) {
 		const requiredFields = schema.required ?? []
 		const filledFields = Object.keys(args).filter(
-			(key) => args[key] !== undefined && args[key] !== null
+			(key) => args[key] !== undefined && args[key] !== null && args[key] !== ''
 		)
+
 		isInsertable = requiredFields.every((field) => filledFields.includes(field))
 	}
 </script>
