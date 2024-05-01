@@ -18,24 +18,33 @@ use serde::{Deserialize, Serialize};
 
 pub fn workspaced_service() -> Router {
     Router::new()
+        .route("/exists/:id", get(exists_codebase))
         .route("/get/:id", get(get_codebase))
         .route("/create", post(create))
 }
-async fn star(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(Favorite { favorite_kind, path }): Json<Favorite>,
-) -> Result<String> {
-    sqlx::query!(
-        "INSERT INTO favorite (workspace_id, usr, path, favorite_kind) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
-        &w_id,
-        authed.username,
-        path,
-        favorite_kind as FavoriteKind,
-    )
-    .execute(&db)
-    .await?;
+// async fn get_codebase(
+//     authed: ApiAuthed,
+//     Extension(db): Extension<DB>,
+//     Path(w_id, id): Path<(String, String)>,
+//     Json(Favorite { favorite_kind, path }): Json<Favorite>,
+// ) -> Result<String> {
+//     sqlx::query!(
+//         "INSERT INTO favorite (workspace_id, usr, path, favorite_kind) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+//         &w_id,
+//         authed.username,
+//         path,
+//         favorite_kind as FavoriteKind,
+//     )
+//     .execute(&db)
+//     .await?;
 
-    Ok(format!("Starred {}", path))
+//     Ok(format!("Starred {}", path))
+// }
+
+fn id_to_path()
+async fn exists_codebase(Path((_, id)): Path<(String, String)>) -> JsonResult<bool> {
+    let path = format!("/codebase/{}", id);
+    attempt_fetch_bytes(client, &tar_path).await?;
+
+    Ok(Json(exists))
 }
