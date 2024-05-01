@@ -438,6 +438,22 @@ function argSigToJsonSchemaType(
 // end of refactoring TODO                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////
 
+export async function replaceLock(o?: { lock?: string | string[] }) {
+  if (Array.isArray(o?.lock)) {
+    o.lock = o.lock.join("\n");
+  }
+  if (o?.lock?.startsWith("!inline ")) {
+    try {
+      const lockPath = o?.lock?.split(" ")[1];
+      o.lock = await Deno.readTextFile(lockPath);
+    } catch (e) {
+      log.info(
+        colors.yellow(`Failed to read lockfile, doing as if it was empty: ${e}`)
+      );
+      o.lock = "";
+    }
+  }
+}
 export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
@@ -458,22 +474,8 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
       const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
-      if (payload?.["lock"].startsWith("!inline ")) {
-        try {
-          const lockPath = payload["lock"].split(" ")[1];
-          payload["lock"] = await Deno.readTextFile(lockPath);
-        } catch (e) {
-          log.info(
-            colors.yellow(
-              `Failed to read lockfile, doing as if it was empty: ${e}`
-            )
-          );
-          payload["lock"] = "";
-        }
-      }
-      if (Array.isArray(payload?.["lock"])) {
-        payload["lock"] = payload["lock"].join("\n");
-      }
+      replaceLock(payload);
+
       return {
         path: metadataFilePath,
         payload,
@@ -511,6 +513,7 @@ export async function parseMetadataFile(
           scriptInitialMetadata = yamlParse(
             await Deno.readTextFile(metadataFilePath)
           ) as ScriptMetadata;
+          replaceLock(scriptInitialMetadata);
         } catch (e) {
           log.info(
             colors.yellow(
