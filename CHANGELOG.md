@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.323.3](https://github.com/windmill-labs/windmill/compare/v1.323.2...v1.323.3) (2024-05-01)
+
+
+### Bug Fixes
+
+* add WM_WORKER_GROUP to get worker group from script ([0855cdd](https://github.com/windmill-labs/windmill/commit/0855cdd946e55b8f394a7721ed424bc66702691c))
+
 ## [1.323.2](https://github.com/windmill-labs/windmill/compare/v1.323.1...v1.323.2) (2024-05-01)
 
 
