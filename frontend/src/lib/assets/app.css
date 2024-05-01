@@ -152,9 +152,9 @@
 
 /* Components */
 .component-wrapper {
-	@apply rounded-input border overflow-hidden border-gray-300 dark:border-gray-600;
+	@apply rounded-component border overflow-hidden border-gray-300 dark:border-gray-600;
 }
 
 .app-editor-input {
-	@apply rounded-input border border-gray-300 dark:border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
+	@apply rounded-component border border-gray-300 dark:border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
 }
