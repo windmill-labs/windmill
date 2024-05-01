@@ -7,7 +7,6 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
-		Bot,
 		Calendar,
 		Check,
 		FastForward,
