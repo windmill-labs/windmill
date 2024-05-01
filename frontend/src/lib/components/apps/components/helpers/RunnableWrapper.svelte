@@ -8,10 +8,13 @@
 	import RunnableComponent from './RunnableComponent.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import InitializeComponent from './InitializeComponent.svelte'
+	import type { CancelablePromise } from '$lib/gen'
 
 	export let componentInput: AppInput | undefined
 	export let noInitialize = false
 	export let hideRefreshButton: boolean | undefined = undefined
+	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
+	export let overrideAutoRefresh: boolean = false
 
 	type SideEffectAction =
 		| {
@@ -255,6 +258,8 @@
 		hideRefreshButton={componentInput.hideRefreshButton ?? hideRefreshButton}
 		transformer={componentInput.transformer}
 		{autoRefresh}
+		{overrideCallback}
+		{overrideAutoRefresh}
 		recomputableByRefreshButton={componentInput.autoRefresh ?? true}
 		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}

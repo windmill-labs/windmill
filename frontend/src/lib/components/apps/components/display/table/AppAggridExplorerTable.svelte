@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
-	import { isObject, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
 
 	import type { TableAction, components } from '$lib/components/apps/editor/component'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
-
+	import SyncColumnDefs from './SyncColumnDefs.svelte'
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import { twMerge } from 'tailwind-merge'
@@ -21,7 +20,6 @@
 	import type { ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	export let id: string
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
@@ -36,38 +34,14 @@
 	export let outputs: Record<string, Output<any>>
 	export let allowDelete: boolean
 	export let actions: TableAction[] = []
+	export let result: any[] | undefined = undefined
+	export let allowColumnDefsActions: boolean = true
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, selectedComponent, componentControl, darkMode } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
-
-	// let result: any[] | undefined = undefined
-
-	// $: result && setValues()
-
-	// let value: any[] = Array.isArray(result)
-	// 	? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
-	// 	: [{ error: 'input was not an array' }]
-
-	// let loaded = false
-	// async function setValues() {
-	// 	value = Array.isArray(result)
-	// 		? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() }))
-	// 		: [{ error: 'input was not an array' }]
-	// 	if (api && loaded) {
-	// 		let selected = api.getSelectedNodes()
-	// 		if (selected && selected.length > 0 && resolvedConfig?.selectFirstRowByDefault != false) {
-	// 			let data = { ...selected[0].data }
-	// 			delete data['__index']
-	// 			outputs?.selectedRow?.set(data)
-	// 		}
-	// 	}
-	// 	if (!loaded) {
-	// 		loaded = true
-	// 	}
-	// }
 
 	let selectedRowIndex = -1
 
@@ -182,7 +156,11 @@
 		})
 	})
 
-	function transformColumnDefs(columnDefs: any[]) {
+	function transformColumnDefs(columnDefs: any[] | undefined) {
+		if (!columnDefs) {
+			return []
+		}
+
 		const { isValid, errors } = validateColumnDefs(columnDefs)
 
 		if (!isValid) {
@@ -248,9 +226,16 @@
 	let firstRow: number = 0
 	let lastRow: number = 0
 
-	function validateColumnDefs(columnDefs: ColumnDef[]): { isValid: boolean; errors: string[] } {
+	function validateColumnDefs(columnDefs: ColumnDef[]): {
+		isValid: boolean
+		errors: string[]
+	} {
 		let isValid = true
 		const errors: string[] = []
+
+		if (!Array.isArray(columnDefs)) {
+			return { isValid: false, errors: ['Column definitions must be an array.'] }
+		}
 
 		// Validate each column definition
 		columnDefs.forEach((colDef, index) => {
@@ -405,7 +390,7 @@
 	/>
 {/each}
 
-{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
+<SyncColumnDefs {id} columnDefs={resolvedConfig.columnDefs} {result} {allowColumnDefsActions}>
 	<div
 		class={twMerge(
 			'flex flex-col h-full component-wrapper divide-y',
@@ -451,16 +436,7 @@
 			</div>
 		{/if}
 	</div>
-{:else if resolvedConfig.columnDefs != undefined}
-	<Alert title="Parsing issues" type="error" size="xs">
-		The columnDefs should be an array of objects, received:
-		<pre class="overflow-auto">
-				{JSON.stringify(resolvedConfig.columnDefs)}
-			</pre>
-	</Alert>
-{:else}
-	<Alert title="Parsing issues" type="error" size="xs">The columnDefs are undefined</Alert>
-{/if}
+</SyncColumnDefs>
 
 <style>
 	.ag-theme-alpine {

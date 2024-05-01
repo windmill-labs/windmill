@@ -14,10 +14,10 @@
 
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
 	import { components, type TableAction } from '$lib/components/apps/editor/component'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 	import { deepEqual } from 'fast-equals'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
+	import SyncColumnDefs from './SyncColumnDefs.svelte'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import './theme/windmill-theme.css'
@@ -449,145 +449,126 @@
 	bind:loading
 	hideRefreshButton={true}
 >
-	{#if Array.isArray(value) && value.every(isObject)}
-		{#if Array.isArray(resolvedConfig.columnDefs) && resolvedConfig.columnDefs.every(isObject)}
-			<div
-				class={twMerge(
-					'flex flex-col h-full component-wrapper divide-y',
-					css?.container?.class,
-					'wm-aggrid-container'
-				)}
-				style={css?.container?.style}
-				bind:clientHeight
-				bind:clientWidth
-			>
-				{#if componentInput?.type === 'runnable' && componentInput.autoRefresh}
-					<div class="absolute top-2 right-2 z-50">
-						<RefreshButton {id} {loading} />
-					</div>
-				{/if}
-
-				<div
-					on:pointerdown|stopPropagation={() => {
-						$selectedComponent = [id]
-					}}
-					style:height="{clientHeight}px"
-					style:width="{clientWidth}px"
-					class="ag-theme-alpine relative"
-					class:ag-theme-alpine-dark={$darkMode}
-				>
-					{#key resolvedConfig?.pagination}
-						{#if loaded}
-							<div bind:this={eGui} style:height="100%" />
-						{:else}
-							<Loader2 class="animate-spin" />
-						{/if}
-					{/key}
+	<SyncColumnDefs {id} columnDefs={resolvedConfig.columnDefs} {result}>
+		<div
+			class={twMerge(
+				'flex flex-col h-full component-wrapper divide-y',
+				css?.container?.class,
+				'wm-aggrid-container'
+			)}
+			style={css?.container?.style}
+			bind:clientHeight
+			bind:clientWidth
+		>
+			{#if componentInput?.type === 'runnable' && componentInput.autoRefresh}
+				<div class="absolute top-2 right-2 z-50">
+					<RefreshButton {id} {loading} />
 				</div>
-				{#if resolvedConfig.footer}
-					<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
-						<div>
-							<Popover>
-								<svelte:fragment slot="text">Download</svelte:fragment>
+			{/if}
+
+			<div
+				on:pointerdown|stopPropagation={() => {
+					$selectedComponent = [id]
+				}}
+				style:height="{clientHeight}px"
+				style:width="{clientWidth}px"
+				class="ag-theme-alpine relative"
+				class:ag-theme-alpine-dark={$darkMode}
+			>
+				{#key resolvedConfig?.pagination}
+					{#if loaded}
+						<div bind:this={eGui} style:height="100%" />
+					{:else}
+						<Loader2 class="animate-spin" />
+					{/if}
+				{/key}
+			</div>
+			{#if resolvedConfig.footer}
+				<div class="flex gap-1 w-full justify-between items-center text-sm text-secondary/80 p-2">
+					<div>
+						<Popover>
+							<svelte:fragment slot="text">Download</svelte:fragment>
+							<Button
+								startIcon={{ icon: Download }}
+								color="light"
+								size="xs2"
+								on:click={() => {
+									api?.exportDataAsCsv()
+								}}
+								iconOnly
+							/>
+						</Popover>
+					</div>
+					<div class="flex flex-row gap-1 items-center">
+						{#if resolvedConfig?.pagination}
+							{#key refreshCount}
+								<div class="text-xs mx-2 text-primary">
+									{(api?.paginationGetPageSize() ?? 0) * (api?.paginationGetCurrentPage() ?? 0) + 1}
+									to {Math.min(
+										api?.paginationGetRowCount() ?? 0,
+										((api?.paginationGetCurrentPage() ?? 0) + 1) *
+											(api?.paginationGetPageSize() ?? 0)
+									)}
+									of {api?.paginationGetRowCount()}
+								</div>
+
 								<Button
-									startIcon={{ icon: Download }}
+									iconOnly
+									startIcon={{ icon: SkipBack }}
 									color="light"
 									size="xs2"
+									disabled={api?.paginationGetCurrentPage() == 0}
 									on:click={() => {
-										api?.exportDataAsCsv()
+										api?.paginationGoToFirstPage()
+										refreshCount++
 									}}
-									iconOnly
 								/>
-							</Popover>
-						</div>
-						<div class="flex flex-row gap-1 items-center">
-							{#if resolvedConfig?.pagination}
-								{#key refreshCount}
-									<div class="text-xs mx-2 text-primary">
-										{(api?.paginationGetPageSize() ?? 0) * (api?.paginationGetCurrentPage() ?? 0) +
-											1}
-										to {Math.min(
-											api?.paginationGetRowCount() ?? 0,
-											((api?.paginationGetCurrentPage() ?? 0) + 1) *
-												(api?.paginationGetPageSize() ?? 0)
-										)}
-										of {api?.paginationGetRowCount()}
-									</div>
-
-									<Button
-										iconOnly
-										startIcon={{ icon: SkipBack }}
-										color="light"
-										size="xs2"
-										disabled={api?.paginationGetCurrentPage() == 0}
-										on:click={() => {
-											api?.paginationGoToFirstPage()
-											refreshCount++
-										}}
-									/>
-									<Button
-										iconOnly
-										startIcon={{ icon: ChevronLeft }}
-										color="light"
-										size="xs2"
-										disabled={api?.paginationGetCurrentPage() == 0}
-										on:click={() => {
-											api?.paginationGoToPreviousPage()
-											refreshCount++
-										}}
-									/>
-									<div class="text-xs mx-2 text-primary">
-										Page {(api?.paginationGetCurrentPage() ?? 0) + 1} of {api?.paginationGetTotalPages() ??
-											0}
-									</div>
-									<Button
-										iconOnly
-										startIcon={{ icon: ChevronRight }}
-										color="light"
-										size="xs2"
-										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
-											api?.paginationGetTotalPages()}
-										on:click={() => {
-											api?.paginationGoToNextPage()
-											refreshCount++
-										}}
-									/>
-									<Button
-										iconOnly
-										startIcon={{ icon: SkipForward }}
-										color="light"
-										size="xs2"
-										disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
-											api?.paginationGetTotalPages()}
-										on:click={() => {
-											api?.paginationGoToLastPage()
-											refreshCount++
-										}}
-									/>
-								{/key}
-							{/if}
-						</div>
+								<Button
+									iconOnly
+									startIcon={{ icon: ChevronLeft }}
+									color="light"
+									size="xs2"
+									disabled={api?.paginationGetCurrentPage() == 0}
+									on:click={() => {
+										api?.paginationGoToPreviousPage()
+										refreshCount++
+									}}
+								/>
+								<div class="text-xs mx-2 text-primary">
+									Page {(api?.paginationGetCurrentPage() ?? 0) + 1} of {api?.paginationGetTotalPages() ??
+										0}
+								</div>
+								<Button
+									iconOnly
+									startIcon={{ icon: ChevronRight }}
+									color="light"
+									size="xs2"
+									disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
+										api?.paginationGetTotalPages()}
+									on:click={() => {
+										api?.paginationGoToNextPage()
+										refreshCount++
+									}}
+								/>
+								<Button
+									iconOnly
+									startIcon={{ icon: SkipForward }}
+									color="light"
+									size="xs2"
+									disabled={(api?.paginationGetCurrentPage() ?? 0) + 1 ==
+										api?.paginationGetTotalPages()}
+									on:click={() => {
+										api?.paginationGoToLastPage()
+										refreshCount++
+									}}
+								/>
+							{/key}
+						{/if}
 					</div>
-				{/if}
-			</div>
-		{:else if resolvedConfig.columnDefs != undefined}
-			<Alert title="Parsing issues" type="error" size="xs">
-				The columnDefs should be an array of objects, received:
-				<pre class="overflow-auto">
-				{JSON.stringify(resolvedConfig.columnDefs)}
-			</pre>
-			</Alert>
-		{:else}
-			<Alert title="Parsing issues" type="error" size="xs">The columnDefs are undefined</Alert>
-		{/if}
-	{:else if result != undefined}
-		<Alert title="Parsing issues" type="error" size="xs">
-			The result should be an array of objects, received:
-			<pre class="overflow-auto mt-2">
-				{JSON.stringify(result)}
-			</pre>
-		</Alert>
-	{/if}
+				</div>
+			{/if}
+		</div>
+	</SyncColumnDefs>
 </RunnableWrapper>
 
 <style>

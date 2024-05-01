@@ -45,7 +45,7 @@
 			{
 				label: 'Show style panel',
 				onClick: () => {
-					secondaryMenuLeft?.toggle(StylePanel, {})
+					secondaryMenuLeft?.toggle(StylePanel, { type: 'style' })
 				},
 				icon: Paintbrush2,
 				disabled: $secondaryMenuLeft.isOpen

@@ -102,7 +102,7 @@
 	{#if value}
 		<div class="flex flex-col w-96 p-2 gap-4">
 			<span class="text-sm mb-2 leading-6 font-semibold">
-				Column definition
+				Column definitions
 				<Tooltip
 					documentationLink="https://www.ag-grid.com/javascript-data-grid/column-definitions/"
 				>

@@ -266,8 +266,6 @@
 				)
 		)) as ([string, Record<string, any>] | undefined)[]
 
-		console.log('allTriggers', allTriggers)
-
 		delete policy.triggerables
 		policy.triggerables_v2 = Object.fromEntries(
 			allTriggers.filter(Boolean) as [string, Record<string, any>][]
