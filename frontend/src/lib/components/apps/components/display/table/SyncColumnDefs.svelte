@@ -11,7 +11,7 @@
 	export let id: string
 	export let columnDefs: Array<any> = []
 	export let result: Array<any> | undefined = []
-	export let allowColumnDefsActions: boolean = false
+	export let allowColumnDefsActions: boolean = true
 
 	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
