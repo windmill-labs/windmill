@@ -93,7 +93,6 @@
 	}
 
 	async function loadHandlerScriptArgs(p: string, defaultArgs: string[] = []) {
-		console.log(p)
 		try {
 			let schema: Schema | undefined = emptySchema()
 			if (p.startsWith('hub/')) {
