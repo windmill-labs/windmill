@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
+	import { Clock } from 'lucide-svelte'
 
 	export let value: string | undefined = undefined
 
@@ -63,11 +64,21 @@
 
 <div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
 	<!-- svelte-ignore a11y-autofocus -->
-	<input type="date" bind:value={date} {autofocus} class="!w-3/4" min={minDate} max={maxDate} />
-	<input type="time" bind:value={time} class="!w-1/4 min-w-[100px]" />
+	<input
+		type="date"
+		bind:value={date}
+		{autofocus}
+		class="!w-3/4 app-editor-input"
+		min={minDate}
+		max={maxDate}
+	/>
+	<input type="time" bind:value={time} class="!w-1/4 min-w-[100px] app-editor-input" />
 	<Button
 		variant="border"
 		color="light"
+		startIcon={{
+			icon: Clock
+		}}
 		size="xs"
 		portalTarget={`#${randomId}`}
 		dropdownItems={useDropdown
@@ -100,6 +111,8 @@
 			: undefined}
 		on:click={() => {
 			setTimeLater(0)
-		}}>Now</Button
+		}}
 	>
+		Now
+	</Button>
 </div>

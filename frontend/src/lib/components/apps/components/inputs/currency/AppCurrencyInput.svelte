@@ -99,6 +99,7 @@
 							formatted: twMerge(
 								'px-2 w-full py-1.5 windmillapp',
 								css?.input?.class,
+								'app-editor-input h-8',
 								'wm-currency-input'
 							),
 							wrapper: 'w-full windmillapp',
