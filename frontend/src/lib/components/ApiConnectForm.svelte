@@ -186,5 +186,13 @@
 		fixedOverflowWidgets={false}
 	/>
 {:else}
-	<SchemaForm noDelete {linkedSecretCandidates} bind:linkedSecret isValid {schema} bind:args />
+	<SchemaForm
+		onlyMaskPassword
+		noDelete
+		{linkedSecretCandidates}
+		bind:linkedSecret
+		isValid
+		{schema}
+		bind:args
+	/>
 {/if}

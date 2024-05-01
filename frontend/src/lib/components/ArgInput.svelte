@@ -28,6 +28,7 @@
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
 	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
+	import Password from './Password.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -70,6 +71,7 @@
 	export let showSchemaExplorer = false
 	export let simpleTooltip: string | undefined = undefined
 	export let customErrorMessage: string | undefined = undefined
+	export let onlyMaskPassword = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -651,7 +653,11 @@
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
-							<PasswordArgInput {disabled} bind:value />
+							{#if onlyMaskPassword}
+								<Password {disabled} bind:password={value} placeholder={defaultValue ?? ''} />
+							{:else}
+								<PasswordArgInput {disabled} bind:value />
+							{/if}
 						{:else}
 							{#key extra?.['minRows']}
 								<textarea
