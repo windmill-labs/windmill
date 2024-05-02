@@ -13,6 +13,7 @@
 
 	export let id: string
 	let componentCallbacks: ComponentCallbacks | undefined = undefined
+	export let visible: boolean = true
 
 	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
@@ -21,50 +22,54 @@
 	$: componentSettings = $selectedComponent?.map((sc) => findComponentSettings($app, sc))
 </script>
 
-<ComponentCallbacks bind:this={componentCallbacks} />
-<ContextMenu
-	contextMenu={{
-		menuItems: [
-			{
-				label: 'Cut',
-				onClick: () => {
-					componentCallbacks?.handleCut(new KeyboardEvent('keydown'))
+{#if visible}
+	<ComponentCallbacks bind:this={componentCallbacks} />
+	<ContextMenu
+		contextMenu={{
+			menuItems: [
+				{
+					label: 'Cut',
+					onClick: () => {
+						componentCallbacks?.handleCut(new KeyboardEvent('keydown'))
+					},
+					icon: Scissors,
+					shortcut: `${getModifierKey()}X`,
+					disabled: $movingcomponents?.includes($selectedComponent?.[0] ?? '')
 				},
-				icon: Scissors,
-				shortcut: `${getModifierKey()}X`,
-				disabled: $movingcomponents?.includes($selectedComponent?.[0] ?? '')
-			},
-			{
-				label: 'Copy',
-				onClick: () => {
-					componentCallbacks?.handleCopy(new KeyboardEvent('keydown'))
+				{
+					label: 'Copy',
+					onClick: () => {
+						componentCallbacks?.handleCopy(new KeyboardEvent('keydown'))
+					},
+					icon: Copy,
+					shortcut: `${getModifierKey()}C`
 				},
-				icon: Copy,
-				shortcut: `${getModifierKey()}C`
-			},
-			{
-				label: 'Show style panel',
-				onClick: () => {
-					secondaryMenuLeft?.toggle(StylePanel, { type: 'style' })
+				{
+					label: 'Show style panel',
+					onClick: () => {
+						secondaryMenuLeft?.toggle(StylePanel, { type: 'style' })
+					},
+					icon: Paintbrush2,
+					disabled: $secondaryMenuLeft.isOpen
 				},
-				icon: Paintbrush2,
-				disabled: $secondaryMenuLeft.isOpen
-			},
 
-			{
-				label: 'Delete',
-				onClick: () => {
-					deleteComponent?.removeGridElement()
-				},
-				icon: Trash,
-				shortcut: `Del`,
-				color: 'red'
-			}
-		]
-	}}
-	{id}
->
+				{
+					label: 'Delete',
+					onClick: () => {
+						deleteComponent?.removeGridElement()
+					},
+					icon: Trash,
+					shortcut: `Del`,
+					color: 'red'
+				}
+			]
+		}}
+		{id}
+	>
+		<slot />
+	</ContextMenu>
+
+	<DeleteComponent {componentSettings} bind:this={deleteComponent} />
+{:else}
 	<slot />
-</ContextMenu>
-
-<DeleteComponent {componentSettings} bind:this={deleteComponent} />
+{/if}

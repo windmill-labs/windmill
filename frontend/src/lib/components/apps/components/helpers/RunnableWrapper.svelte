@@ -186,10 +186,14 @@
 				let message = sideEffect?.configuration?.sendErrorToast?.message
 				const appendError = sideEffect?.configuration?.sendErrorToast?.appendError
 
-				if (!message) return
 				if (typeof message === 'function') {
 					message = await message()
 				}
+
+				if (!message) {
+					message = 'An error occurred.'
+				}
+
 				sendUserToast(message, true, [], appendError ? errorMessage : undefined)
 				break
 			}
