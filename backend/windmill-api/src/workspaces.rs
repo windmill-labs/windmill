@@ -53,7 +53,6 @@ use windmill_common::{
     variables::ExportableListableVariable,
 };
 use windmill_git_sync::handle_deployment_metadata;
-use windmill_queue::QueueTransaction;
 
 use crate::oauth2_ee::InstanceEvent;
 use crate::variables::{decrypt, encrypt};
@@ -488,25 +487,25 @@ async fn run_slack_message_test_job(
         json!(format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}")),
     );
 
-    let tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-    let (uuid, tx) = windmill_queue::handle_on_failure(
+    let uuid = windmill_queue::push_error_handler(
         &db,
-        tx,
+        rsmq,
         Uuid::parse_str("00000000-0000-0000-0000-000000000000")?,
-        "slack_message_test",
-        "slack_message_test",
+        None,
+        Some("slack_message_test".to_string()),
         false,
         w_id.as_str(),
         &format!("script/{}", req.hub_script_path.as_str()),
         sqlx::types::Json(&fake_result),
-        0,
-        Utc::now(),
+        None,
+        Some(Utc::now()),
         Some(json!(extra_args)),
         authed.email.as_str(),
+        false,
+        false,
         None, // Note: we could mark it as high priority to return result quickly to the user
     )
     .await?;
-    tx.commit().await?;
 
     Ok(Json(RunSlackMessageTestJobResponse {
         job_uuid: uuid.to_string(),

@@ -26,9 +26,9 @@ use windmill_common::{
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     db: &DB,
     mut tx: QueueTransaction<'c, R>,
-    schedule: Schedule,
+    schedule: &Schedule,
 ) -> Result<QueueTransaction<'c, R>> {
-    let sched = cron::Schedule::from_str(&schedule.schedule)
+    let sched = cron::Schedule::from_str(schedule.schedule.as_ref())
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
@@ -68,9 +68,9 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 
     let mut args: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
 
-    if let Some(args_v) = schedule.args {
+    if let Some(args_v) = &schedule.args {
         if let serde_json::Value::Object(args_m) = args_v {
-            args = args_m
+            args = args_m.clone()
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -90,7 +90,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             .map(|x| (x.tag, x.dedicated_worker))
             .unwrap_or_else(|| (None, None));
         (
-            JobPayload::Flow { path: schedule.script_path, dedicated_worker },
+            JobPayload::Flow { path: schedule.script_path.clone(), dedicated_worker },
             tag,
             None,
         )
@@ -113,8 +113,8 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         .await?;
 
         if schedule.retry.is_some() {
-            let parsed_retry =
-                serde_json::from_value::<Retry>(schedule.retry.unwrap()).map_err(|err| {
+            let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
+                .map_err(|err| {
                     error::Error::InternalErr(format!(
                         "Unable to parse retry information from schedule: {}",
                         err.to_string(),
@@ -127,7 +127,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             // if retry is set, we wrap the script into a one step flow with a retry on the module
             (
                 JobPayload::SingleScriptFlow {
-                    path: schedule.script_path,
+                    path: schedule.script_path.clone(),
                     hash: hash,
                     retry: parsed_retry,
                     args: static_args,
@@ -144,7 +144,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             (
                 JobPayload::ScriptHash {
                     hash,
-                    path: schedule.script_path,
+                    path: schedule.script_path.clone(),
                     concurrent_limit: concurrent_limit,
                     concurrency_time_window_s: concurrency_time_window_s,
                     cache_ttl: cache_ttl,
@@ -153,7 +153,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     priority,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
-                    schedule.tag
+                    schedule.tag.clone()
                 } else {
                     tag
                 },
