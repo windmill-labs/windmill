@@ -139,27 +139,20 @@ pub async fn eval_timeout(
         }
     }
 
-    let p_id = by_id.as_ref().map(|x| format!("results.{}", x.previous_id));
-    let p_id2 = by_id
-        .as_ref()
-        .map(|x| format!("results[\"{}\"]", x.previous_id));
+    let p_ids = by_id.as_ref().map(|x| {
+        [
+            format!("results.{}", x.previous_id),
+            format!("results?.{}", x.previous_id),
+            format!("results[\"{}\"]", x.previous_id),
+            format!("results?.[\"{}\"]", x.previous_id),
+        ]
+    });
 
-    if p_id.is_some()
+    if p_ids.is_some()
         && transform_context.contains_key("previous_result")
-        && &expr == p_id.as_ref().unwrap()
+        && p_ids.as_ref().unwrap().iter().any(|x| x == &expr)
     {
         // tracing::error!("PREVIOUS_RESULT");
-        return Ok(transform_context
-            .get("previous_result")
-            .unwrap()
-            .as_ref()
-            .clone());
-    }
-
-    if p_id2.is_some()
-        && transform_context.contains_key("previous_result")
-        && &expr == p_id2.as_ref().unwrap()
-    {
         return Ok(transform_context
             .get("previous_result")
             .unwrap()
@@ -227,10 +220,10 @@ pub async fn eval_timeout(
                 .collect_vec();
 
             if !context_keys.contains(&"previous_result".to_string())
-                && (p_id.is_some() && expr.contains(p_id.as_ref().unwrap()))
+                && (p_ids.is_some() && p_ids.as_ref().unwrap().iter().any(|x| expr.contains(x)))
                 || expr.contains("error")
-                || (p_id2.is_some() && expr.contains(p_id2.as_ref().unwrap()))
             {
+                // tracing::error!("PREVIOUS_RESULT");
                 context_keys.push("previous_result".to_string());
             }
             let has_flow_input = expr.contains("flow_input");
