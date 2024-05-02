@@ -24,7 +24,7 @@ pub const OBJECT_STORE_CACHE_CONFIG_SETTING: &str = "object_store_cache_config";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
-pub const CRITICAL_ERROR_EMAILS_SETTING: &str = "critical_error_emails";
+pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 
 pub const ENV_SETTINGS: [&str; 50] = [
     "DISABLE_NSJAIL",

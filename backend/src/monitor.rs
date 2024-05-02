@@ -22,10 +22,11 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 use windmill_common::{
+    ee::CriticalErrorChannel,
     error,
     flow_status::FlowStatusModule,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_EMAILS_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
@@ -41,8 +42,8 @@ use windmill_common::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
     },
-    BASE_URL, CRITICAL_ERROR_EMAILS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, METRICS_DEBUG_ENABLED,
-    METRICS_ENABLED,
+    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -145,7 +146,7 @@ pub async fn initial_load(
         tracing::error!("Error reloading hub base url: {:?}", e)
     }
 
-    if let Err(e) = reload_critical_error_emails_setting(&db).await {
+    if let Err(e) = reload_critical_error_channels_setting(&db).await {
         tracing::error!("Could not reload critical error emails setting: {:?}", e);
     }
 
@@ -1081,16 +1082,16 @@ pub async fn reload_hub_base_url_setting(db: &DB, server_mode: bool) -> error::R
     Ok(())
 }
 
-pub async fn reload_critical_error_emails_setting(db: &DB) -> error::Result<()> {
-    let critical_error_emails =
-        load_value_from_global_settings(db, CRITICAL_ERROR_EMAILS_SETTING).await?;
+pub async fn reload_critical_error_channels_setting(db: &DB) -> error::Result<()> {
+    let critical_error_channels =
+        load_value_from_global_settings(db, CRITICAL_ERROR_CHANNELS_SETTING).await?;
 
-    let critical_error_emails = if let Some(q) = critical_error_emails {
-        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.clone()) {
+    let critical_error_channels = if let Some(q) = critical_error_channels {
+        if let Ok(v) = serde_json::from_value::<Vec<CriticalErrorChannel>>(q.clone()) {
             v
         } else {
             tracing::error!(
-                "Could not parse critical_error_emails setting as an array of string, found: {:#?}",
+                "Could not parse critical_error_emails setting as an array of channels, found: {:#?}",
                 &q
             );
             vec![]
@@ -1099,8 +1100,8 @@ pub async fn reload_critical_error_emails_setting(db: &DB) -> error::Result<()> 
         vec![]
     };
 
-    let mut l = CRITICAL_ERROR_EMAILS.write().await;
-    *l = critical_error_emails;
+    let mut l = CRITICAL_ERROR_CHANNELS.write().await;
+    *l = critical_error_channels;
 
     Ok(())
 }

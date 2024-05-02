@@ -6,12 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::ee::LICENSE_KEY_ID;
+use crate::ee::{trigger_critical_error_channels, LICENSE_KEY_ID};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::server::Smtp;
-use crate::worker::SERVER_CONFIG;
-use crate::{BASE_URL, CRITICAL_ERROR_EMAILS, DB};
+use crate::DB;
 use git_version::git_version;
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
@@ -180,42 +179,6 @@ pub enum Mode {
     Standalone,
 }
 
-pub async fn report_critical_error(error_message: String) -> () {
-    let criticial_error_emails = CRITICAL_ERROR_EMAILS.read().await.clone();
-
-    tracing::error!("CRITICAL ERROR: {error_message}");
-
-    if !criticial_error_emails.is_empty() {
-        if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
-            tokio::spawn(async move {
-                if let Err(e) = send_email(
-                    "Critical error in Windmill",
-                    &format!(
-                        "A critical error has occurred on your Windmill instance ({}):\n\n{}",
-                        BASE_URL.read().await.clone(),
-                        error_message
-                    ),
-                    criticial_error_emails.clone(),
-                    smtp,
-                    None,
-                )
-                .await
-                {
-                    tracing::error!(
-                        "Failed to report critical error by email to {:#?}: {}",
-                        criticial_error_emails,
-                        e
-                    );
-                }
-            });
-        } else {
-            tracing::warn!("No SMTP server configured, critical error not sent")
-        }
-    } else {
-        tracing::warn!("No critical error emails configured, critical error not sent")
-    }
-}
-
 pub async fn send_email(
     subject: &str,
     content: &str,
@@ -266,4 +229,9 @@ pub async fn send_email(
     tracing::info!("Sent email to {:#?}: {subject}", to);
 
     return Ok(());
+}
+
+pub async fn report_critical_error(error_message: String) -> () {
+    tracing::error!("CRITICAL ERROR: {error_message}");
+    trigger_critical_error_channels(error_message).await;
 }

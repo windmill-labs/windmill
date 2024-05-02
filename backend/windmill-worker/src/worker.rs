@@ -2264,7 +2264,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             canceled_by,
             rsmq.clone(),
             false,
-            false,
         )
         .await?;
 
@@ -2310,7 +2309,6 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             ),
             rsmq.clone(),
             worker_name,
-            false,
             false,
         )
         .await?;
@@ -2391,7 +2389,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
 ) {
-    let is_critical_error = matches!(err, Error::CriticalError(_));
     let err = match err {
         Error::JsonErr(err) => err,
         _ => json!({"message": err.to_string(), "name": "InternalErr"}),
@@ -2415,7 +2412,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
             rsmq_2,
             worker_name,
             false,
-            is_critical_error,
         )
         .await
     };
@@ -2475,7 +2471,6 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
                         rsmq,
                         worker_name,
                         false,
-                        matches!(err, Error::CriticalError(_)),
                     )
                     .await;
                 }

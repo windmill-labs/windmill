@@ -46,7 +46,7 @@ use windmill_audit::ActionKind;
 use windmill_common::worker::PriorityTags;
 use windmill_common::{
     db::{Authed, UserDB},
-    error::{self, Error},
+    error::{self, to_anyhow, Error},
     flow_status::{
         BranchAllStatus, FlowCleanupModule, FlowStatus, FlowStatusModule, FlowStatusModuleWParent,
         Iterator, JobResult, RestartedFrom, RetryStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
@@ -183,7 +183,6 @@ pub async fn cancel_job<'c: 'async_recursion>(
             e,
             rsmq.clone(),
             "server",
-            false,
             false,
         )
         .await;
@@ -404,7 +403,6 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
     rsmq: Option<R>,
     _worker_name: &str,
     flow_is_done: bool,
-    is_critical_error: bool,
 ) -> Result<WrappedError, Error> {
     #[cfg(feature = "prometheus")]
     register_metric(
@@ -441,7 +439,6 @@ pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Sen
         canceled_by,
         rsmq,
         flow_is_done,
-        is_critical_error,
     )
     .await?;
     Ok(result)
@@ -465,7 +462,6 @@ pub async fn add_completed_job<
     canceled_by: Option<CanceledBy>,
     rsmq: Option<R>,
     flow_is_done: bool,
-    is_critical_error: bool,
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -636,20 +632,28 @@ pub async fn add_completed_job<
 
                 if !queued_job.is_flow() {
                     // script only
-                    tx = handle_maybe_scheduled_job(
-                        tx,
+                    if let Err(err) = handle_maybe_scheduled_job(
+                        rsmq.clone(),
                         db,
-                        schedule.clone(),
+                        queued_job,
+                        &schedule,
                         script_path,
                         &queued_job.workspace_id,
                     )
-                    .await?;
+                    .await
+                    {
+                        match err {
+                            Error::QuotaExceeded(_) => return Err(err.into()),
+                            // scheduling next job failed and could not disable schedule => make zombie job to retry
+                            _ => return Ok(job_id),
+                        }
+                    };
                 }
 
                 match apply_schedule_handlers(
                     rsmq.clone(),
                     db,
-                    schedule,
+                    &schedule,
                     script_path,
                     &queued_job.workspace_id,
                     success,
@@ -785,32 +789,6 @@ pub async fn add_completed_job<
                     ))
                     .unwrap_or("".to_string()),
             ))
-            .await;
-        } else if is_critical_error {
-            let result = serde_json::from_str(
-                &serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .unwrap_or_else(|_| json!({}));
-            let result = if result.is_object() || result.is_null() {
-                result
-            } else {
-                json!({ "error": result })
-            };
-            report_error_to_workspace_handler_or_critical_side_channel(
-                rsmq.clone(),
-                queued_job,
-                db,
-                format!(
-                    "Critical error in job ({}/run/{}?workspace={}): {}",
-                    BASE_URL.read().await,
-                    queued_job.id,
-                    &queued_job.workspace_id,
-                    result
-                        .get("error")
-                        .map(|x| x.get("message").unwrap_or_else(|| x).to_string())
-                        .unwrap_or_else(|| result.to_string())
-                ),
-            )
             .await;
         } else if queued_job.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
@@ -1154,12 +1132,13 @@ pub async fn send_error_to_workspace_handler<
 
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
-    tx: QueueTransaction<'c, R>,
+    rsmq: Option<R>,
     db: &Pool<Postgres>,
-    schedule: Schedule,
+    job: &QueuedJob,
+    schedule: &Schedule,
     script_path: &str,
     w_id: &str,
-) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+) -> windmill_common::error::Result<()> {
     tracing::info!(
         "Schedule {} scheduling next job for {} in {w_id}",
         schedule.path,
@@ -1167,58 +1146,57 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     );
 
     if schedule.enabled && script_path == schedule.script_path {
-        let res = push_scheduled_job(
-            db,
-            tx,
-            Schedule {
-                workspace_id: w_id.to_owned(),
-                path: schedule.path.clone(),
-                edited_by: schedule.edited_by,
-                edited_at: schedule.edited_at,
-                schedule: schedule.schedule,
-                timezone: schedule.timezone,
-                enabled: schedule.enabled,
-                script_path: schedule.script_path.clone(),
-                is_flow: schedule.is_flow,
-                args: schedule
-                    .args
-                    .and_then(|e| serde_json::to_value(e).map_or(None, |v| Some(v))),
-                extra_perms: serde_json::to_value(schedule.extra_perms).expect("hashmap -> json"),
-                email: schedule.email.clone(),
-                error: None,
-                on_failure: schedule.on_failure,
-                on_failure_times: schedule.on_failure_times,
-                on_failure_exact: schedule.on_failure_exact,
-                on_failure_extra_args: schedule.on_failure_extra_args,
-                on_recovery: schedule.on_recovery,
-                on_recovery_times: schedule.on_recovery_times,
-                on_recovery_extra_args: schedule.on_recovery_extra_args,
-                ws_error_handler_muted: schedule.ws_error_handler_muted,
-                retry: schedule.retry,
-                summary: schedule.summary,
-                no_flow_overlap: schedule.no_flow_overlap,
-                tag: schedule.tag,
-            },
-        )
-        .await;
-        match res {
-            Ok(tx) => Ok(tx),
+        let push_next_job_future = async {
+            let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
+            tx = push_scheduled_job(
+                db,
+                tx,
+                Schedule {
+                    workspace_id: w_id.to_owned(),
+                    error: None,
+                    args: schedule
+                        .args
+                        .as_ref()
+                        .and_then(|e| serde_json::to_value(e).map_or(None, |v| Some(v))),
+                    extra_perms: serde_json::to_value(schedule.extra_perms.clone())
+                        .expect("hashmap -> json"),
+                    ..schedule.clone()
+                },
+            )
+            .await?;
+            tx.commit().await?;
+            Ok::<(), Error>(())
+        };
+        match push_next_job_future.await {
+            Ok(_) => Ok(()),
             Err(err) => {
-                sqlx::query!(
+                match sqlx::query!(
                     "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
                     err.to_string(),
                     &schedule.workspace_id,
                     &schedule.path
                 )
-                .execute(db)
-                .await?;
-                tracing::warn!("Could not schedule job for {}: {}", schedule.path, err);
-                match err {
-                    Error::QuotaExceeded(_) => Err(err),
-                    _ => Err(Error::CriticalError(format!(
-                        "Could not schedule job for {}: {}",
-                        schedule.path, err
-                    ))),
+                .execute(db).await {
+                    Ok(_) => {
+                        match err {
+                            Error::QuotaExceeded(_) => {}
+                            _ => {
+                                report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db,
+                                    format!("Could not schedule next job for {} with err {}. Schedule disabled", schedule.path, err)
+                                ).await;
+                            }
+                        }
+                        Ok(())
+                    }
+                    Err(disable_err) => match err {
+                        Error::QuotaExceeded(_) => Err(err),
+                        _ => {
+                            report_error_to_workspace_handler_or_critical_side_channel(rsmq, job, db,
+                                    format!("Could not schedule next job for {} and could not disable schedule with err {}. Will retry", schedule.path, disable_err)
+                                ).await;
+                            Err(to_anyhow(disable_err).into())
+                        }
+                    },
                 }
             }
         }
@@ -1233,7 +1211,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
                 schedule.path
             );
         }
-        Ok(tx)
+        Ok(())
     }
 }
 
@@ -1251,7 +1229,7 @@ async fn apply_schedule_handlers<
 >(
     rsmq: Option<R>,
     db: &Pool<Postgres>,
-    schedule: Schedule,
+    schedule: &Schedule,
     script_path: &str,
     w_id: &str,
     success: bool,
@@ -1301,7 +1279,7 @@ async fn apply_schedule_handlers<
                 result,
                 Some(times),
                 Some(started_at),
-                schedule.on_failure_extra_args,
+                schedule.on_failure_extra_args.clone(),
                 &schedule.email,
                 true,
                 false,
@@ -1349,7 +1327,7 @@ async fn apply_schedule_handlers<
                     result,
                     times,
                     started_at,
-                    schedule.on_recovery_extra_args,
+                    schedule.on_recovery_extra_args.clone(),
                 )
                 .await?;
             }

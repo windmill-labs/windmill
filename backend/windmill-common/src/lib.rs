@@ -11,6 +11,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+use ee::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
@@ -73,7 +74,9 @@ lazy_static::lazy_static! {
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
-    pub static ref CRITICAL_ERROR_EMAILS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
+
+
+    pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
 }
 
 pub async fn shutdown_signal(

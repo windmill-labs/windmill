@@ -45,8 +45,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_queued_job,
-    handle_maybe_scheduled_job, report_error_to_workspace_handler_or_critical_side_channel,
-    CanceledBy, PushIsolationLevel, WrappedError,
+    handle_maybe_scheduled_job, CanceledBy, PushIsolationLevel, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -768,7 +767,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                 rsmq.clone(),
                 worker_name,
                 true,
-                false,
             )
             .await?;
         } else {
@@ -804,7 +802,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
-                    false,
                 )
                 .await?;
             } else {
@@ -822,7 +819,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                     None,
                     rsmq.clone(),
                     true,
-                    false,
                 )
                 .await?;
             }
@@ -859,7 +855,6 @@ pub async fn update_flow_status_after_job_completion_internal<
                     e,
                     rsmq.clone(),
                     worker_name,
-                    true,
                     true,
                 )
                 .await;
@@ -1214,35 +1209,25 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         let schedule =
             get_schedule_opt(tx.transaction_mut(), &flow_job.workspace_id, schedule_path).await?;
 
+        tx.commit().await?;
+
         if let Some(schedule) = schedule {
-            match handle_maybe_scheduled_job(
-                tx,
+            if let Err(err) = handle_maybe_scheduled_job(
+                rsmq.clone(),
                 db,
-                schedule,
+                flow_job,
+                &schedule,
                 flow_job.script_path.as_ref().unwrap(),
                 &flow_job.workspace_id,
             )
             .await
             {
-                Ok(tx) => {
-                    tx.commit().await?;
+                match err {
+                    Error::QuotaExceeded(_) => return Err(err.into()),
+                    // scheduling next job failed and could not disable schedule => make zombie job to retry
+                    _ => return Ok(()),
                 }
-                Err(e) => {
-                    tracing::error!("Error during handle_maybe_scheduled_job: {e}");
-                    match e {
-                        Error::CriticalError(_) => {
-                            report_error_to_workspace_handler_or_critical_side_channel(
-                                rsmq.clone(),
-                                flow_job,
-                                db,
-                                e.to_string(),
-                            )
-                            .await;
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            };
         } else {
             tracing::error!(
                 "Schedule {schedule_path} in {} not found. Impossible to schedule again",

@@ -499,19 +499,43 @@
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
 												/>
-											{:else if setting.fieldType == 'email_array'}
+											{:else if setting.fieldType == 'critical_error_channels'}
 												<div class="w-full">
-													{#if Array.isArray(values[setting.key])}
+													<div class="flex max-w-md mt-1 gap-2 w-full items-center">
+														<select disabled>
+															<option>Tracing</option>
+														</select>
+														<input disabled />
+														<button
+															transition:fade|local={{ duration: 100 }}
+															class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+															aria-label="Clear"
+															disabled
+														>
+															<X size={14} />
+														</button>
+													</div>
+													{#if $enterpriseLicense && Array.isArray(values[setting.key])}
 														{#each values[setting.key] ?? [] as v, i}
-															<div class="flex max-w-md mt-1 w-full items-center">
+															<div class="flex max-w-md mt-1 gap-2 w-full items-center">
+																<select>
+																	<option value="email">Email</option>
+																</select>
 																<input
 																	type="email"
-																	placeholder={setting.placeholder}
-																	bind:value={v}
+																	placeholder="Email address"
+																	on:input={(e) => {
+																		if (e.target?.['value']) {
+																			values[setting.key][i] = {
+																				email: e.target['value']
+																			}
+																		}
+																	}}
+																	value={v?.email ?? ''}
 																/>
 																<button
 																	transition:fade|local={{ duration: 100 }}
-																	class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+																	class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 																	aria-label="Clear"
 																	on:click={() => {
 																		values[setting.key] = values[setting.key].filter(
@@ -542,6 +566,7 @@
 														}}
 														id="arg-input-add-item"
 														startIcon={{ icon: Plus }}
+														disabled={!$enterpriseLicense}
 													>
 														Add item
 													</Button>
