@@ -259,6 +259,7 @@
 						contentEncoding={property.contentEncoding}
 						format={property.format}
 						extra={property}
+						disabled={property.password}
 					/>
 					<Toggle
 						options={{ right: 'Required' }}

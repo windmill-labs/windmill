@@ -101,13 +101,21 @@
 {/if}
 
 <style>
+	:global(.ql-toolbar) {
+		@apply rounded-t-md;
+	}
+
+	:global(.dark .ql-toolbar) {
+		@apply border-gray-500;
+	}
+
 	:global(.ql-toolbar .ql-stroke) {
 		fill: none;
-		@apply stroke-primary;
+		@apply stroke-primary rounded-t-md;
 	}
 
 	:global(.ql-toolbar .ql-fill) {
-		@apply fill-primary;
+		@apply fill-primary bg-red-500;
 		stroke: none;
 	}
 
@@ -116,6 +124,14 @@
 	}
 
 	:global(.ql-container) {
-		@apply text-primary;
+		@apply text-primary rounded-b-md;
+	}
+
+	:global(.dark .ql-container) {
+		@apply border-gray-500;
+	}
+
+	:global(.dark .ql-container > .ql-editor.ql-blank::before) {
+		@apply text-gray-500;
 	}
 </style>

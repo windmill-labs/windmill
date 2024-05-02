@@ -59,6 +59,7 @@ pub async fn handle_dedicated_process(
     worker_name: &str,
     db: &DB,
     script_path: &str,
+    mode: &str,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
     let mut child = {
@@ -115,7 +116,7 @@ pub async fn handle_dedicated_process(
     // let mut j = 0;
     let mut alive = true;
 
-    let init_log = format!("dedicated worker: {worker_name}\n\n");
+    let init_log = format!("dedicated worker {mode}: {worker_name}\n\n");
     let mut logs = init_log.clone();
     loop {
         tokio::select! {
@@ -126,9 +127,11 @@ pub async fn handle_dedicated_process(
                 if let Err(e) = write_stdin(&mut stdin, "end").await {
                     tracing::info!("Could not write end message to stdin: {e:?}")
                 }
+                stdin.flush().await.context("stdin flush")?;
             },
             line = err_reader.next_line() => {
                 if let Some(line) = line.expect("line is ok") {
+                    tracing::debug!("stderr dedicated worker: {line}");
                     logs.push_str("[stderr] ");
                     logs.push_str(&line);
                     logs.push_str("\n");
@@ -145,7 +148,7 @@ pub async fn handle_dedicated_process(
                         tracing::info!("dedicated worker process started");
                         continue;
                     }
-                    tracing::debug!("processed job: {line}");
+                    tracing::debug!("processed job: |{line}|");
                     if line.starts_with("wm_res[") {
                         let job: Arc<QueuedJob> = jobs.pop_front().expect("pop");
                         tracing::info!("job completed on dedicated worker {script_path}: {}", job.id);

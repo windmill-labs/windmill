@@ -10,7 +10,7 @@ use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 
-use crate::{BASE_URL, DB};
+use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -298,6 +298,12 @@ pub async fn get_reserved_variables(
             name: "WM_OIDC_JWT".to_string(),
             value: jwt_token.unwrap_or_else(|| "".to_string()),
             description: "OIDC JWT token (EE only)".to_string(),
+            is_custom: false,
+        },
+        ContextualVariable {
+            name: "WM_WORKER_GROUP".to_string(),
+            value: WORKER_GROUP.clone(),
+            description: "name of the worker group the job is running on".to_string(),
             is_custom: false,
         },
     ].into_iter().chain( sqlx::query_as::<_, (String, String)>(

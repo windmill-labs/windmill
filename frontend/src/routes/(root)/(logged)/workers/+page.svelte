@@ -3,8 +3,11 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Popup, Skeleton } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import DefaultTags from '$lib/components/DefaultTags.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -16,6 +19,7 @@
 	import { displayDate, groupBy, truncate } from '$lib/utils'
 	import { AlertTriangle, Plus } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
+	import YAML from 'yaml'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -104,7 +108,54 @@
 		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
 		loadWorkerGroups()
 	}
+
+	let importConfigDrawer: Drawer | undefined = undefined
+	let importConfigCode = ''
+
+	async function importConfig() {
+		const config = YAML.parse(importConfigCode)
+
+		if (!config || config.name == undefined) {
+			sendUserToast('Invalid worker config', true)
+			return
+		}
+
+		if (workerGroups?.hasOwnProperty(config.name)) {
+			sendUserToast('A worker config with this name already exists', true)
+			return
+		}
+
+		await ConfigService.updateConfig({
+			name: 'worker__' + config.name,
+			requestBody: { ...config, name: undefined }
+		})
+
+		importConfigDrawer?.toggleDrawer?.()
+
+		importConfigCode = ''
+
+		sendUserToast('Worker config successfully imported')
+
+		await loadWorkerGroups()
+	}
 </script>
+
+<Drawer bind:this={importConfigDrawer} size="800px">
+	<DrawerContent
+		title="Import config from YAML"
+		on:close={() => importConfigDrawer?.toggleDrawer?.()}
+	>
+		<SimpleEditor
+			bind:code={importConfigCode}
+			lang="yaml"
+			class="h-full"
+			fixedOverflowWidgets={false}
+		/>
+		<svelte:fragment slot="actions">
+			<Button size="sm" on:click={importConfig} disabled={!importConfigCode}>Import</Button>
+		</svelte:fragment>
+	</DrawerContent>
+</Drawer>
 
 <CenteredPage>
 	<PageHeader
@@ -149,7 +200,21 @@
 					>
 						<svelte:fragment slot="button">
 							<div class="flex items-center">
-								<Button size="sm" startIcon={{ icon: Plus }} nonCaptureEvent>
+								<Button
+									size="sm"
+									startIcon={{ icon: Plus }}
+									nonCaptureEvent
+									dropdownItems={$enterpriseLicense
+										? [
+												{
+													label: 'Import config from YAML',
+													onClick: () => {
+														importConfigDrawer?.toggleDrawer?.()
+													}
+												}
+										  ]
+										: undefined}
+								>
 									New worker group config
 									<Tooltip light>
 										Worker Group configs are propagated to every workers in the worker group

@@ -1178,6 +1178,10 @@ for line in sys.stdin:
     proc_envs.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     proc_envs.insert("PATH".to_string(), PATH_ENV.to_string());
     proc_envs.insert("TZ".to_string(), TZ_ENV.to_string());
+    proc_envs.insert(
+        "BASE_INTERNAL_URL".to_string(),
+        base_internal_url.to_string(),
+    );
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
     handle_dedicated_process(
         &*PYTHON_PATH,
@@ -1194,6 +1198,7 @@ for line in sys.stdin:
         worker_name,
         db,
         script_path,
+        "python",
     )
     .await
 }

@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.323.5](https://github.com/windmill-labs/windmill/compare/v1.323.4...v1.323.5) (2024-05-01)
+
+
+### Bug Fixes
+
+* re-release nit ([caa11c6](https://github.com/windmill-labs/windmill/commit/caa11c6506656e451352a4d437813ddfd2893225))
+
+## [1.323.4](https://github.com/windmill-labs/windmill/compare/v1.323.3...v1.323.4) (2024-05-01)
+
+
+### Bug Fixes
+
+* handle list of errors for schedule error handler ([96760b2](https://github.com/windmill-labs/windmill/commit/96760b296462855c2819d559687fa8b12c6336b0))
+* improve schedule editor UX ([774a35f](https://github.com/windmill-labs/windmill/commit/774a35f223b86444877f04b1a18b2f138ed75420))
+
+## [1.323.3](https://github.com/windmill-labs/windmill/compare/v1.323.2...v1.323.3) (2024-05-01)
+
+
+### Bug Fixes
+
+* add WM_WORKER_GROUP to get worker group from script ([0855cdd](https://github.com/windmill-labs/windmill/commit/0855cdd946e55b8f394a7721ed424bc66702691c))
+
+## [1.323.2](https://github.com/windmill-labs/windmill/compare/v1.323.1...v1.323.2) (2024-05-01)
+
+
+### Bug Fixes
+
+* **frontend:** Disable the insert button when required fields are empty strings ([#3659](https://github.com/windmill-labs/windmill/issues/3659)) ([7df4f02](https://github.com/windmill-labs/windmill/commit/7df4f02529de6e0d37135c9bef3da528be3e21a2))
+* **frontend:** use normal password mask for the sensitive fields of the resource editor ([c8b439d](https://github.com/windmill-labs/windmill/commit/c8b439df5b6f1e48cced5f9cc2fd7882fc88d407))
+
+## [1.323.1](https://github.com/windmill-labs/windmill/compare/v1.323.0...v1.323.1) (2024-05-01)
+
+
+### Bug Fixes
+
+* **cli:** improve generate metadata lock for new scripts ([54acc22](https://github.com/windmill-labs/windmill/commit/54acc22a271c26ea5e47f0adcf0bcc083064f434))
+* **frontend:** improve default select styling for apps ([#3656](https://github.com/windmill-labs/windmill/issues/3656)) ([2b34730](https://github.com/windmill-labs/windmill/commit/2b3473093aaeb7f78a8eaaf8d50021937acb6a50))
+* **frontend:** Restore AgGrid borders and remove the outer border pro… ([#3658](https://github.com/windmill-labs/windmill/issues/3658)) ([92492ab](https://github.com/windmill-labs/windmill/commit/92492ab6b7c579bf01043e422b5c768099ff3120))
+
+## [1.323.0](https://github.com/windmill-labs/windmill/compare/v1.322.0...v1.323.0) (2024-05-01)
+
+
+### Features
+
+* **frontend:** Improve inputs ([#3651](https://github.com/windmill-labs/windmill/issues/3651)) ([790f263](https://github.com/windmill-labs/windmill/commit/790f263e561917ccb8b68d26a2b1bae8f5a17fea))
+
+
+### Bug Fixes
+
+* **frontend:** improve result, flow status and log components ([#3653](https://github.com/windmill-labs/windmill/issues/3653)) ([aa6204f](https://github.com/windmill-labs/windmill/commit/aa6204ff99f78c8f5936701649d2829bd7e0afff))
+* **frontend:** remove red from autodatable badges ([#3652](https://github.com/windmill-labs/windmill/issues/3652)) ([d7d2f03](https://github.com/windmill-labs/windmill/commit/d7d2f03e2328e63bc460048570c26389a7d0d5e0))
+* **frontend:** sync columnDefs + improve columnDefs management ([#3632](https://github.com/windmill-labs/windmill/issues/3632)) ([ca209e9](https://github.com/windmill-labs/windmill/commit/ca209e9c48990dfd0c4c8085d74c5d7ba14b466b))
+
+## [1.322.0](https://github.com/windmill-labs/windmill/compare/v1.321.6...v1.322.0) (2024-04-30)
+
+
+### Features
+
+* import export worker group config ([#3649](https://github.com/windmill-labs/windmill/issues/3649)) ([df586fc](https://github.com/windmill-labs/windmill/commit/df586fc68e6d39ce84dce6c65354ab7cbcf2cdb0))
+
+
+### Bug Fixes
+
+* improve password ui ([0b23d90](https://github.com/windmill-labs/windmill/commit/0b23d90f6015e27203be64ccf3801938ce745648))
+
 ## [1.321.6](https://github.com/windmill-labs/windmill/compare/v1.321.5...v1.321.6) (2024-04-30)
 
 

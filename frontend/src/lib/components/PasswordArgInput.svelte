@@ -10,18 +10,12 @@
 	let path = ''
 	let password = ''
 
-	async function getPasswordFromValue(value: string | undefined = undefined) {
-		if (value?.startsWith('$var:')) {
-			password = await VariableService.getVariableValue({
-				workspace: $workspaceStore!,
-				path: value.substring(5)
-			})
-		}
-	}
-
 	async function generateValue() {
 		let npath =
-			'u/' + ($userStore?.username ?? $userStore?.email) + '/secret_arg/' + generateRandomString(12)
+			'u/' +
+			($userStore?.username ?? $userStore?.email)?.split('@')[0] +
+			'/secret_arg/' +
+			generateRandomString(12)
 		let nvalue = '$var:' + npath
 		await VariableService.createVariable({
 			workspace: $workspaceStore!,
@@ -54,12 +48,11 @@
 
 	$: password && debouncedUpdate()
 
-	$: (value == '' || value == undefined) &&
-		$workspaceStore &&
+	$: $workspaceStore &&
 		($userStore?.username || $userStore?.email) &&
+		path == '' &&
+		password != '' &&
 		generateValue()
-
-	$: value != '' && value != undefined && getPasswordFromValue(value)
 </script>
 
 <Password {disabled} bind:password />

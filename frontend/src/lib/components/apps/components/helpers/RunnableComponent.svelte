@@ -54,6 +54,8 @@
 	export let hasChildrens: boolean
 	export let allowConcurentRequests = false
 	export let noInitialize = false
+	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
+	export let overrideAutoRefresh: boolean = false
 
 	const {
 		worldStore,
@@ -538,24 +540,28 @@
 		undefined
 
 	onMount(() => {
-		cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
-			let rejectCb: (err: Error) => void
-			let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
-				rejectCb = reject
-				donePromise = resolve
-				executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)
-			})
-			p.cancel = () => {
-				resultJobLoader?.cancelJob()
-				loading = false
-				rejectCb(new Error('Canceled'))
-			}
+		if (overrideCallback) {
+			cancellableRun = overrideCallback
+		} else {
+			cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
+				let rejectCb: (err: Error) => void
+				let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
+					rejectCb = reject
+					donePromise = resolve
+					executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)
+				})
+				p.cancel = () => {
+					resultJobLoader?.cancelJob()
+					loading = false
+					rejectCb(new Error('Canceled'))
+				}
 
-			return p as CancelablePromise<void>
+				return p as CancelablePromise<void>
+			}
 		}
 
 		$runnableComponents[id] = {
-			autoRefresh: autoRefresh && recomputableByRefreshButton,
+			autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
 			refreshOnStart: refreshOnStart,
 			cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 		}

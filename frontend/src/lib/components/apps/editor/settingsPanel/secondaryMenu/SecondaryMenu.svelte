@@ -34,7 +34,9 @@
 				class="flex justify-between {right ? '' : 'flex-row-reverse'} items-center gap-1 px-3 py-2"
 			>
 				<CloseButton on:close={() => secondaryMenu?.close()} />
-				<div class="text-xs font-bold"> Style Panel</div>
+				{#if $secondaryMenu?.props?.type === 'style'}
+					<div class="text-xs font-bold"> Style Panel</div>
+				{/if}
 			</div>
 			<div class="relative h-full overflow-y-auto">
 				{#if typeof $secondaryMenu.component === 'string'}

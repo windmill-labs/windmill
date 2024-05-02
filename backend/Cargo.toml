@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.321.6"
+version = "1.323.5"
 authors.workspace = true
 edition.workspace = true
 
@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.321.6"
+version = "1.323.5"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -50,6 +50,7 @@ parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/p
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
+cloud = ["windmill-queue/cloud"]
 
 [dependencies]
 anyhow.workspace = true

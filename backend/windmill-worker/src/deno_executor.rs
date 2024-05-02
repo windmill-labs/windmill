@@ -528,6 +528,7 @@ for await (const chunk of Deno.stdin.readable) {{
         worker_name,
         db,
         script_path,
+        "deno",
     )
     .await
 }
