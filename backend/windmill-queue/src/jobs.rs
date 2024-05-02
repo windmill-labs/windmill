@@ -60,10 +60,13 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
+
+#[cfg(feature = "cloud")]
+use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
