@@ -121,7 +121,7 @@
 							'top-0'
 						)}
 					>
-						<GridEditorMenu {id}>
+						<GridEditorMenu id={dataItem.id}>
 							<Component
 								render={visible}
 								component={dataItem.data}
