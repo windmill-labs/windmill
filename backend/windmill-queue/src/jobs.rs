@@ -60,10 +60,13 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
     DB, METRICS_ENABLED,
 };
+
+#[cfg(feature = "cloud")]
+use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -110,9 +113,9 @@ lazy_static::lazy_static! {
 
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "cloud")]
 const MAX_FREE_EXECS: i32 = 1000;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "cloud")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
@@ -699,7 +702,7 @@ pub async fn add_completed_job<
         queued_job.id
     );
 
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
         let additional_usage = _duration / 1000;
         let w_id = &queued_job.workspace_id;
@@ -731,27 +734,17 @@ pub async fn add_completed_job<
         }
     }
 
+    #[cfg(feature = "enterprise")]
     if !skip_downstream_error_handlers
         && matches!(queued_job.job_kind, JobKind::Flow | JobKind::Script)
         && queued_job.parent_job.is_none()
         && !success
     {
-        let result = serde_json::from_str(
-            &serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()),
-        )
-        .unwrap_or_else(|_| json!({}));
-        let result = if result.is_object() || result.is_null() {
-            result
-        } else {
-            json!({ "error": result })
-        };
         tracing::info!(
             "Sending error of job {} to error handlers (if any)",
             queued_job.id
         );
-        if let Err(e) =
-            send_error_to_global_handler(rsmq.clone(), &queued_job, db, Json(&result)).await
-        {
+        if let Err(e) = send_error_to_global_handler(rsmq.clone(), &queued_job, db, result).await {
             tracing::error!(
                 "Could not run global error handler for job {}: {}",
                 &queued_job.id,
@@ -764,7 +757,7 @@ pub async fn add_completed_job<
             &queued_job,
             canceled_by.is_some(),
             db,
-            Json(&result),
+            result,
         )
         .await
         {
@@ -968,7 +961,7 @@ pub async fn send_error_to_global_handler<
     rsmq: Option<R>,
     queued_job: &QueuedJob,
     db: &Pool<Postgres>,
-    result: Json<&'a T>,
+    result: Json<&T>,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
         let prefixed_global_error_handler_path = if global_error_handler.starts_with("script/")
@@ -978,11 +971,12 @@ pub async fn send_error_to_global_handler<
         } else {
             format!("script/{}", global_error_handler)
         };
+        let result = sanitize_result(result);
         run_error_handler(
             rsmq,
             queued_job,
             db,
-            result,
+            Json(&result),
             &prefixed_global_error_handler_path,
             None,
             true,
@@ -1044,12 +1038,13 @@ pub async fn send_error_to_workspace_handler<
 
         let muted = ws_error_handler_muted.unwrap_or(false);
         if !muted {
+            let result = sanitize_result(result);
             tracing::info!("workspace error handled for job {}", &queued_job.id);
             run_error_handler(
                 rsmq,
                 queued_job,
                 db,
-                result,
+                Json(&result),
                 &error_handler,
                 error_handler_extra_args,
                 false,
@@ -1179,6 +1174,7 @@ async fn apply_schedule_handlers<
     let skip_downstream_error_handlers = schedule.ws_error_handler_muted;
 
     if !success {
+        #[cfg(feature = "enterprise")]
         if let Some(on_failure_path) = schedule.on_failure.clone() {
             let times = schedule.on_failure_times.unwrap_or(1).max(1);
             let exact = schedule.on_failure_exact.unwrap_or(false);
@@ -1248,6 +1244,7 @@ async fn apply_schedule_handlers<
             }
         }
     } else {
+        #[cfg(feature = "enterprise")]
         if let Some(on_recovery_path) = schedule.on_recovery.clone() {
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
             let past_jobs = sqlx::query_as!(
@@ -1373,13 +1370,15 @@ pub async fn handle_on_failure<
         extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
+    let result = sanitize_result(result);
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
         tx,
         w_id,
         payload,
-        PushArgs { extra, args: result.to_owned() },
+        PushArgs { extra, args: Json(&result) },
         ERROR_HANDLER_USERNAME,
         ERROR_HANDLER_USER_EMAIL,
         ERROR_HANDLER_USER_GROUP.to_string(),
@@ -1404,6 +1403,18 @@ pub async fn handle_on_failure<
         schedule_path
     );
     return Ok((uuid, tx));
+}
+
+fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> serde_json::Value {
+    let result =
+        serde_json::from_str(&serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()))
+            .unwrap_or_else(|_| json!({}));
+    let result = if result.is_object() || result.is_null() {
+        result
+    } else {
+        json!({ "error": result })
+    };
+    result
 }
 
 // #[derive(Serialize)]
@@ -2616,7 +2627,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     flow_step_id: Option<String>,
     _priority_override: Option<i16>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         let premium_workspace =
             sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
@@ -2961,12 +2972,12 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                         step: step_n,
                         modules: truncated_modules,
                         // failure_module is reset
-                        failure_module: FlowStatusModuleWParent {
+                        failure_module: Box::new(FlowStatusModuleWParent {
                             parent_module: None,
                             module_status: FlowStatusModule::WaitingForPriorSteps {
                                 id: "failure".to_string(),
                             },
-                        },
+                        }),
                         cleanup_module,
                         // retry status is reset
                         retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
@@ -3116,12 +3127,12 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 step: step_n,
                 modules: truncated_modules,
                 // failure_module is reset
-                failure_module: FlowStatusModuleWParent {
+                failure_module: Box::new(FlowStatusModuleWParent {
                     parent_module: None,
                     module_status: FlowStatusModule::WaitingForPriorSteps {
                         id: "failure".to_string(),
                     },
-                },
+                }),
                 cleanup_module,
                 // retry status is reset
                 retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
