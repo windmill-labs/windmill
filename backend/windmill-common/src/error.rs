@@ -8,10 +8,7 @@
 
 use axum::body::Body;
 use axum::response::Response;
-use axum::{
-    response::IntoResponse,
-    response::Json,
-};
+use axum::{response::IntoResponse, response::Json};
 
 use hyper::StatusCode;
 use sqlx::migrate::MigrateError;
@@ -45,6 +42,8 @@ pub enum Error {
     SqlErr(#[from] sqlx::Error),
     #[error("Bad request: {0}")]
     BadRequest(String),
+    #[error("Quota exceeded: {0}")]
+    QuotaExceeded(String),
     #[error("Internal: {0}")]
     InternalErr(String),
     #[error("Hexadecimal decoding error: {0}")]
@@ -81,9 +80,10 @@ impl IntoResponse for Error {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
-            Self::SqlErr(_) | Self::BadRequest(_) | Self::OpenAIError(_) => {
-                axum::http::StatusCode::BAD_REQUEST
-            }
+            Self::SqlErr(_)
+            | Self::BadRequest(_)
+            | Self::OpenAIError(_)
+            | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 
