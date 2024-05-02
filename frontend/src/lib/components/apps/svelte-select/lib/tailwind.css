@@ -114,7 +114,7 @@
 }
 
 .multi-item {
-    @apply bg-gray-100 mt-1 mr-1 border border-gray-200 rounded-sm h-8 leading-8 flex cursor-default pr-1 pl-1 max-w-full items-center mr-1 overflow-hidden overflow-ellipsis whitespace-nowrap;
+    @apply bg-gray-100 mt-1 border border-gray-200 rounded-sm h-8 leading-8 flex cursor-default pr-1 pl-1 max-w-full items-center mr-1 overflow-hidden overflow-ellipsis whitespace-nowrap;
 }
 
 .multi-item.disabled {

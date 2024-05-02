@@ -469,7 +469,7 @@ const onSuccessClick = {
 		},
 		sendToast: {
 			message: {
-				tooltip: 'The message of the toast to diplay',
+				tooltip: 'The message of the toast to display',
 				fieldType: 'text',
 				type: 'static',
 				value: '',
@@ -557,10 +557,10 @@ const onErrorClick = {
 		},
 		sendErrorToast: {
 			message: {
-				tooltip: 'The message of the toast to diplay',
+				tooltip: 'The message of the toast to display',
 				fieldType: 'text',
 				type: 'static',
-				value: '',
+				value: 'An error occured',
 				placeholder: 'Hello there',
 				onDemandOnly: true
 			},
@@ -3150,14 +3150,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-
-					tooltip: 'This will diplay the type and/or the format on the field next to the label.'
+					tooltip: 'This will display the type and/or the format on the field next to the label.'
 				},
 				largeGap: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false,
-
 					tooltip: 'This will add a large gap between the form elements.'
 				}
 			}
