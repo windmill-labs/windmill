@@ -653,7 +653,7 @@ pub async fn add_completed_job<
                     };
                 }
 
-                match apply_schedule_handlers(
+                if let Err(err) = apply_schedule_handlers(
                     rsmq.clone(),
                     db,
                     &schedule,
@@ -667,14 +667,12 @@ pub async fn add_completed_job<
                 )
                 .await
                 {
-                    Ok(_) => {}
-                    Err(err) => {
-                        if !success {
-                            tracing::error!("Could not apply schedule error handler: {}", err);
-                            let base_url = BASE_URL.read().await;
-                            let w_id: &String = &queued_job.workspace_id;
-                            if !matches!(err, Error::QuotaExceeded(_)) {
-                                report_error_to_workspace_handler_or_critical_side_channel(
+                    if !success {
+                        tracing::error!("Could not apply schedule error handler: {}", err);
+                        let base_url = BASE_URL.read().await;
+                        let w_id: &String = &queued_job.workspace_id;
+                        if !matches!(err, Error::QuotaExceeded(_)) {
+                            report_error_to_workspace_handler_or_critical_side_channel(
                                     rsmq.clone(),
                                     &queued_job,
                                     db,
@@ -685,10 +683,9 @@ pub async fn add_completed_job<
                                     ),
                                 )
                                 .await;
-                            }
-                        } else {
-                            tracing::error!("Could not apply schedule recovery handler: {}", err);
                         }
+                    } else {
+                        tracing::error!("Could not apply schedule recovery handler: {}", err);
                     }
                 };
             } else {
@@ -1340,7 +1337,7 @@ pub async fn push_error_handler<
         "admins"
     } else {
         w_id
-    }; // script workspace id
+    };
     let (payload, tag) =
         get_payload_tag_from_prefixed_path(on_failure_path, db, handler_w_id).await?;
 
@@ -1348,7 +1345,7 @@ pub async fn push_error_handler<
     if let Some(schedule_path) = schedule_path {
         extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
     }
-    extra.insert("workspace_id".to_string(), to_raw_value(&handler_w_id));
+    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
     extra.insert("job_id".to_string(), to_raw_value(&job_id));
     extra.insert("path".to_string(), to_raw_value(&script_path));
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
@@ -1386,7 +1383,7 @@ pub async fn push_error_handler<
     let (uuid, tx) = push(
         &db,
         tx,
-        w_id,
+        handler_w_id,
         payload,
         PushArgs { extra, args: Json(&result) },
         if is_global_error_handler {
