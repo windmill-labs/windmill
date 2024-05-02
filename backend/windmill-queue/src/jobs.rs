@@ -1135,22 +1135,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     if schedule.enabled && script_path == schedule.script_path {
         let push_next_job_future = async {
             let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-            tx = push_scheduled_job(
-                db,
-                tx,
-                Schedule {
-                    workspace_id: w_id.to_owned(),
-                    error: None,
-                    args: schedule
-                        .args
-                        .as_ref()
-                        .and_then(|e| serde_json::to_value(e).map_or(None, |v| Some(v))),
-                    extra_perms: serde_json::to_value(schedule.extra_perms.clone())
-                        .expect("hashmap -> json"),
-                    ..schedule.clone()
-                },
-            )
-            .await?;
+            tx = push_scheduled_job(db, tx, &schedule).await?;
             tx.commit().await?;
             Ok::<(), Error>(())
         };
