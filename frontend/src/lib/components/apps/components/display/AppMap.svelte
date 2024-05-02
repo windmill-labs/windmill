@@ -255,7 +255,7 @@
 {/each}
 
 {#if render}
-	<div class="relative h-full w-full">
+	<div class="relative h-full w-full component-wrapper">
 		<div
 			on:pointermove={updateRegionOutput}
 			on:wheel={updateRegionOutput}

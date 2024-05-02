@@ -155,3 +155,27 @@
 		</div>
 	</div>
 </AlignWrapper>
+
+<style>
+	:root {
+		--range-slider: #ff0000;
+		--range-handle-inactive: hsl(180, 4.6%, 61.8%);
+		--range-handle: #ff0000;
+		--range-handle-focus: hsl(244.1, 63.2%, 54.1%);
+		--range-handle-border: hsl(234, 67.6%, 71%);
+		--range-range-inactive: hsl(180, 4.6%, 61.8%);
+		--range-range: hsl(351.4, 59.4%, 58.4%);
+		--range-float-inactive: hsl(180, 4.6%, 61.8%);
+		--range-float: hsl(244.1, 63.2%, 54.1%);
+		--range-float-text: hsl(0, 0%, 100%);
+
+		--range-pip: hsl(210, 14.3%, 53.3%);
+		--range-pip-text: hsl(210, 14.3%, 53.3%);
+		--range-pip-active: hsl(180, 25.4%, 24.7%);
+		--range-pip-active-text: hsl(180, 25.4%, 24.7%);
+		--range-pip-hover: hsl(180, 25.4%, 24.7%);
+		--range-pip-hover-text: hsl(180, 25.4%, 24.7%);
+		--range-pip-in-range: hsl(180, 25.4%, 24.7%);
+		--range-pip-in-range-text: hsl(180, 25.4%, 24.7%);
+	}
+</style>

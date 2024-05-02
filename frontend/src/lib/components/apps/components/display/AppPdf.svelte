@@ -207,7 +207,7 @@
 <InitializeComponent {id} />
 
 {#if render}
-	<div class="relative flex flex-col w-full h-full bg-gray-100">
+	<div class="relative flex flex-col w-full h-full bg-gray-100 component-wrapper">
 		{#if source && zoom}
 			{#if pages?.length}
 				<div
@@ -217,7 +217,7 @@
 						? 'w-[calc(100%-2px)] top-[1px]'
 						: 'w-full top-0'} {wideView
 						? 'justify-center gap-14'
-						: '!justify-between'} overflow-x-auto bg-surface border mx-auto py-1"
+						: '!justify-between'} overflow-x-auto bg-surface border-b mx-auto py-1"
 				>
 					<div class="flex justify-start items-center px-2 text-secondary text-sm">
 						<Button

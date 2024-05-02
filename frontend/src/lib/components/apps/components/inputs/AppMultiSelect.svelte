@@ -105,7 +105,6 @@
 	}
 
 	let w = 0
-	let h = 0
 	let open = false
 </script>
 
@@ -132,7 +131,7 @@
 
 <AlignWrapper {render} hFull {verticalAlignment}>
 	<div
-		class="w-full"
+		class="w-full app-editor-input"
 		on:pointerdown={(e) => {
 			$selectedComponent = [id]
 
@@ -143,7 +142,6 @@
 		}}
 		use:floatingRef
 		bind:clientWidth={w}
-		bind:clientHeight={h}
 	>
 		{#if !value || Array.isArray(value)}
 			<MultiSelect
@@ -151,6 +149,9 @@
 				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
 				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
 				ulOptionsClass={'p-2 !bg-surface-secondary'}
+				--sms-border={'none'}
+				--sms-min-height={'32px'}
+				--sms-focus-border={'none'}
 				bind:selected={value}
 				options={Array.isArray(items) ? items : []}
 				placeholder={resolvedConfig.placeholder}
