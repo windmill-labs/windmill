@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.323.6](https://github.com/windmill-labs/windmill/compare/v1.323.5...v1.323.6) (2024-05-02)
+
+
+### Bug Fixes
+
+* **frontend:** Handle empty error message in toast + hide GridEditorM… ([#3664](https://github.com/windmill-labs/windmill/issues/3664)) ([5bae66a](https://github.com/windmill-labs/windmill/commit/5bae66aec3f00e2096ba06220ca2705488e4dfec))
+
 ## [1.323.5](https://github.com/windmill-labs/windmill/compare/v1.323.4...v1.323.5) (2024-05-01)
 
 
