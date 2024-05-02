@@ -931,7 +931,7 @@ fn get_module(flow_job: &QueuedJob, module_index: Option<usize>) -> Option<FlowM
             if let Some(module) = raw_flow.modules.get(i) {
                 Some(module.clone())
             } else {
-                raw_flow.failure_module
+                raw_flow.failure_module.map(|x| *x.clone())
             }
         } else {
             None
@@ -1674,7 +1674,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     let mut module: &FlowModule = flow
         .modules
         .get(i)
-        .or_else(|| flow.failure_module.as_ref())
+        .or_else(|| flow.failure_module.as_deref())
         .with_context(|| format!("no module at index {}", status.step))?;
 
     let current_id = &module.id;

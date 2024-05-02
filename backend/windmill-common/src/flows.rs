@@ -87,7 +87,7 @@ pub struct FlowValue {
     pub modules: Vec<FlowModule>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub failure_module: Option<FlowModule>,
+    pub failure_module: Option<Box<FlowModule>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub same_worker: bool,
