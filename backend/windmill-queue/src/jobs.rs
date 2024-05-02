@@ -943,42 +943,6 @@ pub async fn add_completed_job<
     Ok(queued_job.id)
 }
 
-pub async fn handle_failed_job<
-    'a,
-    T: Serialize + Send + Sync,
-    R: rsmq_async::RsmqConnection + Clone + Send,
->(
-    rsmq: Option<R>,
-    job: &QueuedJob,
-    db: &Pool<Postgres>,
-    result: Json<&'a T>,
-    error_handler_path: &str,
-    error_handler_extra_args: Option<serde_json::Value>,
-    is_global: bool,
-) -> Result<(), Error> {
-    push_error_handler(
-        db,
-        rsmq,
-        job.id,
-        job.schedule_path.clone(),
-        job.script_path.clone(),
-        job.is_flow(),
-        &job.workspace_id,
-        error_handler_path,
-        result,
-        None,
-        job.started_at,
-        error_handler_extra_args,
-        &job.email,
-        false,
-        is_global,
-        None,
-    )
-    .await?;
-
-    Ok(())
-}
-
 pub async fn send_error_to_global_handler<
     'a,
     T: Serialize + Send + Sync,
@@ -997,17 +961,25 @@ pub async fn send_error_to_global_handler<
         } else {
             format!("script/{}", global_error_handler)
         };
-        let result = sanitize_result(result);
-        handle_failed_job(
-            rsmq,
-            queued_job,
+        push_error_handler(
             db,
-            Json(&result),
+            rsmq,
+            queued_job.id,
+            queued_job.schedule_path.clone(),
+            queued_job.script_path.clone(),
+            queued_job.is_flow(),
+            &queued_job.workspace_id,
             &prefixed_global_error_handler_path,
+            result,
             None,
+            queued_job.started_at,
+            None,
+            &queued_job.email,
+            false,
             true,
+            None,
         )
-        .await?
+        .await?;
     }
 
     Ok(())
@@ -1118,18 +1090,27 @@ pub async fn send_error_to_workspace_handler<
 
         let muted = ws_error_handler_muted.unwrap_or(false);
         if !muted {
-            let result = sanitize_result(result);
             tracing::info!("workspace error handled for job {}", &queued_job.id);
-            handle_failed_job(
-                rsmq,
-                queued_job,
+
+            push_error_handler(
                 db,
-                Json(&result),
+                rsmq,
+                queued_job.id,
+                queued_job.schedule_path.clone(),
+                queued_job.script_path.clone(),
+                queued_job.is_flow(),
+                &queued_job.workspace_id,
                 &error_handler,
+                result,
+                None,
+                queued_job.started_at,
                 error_handler_extra_args,
+                &queued_job.email,
                 false,
+                false,
+                None,
             )
-            .await?
+            .await?;
         }
     }
 
