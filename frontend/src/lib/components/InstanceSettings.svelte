@@ -573,6 +573,7 @@
 												</div>
 											{:else if setting.fieldType == 'object_store_config'}
 												<ObjectStoreConfigSettings bind:bucket_config={values[setting.key]} />
+												<div class="mb-6" />
 											{:else if setting.fieldType == 'number'}
 												<input
 													type="number"
