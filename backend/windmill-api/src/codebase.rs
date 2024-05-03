@@ -9,18 +9,24 @@
 use crate::db::{ApiAuthed, DB};
 use axum::{
     extract::{Extension, Path},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
-use windmill_common::error::Result;
 
-use serde::{Deserialize, Serialize};
+use object_store::path::Path as OPath;
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
+
+// use serde::{Deserialize, Serialize};
+use windmill_common::{
+    error::{to_anyhow, Error, JsonResult, Result},
+    s3_helpers::codebase_id_to_path,
+};
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/exists/:id", get(exists_codebase))
-        .route("/get/:id", get(get_codebase))
-        .route("/create", post(create))
+        .route("/upload/:id", post(upload_codebase))
 }
 // async fn get_codebase(
 //     authed: ApiAuthed,
@@ -41,10 +47,37 @@ pub fn workspaced_service() -> Router {
 //     Ok(format!("Starred {}", path))
 // }
 
-fn id_to_path()
-async fn exists_codebase(Path((_, id)): Path<(String, String)>) -> JsonResult<bool> {
-    let path = format!("/codebase/{}", id);
-    attempt_fetch_bytes(client, &tar_path).await?;
+async fn exists_codebase(Path((w_id, id)): Path<(String, String)>) -> JsonResult<bool> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+        let url = os
+            .get(&OPath::from(codebase_id_to_path(&w_id, &id)))
+            .await
+            .map_err(to_anyhow);
+        return Ok(Json(url.is_ok()));
+    } else {
+        return Err(Error::BadRequest(format!(
+            "Object store not configured in the instance settings",
+        )));
+    }
 
-    Ok(Json(exists))
+    return Err(Error::BadRequest(format!("Upgrade to EE to use codebases")));
+}
+
+async fn upload_codebase(
+    Path((w_id, id)): Path<(String, String)>,
+    request: axum::extract::Request,
+) -> Result<String> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+        let path = codebase_id_to_path(&w_id, &id);
+        crate::job_helpers_ee::upload_file_internal(os, &path, request).await?;
+        return Ok(format!("Uploaded codebase {}", id));
+    } else {
+        return Err(Error::BadRequest(format!(
+            "Object store not configured in the instance settings",
+        )));
+    }
+
+    return Err(Error::BadRequest(format!("Upgrade to EE to use codebases")));
 }

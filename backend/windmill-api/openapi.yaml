@@ -8391,7 +8391,8 @@ components:
         no_main_func:
           type: boolean
         codebase:
-          type: object
+          $ref: "#/components/schemas/Codebase"
+
       required:
         - hash
         - path
@@ -8416,9 +8417,10 @@ components:
           type: string
         relative_path:
           type: string
-        kind:
-          type: string
-          enum: "tarbun_v1"
+        # kind:
+        #   type: string
+        #   enum: 
+        #     - "tarbun_v1"
     NewScript:
       type: object
       properties:
@@ -8494,7 +8496,7 @@ components:
         no_main_func:
           type: boolean
         codebase:
-          type: object
+          $ref: "#/components/schemas/Codebase"
       required:
         - path
         - summary

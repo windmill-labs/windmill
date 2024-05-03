@@ -44,6 +44,7 @@ use windmill_common::error::AppError;
 mod apps;
 mod audit;
 mod capture;
+mod codebase;
 mod concurrency_groups;
 mod configs;
 mod db;

@@ -184,7 +184,7 @@ pub async fn attempt_fetch_bytes(
 ) -> error::Result<bytes::Bytes> {
     use object_store::path::Path;
 
-    let object = client.get(&Path::from(path.clone())).await;
+    let object = client.get(&Path::from(path)).await;
     if let Err(e) = object {
         tracing::info!(
             "Failed to pull bytes from object store at path {path}. Error: {:?}",
@@ -449,4 +449,8 @@ impl CredentialProvider for AwsCredentialAdapter {
             token: creds.session_token().map(|s| s.to_string()),
         }))
     }
+}
+
+pub fn codebase_id_to_path(w_id: &str, id: &str) -> String {
+    format!("codebase/{}/{}", w_id, id)
 }

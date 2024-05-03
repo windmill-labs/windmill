@@ -41,7 +41,7 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue},
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, JobPayload, QueuedJob},
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    scripts::{get_full_hub_script_by_path, Codebase, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::{rd_string, StripPath},
     worker::{
@@ -2975,6 +2975,7 @@ struct ContentReqLangEnvs {
     lockfile: Option<String>,
     language: Option<ScriptLang>,
     envs: Option<Vec<String>>,
+    codebase: Option<Codebase>,
 }
 
 async fn get_hub_script_content_and_requirements(
@@ -3011,6 +3012,7 @@ async fn get_hub_script_content_and_requirements(
         lockfile: script.lockfile,
         language: Some(script.language),
         envs: None,
+        codebase: None,
     })
 }
 
@@ -3043,16 +3045,18 @@ async fn get_script_content_by_hash(
             Option<String>,
             Option<ScriptLang>,
             Option<Vec<String>>,
+            Option<serde_json::Value>,
         ),
     >(
-        "SELECT content, lock, language, envs FROM script WHERE hash = $1 AND workspace_id = $2",
+        "SELECT content, lock, language, envs, codebase FROM script WHERE hash = $1 AND workspace_id = $2",
     )
     .bind(script_hash.0)
     .bind(w_id)
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
-    Ok(ContentReqLangEnvs { content: r.0, lockfile: r.1, language: r.2, envs: r.3 })
+    let codebase = serde_json::from_value(r.4.clone().unwrap_or_default()).ok();
+    Ok(ContentReqLangEnvs { content: r.0, lockfile: r.1, language: r.2, envs: r.3, codebase })
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -3068,35 +3072,41 @@ async fn handle_code_execution_job(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
 ) -> error::Result<Box<RawValue>> {
-    let ContentReqLangEnvs { content: inner_content, lockfile: requirements_o, language, envs } =
-        match job.job_kind {
-            JobKind::Preview => ContentReqLangEnvs {
-                content: job
-                    .raw_code
-                    .clone()
-                    .unwrap_or_else(|| "no raw code".to_owned()),
-                lockfile: job.raw_lock.clone(),
-                language: job.language.to_owned(),
-                envs: None,
-            },
-            JobKind::Script_Hub => {
-                get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
-            }
-            JobKind::Script => {
-                get_script_content_by_hash(
-                    &job.script_hash.unwrap_or(ScriptHash(0)),
-                    &job.workspace_id,
-                    db,
-                )
-                .await?
-            }
-            JobKind::DeploymentCallback => {
-                get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
-            }
-            _ => unreachable!(
-                "handle_code_execution_job should never be reachable with a non-code execution job"
-            ),
-        };
+    let ContentReqLangEnvs {
+        content: inner_content,
+        lockfile: requirements_o,
+        language,
+        envs,
+        codebase,
+    } = match job.job_kind {
+        JobKind::Preview => ContentReqLangEnvs {
+            content: job
+                .raw_code
+                .clone()
+                .unwrap_or_else(|| "no raw code".to_owned()),
+            lockfile: job.raw_lock.clone(),
+            language: job.language.to_owned(),
+            envs: None,
+            codebase: None,
+        },
+        JobKind::Script_Hub => {
+            get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
+        }
+        JobKind::Script => {
+            get_script_content_by_hash(
+                &job.script_hash.unwrap_or(ScriptHash(0)),
+                &job.workspace_id,
+                db,
+            )
+            .await?
+        }
+        JobKind::DeploymentCallback => {
+            get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
+        }
+        _ => unreachable!(
+            "handle_code_execution_job should never be reachable with a non-code execution job"
+        ),
+    };
 
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(
@@ -3299,6 +3309,7 @@ mount {{
         Some(ScriptLang::Bun) => {
             handle_bun_job(
                 requirements_o,
+                codebase,
                 mem_peak,
                 canceled_by,
                 job,
