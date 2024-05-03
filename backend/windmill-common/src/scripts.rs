@@ -128,12 +128,6 @@ impl Display for ScriptKind {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Hash)]
-pub struct Codebase {
-    pub sha256: String,
-    pub relative_path: String,
-}
-
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Script {
     pub workspace_id: String,
@@ -184,7 +178,7 @@ pub struct Script {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub codebase: Option<serde_json::Value>,
+    pub object_store_sha256: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -264,7 +258,7 @@ pub struct NewScript {
     pub concurrency_key: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub no_main_func: Option<bool>,
-    pub codebase: Option<Codebase>,
+    pub object_store_sha256: Option<String>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

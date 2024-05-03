@@ -8390,8 +8390,8 @@ components:
           type: boolean
         no_main_func:
           type: boolean
-        codebase:
-          $ref: "#/components/schemas/Codebase"
+        object_store_sha256:
+          type: string
 
       required:
         - hash
@@ -8410,17 +8410,7 @@ components:
         - starred
         - no_main_func
 
-    Codebase:
-      type: object
-      properties:
-        sha256:
-          type: string
-        relative_path:
-          type: string
-        # kind:
-        #   type: string
-        #   enum: 
-        #     - "tarbun_v1"
+
     NewScript:
       type: object
       properties:
@@ -8495,8 +8485,8 @@ components:
           type: boolean
         no_main_func:
           type: boolean
-        codebase:
-          $ref: "#/components/schemas/Codebase"
+        object_store_sha256:
+          type: string
       required:
         - path
         - summary

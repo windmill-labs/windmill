@@ -16,7 +16,6 @@ use crate::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
         parse_npm_config, read_result, start_child_process, write_file, write_file_binary,
     },
-    global_cache::extract_tar,
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
     DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV,
     TZ_ENV,
@@ -455,7 +454,7 @@ pub async fn generate_wrapper_mjs(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
-    codebase: Option<windmill_common::scripts::Codebase>,
+    object_store_sha256: Option<String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -484,23 +483,23 @@ pub async fn handle_bun_job(
         ));
     }
 
-    if let Some(codebase) = codebase.as_ref() {
+    if let Some(object_store_sha256) = object_store_sha256.as_ref() {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
             .read()
             .await
             .clone()
         {
-            let path = windmill_common::s3_helpers::codebase_id_to_path(
+            let path = windmill_common::s3_helpers::object_store_script_sha256_to_path(
                 &job.workspace_id,
-                &codebase.sha256,
+                &object_store_sha256,
             );
             let bytes = attempt_fetch_bytes(os, &path).await?;
-            extract_tar(bytes, job_dir).await?;
+            // extract_tar(bytes, job_dir).await?;
         }
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         return Err(error::Error::ExecutionErr(
-            "Codebase is an EE feature".to_string(),
+            "object_store_sha256 is an EE feature".to_string(),
         ));
     } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
@@ -568,12 +567,12 @@ pub async fn handle_bun_job(
         // }
     }
 
-    let main_code = if codebase.as_ref().is_some() {
+    let main_code = if object_store_sha256.as_ref().is_some() {
         inner_content.clone()
     } else {
         remove_pinned_imports(inner_content)?
     };
-    let main_path = if let Some(codebase) = codebase.as_ref() {
+    let main_path = if let Some(object_store_sha256) = object_store_sha256.as_ref() {
         "main.ts"
     } else {
         "wrapper.ts"
@@ -663,7 +662,7 @@ try {{
     };
 
     let write_loader_f = async {
-        if !codebase.is_some() {
+        if !object_store_sha256.is_some() {
             build_loader(
                 job_dir,
                 base_internal_url,

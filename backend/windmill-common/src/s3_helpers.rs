@@ -451,6 +451,6 @@ impl CredentialProvider for AwsCredentialAdapter {
     }
 }
 
-pub fn codebase_id_to_path(w_id: &str, id: &str) -> String {
-    format!("codebase/{}/{}", w_id, id)
+pub fn object_store_script_sha256_to_path(w_id: &str, id: &str) -> String {
+    format!("script_bundles/{}/{}", w_id, id)
 }

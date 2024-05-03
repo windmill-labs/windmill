@@ -18,10 +18,7 @@ use object_store::path::Path as OPath;
 use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 
 // use serde::{Deserialize, Serialize};
-use windmill_common::{
-    error::{to_anyhow, Error, JsonResult, Result},
-    s3_helpers::codebase_id_to_path,
-};
+use windmill_common::error::{to_anyhow, Error, JsonResult, Result};
 
 pub fn workspaced_service() -> Router {
     Router::new()

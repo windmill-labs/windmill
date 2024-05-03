@@ -3165,7 +3165,7 @@ async fn run_deployed_relative_imports(db: &Pool<Postgres>, script_content: Stri
             concurrency_key: None,
             visible_to_runner_only: None,
             no_main_func: None,
-            codebase: None,
+            object_store_sha256: None,
         },
     ).await.unwrap();
 
