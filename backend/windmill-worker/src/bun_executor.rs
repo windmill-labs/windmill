@@ -494,7 +494,9 @@ pub async fn handle_bun_job(
                 &job.workspace_id,
                 &object_store_sha256,
             );
+
             let bytes = attempt_fetch_bytes(os, &path).await?;
+            tokio::fs::write(format!("{job_dir}/main.mjs"), &bytes).await?;
             // extract_tar(bytes, job_dir).await?;
         }
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
@@ -567,19 +569,11 @@ pub async fn handle_bun_job(
         // }
     }
 
-    let main_code = if object_store_sha256.as_ref().is_some() {
-        inner_content.clone()
-    } else {
-        remove_pinned_imports(inner_content)?
-    };
-    let main_path = if let Some(object_store_sha256) = object_store_sha256.as_ref() {
-        "main.ts"
-    } else {
-        "wrapper.ts"
-    };
-    let _ = write_file(job_dir, "main.ts", &main_code).await?;
+    let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
 
-    let init_logs = if annotation.nodejs_mode {
+    let init_logs = if object_store_sha256.as_ref().is_some() {
+        "\n\n--- NODE SNAPSHOT EXECUTION ---\n".to_string()
+    } else if annotation.nodejs_mode {
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
@@ -610,9 +604,15 @@ pub async fn handle_bun_job(
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let main_name = main_override.unwrap_or("main".to_string());
 
+        let main_import = if object_store_sha256.as_ref().is_some() {
+            "./main.mjs"
+        } else {
+            "./main.ts"
+        };
+
         let wrapper_content: String = format!(
             r#"
-import {{ {main_name} }} from "./main.ts";
+import {{ {main_name} }} from "{main_import}";
 
 const fs = require('fs/promises');
 
@@ -625,7 +625,7 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res: any = await {main_name}(...args);
+    let res = await {main_name}(...args);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);
@@ -643,7 +643,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.js", &wrapper_content).await?;
         Ok(()) as error::Result<()>
     };
 
