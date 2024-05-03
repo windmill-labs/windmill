@@ -42,6 +42,7 @@ use windmill_common::{
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
+use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_queued_job,
     handle_maybe_scheduled_job, CanceledBy, PushIsolationLevel, WrappedError,
@@ -1201,23 +1202,37 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         && flow_job.script_path.is_some()
         && status.step == 0
     {
-        let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+        let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
 
-        match handle_maybe_scheduled_job(
-            tx,
-            db,
-            flow_job.schedule_path.as_ref().unwrap(),
-            flow_job.script_path.as_ref().unwrap(),
-            &flow_job.workspace_id,
-        )
-        .await
-        {
-            Ok(tx) => {
-                tx.commit().await?;
-            }
-            Err(e) => {
-                tracing::error!("Error during handle_maybe_scheduled_job: {e}");
-            }
+        let schedule_path = flow_job.schedule_path.as_ref().unwrap();
+
+        let schedule =
+            get_schedule_opt(tx.transaction_mut(), &flow_job.workspace_id, schedule_path).await?;
+
+        tx.commit().await?;
+
+        if let Some(schedule) = schedule {
+            if let Err(err) = handle_maybe_scheduled_job(
+                rsmq.clone(),
+                db,
+                flow_job,
+                &schedule,
+                flow_job.script_path.as_ref().unwrap(),
+                &flow_job.workspace_id,
+            )
+            .await
+            {
+                match err {
+                    Error::QuotaExceeded(_) => return Err(err.into()),
+                    // scheduling next job failed and could not disable schedule => make zombie job to retry
+                    _ => return Ok(()),
+                }
+            };
+        } else {
+            tracing::error!(
+                "Schedule {schedule_path} in {} not found. Impossible to schedule again",
+                &flow_job.workspace_id
+            );
         }
     }
 

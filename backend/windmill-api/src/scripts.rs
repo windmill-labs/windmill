@@ -559,7 +559,7 @@ async fn create_script(
             clear_schedule(tx.transaction_mut(), &schedule.path, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(&db, tx, schedule).await?;
+                tx = push_scheduled_job(&db, tx, &schedule).await?;
             }
         }
     } else {

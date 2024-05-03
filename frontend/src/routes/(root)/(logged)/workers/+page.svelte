@@ -17,7 +17,7 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
-	import { AlertTriangle, Plus } from 'lucide-svelte'
+	import { AlertTriangle, FileJson, Plus } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import YAML from 'yaml'
 
@@ -112,29 +112,51 @@
 	let importConfigDrawer: Drawer | undefined = undefined
 	let importConfigCode = ''
 
-	async function importConfig() {
+	async function importSingleWorkerConfig(c: any) {
+		if (typeof c === 'object' && c !== null) {
+			if (!c.name || typeof c.name !== 'string') {
+				throw new Error('Invalid worker group config name')
+			}
+
+			if (workerGroups?.hasOwnProperty(c.name)) {
+				throw new Error(`Worker group config with the name ${c.name} already exists`)
+			}
+
+			await ConfigService.updateConfig({
+				name: 'worker__' + c.name,
+				requestBody: { ...c, name: undefined }
+			})
+		} else {
+			throw new Error('Invalid worker group config')
+		}
+	}
+
+	async function importConfigFromYaml() {
 		const config = YAML.parse(importConfigCode)
 
-		if (!config || config.name == undefined) {
-			sendUserToast('Invalid worker config', true)
+		try {
+			if (Array.isArray(config)) {
+				for (const c of config) {
+					await importSingleWorkerConfig(c)
+				}
+			} else {
+				await importSingleWorkerConfig(config)
+			}
+		} catch (err) {
+			if (err instanceof Error) {
+				sendUserToast(err.message, true)
+			} else {
+				console.error(err)
+				sendUserToast('Could not import worker group config', true)
+			}
 			return
 		}
-
-		if (workerGroups?.hasOwnProperty(config.name)) {
-			sendUserToast('A worker config with this name already exists', true)
-			return
-		}
-
-		await ConfigService.updateConfig({
-			name: 'worker__' + config.name,
-			requestBody: { ...config, name: undefined }
-		})
 
 		importConfigDrawer?.toggleDrawer?.()
 
 		importConfigCode = ''
 
-		sendUserToast('Worker config successfully imported')
+		sendUserToast('Worker group(s) config successfully imported')
 
 		await loadWorkerGroups()
 	}
@@ -142,7 +164,7 @@
 
 <Drawer bind:this={importConfigDrawer} size="800px">
 	<DrawerContent
-		title="Import config from YAML"
+		title="Import groups config from YAML"
 		on:close={() => importConfigDrawer?.toggleDrawer?.()}
 	>
 		<SimpleEditor
@@ -152,7 +174,7 @@
 			fixedOverflowWidgets={false}
 		/>
 		<svelte:fragment slot="actions">
-			<Button size="sm" on:click={importConfig} disabled={!importConfigCode}>Import</Button>
+			<Button size="sm" on:click={importConfigFromYaml} disabled={!importConfigCode}>Import</Button>
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
@@ -165,14 +187,16 @@
 	>
 		{#if $superadmin}
 			<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
-				<div
-					><AssignableTags
+				<div>
+					<AssignableTags
 						on:refresh={() => {
 							loadCustomTags()
 						}}
 					/>
 				</div>
-				<div><DefaultTags bind:defaultTagPerWorkspace /> </div>
+				<div>
+					<DefaultTags bind:defaultTagPerWorkspace />
+				</div>
 			</div>
 		{/if}
 	</PageHeader>
@@ -199,7 +223,25 @@
 						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 					>
 						<svelte:fragment slot="button">
-							<div class="flex items-center">
+							<div class="flex items-center gap-2">
+								<Button
+									size="sm"
+									startIcon={{ icon: FileJson }}
+									on:click={() => {
+										if (!workerGroups) {
+											return sendUserToast('No worker groups found', true)
+										}
+
+										const workersConfig = Object.entries(workerGroups).map(([name, config]) => ({
+											name,
+											...config
+										}))
+										navigator.clipboard.writeText(YAML.stringify(workersConfig))
+										sendUserToast('Worker groups config copied to clipboard as YAML')
+									}}
+								>
+									Copy groups config
+								</Button>
 								<Button
 									size="sm"
 									startIcon={{ icon: Plus }}
@@ -207,7 +249,7 @@
 									dropdownItems={$enterpriseLicense
 										? [
 												{
-													label: 'Import config from YAML',
+													label: 'Import groups config from YAML',
 													onClick: () => {
 														importConfigDrawer?.toggleDrawer?.()
 													}
@@ -215,7 +257,7 @@
 										  ]
 										: undefined}
 								>
-									New worker group config
+									New group config
 									<Tooltip light>
 										Worker Group configs are propagated to every workers in the worker group
 									</Tooltip>
