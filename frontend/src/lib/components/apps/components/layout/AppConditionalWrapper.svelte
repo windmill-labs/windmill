@@ -68,7 +68,12 @@
 </script>
 
 {#each conditions ?? [] as condition, index}
-	<InputValue key="conditions" {id} input={condition} bind:value={resolvedConditions[index]} />
+	<InputValue
+		key="condition{index + 1}"
+		{id}
+		input={condition}
+		bind:value={resolvedConditions[index]}
+	/>
 {/each}
 
 {#each Object.keys(css ?? {}) as key (key)}
