@@ -21,12 +21,16 @@
 		return { value: condition, id: generateRandomString(), originalIndex: index }
 	})
 
-	$: conditions = items.map((item) => item.value).concat([{
-			type: 'evalv2',
-			expr: 'true',
-			fieldType: 'boolean',
-			connections: []
-		}])
+	$: conditions = items
+		.map((item) => item.value)
+		.concat([
+			{
+				type: 'evalv2',
+				expr: 'true',
+				fieldType: 'boolean',
+				connections: []
+			}
+		])
 
 	const { app, runnableComponents, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -90,7 +94,7 @@
 		}
 
 		$runnableComponents = $runnableComponents
-		for (let i = index; i < items.length - 1; i++) {
+		for (let i = index; i < items.length; i++) {
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
 		}
 
@@ -109,7 +113,7 @@
 	}
 
 	function addCondition(): void {
-		const numberOfConditions = items.length
+		const numberOfConditions = conditions.length
 
 		if (!$app.subgrids) {
 			$app.subgrids = {}
@@ -117,7 +121,7 @@
 
 		$app.subgrids[`${component.id}-${numberOfConditions}`] =
 			$app.subgrids[`${component.id}-${numberOfConditions - 1}`]
-		
+
 		$app.subgrids[`${component.id}-${numberOfConditions - 1}`] = []
 
 		const newCondition: AppInputSpec<'boolean', boolean> = {
@@ -132,8 +136,7 @@
 			id: generateRandomString(),
 			originalIndex: items.length
 		})
-
-		component.numberOfSubgrids = items.length
+		component.numberOfSubgrids = items.length + 1
 	}
 </script>
 
@@ -161,27 +164,26 @@
 				<div class="w-full flex flex-row gap-2 items-center relative">
 					<div class={twMerge('grow border p-3 my-2 rounded-md bg-surface relative')}>
 						{#if dragDisabled}
-						<InputsSpecEditor
-							key={`Condition ${index + 1}`}
-							bind:componentInput={item.value}
-							id={component.id}
-							userInputEnabled={false}
-							shouldCapitalize={true}
-							resourceOnly={false}
-							fieldType={condition?.['fieldType']}
-							subFieldType={condition?.['subFieldType']}
-							format={condition?.['format']}
-							selectOptions={condition?.['selectOptions']}
-							tooltip={condition?.['tooltip']}
-							fileUpload={condition?.['fileUpload']}
-							placeholder={condition?.['placeholder']}
-							customTitle={condition?.['customTitle']}
-							displayType={false}
-						/>
+							<InputsSpecEditor
+								key={`condition${index + 1}`}
+								bind:componentInput={item.value}
+								id={component.id}
+								userInputEnabled={false}
+								shouldCapitalize={true}
+								resourceOnly={false}
+								fieldType={condition?.['fieldType']}
+								subFieldType={condition?.['subFieldType']}
+								format={condition?.['format']}
+								selectOptions={condition?.['selectOptions']}
+								tooltip={condition?.['tooltip']}
+								fileUpload={condition?.['fileUpload']}
+								placeholder={condition?.['placeholder']}
+								customTitle={condition?.['customTitle']}
+								displayType={false}
+							/>
 						{:else}
-						<pre><code>{condition?.['expr']}</code></pre>
+							<pre><code>{condition?.['expr']}</code></pre>
 						{/if}
-
 					</div>
 
 					<div class="flex flex-col justify-center gap-2">
@@ -206,7 +208,6 @@
 						</div>
 					</div>
 				</div>
-
 			{/each}
 		</section>
 		<div class="border rounded-md p-3 mb-2">

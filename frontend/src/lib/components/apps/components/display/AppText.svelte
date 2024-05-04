@@ -172,12 +172,17 @@
 			<AlignWrapper {verticalAlignment}>
 				<textarea
 					class={twMerge(
-						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0 text-center',
+						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0',
 						css?.text?.class,
 						'wm-text',
 						classes,
 						getClasses(),
-						getClassesByType()
+						getClassesByType(),
+						horizontalAlignment === 'center'
+							? 'text-center'
+							: horizontalAlignment === 'right'
+							? 'text-right'
+							: 'text-left'
 					)}
 					on:pointerdown|stopPropagation
 					style={css?.text?.style}

@@ -24,7 +24,7 @@
 		{#if component.horizontalAlignment}
 			<ToggleButtonGroup
 				noWFull
-				on:selected={() => (component = component)}
+				on:selected={() => ($app = $app)}
 				bind:selected={component.horizontalAlignment}
 			>
 				<ToggleButton value="left" icon={AlignStartVertical} />
