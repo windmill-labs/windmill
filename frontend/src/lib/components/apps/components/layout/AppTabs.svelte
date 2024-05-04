@@ -104,7 +104,7 @@
 
 {#each disabledTabs ?? [] as disableTab, index}
 	<InputValue
-		key="disable-{index}"
+		key="tabDisabled {index}"
 		{id}
 		input={disableTab}
 		bind:value={resolvedDisabledTabs[index]}
