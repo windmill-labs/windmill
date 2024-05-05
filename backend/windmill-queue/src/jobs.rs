@@ -133,8 +133,7 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
-#[async_recursion]
-pub async fn cancel_job<'c: 'async_recursion>(
+pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
     id: Uuid,
@@ -189,6 +188,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             false,
         )
         .await;
+
         if let Err(e) = add_job {
             tracing::error!("Failed to add canceled job: {}", e);
         }
@@ -199,8 +199,50 @@ pub async fn cancel_job<'c: 'async_recursion>(
             .map_err(|e| anyhow::anyhow!(e))?;
     }
 
+    Ok((tx, Some(id)))
+}
+
+pub async fn cancel_job<'c>(
+    username: &str,
+    reason: Option<String>,
+    id: Uuid,
+    w_id: &str,
+    mut tx: Transaction<'c, Postgres>,
+    db: &Pool<Postgres>,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    force_cancel: bool,
+) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
+    // take parents
     let mut jobs = vec![id];
     let mut jobs_to_cancel = vec![];
+    while !jobs.is_empty() {
+        let c_job = jobs.pop();
+        let new_jobs = sqlx::query_scalar!(
+            "SELECT parent_job as \"parent_job!\" FROM queue WHERE id = $1 AND workspace_id = $2 AND parent_job IS NOT NULL",
+            c_job,
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        jobs.extend(new_jobs.clone());
+        jobs_to_cancel.extend(new_jobs);
+    }
+
+    let (ntx, _) = cancel_single_job(
+        username,
+        reason.clone(),
+        id,
+        w_id,
+        tx,
+        db,
+        rsmq.clone(),
+        force_cancel,
+    )
+    .await?;
+    tx = ntx;
+
+    // take children
+    jobs = vec![id];
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
@@ -213,8 +255,10 @@ pub async fn cancel_job<'c: 'async_recursion>(
         jobs.extend(new_jobs.clone());
         jobs_to_cancel.extend(new_jobs);
     }
+
+    // cancel all parents and children
     for job in jobs_to_cancel {
-        let (ntx, _) = cancel_job(
+        let (ntx, _) = cancel_single_job(
             username,
             reason.clone(),
             job,
@@ -633,7 +677,8 @@ pub async fn add_completed_job<
             if let Some(schedule) = schedule {
                 skip_downstream_error_handlers = schedule.ws_error_handler_muted;
 
-                if !queued_job.is_flow() {
+                // script or canceled flow
+                if !queued_job.is_flow() || !queued_job.is_flow_step && queued_job.canceled {
                     // script only
                     if let Err(err) = handle_maybe_scheduled_job(
                         rsmq.clone(),
