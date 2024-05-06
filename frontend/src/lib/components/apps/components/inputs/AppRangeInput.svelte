@@ -111,7 +111,7 @@
 				on:pointerdown|stopPropagation
 			>
 				<RangeSlider
-					id="label"
+					id="range-slider"
 					springValues={{ stiffness: 1, damping: 1 }}
 					bind:slider
 					bind:values
@@ -127,28 +127,38 @@
 					pipstep={(resolvedConfig.axisStep ?? 1) / (resolvedConfig.step ?? 1)}
 					formatter={format}
 				/>
-
-				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
 		</div>
 	</div>
 </AlignWrapper>
 
 <style>
-	:global(#label.rangeSlider) {
+	:global(#range-slider.rangeSlider) {
 		font-size: 12px;
 		text-transform: uppercase;
 	}
 
-	:global(#label.rangeSlider .rangeHandle) {
+	:global(.dark #range-slider.rangeSlider) {
+		background-color: #3b4252;
+	}
+
+	:global(#range-slider.rangeSlider .rangeHandle) {
 		width: 2em;
 		height: 2em;
 	}
 
-	:global(#label.rangeSlider .rangeFloat) {
+	:global(#range-slider.rangeSlider .rangeFloat) {
 		opacity: 1;
 		background: transparent;
 		top: 50%;
 		transform: translate(-50%, -50%);
+	}
+
+	:global(#range-slider.rangeSlider .rangeNub) {
+		background-color: #7e9abd;
+	}
+
+	:global(.dark #range-slider.rangeSlider > .rangePips > .pip) {
+		color: #eeeeee;
 	}
 </style>
