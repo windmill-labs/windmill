@@ -200,7 +200,7 @@
 					</div>
 
 					{#if canDisableTabs && disabledTabs}
-						<GridTabDisabled bind:field={disabledTabs[index]} id={component.id} />
+						<GridTabDisabled {index} bind:field={disabledTabs[index]} id={component.id} />
 					{/if}
 				</div>
 			{/each}

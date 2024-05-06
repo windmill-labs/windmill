@@ -1,15 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
-	import { deleteGridItem } from '../appUtils'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
+	import { deleteGridItem, findComponentSettings } from '../appUtils'
 	import { push } from '$lib/history'
 
-	export let componentSettings:
-		| {
-				item: GridItem
-				parent: string
-		  }[]
-		| any = []
 	export let onDelete: (() => void) | undefined = undefined
 	export let noGrid = false
 
@@ -26,45 +20,42 @@
 	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	export function removeGridElement() {
+		const id = $selectedComponent?.[0]
+		const componentSetting = findComponentSettings($app, id)
 		push(history, $app)
 
-		componentSettings?.forEach((componentSetting) => {
-			const id = componentSetting?.item?.id
+		const onDeleteComponentControl = id ? $componentControl[id]?.onDelete : undefined
+		if (onDeleteComponentControl) {
+			onDeleteComponentControl()
+		}
+		if (onDelete) {
+			onDelete()
+		}
 
-			const onDeleteComponentControl = id ? $componentControl[id]?.onDelete : undefined
-			if (onDeleteComponentControl) {
-				onDeleteComponentControl()
+		if (id) {
+			delete $worldStore.outputsById[id]
+			delete $errorByComponent[id]
+
+			if ($movingcomponents?.includes(id)) {
+				$movingcomponents = $movingcomponents.filter((_id) => _id !== id)
 			}
-			if (onDelete) {
-				onDelete()
+		}
+
+		$selectedComponent = undefined
+		$focusedGrid = undefined
+		if (componentSetting?.item && !noGrid) {
+			let ids = deleteGridItem($app, componentSetting?.item.data, componentSetting?.parent)
+			for (const key of ids) {
+				delete $runnableComponents[key]
 			}
+		}
 
-			let cId = componentSetting?.item.id
-			if (cId) {
-				delete $worldStore.outputsById[cId]
-				delete $errorByComponent[cId]
+		if (componentSetting?.item?.data?.id) {
+			delete $runnableComponents[componentSetting?.item?.data?.id]
+		}
+		$app = $app
+		$runnableComponents = $runnableComponents
 
-				if ($movingcomponents?.includes(cId)) {
-					$movingcomponents = $movingcomponents.filter((id) => id !== cId)
-				}
-			}
-
-			$selectedComponent = undefined
-			$focusedGrid = undefined
-			if (componentSetting?.item && !noGrid) {
-				let ids = deleteGridItem($app, componentSetting?.item.data, componentSetting?.parent)
-				for (const key of ids) {
-					delete $runnableComponents[key]
-				}
-			}
-
-			if (componentSetting?.item?.data?.id) {
-				delete $runnableComponents[componentSetting?.item?.data?.id]
-			}
-			$app = $app
-			$runnableComponents = $runnableComponents
-
-			onDelete?.()
-		})
+		onDelete?.()
 	}
 </script>

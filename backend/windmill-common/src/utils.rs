@@ -6,11 +6,14 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::ee::LICENSE_KEY_ID;
+use crate::ee::{trigger_critical_error_channels, LICENSE_KEY_ID};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
+use crate::server::Smtp;
 use crate::DB;
 use git_version::git_version;
+use mail_send::mail_builder::MessageBuilder;
+use mail_send::SmtpClientBuilder;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -85,12 +88,20 @@ pub async fn query_elems_from_hub(
     url: &str,
     query_params: Option<Vec<(&str, String)>>,
     db: &DB,
-) -> Result<(reqwest::StatusCode, reqwest::header::HeaderMap, axum::body::Body)> {
+) -> Result<(
+    reqwest::StatusCode,
+    reqwest::header::HeaderMap,
+    axum::body::Body,
+)> {
     let response = http_get_from_hub(http_client, url, false, query_params, db).await?;
 
     let status = response.status();
 
-    Ok((status, response.headers().clone(), axum::body::Body::from_stream(response.bytes_stream())))
+    Ok((
+        status,
+        response.headers().clone(),
+        axum::body::Body::from_stream(response.bytes_stream()),
+    ))
 }
 
 pub async fn http_get_from_hub(
@@ -166,4 +177,61 @@ pub enum Mode {
     Agent,
     Server,
     Standalone,
+}
+
+pub async fn send_email(
+    subject: &str,
+    content: &str,
+    to: Vec<String>,
+    smtp: Smtp,
+    client_timeout: Option<tokio::time::Duration>,
+) -> Result<()> {
+    let mut client = SmtpClientBuilder::new(smtp.host, smtp.port)
+        .implicit_tls(smtp.tls_implicit.unwrap_or(false));
+    if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
+        client = client.allow_invalid_certs();
+    }
+    let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
+        if !username.is_empty() {
+            client.credentials((username, password))
+        } else {
+            client
+        }
+    } else {
+        client
+    };
+    let message = MessageBuilder::new()
+        .from(("Windmill", smtp.from.as_str()))
+        .to(to.clone())
+        .subject(subject)
+        .text_body(content);
+
+    match client_timeout {
+        Some(timeout) => {
+            tokio::time::timeout(timeout, client.connect())
+                .await
+                .map_err(to_anyhow)?
+                .map_err(to_anyhow)?
+                .send(message)
+                .await
+                .map_err(to_anyhow)?;
+        }
+        None => {
+            client
+                .connect()
+                .await
+                .map_err(to_anyhow)?
+                .send(message)
+                .await
+                .map_err(to_anyhow)?;
+        }
+    }
+    tracing::info!("Sent email to {:#?}: {subject}", to);
+
+    return Ok(());
+}
+
+pub async fn report_critical_error(error_message: String) -> () {
+    tracing::error!("CRITICAL ERROR: {error_message}");
+    trigger_critical_error_channels(error_message).await;
 }

@@ -24,7 +24,7 @@
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { List, Save } from 'lucide-svelte'
+	import { List, Loader2, Save } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 
@@ -59,8 +59,7 @@
 	let runnable: Script | Flow | undefined
 	let args: Record<string, any> = {}
 
-	let argLoader = 0
-
+	let loading = false
 	export function openEdit(ePath: string, isFlow: boolean) {
 		is_flow = isFlow
 		initialPath = ePath
@@ -115,7 +114,9 @@
 			errorHandleritemKind = 'script'
 			errorHandlerExtraArgs = {}
 			errorHandlerCustomInitialPath = undefined
-			errorHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
+			errorHandlerSelected = 'slack'
+			failedTimes = 1
+			failedExact = false
 		}
 		if (defaultRecoveryHandlerMaybe !== undefined && defaultRecoveryHandlerMaybe !== null) {
 			let splitted = (defaultRecoveryHandlerMaybe['recoveryHandlerPath'] as string).split('/')
@@ -130,7 +131,8 @@
 			recoveryHandlerItemKind = 'script'
 			recoveryHandlerExtraArgs = {}
 			recoveryHandlerCustomInitialPath = undefined
-			recoveryHandlerSelected = $enterpriseLicense ? 'slack' : 'custom'
+			recoveryHandlerSelected = 'slack'
+			recoveredTimes = 1
 		}
 		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
@@ -235,6 +237,7 @@
 
 	let can_write = true
 	async function loadSchedule(): Promise<void> {
+		loading = true
 		try {
 			const s = await ScheduleService.getSchedule({
 				workspace: $workspaceStore!,
@@ -263,6 +266,11 @@
 			} else {
 				errorHandlerPath = undefined
 				errorHandleritemKind = 'script'
+				errorHandlerCustomInitialPath = undefined
+				errorHandlerExtraArgs = {}
+				failedExact = false
+				failedTimes = 1
+				errorHandlerSelected = 'slack'
 			}
 			if (s.on_recovery) {
 				let splitted = s.on_recovery.split('/')
@@ -277,14 +285,18 @@
 			} else {
 				recoveryHandlerPath = undefined
 				recoveryHandlerItemKind = 'script'
+				recoveryHandlerCustomInitialPath = undefined
+				recoveredTimes = 1
+				recoveryHandlerSelected = 'slack'
+				recoveryHandlerExtraArgs = {}
 			}
 			args = s.args ?? {}
-			argLoader++
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 			tag = s.tag
 		} catch (err) {
 			sendUserToast(`Could not load schedule: ${err}`, true)
 		}
+		loading = false
 	}
 
 	async function scheduleScript(): Promise<void> {
@@ -510,7 +522,7 @@
 						}}
 					/>
 				{:else}
-					<Alert type="info" title="Runnable path cannot be edited">
+					<Alert type="info" title="Runnable path cannot be edited" collapsible>
 						Once a schedule is created, the runnable path cannot be changed. However, when renaming
 						a script or a flow, the runnable path will automatically update itself.
 					</Alert>
@@ -539,9 +551,9 @@
 					</div>
 				{/if}
 				<div class="mt-6">
-					{#if runnable}
-						{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-							{#key argLoader}
+					{#if !loading}
+						{#if runnable}
+							{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
 								<SchemaForm
 									showReset
 									disabled={!can_write}
@@ -549,239 +561,248 @@
 									bind:isValid
 									bind:args
 								/>
-							{/key}
+							{:else}
+								<div class="text-xs texg-gray-700">
+									This {is_flow ? 'flow' : 'script'} takes no argument
+								</div>
+							{/if}
 						{:else}
-							<div class="text-xs texg-gray-700">
-								This {is_flow ? 'flow' : 'script'} takes no argument
+							<div class="text-xs texg-gray-700 my-2">
+								Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
 							</div>
 						{/if}
 					{:else}
-						<div class="text-xs texg-gray-700 my-2">
-							Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
-						</div>
+						<Loader2 class="animate-spin" />
 					{/if}
 				</div>
 			</Section>
 
 			<div class="flex flex-col gap-2">
-				<Tabs bind:selected={optionTabSelected}>
-					<Tab value="error_handler">Error Handler</Tab>
-					<Tab value="recovery_handler">Recovery Handler</Tab>
-					{#if itemKind === 'script'}
-						<Tab value="retries">Retries</Tab>
-						<Tab value="tag">Custom tag</Tab>
-					{/if}
-				</Tabs>
-				<div class="pt-0.5" />
-				{#if optionTabSelected === 'error_handler'}
-					<Section label="Error handler">
-						<svelte:fragment slot="header">
-							<div class="flex flex-row gap-2">
-								{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
-							</div>
-						</svelte:fragment>
-						<svelte:fragment slot="action">
-							<div class="flex flex-row items-center gap-2">
-								<Dropdown
-									items={[
-										{
-											displayName: `Future schedules only`,
-											action: () => saveAsDefaultErrorHandler(false)
-										},
-										{
-											displayName: 'Override all existing',
-											type: 'delete',
-											action: () => saveAsDefaultErrorHandler(true)
-										}
-									]}
-								>
-									<svelte:fragment>
-										<Save size={12} class="mr-1" />
-										Set as default
-									</svelte:fragment>
-								</Dropdown>
-							</div>
-						</svelte:fragment>
-						<div class="flex flex-row">
-							<Toggle
-								disabled={!can_write || !$enterpriseLicense}
-								bind:checked={wsErrorHandlerMuted}
-								options={{ right: 'Mute workspace error handler for this schedule' }}
-							/>
-						</div>
-						<ErrorOrRecoveryHandler
-							isEditable={can_write}
-							errorOrRecovery="error"
-							showScriptHelpText={true}
-							bind:handlerSelected={errorHandlerSelected}
-							bind:handlerPath={errorHandlerPath}
-							customInitialScriptPath={errorHandlerCustomInitialPath}
-							slackToggleText="Alert channel on error"
-							customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
-							bind:customHandlerKind={errorHandleritemKind}
-							bind:handlerExtraArgs={errorHandlerExtraArgs}
-						>
-							<svelte:fragment slot="custom-tab-tooltip">
-								<Tooltip>
-									<div class="flex gap-20 items-start mt-3">
-										<div class="text-sm"
-											>The following args will be passed to the error handler:
-											<ul class="mt-1 ml-2">
-												<li><b>path</b>: The path of the script or flow that failed.</li>
-												<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-												<li><b>schedule_path</b>: The path of the schedule.</li>
-												<li><b>error</b>: The error details.</li>
-												<li
-													><b>failed_times</b>: Minimum number of times the schedule failed before
-													calling the error handler.</li
-												>
-												<li><b>started_at</b>: The start datetime of the latest job that failed.</li
-												>
-											</ul>
-										</div>
-									</div>
-								</Tooltip>
+				{#if !loading}
+					<Tabs bind:selected={optionTabSelected}>
+						<Tab value="error_handler">Error Handler</Tab>
+						<Tab value="recovery_handler">Recovery Handler</Tab>
+						{#if itemKind === 'script'}
+							<Tab value="retries">Retries</Tab>
+							<Tab value="tag">Custom tag</Tab>
+						{/if}
+					</Tabs>
+					<div class="pt-0.5" />
+					{#if optionTabSelected === 'error_handler'}
+						<Section label="Error handler">
+							<svelte:fragment slot="header">
+								<div class="flex flex-row gap-2">
+									{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								</div>
 							</svelte:fragment>
-						</ErrorOrRecoveryHandler>
-
-						<div class="flex flex-row items-center justify-between">
-							<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-								<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
-									Triggered when schedule failed</p
-								>
-								<select
-									class="!w-14"
-									bind:value={failedExact}
-									disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
-								>
-									<option value={false}>&gt;=</option>
-									<option value={true}>==</option>
-								</select>
-								<input
-									type="number"
-									class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
-									bind:value={failedTimes}
-									disabled={!$enterpriseLicense}
-									min="1"
+							<svelte:fragment slot="action">
+								<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
+									defaults
+									<Dropdown
+										items={[
+											{
+												displayName: `Override future schedules only`,
+												action: () => saveAsDefaultErrorHandler(false)
+											},
+											{
+												displayName: 'Override all existing',
+												type: 'delete',
+												action: () => saveAsDefaultErrorHandler(true)
+											}
+										]}
+									>
+										<svelte:fragment>
+											<Save size={12} class="mr-1" />
+											Set as default
+										</svelte:fragment>
+									</Dropdown>
+								</div>
+							</svelte:fragment>
+							<div class="flex flex-row py-2">
+								<Toggle
+									size="xs"
+									disabled={!can_write || !$enterpriseLicense}
+									bind:checked={wsErrorHandlerMuted}
+									options={{ right: 'Mute workspace error handler for this schedule' }}
 								/>
-								<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
-									>time{failedTimes > 1 ? 's in a row' : ''}</p
-								>
 							</div>
-						</div>
-					</Section>
-				{:else if optionTabSelected === 'recovery_handler'}
-					<Section label="Recovery handler">
-						<svelte:fragment slot="header">
-							<div class="flex flex-row gap-2">
-								{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
-							</div>
-						</svelte:fragment>
-						<svelte:fragment slot="action">
-							<div class="flex flex-row items-center gap-2">
-								<Dropdown
-									items={[
-										{
-											displayName: `Future schedules only`,
-											action: () => saveAsDefaultRecoveryHandler(false)
-										},
-										{
-											displayName: 'Override all existing',
-											type: 'delete',
-											action: () => saveAsDefaultRecoveryHandler(true)
-										}
-									]}
-								>
-									<svelte:fragment>
-										<Save size={12} class="mr-1" />
-										Set as default
-									</svelte:fragment>
-								</Dropdown>
-							</div>
-						</svelte:fragment>
 
-						<ErrorOrRecoveryHandler
-							isEditable={can_write && !emptyString($enterpriseLicense)}
-							errorOrRecovery="recovery"
-							bind:handlerSelected={recoveryHandlerSelected}
-							bind:handlerPath={recoveryHandlerPath}
-							customInitialScriptPath={recoveryHandlerCustomInitialPath}
-							slackToggleText="Alert channel when error recovered"
-							customScriptTemplate="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
-							bind:customHandlerKind={recoveryHandlerItemKind}
-							bind:handlerExtraArgs={recoveryHandlerExtraArgs}
-						>
-							<svelte:fragment slot="custom-tab-tooltip">
-								<Tooltip>
-									<div class="flex gap-20 items-start mt-3">
-										<div class=" text-sm"
-											>The following args will be passed to the recovery handler:
-											<ul class="mt-1 ml-2">
-												<li><b>path</b>: The path of the script or flow that recovered.</li>
-												<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-												<li><b>schedule_path</b>: The path of the schedule.</li>
-												<li><b>error</b>: The error of the last job that errored</li>
-												<li
-													><b>error_started_at</b>: The start datetime of the last job that errored</li
-												>
-												<li
-													><b>success_times</b>: The number of times the schedule succeeded before
-													calling the recovery handler.</li
-												>
-												<li><b>success_result</b>: The result of the latest successful job</li>
-												<li
-													><b>success_started_at</b>: The start datetime of the latest successful
-													job</li
-												>
-											</ul>
-										</div>
-									</div>
-								</Tooltip>
-							</svelte:fragment>
-						</ErrorOrRecoveryHandler>
-
-						<div class="flex flex-row items-center justify-between">
-							<div
-								class="flex flex-row items-center mt-5 font-semibold text-sm {emptyString(
-									recoveryHandlerPath
-								)
-									? 'text-tertiary'
-									: ''}"
+							<ErrorOrRecoveryHandler
+								isEditable={can_write}
+								errorOrRecovery="error"
+								showScriptHelpText={true}
+								bind:handlerSelected={errorHandlerSelected}
+								bind:handlerPath={errorHandlerPath}
+								customInitialScriptPath={errorHandlerCustomInitialPath}
+								slackToggleText="Alert channel on error"
+								customScriptTemplate="/scripts/add?hub=hub%2F2420%2Fwindmill%2Fschedule_error_handler_template"
+								bind:customHandlerKind={errorHandleritemKind}
+								bind:handlerExtraArgs={errorHandlerExtraArgs}
 							>
-								<p>Triggered when schedule recovered</p>
-								<input
-									type="number"
-									class="!w-14 mx-2 text-center"
-									bind:value={recoveredTimes}
-									min="1"
-								/>
-								<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
+								<svelte:fragment slot="custom-tab-tooltip">
+									<Tooltip>
+										<div class="flex gap-20 items-start mt-3">
+											<div class="text-sm"
+												>The following args will be passed to the error handler:
+												<ul class="mt-1 ml-2">
+													<li><b>path</b>: The path of the script or flow that failed.</li>
+													<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+													<li><b>schedule_path</b>: The path of the schedule.</li>
+													<li><b>error</b>: The error details.</li>
+													<li
+														><b>failed_times</b>: Minimum number of times the schedule failed before
+														calling the error handler.</li
+													>
+													<li
+														><b>started_at</b>: The start datetime of the latest job that failed.</li
+													>
+												</ul>
+											</div>
+										</div>
+									</Tooltip>
+								</svelte:fragment>
+							</ErrorOrRecoveryHandler>
+							<div class="flex flex-row items-center justify-between">
+								<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
+									<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
+										Triggered when schedule failed</p
+									>
+									<select
+										class="!w-14"
+										bind:value={failedExact}
+										disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
+									>
+										<option value={false}>&gt;=</option>
+										<option value={true}>==</option>
+									</select>
+									<input
+										type="number"
+										class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
+										bind:value={failedTimes}
+										disabled={!$enterpriseLicense}
+										min="1"
+									/>
+									<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
+										>time{failedTimes > 1 ? 's in a row' : ''}</p
+									>
+								</div>
 							</div>
-						</div>
-					</Section>
-				{:else if optionTabSelected === 'retries'}
-					<Section label="Retries">
-						<svelte:fragment slot="header">
-							<div class="flex flex-row gap-2">
-								{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+						</Section>
+					{:else if optionTabSelected === 'recovery_handler'}
+						<Section label="Recovery handler">
+							<svelte:fragment slot="header">
+								<div class="flex flex-row gap-2">
+									{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								</div>
+							</svelte:fragment>
+							<svelte:fragment slot="action">
+								<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
+									defaults
+									<Dropdown
+										items={[
+											{
+												displayName: `Override future schedules only`,
+												action: () => saveAsDefaultRecoveryHandler(false)
+											},
+											{
+												displayName: 'Override all existing',
+												type: 'delete',
+												action: () => saveAsDefaultRecoveryHandler(true)
+											}
+										]}
+									>
+										<svelte:fragment>
+											<Save size={12} class="mr-1" />
+											Set as default
+										</svelte:fragment>
+									</Dropdown>
+								</div>
+							</svelte:fragment>
+							<ErrorOrRecoveryHandler
+								isEditable={can_write && !emptyString($enterpriseLicense)}
+								errorOrRecovery="recovery"
+								bind:handlerSelected={recoveryHandlerSelected}
+								bind:handlerPath={recoveryHandlerPath}
+								customInitialScriptPath={recoveryHandlerCustomInitialPath}
+								slackToggleText="Alert channel when error recovered"
+								customScriptTemplate="/scripts/add?hub=hub%2F2421%2Fwindmill%2Fschedule_recovery_handler_template"
+								bind:customHandlerKind={recoveryHandlerItemKind}
+								bind:handlerExtraArgs={recoveryHandlerExtraArgs}
+							>
+								<svelte:fragment slot="custom-tab-tooltip">
+									<Tooltip>
+										<div class="flex gap-20 items-start mt-3">
+											<div class=" text-sm"
+												>The following args will be passed to the recovery handler:
+												<ul class="mt-1 ml-2">
+													<li><b>path</b>: The path of the script or flow that recovered.</li>
+													<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+													<li><b>schedule_path</b>: The path of the schedule.</li>
+													<li><b>error</b>: The error of the last job that errored</li>
+													<li
+														><b>error_started_at</b>: The start datetime of the last job that
+														errored</li
+													>
+													<li
+														><b>success_times</b>: The number of times the schedule succeeded before
+														calling the recovery handler.</li
+													>
+													<li><b>success_result</b>: The result of the latest successful job</li>
+													<li
+														><b>success_started_at</b>: The start datetime of the latest successful
+														job</li
+													>
+												</ul>
+											</div>
+										</div>
+									</Tooltip>
+								</svelte:fragment>
+							</ErrorOrRecoveryHandler>
+							<div class="flex flex-row items-center justify-between">
+								<div
+									class="flex flex-row items-center mt-5 font-semibold text-sm {emptyString(
+										recoveryHandlerPath
+									)
+										? 'text-tertiary'
+										: ''}"
+								>
+									<p>Triggered when schedule recovered</p>
+									<input
+										type="number"
+										class="!w-14 mx-2 text-center"
+										bind:value={recoveredTimes}
+										min="1"
+									/>
+									<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
+								</div>
 							</div>
-							<Tooltip>
-								If defined, upon error this schedule will be retried with a delay and a maximum
-								number of attempts as defined below.
-								<br />
-								This is only available for individual script. For flows, retries can be set on each flow
-								step in the flow editor.
-							</Tooltip>
-						</svelte:fragment>
-						<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script'} />
-					</Section>
-				{:else if optionTabSelected === 'tag'}
-					<Section
-						label="Custom script tag"
-						tooltip="When set, the script tag will be overridden by this tag"
-					>
-						<WorkerTagPicker bind:tag popupPlacement="top-end" />
-					</Section>
+						</Section>
+					{:else if optionTabSelected === 'retries'}
+						<Section label="Retries">
+							<svelte:fragment slot="header">
+								<div class="flex flex-row gap-2">
+									{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								</div>
+								<Tooltip>
+									If defined, upon error this schedule will be retried with a delay and a maximum
+									number of attempts as defined below.
+									<br />
+									This is only available for individual script. For flows, retries can be set on each
+									flow step in the flow editor.
+								</Tooltip>
+							</svelte:fragment>
+							<FlowRetries bind:flowModuleRetry={retry} disabled={itemKind !== 'script'} />
+						</Section>
+					{:else if optionTabSelected === 'tag'}
+						<Section
+							label="Custom script tag"
+							tooltip="When set, the script tag will be overridden by this tag"
+						>
+							<WorkerTagPicker bind:tag popupPlacement="top-end" />
+						</Section>
+					{/if}
+				{:else}
+					<Loader2 class="animate-spin" />
 				{/if}
 			</div>
 		</div>

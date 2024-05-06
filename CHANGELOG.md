@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.323.6](https://github.com/windmill-labs/windmill/compare/v1.323.5...v1.323.6) (2024-05-02)
+
+
+### Bug Fixes
+
+* **frontend:** Handle empty error message in toast + hide GridEditorM… ([#3664](https://github.com/windmill-labs/windmill/issues/3664)) ([5bae66a](https://github.com/windmill-labs/windmill/commit/5bae66aec3f00e2096ba06220ca2705488e4dfec))
+
+## [1.323.5](https://github.com/windmill-labs/windmill/compare/v1.323.4...v1.323.5) (2024-05-01)
+
+
+### Bug Fixes
+
+* re-release nit ([caa11c6](https://github.com/windmill-labs/windmill/commit/caa11c6506656e451352a4d437813ddfd2893225))
+
+## [1.323.4](https://github.com/windmill-labs/windmill/compare/v1.323.3...v1.323.4) (2024-05-01)
+
+
+### Bug Fixes
+
+* handle list of errors for schedule error handler ([96760b2](https://github.com/windmill-labs/windmill/commit/96760b296462855c2819d559687fa8b12c6336b0))
+* improve schedule editor UX ([774a35f](https://github.com/windmill-labs/windmill/commit/774a35f223b86444877f04b1a18b2f138ed75420))
+
+## [1.323.3](https://github.com/windmill-labs/windmill/compare/v1.323.2...v1.323.3) (2024-05-01)
+
+
+### Bug Fixes
+
+* add WM_WORKER_GROUP to get worker group from script ([0855cdd](https://github.com/windmill-labs/windmill/commit/0855cdd946e55b8f394a7721ed424bc66702691c))
+
+## [1.323.2](https://github.com/windmill-labs/windmill/compare/v1.323.1...v1.323.2) (2024-05-01)
+
+
+### Bug Fixes
+
+* **frontend:** Disable the insert button when required fields are empty strings ([#3659](https://github.com/windmill-labs/windmill/issues/3659)) ([7df4f02](https://github.com/windmill-labs/windmill/commit/7df4f02529de6e0d37135c9bef3da528be3e21a2))
+* **frontend:** use normal password mask for the sensitive fields of the resource editor ([c8b439d](https://github.com/windmill-labs/windmill/commit/c8b439df5b6f1e48cced5f9cc2fd7882fc88d407))
+
 ## [1.323.1](https://github.com/windmill-labs/windmill/compare/v1.323.0...v1.323.1) (2024-05-01)
 
 

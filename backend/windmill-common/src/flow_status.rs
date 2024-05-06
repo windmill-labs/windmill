@@ -29,7 +29,7 @@ pub fn is_retry_default(v: &RetryStatus) -> bool {
 pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
-    pub failure_module: FlowStatusModuleWParent,
+    pub failure_module: Box<FlowStatusModuleWParent>,
 
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
@@ -227,7 +227,7 @@ impl FlowStatus {
                 .iter()
                 .map(|m| FlowStatusModule::WaitingForPriorSteps { id: m.id.clone() })
                 .collect(),
-            failure_module: FlowStatusModuleWParent {
+            failure_module: Box::new(FlowStatusModuleWParent {
                 parent_module: None,
                 module_status: FlowStatusModule::WaitingForPriorSteps {
                     id: f
@@ -236,7 +236,7 @@ impl FlowStatus {
                         .map(|x| x.id.clone())
                         .unwrap_or_else(|| "failure".to_string()),
                 },
-            },
+            }),
             cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,

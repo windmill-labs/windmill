@@ -543,7 +543,7 @@ async fn update_flow(
         clear_schedule(tx.transaction_mut(), &schedule.path, &w_id).await?;
 
         if schedule.enabled {
-            tx = push_scheduled_job(&db, tx, schedule).await?;
+            tx = push_scheduled_job(&db, tx, &schedule).await?;
         }
     }
 
@@ -955,7 +955,7 @@ mod tests {
                     continue_on_error: None,
                 },
             ],
-            failure_module: Some(FlowModule {
+            failure_module: Some(Box::new(FlowModule {
                 id: "d".to_string(),
                 value: FlowModuleValue::Script {
                     path: "test".to_string(),
@@ -977,7 +977,7 @@ mod tests {
                 priority: None,
                 delete_after_use: None,
                 continue_on_error: None,
-            }),
+            })),
             same_worker: false,
             concurrent_limit: None,
             concurrency_time_window_s: None,

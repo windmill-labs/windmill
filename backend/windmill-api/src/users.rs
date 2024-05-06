@@ -32,8 +32,6 @@ use axum::{
 };
 use hyper::{header::LOCATION, StatusCode};
 use lazy_static::lazy_static;
-use mail_send::mail_builder::MessageBuilder;
-use mail_send::SmtpClientBuilder;
 use quick_cache::sync::Cache;
 use rand::rngs::OsRng;
 use regex::Regex;
@@ -46,10 +44,11 @@ use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::users::truncate_token;
+use windmill_common::utils::send_email;
 use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
-    error::{self, to_anyhow, Error, JsonResult, Result},
+    error::{self, Error, JsonResult, Result},
     users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
@@ -1824,41 +1823,15 @@ pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
     let content = content.to_string();
     let to = to.to_string();
     tokio::spawn(async move {
-        if let Err(e) = send_email_if_possible_intern(&subject, &content, &to).await {
-            tracing::error!("Failed to send email to {}: {}", &to, e);
+        if let Err(e) = send_email_if_possible_intern(&subject, &content, to.clone()).await {
+            tracing::error!("Failed to send email to {}: {}", to, e);
         }
     });
 }
 
-pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: &str) -> Result<()> {
+pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: String) -> Result<()> {
     if let Some(smtp) = SERVER_CONFIG.read().await.smtp.clone() {
-        let mut client = SmtpClientBuilder::new(smtp.host, smtp.port)
-            .implicit_tls(smtp.tls_implicit.unwrap_or(false));
-        if std::env::var("ACCEPT_INVALID_CERTS").is_ok() {
-            client = client.allow_invalid_certs();
-        }
-        let client = if let (Some(username), Some(password)) = (smtp.username, smtp.password) {
-            if !username.is_empty() {
-                client.credentials((username, password))
-            } else {
-                client
-            }
-        } else {
-            client
-        };
-        let message = MessageBuilder::new()
-            .from(("Windmill", smtp.from.as_str()))
-            .to(to)
-            .subject(subject)
-            .text_body(content);
-        client
-            .connect()
-            .await
-            .map_err(to_anyhow)?
-            .send(message)
-            .await
-            .map_err(to_anyhow)?;
-        tracing::info!("Sent email to {to}: {subject}");
+        send_email(subject, content, vec![to], smtp, None).await?;
     }
     return Ok(());
 }

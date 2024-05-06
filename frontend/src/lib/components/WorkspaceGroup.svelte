@@ -822,11 +822,10 @@
 			color="light"
 			size="xs"
 			on:click={() => {
-				loadNConfig()
 				navigator.clipboard.writeText(
 					YAML.stringify({
 						name,
-						...nconfig
+						...config
 					})
 				)
 				sendUserToast('Worker config copied to clipboard as YAML')

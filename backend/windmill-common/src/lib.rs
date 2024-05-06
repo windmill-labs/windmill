@@ -11,6 +11,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+use ee::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
@@ -44,7 +45,7 @@ pub mod workspaces;
 pub mod tracing_init;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
-pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 4;
+pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 
@@ -73,6 +74,9 @@ lazy_static::lazy_static! {
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
+
+
+    pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
 }
 
 pub async fn shutdown_signal(

@@ -12,7 +12,10 @@
 
 	async function generateValue() {
 		let npath =
-			'u/' + ($userStore?.username ?? $userStore?.email) + '/secret_arg/' + generateRandomString(12)
+			'u/' +
+			($userStore?.username ?? $userStore?.email)?.split('@')[0] +
+			'/secret_arg/' +
+			generateRandomString(12)
 		let nvalue = '$var:' + npath
 		await VariableService.createVariable({
 			workspace: $workspaceStore!,
