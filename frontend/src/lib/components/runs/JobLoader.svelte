@@ -52,6 +52,7 @@
 			success &&
 			isSkipped != undefined &&
 			jobKinds &&
+			concurrencyKey &&
 			user &&
 			folder &&
 			showFutureJobs != undefined &&

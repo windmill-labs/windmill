@@ -188,6 +188,7 @@
 								on:filterByPath
 								on:filterByUser
 								on:filterByFolder
+								on:filterByConcurrencyKey
 								{containerWidth}
 							/>
 						</div>

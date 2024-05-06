@@ -266,6 +266,7 @@
 		user = null
 		folder = null
 		label = null
+		concurrencyKey = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -273,6 +274,7 @@
 		folder = null
 		user = e.detail
 		label = null
+		concurrencyKey = null
 	}
 
 	function filterByFolder(e: CustomEvent<string>) {
@@ -280,6 +282,7 @@
 		user = null
 		folder = e.detail
 		label = null
+		concurrencyKey = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -287,6 +290,15 @@
 		user = null
 		folder = null
 		label = e.detail
+		concurrencyKey = null
+	}
+
+	function filterByConcurrencyKey(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = e.detail
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
@@ -373,6 +385,7 @@
 					bind:user
 					bind:folder
 					bind:label
+					bind:concurrencyKey
 					bind:path
 					bind:success
 					bind:argFilter
@@ -533,6 +546,7 @@
 							on:filterByUser={filterByUser}
 							on:filterByFolder={filterByFolder}
 							on:filterByLabel={filterByLabel}
+							on:filterByConcurrencyKey={filterByConcurrencyKey}
 						/>
 					{:else}
 						<div class="gap-1 flex flex-col">
@@ -723,6 +737,7 @@
 				on:filterByUser={filterByUser}
 				on:filterByFolder={filterByFolder}
 				on:filterByLabel={filterByLabel}
+				on:filterByConcurrencyKey={filterByConcurrencyKey}
 			/>
 		</div>
 	</div>
