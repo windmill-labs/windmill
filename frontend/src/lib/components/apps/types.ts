@@ -268,6 +268,7 @@ export type AppViewerContext = {
 	cssEditorOpen: Writable<boolean>
 	previewTheme: Writable<string | undefined>
 	debuggingComponents: Writable<Record<string, number>>
+	growingComponents: Writable<Record<string, boolean>>
 }
 
 export type AppEditorContext = {

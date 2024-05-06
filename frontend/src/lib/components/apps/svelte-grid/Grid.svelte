@@ -1,7 +1,9 @@
 <script lang="ts">
+	import type { AppViewerContext } from '../types'
+
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher, getContext } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
@@ -25,6 +27,8 @@
 	export let sensor = 20
 
 	export let parentWidth: number | undefined = undefined
+
+	const { growingComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	let getComputedCols
 
@@ -168,6 +172,7 @@
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
 			<MoveResize
+				onlyHorizontalResize={$growingComponents?.[item.id]}
 				on:initmove={handleInitMove}
 				on:move={handleMove}
 				bind:shadow={shadows[item.id]}

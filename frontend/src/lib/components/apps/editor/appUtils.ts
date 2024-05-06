@@ -5,7 +5,8 @@ import type {
 	EditorBreakpoint,
 	FocusedGrid,
 	GeneralAppInput,
-	GridItem
+	GridItem,
+	RichConfiguration
 } from '../types'
 import {
 	ccomponents,
@@ -971,4 +972,42 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 				return [k, undefined]
 			})
 	)
+}
+
+export function maxHeight(
+	grid: GridItem[],
+	windowHeight: number,
+	breakpoint: EditorBreakpoint = 'lg'
+) {
+	const rowHeight = 36
+	const rowGap = 2
+
+	const totalRowHeight = rowHeight + rowGap
+	const maxRows = Math.floor((windowHeight + rowGap) / totalRowHeight)
+
+	const maxRowPerGrid = Math.max(
+		...grid.map((item) => {
+			const breakpointKey = breakpoint === 'sm' ? 3 : 12
+
+			const y = item[breakpointKey].y
+			const h = item[breakpointKey].h
+
+			return y + h
+		})
+	)
+
+	return Math.max(maxRowPerGrid, maxRows)
+}
+
+export function autogrow(
+	grid: GridItem[],
+	maxRow: number,
+	growingComponents: Record<string, boolean>
+) {
+	grid.forEach((item) => {
+		if (growingComponents?.[item.id] === true) {
+			item[12].h = maxRow - item[12].y
+			item[3].h = maxRow - item[3].y
+		}
+	})
 }

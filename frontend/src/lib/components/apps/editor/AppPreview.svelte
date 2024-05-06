@@ -103,7 +103,8 @@
 		darkMode,
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
-		debuggingComponents: writable({})
+		debuggingComponents: writable({}),
+		growingComponents: writable({})
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined

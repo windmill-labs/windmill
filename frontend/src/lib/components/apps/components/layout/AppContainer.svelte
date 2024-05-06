@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -11,19 +11,22 @@
 	import { writable } from 'svelte/store'
 	import { InputValue } from '../helpers'
 	import GroupWrapper from '../GroupWrapper.svelte'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
 	export let render: boolean
 	export let groupFields: RichConfigurations | undefined = undefined
+	export let configuration: RichConfigurations
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, growingComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let groupContext = writable({})
 
-	let outputs = initOutput($worldStore, id, { group: $groupContext })
+	let outputs = initOutput($worldStore, id, { group: $groupContext, grow: true })
 
 	$: outputs.group.set($groupContext, true)
 
@@ -35,9 +38,25 @@
 	}
 
 	let css = initCss($app.css?.containercomponent, customCss)
+
+	let resolvedConfig = initConfig(
+		components['containercomponent'].initialData.configuration,
+		configuration
+	)
+
+	$: $growingComponents[id] = resolvedConfig.grow ?? false
 </script>
 
 <InitializeComponent {id} />
+
+{#each Object.keys(components['containercomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 {#each Object.keys(css ?? {}) as key (key)}
 	<ResolveStyle

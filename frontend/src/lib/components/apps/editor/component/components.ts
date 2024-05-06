@@ -955,7 +955,14 @@ export const components = {
 			container: { class: '', style: '' }
 		},
 		initialData: {
-			configuration: {},
+			configuration: {
+				grow: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Grow the container to fill the available height'
+				}
+			},
 			componentInput: undefined,
 			numberOfSubgrids: 1
 		}
