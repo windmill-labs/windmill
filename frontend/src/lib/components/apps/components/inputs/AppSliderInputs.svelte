@@ -84,8 +84,6 @@
 		}
 	}
 
-	let width = 0
-
 	const spanClass =
 		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
 	function computeWidth() {
@@ -99,7 +97,6 @@
 			span.className = spanClass
 			span.textContent = maxValue.toString()
 			document.body.appendChild(span)
-			width = span?.offsetWidth
 			document.body.removeChild(span)
 		}
 	}
