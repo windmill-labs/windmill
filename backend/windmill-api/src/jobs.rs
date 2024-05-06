@@ -3293,6 +3293,7 @@ async fn run_bundle_preview_script(
                         concurrency_time_window_s: None, // TODO(gbouv): same as above
                         cache_ttl: None,
                         dedicated_worker: preview.dedicated_worker,
+                        custom_concurrency_key: None,
                     }),
                 },
                 args,
