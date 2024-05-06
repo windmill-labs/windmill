@@ -30,7 +30,8 @@
 		'yaml',
 		'sql',
 		// 'time',
-		'date-time'
+		'date-time',
+		'date'
 		// 'duration',
 		// 'ipv6',
 		// 'jsonpointer',
