@@ -6,6 +6,7 @@
 
 	export let id: string
 	export let field: RichConfiguration
+	export let index: number
 
 	let disablable = field && !(field?.type === 'static' && field?.value === false)
 </script>
@@ -37,7 +38,7 @@
 {#if disablable}
 	<div transition:slide|local>
 		<InputsSpecEditor
-			key={`Tab disabled`}
+			key="tabDisabled {index}"
 			bind:componentInput={field}
 			{id}
 			userInputEnabled={false}

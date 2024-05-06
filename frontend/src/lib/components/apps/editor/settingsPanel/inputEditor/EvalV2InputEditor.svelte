@@ -122,6 +122,7 @@
 					<div
 						class="p-1 !text-2xs absolute rounded-b border-b border-r border-l bg-surface w-full z-[5000] overflow-auto"
 					>
+						<!-- <div class="text-tertiary absolute top-0 right-0 !text-2xs">{id}.{field}</div> -->
 						<div class="float-right text-tertiary cursor-pointer"><X size={14} /></div>
 						<pre class="text-tertiary"
 							>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
