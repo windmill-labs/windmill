@@ -37,11 +37,11 @@
 			<Tooltip>{job?.created_at}</Tooltip>
 		</span>
 	</div>
-	{#if job && "concurrent_limit" in job && job.concurrent_limit > 0}
+	{#if concurrencyKey}
 		<div class="flex flex-row gap-2 items-center">
 			<GitPullRequestClosed size={SMALL_ICON_SIZE} class="text-secondary" />
 			<span class="text-2xs text-secondary">
-				<a href={`/concurrency_groups?key=${concurrencyKey}`}>{concurrencyKey}</a>
+				<a href={`/runs/?job_kinds=all&concurrency_key=${concurrencyKey}`}>{concurrencyKey}</a>
 			</span>
 			<Tooltip>This job has a concurrency limit</Tooltip>
 		</div>

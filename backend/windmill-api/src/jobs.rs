@@ -2049,38 +2049,13 @@ impl Job {
         )
     }
 
-    pub async fn concurrency_key(&self, db: &Pool<Postgres>) -> Result<String, sqlx::Error> {
-        let concurrency_key = windmill_queue::custom_concurrency_key(db, self.id()).await?;
-        let k = match concurrency_key {
-            Some(custom_concurrency_key) => {
-                let workspaced =
-                    custom_concurrency_key.replace("$workspace", self.workspace_id().as_str());
-                if RE_ARG_TAG.is_match(&workspaced) {
-                    let mut interpolated = workspaced.clone();
-                    for cap in RE_ARG_TAG.captures_iter(&workspaced) {
-                        let arg_name = cap.get(1).unwrap().as_str();
-                        let arg_value = match self.args() {
-                            Some(sqlx::types::Json(args_map_json)) => {
-                                match args_map_json.get(arg_name) {
-                                    Some(arg_value_raw) => {
-                                        serde_json::to_string(arg_value_raw).unwrap_or_default()
-                                    }
-                                    None => "".to_string(),
-                                }
-                            }
-                            None => "".to_string(),
-                        };
-                        interpolated = interpolated
-                            .replace(format!("$args[{}]", arg_name).as_str(), arg_value.as_str());
-                    }
-                    interpolated
-                } else {
-                    workspaced
-                }
-            }
-            None => self.full_path_with_workspace(),
-        };
-        Ok(k)
+    pub async fn concurrency_key(&self, db: &Pool<Postgres>) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar!(
+            "SELECT key FROM concurrency_key WHERE job_id = $1",
+            self.id()
+        )
+        .fetch_optional(db)
+        .await
     }
 }
 

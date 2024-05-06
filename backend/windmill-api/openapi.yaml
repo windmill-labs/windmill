@@ -7990,9 +7990,9 @@ paths:
               schema:
                 type: object
                 properties: {}
-  /concurrency_groups/w/{workspace}/{id}:
+  /w/{workspace}/concurrency_groups/job_concurrency_key/{id}:
     get:
-      summary: Get the concurrency key for a job that's active in the concurrency_group
+      summary: Get the concurrency key for a job that has concurrency limits enabled
       operationId: getConcurrencyKey
       tags:
         - concurrencyGroups
@@ -8001,11 +8001,31 @@ paths:
         - $ref: "#/components/parameters/JobId"
       responses:
         "200":
-          description: concurrency key returned
+          description: concurrency key for given job
           content:
             application/json:
               schema:
                 type: string
+  /w/{workspace}/concurrency_groups/intervals:
+    get:
+      summary: Get intervals of job runtime concurrency
+      operationId: getConcurrencyIntervals
+      tags:
+        - concurrencyGroups
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: query
+          name: concurrency_key
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: time
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConcurrencyIntervals"
 
 components:
   securitySchemes:
@@ -10405,12 +10425,42 @@ components:
     ConcurrencyGroup:
       type: object
       properties:
-        concurrency_id:
+        concurrency_key:
           type: string
-        job_uuids:
+        total_running:
+          type: number
+        total_completed_within_time_window:
+          type: number
+      required:
+        - concurrency_key
+        - total_running
+        - total_completed_within_time_window
+
+    ConcurrencyIntervals:
+      type: object
+      properties:
+        concurrency_key:
+          type: string
+        running_jobs:
           type: array
           items:
-            type: string
+            type: object
+            properties:
+              started_at:
+                type: string
+                format: date-time
+        completed_jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              started_at:
+                type: string
+                format: date-time
+              ended_at:
+                type: string
+                format: date-time
       required:
-        - concurrency_id
-        - job_uuids
+        - concurrency_key
+        - running_jobs
+        - completed_jobs

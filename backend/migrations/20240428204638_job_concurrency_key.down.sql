@@ -9,7 +9,6 @@ ALTER TABLE concurrency_key
 
 ALTER TABLE custom_concurrency_key_ended
     DROP COLUMN job_id,
-    DROP COLUMN concurrency_time_window_s,
     ADD PRIMARY KEY (key, ended_at);
 
 

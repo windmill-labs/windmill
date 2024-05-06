@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
-	import { JobService, type Job, type CompletedJob } from '$lib/gen'
+	import {
+		JobService,
+		type Job,
+		type CompletedJob,
+		type ConcurrencyIntervals,
+		ConcurrencyGroupsService
+	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
@@ -26,6 +32,8 @@
 	export let queue_count: Tweened<number> | undefined = undefined
 	export let autoRefresh: boolean = true
 	export let completedJobs: CompletedJob[] | undefined = undefined
+	export let concurrencyKey: string | null
+	export let concurrencyIntervals: ConcurrencyIntervals | undefined = undefined
 	export let argError = ''
 	export let resultError = ''
 	export let loading: boolean = false
@@ -123,6 +131,18 @@
 		})
 	}
 
+	async function fetchConcurrencyIntervals(
+		concurrencyKey: string | null,
+		startedBefore: string | undefined,
+		endedAfter: string | undefined
+	): Promise<ConcurrencyIntervals> {
+		//TODO: Add date filters to the backend to use the unused vars in here
+		return ConcurrencyGroupsService.getConcurrencyIntervals({
+			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined: concurrencyKey,
+			workspace: $workspaceStore!
+		})
+	}
+
 	export async function loadJobs(
 		nMinTs: string | undefined,
 		nMaxTs: string | undefined,
@@ -147,6 +167,7 @@
 		try {
 			jobs = await fetchJobs(maxTs, minTs)
 			computeCompletedJobs()
+			concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
 			console.error(JSON.stringify(err))
@@ -206,6 +227,7 @@
 					}
 
 					loading = true
+					concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs);
 					const newJobs = await fetchJobs(maxTs, minTs ?? ts)
 					if (newJobs && newJobs.length > 0 && jobs) {
 						const oldJobs = jobs?.map((x) => x.id)

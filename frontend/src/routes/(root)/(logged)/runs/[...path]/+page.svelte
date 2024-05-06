@@ -6,7 +6,8 @@
 		UserService,
 		FolderService,
 		ScriptService,
-		FlowService
+		FlowService,
+		type ConcurrencyIntervals
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
@@ -31,6 +32,7 @@
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
 	import { Calendar, Clock } from 'lucide-svelte'
+	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
@@ -77,6 +79,7 @@
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 
 	let queue_count: Tweened<number> | undefined = undefined
 	let jobKinds: string | undefined = undefined
@@ -85,6 +88,7 @@
 	let usernames: string[] = []
 	let folders: string[] = []
 	let completedJobs: CompletedJob[] | undefined = undefined
+	let concurrencyIntervals: ConcurrencyIntervals | undefined = undefined
 	let argError = ''
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
@@ -109,6 +113,7 @@
 		resultFilter ||
 		schedulePath ||
 		jobKindsCat ||
+		concurrencyKey ||
 		minTs ||
 		maxTs ||
 		allWorkspaces ||
@@ -194,6 +199,11 @@
 			searchParams.set('max_ts', maxTs)
 		} else {
 			searchParams.delete('max_ts')
+		}
+		if (concurrencyKey) {
+			searchParams.set('concurrency_key', concurrencyKey)
+		} else {
+			searchParams.delete('concurrency_key')
 		}
 
 		if (label) {
@@ -304,6 +314,8 @@
 	bind:queue_count
 	{autoRefresh}
 	bind:completedJobs
+	bind:concurrencyIntervals
+	{concurrencyKey}
 	{argError}
 	{resultError}
 	bind:loading
@@ -378,17 +390,31 @@
 		</div>
 
 		<div class="p-2 w-full">
-			<RunChart
-				minTimeSet={minTs}
-				maxTimeSet={maxTs}
-				maxIsNow={maxTs == undefined}
-				jobs={completedJobs}
-				on:zoom={async (e) => {
-					minTs = e.detail.min.toISOString()
-					maxTs = e.detail.max.toISOString()
-					jobLoader?.loadJobs(minTs, maxTs, true)
-				}}
-			/>
+			{#if false}
+				<RunChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					jobs={completedJobs}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{:else}
+				<ConcurrentJobsChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					{concurrencyIntervals}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{/if}
 		</div>
 		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 			<div class="flex gap-2 grow flex-row">
@@ -562,7 +588,7 @@
 					on:change={reloadJobsWithoutFilterError}
 				/>
 			</div>
-		</div>
+		</div>RunChart
 		<div class="p-2 w-full">
 			<RunChart
 				minTimeSet={minTs}

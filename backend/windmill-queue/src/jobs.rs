@@ -773,8 +773,8 @@ pub async fn add_completed_job<
         }
 
         if let Err(e) = sqlx::query_scalar!(
-            "UPDATE concurrency_key SET ended_at = now() WHERE key = $1",
-            concurrency_key,
+            "UPDATE concurrency_key SET ended_at = now() WHERE job_id = $1",
+            queued_job.id,
         )
         .execute(&mut tx)
         .await
@@ -1998,12 +1998,9 @@ pub async fn custom_concurrency_key(
     db: &Pool<Postgres>,
     job_id: Uuid,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar!(
-        "SELECT key FROM concurrency_key WHERE job_id = $1",
-        job_id
-    )
-    .fetch_optional(db) // this should no longer be fetch optional
-    .await
+    sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
+        .fetch_optional(db) // this should no longer be fetch optional
+        .await
 }
 
 async fn concurrency_key(
@@ -3503,24 +3500,19 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
 
-    tracing::error!("concurrency jeje {:?}", concurrent_limit);
-
-    if let Some(concurrent_limit_count) = concurrent_limit {
-        if concurrent_limit_count > 0 {
-                // let concurrency_key = process_custom_concurrency_key(queued_job, custom_concurrency_key)
-            let concurrency_key = custom_concurrency_key.unwrap_or("process concurrency key fn not yet implemented".to_string());
-            tracing::error!("concurrency key jeje {:?}", concurrency_key);
-            sqlx::query!(
-                "INSERT INTO concurrency_key(key, job_id, concurrency_time_window_s) VALUES ($1, $2, $3)",
-                concurrency_key,
-                job_id,
-                concurrency_time_window_s.unwrap_or(0),
-            )
-            .execute(&mut tx)
-            .await
-            .map_err(|e| Error::InternalErr(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}")))?;
-        }
-    };
+    if concurrent_limit.is_some() {
+        // let concurrency_key = process_custom_concurrency_key(queued_job, custom_concurrency_key)
+        let concurrency_key = custom_concurrency_key
+            .unwrap_or("process concurrency key fn not yet implemented".to_string());
+        sqlx::query!(
+            "INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+            concurrency_key,
+            job_id,
+        )
+        .execute(&mut tx)
+        .await
+        .map_err(|e| Error::InternalErr(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}")))?;
+    }
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
     #[cfg(feature = "prometheus")]
