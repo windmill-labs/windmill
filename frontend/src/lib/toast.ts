@@ -1,6 +1,5 @@
 import Toast from '$lib/components/Toast.svelte'
-import { toast } from '@zerodevx/svelte-toast'
-
+import { toast } from 'svelte-sonner'
 export type ToastAction = {
 	label: string
 	callback: () => void
@@ -13,23 +12,19 @@ export function sendUserToast(
 	errorMessage: string | undefined = undefined,
 	duration: number = 5000
 ): void {
-	toast.push({
-		component: {
-			src: Toast,
-			props: {
-				message,
-				error,
-				actions,
-				errorMessage,
-				duration
-			},
-			sendIdTo: 'toastId'
-		},
-		dismissable: false,
-		initial: 0,
-		theme: {
-			'--toastPadding': '0',
-			'--toastMsgPadding': '0'
+	function onClose() {
+		toast.dismiss(toastId)
+	}
+
+	const props = {
+		componentProps: {
+			message,
+			actions,
+			errorMessage,
+			duration,
+			onClose
 		}
-	})
+	}
+
+	const toastId = error ? toast.error(Toast, props) : toast.info(Toast, props)
 }
