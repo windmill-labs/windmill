@@ -198,6 +198,7 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
+
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
@@ -2975,7 +2976,7 @@ struct ContentReqLangEnvs {
     lockfile: Option<String>,
     language: Option<ScriptLang>,
     envs: Option<Vec<String>>,
-    object_store_sha256: Option<String>,
+    codebase: bool,
 }
 
 async fn get_hub_script_content_and_requirements(
@@ -3012,7 +3013,7 @@ async fn get_hub_script_content_and_requirements(
         lockfile: script.lockfile,
         language: Some(script.language),
         envs: None,
-        object_store_sha256: None,
+        codebase: false,
     })
 }
 
@@ -3045,24 +3046,17 @@ async fn get_script_content_by_hash(
             Option<String>,
             Option<ScriptLang>,
             Option<Vec<String>>,
-            Option<serde_json::Value>,
+            bool,
         ),
     >(
-        "SELECT content, lock, language, envs, object_store_sha256 FROM script WHERE hash = $1 AND workspace_id = $2",
+        "SELECT content, lock, language, envs, codebase IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
     )
     .bind(script_hash.0)
     .bind(w_id)
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
-    let object_store_sha256 = serde_json::from_value(r.4.clone().unwrap_or_default()).ok();
-    Ok(ContentReqLangEnvs {
-        content: r.0,
-        lockfile: r.1,
-        language: r.2,
-        envs: r.3,
-        object_store_sha256,
-    })
+    Ok(ContentReqLangEnvs { content: r.0, lockfile: r.1, language: r.2, envs: r.3, codebase: r.4 })
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -3083,7 +3077,7 @@ async fn handle_code_execution_job(
         lockfile: requirements_o,
         language,
         envs,
-        object_store_sha256,
+        codebase,
     } = match job.job_kind {
         JobKind::Preview => ContentReqLangEnvs {
             content: job
@@ -3093,7 +3087,7 @@ async fn handle_code_execution_job(
             lockfile: job.raw_lock.clone(),
             language: job.language.to_owned(),
             envs: None,
-            object_store_sha256: None,
+            codebase: false,
         },
         JobKind::Script_Hub => {
             get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
@@ -3315,7 +3309,7 @@ mount {{
         Some(ScriptLang::Bun) => {
             handle_bun_job(
                 requirements_o,
-                object_store_sha256,
+                codebase,
                 mem_peak,
                 canceled_by,
                 job,

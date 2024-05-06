@@ -8390,7 +8390,7 @@ components:
           type: boolean
         no_main_func:
           type: boolean
-        object_store_sha256:
+        codebase:
           type: string
 
       required:
@@ -8485,7 +8485,7 @@ components:
           type: boolean
         no_main_func:
           type: boolean
-        object_store_sha256:
+        codebase:
           type: string
       required:
         - path

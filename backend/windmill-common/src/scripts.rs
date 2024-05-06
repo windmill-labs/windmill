@@ -178,7 +178,7 @@ pub struct Script {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub object_store_sha256: Option<String>,
+    pub codebase: Option<String>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -200,6 +200,12 @@ pub struct ListableScript {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_main_func: Option<bool>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub use_codebase: bool,
+}
+
+fn is_false(x: &bool) -> bool {
+    return !x;
 }
 
 #[derive(Serialize)]
@@ -258,7 +264,7 @@ pub struct NewScript {
     pub concurrency_key: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub no_main_func: Option<bool>,
-    pub object_store_sha256: Option<String>,
+    pub codebase: Option<String>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

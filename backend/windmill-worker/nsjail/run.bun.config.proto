@@ -78,13 +78,6 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/wrapper.ts"
-    dst: "/tmp/{LANG}/wrapper.ts"
-    is_bind: true
-    mandatory: false
-}
-
-mount {
     src: "{JOB_DIR}/wrapper.mjs"
     dst: "/tmp/{LANG}/wrapper.mjs"
     is_bind: true

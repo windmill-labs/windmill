@@ -29,16 +29,19 @@ import {
 } from "./script_common.ts";
 import {
   elementsToMap,
+  findCodebase,
   readDirRecursiveWithIgnore,
   yamlOptions,
 } from "./sync.ts";
 import { ignoreF } from "./sync.ts";
 import { FSFSElement } from "./sync.ts";
 import {
+  Codebase,
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
 } from "./conf.ts";
+import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -71,8 +74,18 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
-  const globalDeps = await findGlobalDeps();
-  await handleFile(filePath, workspace, [], undefined, opts, globalDeps);
+  const codebases = await listSyncCodebases(opts as SyncOptions);
+
+  const globalDeps = await findGlobalDeps(codebases);
+  await handleFile(
+    filePath,
+    workspace,
+    [],
+    undefined,
+    opts,
+    globalDeps,
+    codebases
+  );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
 
@@ -81,7 +94,9 @@ export async function handleScriptMetadata(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  globalDeps: GlobalDeps
+  globalDeps: GlobalDeps,
+  codebases: SyncCodebase[],
+  opts: GlobalOptions
 ): Promise<boolean> {
   if (
     path.endsWith(".script.json") ||
@@ -94,8 +109,9 @@ export async function handleScriptMetadata(
       workspace,
       alreadySynced,
       message,
-      undefined,
-      globalDeps
+      opts,
+      globalDeps,
+      codebases
     );
   } else {
     return false;
@@ -108,7 +124,8 @@ export async function handleFile(
   alreadySynced: string[],
   message: string | undefined,
   opts: (GlobalOptions & { defaultTs?: "bun" | "deno" }) | undefined,
-  globalDeps: GlobalDeps
+  globalDeps: GlobalDeps,
+  codebases: SyncCodebase[]
 ): Promise<boolean> {
   if (
     !path.includes(".inline_script.") &&
@@ -123,10 +140,23 @@ export async function handleFile(
     const remotePath = path
       .substring(0, path.indexOf("."))
       .replaceAll("\\", "/");
+
+    const codebase = findCodebase(path, codebases);
+
+    if (codebase) {
+      log.info(codebase.buildcmd);
+    }
     const typed = (
       await parseMetadataFile(
         remotePath,
-        opts ? { ...opts, path, workspaceRemote: workspace } : undefined,
+        opts
+          ? {
+              ...opts,
+              path,
+              workspaceRemote: workspace,
+              schemaOnly: codebase ? true : undefined,
+            }
+          : undefined,
         globalDeps
       )
     )?.payload;
@@ -145,6 +175,29 @@ export async function handleFile(
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
     const content = await Deno.readTextFile(path);
+
+    const requestBodyCommon = {
+      content,
+      description: typed?.description ?? "",
+      language: language,
+      path: remotePath.replaceAll("\\", "/"),
+      summary: typed?.summary ?? "",
+      kind: typed?.kind,
+      lock: typed?.lock,
+      schema: typed?.schema,
+      tag: typed?.tag,
+      ws_error_handler_muted: typed?.ws_error_handler_muted,
+      dedicated_worker: typed?.dedicated_worker,
+      cache_ttl: typed?.cache_ttl,
+      concurrency_time_window_s: typed?.concurrency_time_window_s,
+      concurrent_limit: typed?.concurrent_limit,
+      deployment_message: message,
+      restart_unless_cancelled: typed?.restart_unless_cancelled,
+      visible_to_runner_only: typed?.visible_to_runner_only,
+      no_main_func: typed?.no_main_func,
+      priority: typed?.priority,
+      codebase: codebase?.digest,
+    };
 
     if (remote) {
       if (content === remote.content) {
@@ -182,65 +235,87 @@ export async function handleFile(
       log.info(
         colors.yellow.bold(`Creating script with a parent ${remotePath}`)
       );
-      await ScriptService.createScript({
-        workspace: workspaceId,
-        requestBody: {
-          content,
-          description: typed?.description ?? "",
-          language: language,
-          path: remotePath.replaceAll("\\", "/"),
-          summary: typed?.summary ?? "",
-          kind: typed?.kind,
-          lock: typed?.lock,
-          parent_hash: remote.hash,
-          schema: typed?.schema,
-          tag: typed?.tag,
-          ws_error_handler_muted: typed?.ws_error_handler_muted,
-          dedicated_worker: typed?.dedicated_worker,
-          cache_ttl: typed?.cache_ttl,
-          concurrency_time_window_s: typed?.concurrency_time_window_s,
-          concurrent_limit: typed?.concurrent_limit,
-          deployment_message: message,
-          restart_unless_cancelled: typed?.restart_unless_cancelled,
-          visible_to_runner_only: typed?.visible_to_runner_only,
-          no_main_func: typed?.no_main_func,
-          priority: typed?.priority,
-        },
-      });
+      const body = {
+        ...requestBodyCommon,
+        parent_hash: remote.hash,
+      };
+      await createScript(codebase, workspaceId, body, workspace);
     } else {
       log.info(
         colors.yellow.bold(`Creating script without parent ${remotePath}`)
       );
-      // no parent hash
-      await ScriptService.createScript({
-        workspace: workspaceId,
-        requestBody: {
-          content,
-          description: typed?.description ?? "",
-          language: language,
-          path: remotePath.replaceAll("\\", "/"),
-          summary: typed?.summary ?? "",
-          kind: typed?.kind,
-          lock: typed?.lock,
-          parent_hash: undefined,
-          schema: typed?.schema,
-          tag: typed?.tag,
-          ws_error_handler_muted: typed?.ws_error_handler_muted,
-          dedicated_worker: typed?.dedicated_worker,
-          cache_ttl: typed?.cache_ttl,
-          concurrency_time_window_s: typed?.concurrency_time_window_s,
-          concurrent_limit: typed?.concurrent_limit,
-          deployment_message: message,
-          restart_unless_cancelled: typed?.restart_unless_cancelled,
-          visible_to_runner_only: typed?.visible_to_runner_only,
-          no_main_func: typed?.no_main_func,
-          priority: typed?.priority,
-        },
-      });
+
+      const body = {
+        ...requestBodyCommon,
+        parent_hash: undefined,
+      };
+      await createScript(codebase, workspaceId, body, workspace);
     }
     return true;
   }
   return false;
+}
+
+async function createScript(
+  codebase: SyncCodebase | undefined,
+  workspaceId: string,
+  body: {
+    parent_hash: string | undefined;
+    content: string;
+    description: any;
+    language: ScriptLanguage;
+    path: string;
+    summary: any;
+    kind: any;
+    lock: any;
+    schema: any;
+    tag: any;
+    ws_error_handler_muted: any;
+    dedicated_worker: any;
+    cache_ttl: any;
+    concurrency_time_window_s: any;
+    concurrent_limit: any;
+    deployment_message: string | undefined;
+    restart_unless_cancelled: any;
+    visible_to_runner_only: any;
+    no_main_func: any;
+    priority: any;
+  },
+  workspace: Workspace
+) {
+  if (!codebase) {
+    // no parent hash
+    await ScriptService.createScript({
+      workspace: workspaceId,
+      requestBody: body,
+    });
+  } else {
+    const form = new FormData();
+    form.append("script", JSON.stringify(body));
+    form.append(
+      "file",
+      await Deno.readTextFile("/git/codebase-wmill/windmill/out.js")
+    );
+
+    const url =
+      workspace.remote +
+      "api/w/" +
+      workspace.workspaceId +
+      "/scripts/create_snapshot";
+    log.info(url);
+    const req = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${workspace.token}` },
+      body: form,
+    });
+    if (req.status != 201) {
+      throw Error(
+        `Script snapshot creation was not successful: ${req.status} - ${
+          req.statusText
+        } - ${await req.text()}`
+      );
+    }
+  }
 }
 
 export async function findContentFile(filePath: string) {
@@ -588,10 +663,12 @@ export type GlobalDeps = {
   pkgs: Record<string, string>;
   reqs: Record<string, string>;
 };
-export async function findGlobalDeps(): Promise<GlobalDeps> {
+export async function findGlobalDeps(
+  codebases: SyncCodebase[]
+): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
-  const els = await FSFSElement(Deno.cwd());
+  const els = await FSFSElement(Deno.cwd(), codebases);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
     p = "/" + p;
     return (
@@ -614,7 +691,7 @@ async function generateMetadata(
     schemaOnly?: boolean;
     yes?: boolean;
   } & SyncOptions,
-  scriptPath?: string
+  scriptPath: string | undefined
 ) {
   if (scriptPath == "") {
     scriptPath = undefined;
@@ -626,8 +703,9 @@ async function generateMetadata(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
+  const codebases = await listSyncCodebases(opts);
 
-  const globalDeps = await findGlobalDeps();
+  const globalDeps = await findGlobalDeps(codebases);
   if (scriptPath) {
     // read script metadata file
     await generateMetadataInternal(
@@ -641,7 +719,7 @@ async function generateMetadata(
   } else {
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd()),
+      await FSFSElement(Deno.cwd(), codebases),
       (p, isD) => {
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||

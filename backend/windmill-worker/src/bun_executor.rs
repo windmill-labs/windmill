@@ -38,9 +38,9 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 
-const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.ts");
+const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
 
-const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.ts");
+const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
@@ -77,7 +77,7 @@ pub async fn gen_lockfile(
     } else {
         let _ = write_file(
             &job_dir,
-            "build.ts",
+            "build.js",
             &format!(
                 r#"
 {}
@@ -101,7 +101,7 @@ pub async fn gen_lockfile(
             .current_dir(job_dir)
             .env_clear()
             .envs(common_bun_proc_envs.clone())
-            .args(vec!["run", "build.ts"])
+            .args(vec!["run", "build.js"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
@@ -371,7 +371,7 @@ try {{
 }}
 
 const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/wrapper.ts"],
+    entrypoints: ["{job_dir}/wrapper.mjs"],
     outdir: "./",
     target: "node",
     plugins: [p],
@@ -390,7 +390,7 @@ if (!bo.success) {{
     } else {
         write_file(
             &job_dir,
-            "loader.bun.ts",
+            "loader.bun.js",
             &format!(
                 r#"
 import {{ plugin }} from "bun";
@@ -454,7 +454,7 @@ pub async fn generate_wrapper_mjs(
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
-    object_store_sha256: Option<String>,
+    codebase: bool,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -483,25 +483,43 @@ pub async fn handle_bun_job(
         ));
     }
 
-    if let Some(object_store_sha256) = object_store_sha256.as_ref() {
+    if codebase {
+        let hash = job
+            .script_hash
+            .ok_or_else(|| {
+                error::Error::BadRequest(format!(
+                    "job is missing an hash while being a codebase job"
+                ))
+            })?
+            .to_string();
+
+        let path = windmill_common::s3_helpers::bundle(&job.workspace_id, &hash);
+        let bun_cache_path = format!("{}/{}", BUN_CACHE_DIR, path);
+        let dst = format!("{job_dir}/main.js");
+        let dirs_splitted = bun_cache_path.split("/").collect_vec();
+        tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
+            tracing::info!("loading {bun_cache_path} from cache");
+            tokio::fs::symlink(&bun_cache_path, dst).await?;
+        } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
             .read()
             .await
             .clone()
         {
-            let path = windmill_common::s3_helpers::object_store_script_sha256_to_path(
-                &job.workspace_id,
-                &object_store_sha256,
-            );
-
             let bytes = attempt_fetch_bytes(os, &path).await?;
-            tokio::fs::write(format!("{job_dir}/main.mjs"), &bytes).await?;
+            if *windmill_common::worker::CLOUD_HOSTED {
+                tokio::fs::write(dst, &bytes).await?;
+            } else {
+                tokio::fs::write(&bun_cache_path, &bytes).await?;
+                tokio::fs::symlink(bun_cache_path, dst).await?;
+            }
+
             // extract_tar(bytes, job_dir).await?;
         }
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         return Err(error::Error::ExecutionErr(
-            "object_store_sha256 is an EE feature".to_string(),
+            "codebase is an EE feature".to_string(),
         ));
     } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
@@ -571,7 +589,7 @@ pub async fn handle_bun_job(
 
     let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
 
-    let init_logs = if object_store_sha256.as_ref().is_some() {
+    let init_logs = if codebase {
         "\n\n--- NODE SNAPSHOT EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
@@ -604,11 +622,7 @@ pub async fn handle_bun_job(
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let main_name = main_override.unwrap_or("main".to_string());
 
-        let main_import = if object_store_sha256.as_ref().is_some() {
-            "./main.mjs"
-        } else {
-            "./main.ts"
-        };
+        let main_import = if codebase { "./main.js" } else { "./main.ts" };
 
         let wrapper_content: String = format!(
             r#"
@@ -643,7 +657,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.js", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
         Ok(()) as error::Result<()>
     };
 
@@ -662,7 +676,7 @@ try {{
     };
 
     let write_loader_f = async {
-        if !object_store_sha256.is_some() {
+        if !codebase {
             build_loader(
                 job_dir,
                 base_internal_url,
@@ -673,6 +687,7 @@ try {{
             )
             .await
         } else {
+            write_file(job_dir, "loader.bun.js", "").await?;
             Ok(())
         }
     };
@@ -683,7 +698,7 @@ try {{
         write_loader_f
     )?;
 
-    if annotation.nodejs_mode {
+    if annotation.nodejs_mode && !codebase {
         generate_wrapper_mjs(
             job_dir,
             &job.workspace_id,
@@ -748,8 +763,8 @@ try {{
                 "-i",
                 "--prefer-offline",
                 "-r",
-                "/tmp/bun/loader.bun.ts",
-                "/tmp/bun/wrapper.ts",
+                "/tmp/bun/loader.bun.js",
+                "/tmp/bun/wrapper.mjs",
             ]
         };
         nsjail_cmd
@@ -779,7 +794,7 @@ try {{
                 .stderr(Stdio::piped());
             bun_cmd
         } else {
-            let script_path = format!("{job_dir}/wrapper.ts");
+            let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*BUN_PATH);
             bun_cmd
@@ -793,7 +808,7 @@ try {{
                     "-i",
                     "--prefer-offline",
                     "-r",
-                    "./loader.bun.ts",
+                    "./loader.bun.js",
                     &script_path,
                 ])
                 .stdout(Stdio::piped())
@@ -1021,7 +1036,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
 }}
 "#,
         );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
     }
 
     build_loader(
@@ -1083,8 +1098,8 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
                 "-i",
                 "--prefer-offline",
                 "-r",
-                "./loader.bun.ts",
-                &format!("{job_dir}/wrapper.ts"),
+                "./loader.bun.js",
+                &format!("{job_dir}/wrapper.mjs"),
             ],
             killpill_rx,
             job_completed_tx,

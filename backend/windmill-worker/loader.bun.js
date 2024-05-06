@@ -27,7 +27,7 @@ const p = {
     const cdir = resolve("./");
     const cdirNoPrivate = cdir.replace(/^\/private/, ""); // for macos
     const filter = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.ts).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
     );
     build.onResolve({ filter }, (args) => {
       const file_path =

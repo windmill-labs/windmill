@@ -451,6 +451,6 @@ impl CredentialProvider for AwsCredentialAdapter {
     }
 }
 
-pub fn object_store_script_sha256_to_path(w_id: &str, id: &str) -> String {
-    format!("script_bundles/{}/{}", w_id, id)
+pub fn bundle(w_id: &str, hash: &str) -> String {
+    format!("script_bundle/{}/{}", w_id, hash)
 }

@@ -1,13 +1,21 @@
-import { Codebase } from "./conf.ts";
+import { Codebase, SyncOptions } from "./conf.ts";
+import { log } from "./deps.ts";
+import { digestDir } from "./utils.ts";
 
-export async function buildCodebase(codebase: Codebase, language: "bun") {
-  if (language != "bun") {
-    throw new Error("Only bun is supported for codebases currently");
+export type SyncCodebase = Codebase & { digest: string };
+export async function listSyncCodebases(
+  options: SyncOptions
+): Promise<SyncCodebase[]> {
+  const res: SyncCodebase[] = [];
+  const nb_codebase = options?.codebases?.length ?? 0;
+  if (nb_codebase > 0) {
+    log.info(`Found ${nb_codebase} codebases:`);
   }
-  if (codebase.kind != "tar_v1") {
-    throw new Error("Only tar_v1 is supported for codebases currently");
+  for (const codebase of options?.codebases ?? []) {
+    const digest = await digestDir(codebase.relative_path);
+    log.info(`Codebase ${codebase.relative_path}, digest: ${digest}`);
+    res.push({ ...codebase, digest });
   }
-  console.log(
-    `Building codebase at ${codebase.relative_path} with build command ${codebase.buildcmd}`
-  );
+
+  return res;
 }
