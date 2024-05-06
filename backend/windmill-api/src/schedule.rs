@@ -800,6 +800,15 @@ pub async fn clear_schedule<'c>(
     w_id: &str,
 ) -> Result<()> {
     sqlx::query!(
+        "DELETE FROM custom_concurrency_key WHERE job_id IN(
+            SELECT id FROM queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false
+        )",
+        path,
+        w_id,
+    )
+    .execute(&mut **db)
+    .await?;
+    sqlx::query!(
         "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false",
         path,
         w_id

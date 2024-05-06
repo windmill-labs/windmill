@@ -466,6 +466,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
 ) -> error::Result<(
     String,
     Option<String>,
+    Option<String>,
     Option<i32>,
     Option<i32>,
     Option<i32>,
@@ -476,7 +477,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     Option<i32>,
 )> {
     let script = sqlx::query!(
-        "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -490,6 +491,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     Ok((
         script.path,
         script.tag,
+        script.concurrency_key,
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,
@@ -2485,6 +2487,7 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: job.raw_lock,
+                concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id).await,
                 concurrent_limit: job.concurrent_limit,
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
@@ -2975,6 +2978,7 @@ pub async fn run_wait_result_script_by_hash(
     let (
         path,
         tag,
+        concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         mut cache_ttl,
@@ -3000,6 +3004,7 @@ pub async fn run_wait_result_script_by_hash(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
+            concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
             cache_ttl,
@@ -3149,6 +3154,7 @@ async fn run_preview_script(
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
                 lock: preview.lock,
+                concurrency_key: None,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
                 cache_ttl: None,
@@ -3425,6 +3431,7 @@ async fn add_batch_jobs(
         job_kind,
         language,
         dedicated_worker,
+        _concurrency_key,
         concurrent_limit,
         concurrent_time_window_s,
         timeout,
@@ -3434,6 +3441,7 @@ async fn add_batch_jobs(
                 let (
                     script_hash,
                     _tag,
+                    concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     _cache_ttl,
@@ -3449,6 +3457,7 @@ async fn add_batch_jobs(
                     JobKind::Script,
                     Some(language),
                     dedicated_worker,
+                    concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     timeout,
@@ -3510,7 +3519,17 @@ async fn add_batch_jobs(
             }
             return Ok(Json(uuids));
         }
-        "noop" => (None, None, JobKind::Noop, None, None, None, None, None),
+        "noop" => (
+            None,
+            None,
+            JobKind::Noop,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
         _ => {
             return Err(error::Error::BadRequest(format!(
                 "Invalid batch kind: {}",
@@ -3630,6 +3649,7 @@ pub async fn run_job_by_hash(
     let (
         path,
         tag,
+        concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         mut cache_ttl,
@@ -3656,6 +3676,7 @@ pub async fn run_job_by_hash(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
+            concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
             cache_ttl,

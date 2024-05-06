@@ -2203,6 +2203,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 path: Some(format!("init_script_{worker_name}")),
                 language: ScriptLang::Bash,
                 lock: None,
+                concurrency_key: None,
                 concurrent_limit: None,
                 concurrency_time_window_s: None,
                 cache_ttl: None,
@@ -3661,8 +3662,8 @@ async fn trigger_python_dependents_to_recompute_dependencies<
                 JobPayload::Dependencies {
                     path: s.clone(),
                     hash: r.0,
-                    language: r.5,
-                    dedicated_worker: r.6,
+                    language: r.6,
+                    dedicated_worker: r.7,
                 },
                 args,
                 &created_by,
@@ -3831,6 +3832,7 @@ async fn lock_modules(
             language,
             input_transforms,
             tag,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
         } = e.value.clone()
@@ -3955,6 +3957,7 @@ async fn lock_modules(
                     content,
                     language,
                     tag,
+                    concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                 };
@@ -3976,6 +3979,7 @@ async fn lock_modules(
                     content,
                     language,
                     tag,
+                    concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                 };

@@ -55,7 +55,8 @@ use windmill_common::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
     },
     jobs::{
-        get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
+        get_payload_tag_from_prefixed_path, script_path_to_payload, CompletedJob, JobKind,
+        JobPayload, QueuedJob, RawCode,
     },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
@@ -963,6 +964,7 @@ pub async fn add_completed_job<
                     JobPayload::ScriptHash {
                         hash,
                         path: queued_job.script_path().to_string(),
+                        concurrency_key: custom_concurrency_key(db, queued_job.id).await,
                         concurrent_limit: queued_job.concurrent_limit,
                         concurrency_time_window_s: queued_job.concurrency_time_window_s,
                         cache_ttl: queued_job.cache_ttl,
@@ -1993,33 +1995,32 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
     Ok(job)
 }
 
+pub async fn custom_concurrency_key(db: &Pool<Postgres>, job_id: Uuid) -> Option<String> {
+    match sqlx::query_scalar!(
+        "SELECT concurrency_key FROM custom_concurrency_key WHERE job_id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(opt_key) => opt_key,
+        Err(e) => {
+            tracing::warn!("Error accessing custom_concurrency_key: {}", e);
+            None
+        }
+    }
+}
+
 async fn concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> String {
-    let r = if queued_job.is_flow() {
-        sqlx::query_scalar!(
-            "SELECT value->>'concurrency_key' FROM flow WHERE path = $1 AND workspace_id = $2",
-            queued_job.script_path,
-            queued_job.workspace_id
-        )
-        .fetch_one(db)
-        .await
-    } else {
-        sqlx::query_scalar!(
-            "SELECT concurrency_key FROM script WHERE hash = $1 AND workspace_id = $2",
-            queued_job.script_hash.unwrap_or(ScriptHash(0)).0,
-            queued_job.workspace_id
-        )
-        .fetch_one(db)
-        .await
-    };
-    process_custom_concurrency_key(queued_job, r).await
+    process_custom_concurrency_key(queued_job, custom_concurrency_key(db, queued_job.id).await).await
 }
 
 async fn process_custom_concurrency_key(
     queued_job: &QueuedJob,
-    concurrency_key: Result<Option<String>, sqlx::Error>,
+    concurrency_key: Option<String>,
 ) -> String {
     match concurrency_key {
-        Ok(Some(custom_concurrency_key)) => {
+        Some(custom_concurrency_key) => {
             let workspaced =
                 custom_concurrency_key.replace("$workspace", queued_job.workspace_id.as_str());
             if RE_ARG_TAG.is_match(&workspaced) {
@@ -2043,15 +2044,7 @@ async fn process_custom_concurrency_key(
                 workspaced
             }
         }
-        Ok(None) => queued_job.full_path_with_workspace(),
-        _ => {
-            tracing::warn!(
-                "Unable to retrieve concurrency key for script {:?} | {:?}",
-                queued_job.script_path,
-                queued_job.script_hash
-            );
-            queued_job.full_path_with_workspace()
-        }
+        None => queued_job.full_path_with_workspace(),
     }
 }
 
@@ -2369,6 +2362,13 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         QUEUE_DELETE_COUNT.inc();
     }
+
+    if let Err(e) = sqlx::query!("DELETE FROM custom_concurrency_key WHERE job_id = $1", job_id)
+    .fetch_optional(&mut tx)
+    .await {
+        tracing::warn!(%job_id, "Failed to delete custom_concurrency_key: {}", e);
+    }
+
     let job_removed = sqlx::query_scalar!(
         "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
         w_id,
@@ -2376,6 +2376,7 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     )
     .fetch_optional(&mut tx)
     .await;
+
 
     if let Err(job_removed) = job_removed {
         tracing::error!(
@@ -2892,6 +2893,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         raw_flow,
         flow_status,
         language,
+        concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         cache_ttl,
@@ -2901,6 +2903,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         JobPayload::ScriptHash {
             hash,
             path,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -2915,6 +2918,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             Some(language),
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -2940,6 +2944,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 None,
                 None,
+                None,
             )
         }
         JobPayload::Code(RawCode {
@@ -2948,6 +2953,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             hash,
             language,
             lock,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -2960,6 +2966,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             Some(language),
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -2977,6 +2984,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
+            None,
             dedicated_worker,
             None,
         ),
@@ -2988,6 +2996,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             Some(language),
+            None,
             None,
             None,
             None,
@@ -3020,6 +3029,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 None,
                 None,
                 None,
+                None,
                 dedicated_worker,
                 None,
             )
@@ -3029,6 +3039,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             Some(path),
             None,
             JobKind::AppDependencies,
+            None,
             None,
             None,
             None,
@@ -3086,6 +3097,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(value.clone()),
                 Some(flow_status),
                 None,
+                value.concurrency_key.clone(),
                 value.concurrent_limit.clone(),
                 value.concurrency_time_window_s,
                 value.cache_ttl.map(|x| x as i32),
@@ -3098,6 +3110,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             hash,
             retry,
             args,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -3136,7 +3149,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 skip_expr: None,
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 early_return: None,
-                concurrency_key: None,
+                concurrency_key: concurrency_key.clone(),
                 priority: priority,
             };
             (
@@ -3147,6 +3160,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(flow_value.clone()),
                 Some(FlowStatus::new(&flow_value)), // this is a new flow being pushed, flow_status is set to flow_value
                 None,
+                concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
                 cache_ttl,
@@ -3172,6 +3186,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
+            let concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s.clone();
             let concurrent_limit = value.concurrent_limit.clone();
             let status = Some(FlowStatus::new(&value));
@@ -3183,6 +3198,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(value),
                 status, // this is a new flow being pushed, flow_status is set to flow_value
                 None,
+                concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
                 cache_ttl,
@@ -3238,6 +3254,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
                 Some(raw_flow.clone()),
                 Some(restarted_flow_status),
                 None,
+                raw_flow.concurrency_key,
                 raw_flow.concurrent_limit,
                 raw_flow.concurrency_time_window_s,
                 raw_flow.cache_ttl.map(|x| x as i32),
@@ -3250,6 +3267,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             Some(path),
             None,
             JobKind::DeploymentCallback,
+            None,
             None,
             None,
             None,
@@ -3272,12 +3290,14 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             None,
             None,
             None,
+            None,
         ),
         JobPayload::Noop => (
             None,
             None,
             None,
             JobKind::Noop,
+            None,
             None,
             None,
             None,
@@ -3485,6 +3505,19 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
+
+    if let Some(custom_concurrency_key) = concurrency_key {
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO custom_concurrency_key(job_id, concurrency_key) VALUES ($1, $2)",
+            job_id,
+            custom_concurrency_key
+        )
+        .fetch_one(&mut tx)
+        .await
+        {
+            tracing::warn!("Could not insert custom_concurrency_key={custom_concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}");
+        }
+    };
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
     #[cfg(feature = "prometheus")]

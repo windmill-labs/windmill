@@ -282,6 +282,7 @@ pub enum JobPayload {
     ScriptHash {
         hash: ScriptHash,
         path: String,
+        concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
@@ -328,6 +329,7 @@ pub enum JobPayload {
         hash: ScriptHash,
         args: HashMap<String, serde_json::Value>,
         retry: Retry, // for now only used to retry the script, so retry is necessarily present
+        concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
@@ -348,6 +350,7 @@ pub struct RawCode {
     pub hash: Option<i64>,
     pub language: ScriptLang,
     pub lock: Option<String>,
+    pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
     pub cache_ttl: Option<i32>,
@@ -374,6 +377,7 @@ pub async fn script_path_to_payload(
         let (
             script_hash,
             tag,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
             cache_ttl,
@@ -387,6 +391,7 @@ pub async fn script_path_to_payload(
             JobPayload::ScriptHash {
                 hash: script_hash,
                 path: script_path.to_owned(),
+                concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
                 cache_ttl: cache_ttl,
@@ -408,6 +413,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     w_id: &String,
 ) -> error::Result<(
     Option<Tag>,
+    Option<String>,
     Option<i32>,
     Option<i32>,
     Option<i32>,
@@ -418,7 +424,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     Option<i32>,
 )> {
     let script = sqlx::query!(
-        "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+        "select tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
         script_hash.0,
         w_id
     )
@@ -431,6 +437,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     })?;
     Ok((
         script.tag,
+        script.concurrency_key,
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,
