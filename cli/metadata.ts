@@ -474,7 +474,7 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
       const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
-      replaceLock(payload);
+      await replaceLock(payload);
 
       return {
         path: metadataFilePath,
@@ -492,7 +492,7 @@ export async function parseMetadataFile(
         scriptInitialMetadata as Record<string, any>,
         yamlOptions
       );
-      Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
+      await Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
         createNew: true,
       });
 
@@ -513,7 +513,7 @@ export async function parseMetadataFile(
           scriptInitialMetadata = yamlParse(
             await Deno.readTextFile(metadataFilePath)
           ) as ScriptMetadata;
-          replaceLock(scriptInitialMetadata);
+          await replaceLock(scriptInitialMetadata);
         } catch (e) {
           log.info(
             colors.yellow(
