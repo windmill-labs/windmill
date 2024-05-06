@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, running, is_flow_step FROM queue WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "running",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_flow_step",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "caeb49629b8673c1f1c84a6e40c3e2d2c3bc3fdbde530a0a6b6fd68a22b867c3"
+}
