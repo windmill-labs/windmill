@@ -74,6 +74,10 @@
 			handles.forEach((handle) => (handle.style.cssText = css?.handles?.style ?? ''))
 		}
 	}
+
+	const format = (v, i, p) => {
+		return `${v}`
+	}
 </script>
 
 {#each Object.keys(components['rangecomponent'].initialData.configuration) as key (key)}
@@ -99,13 +103,7 @@
 
 <AlignWrapper {render} {verticalAlignment}>
 	<div class="flex flex-col w-full">
-		<div class="flex items-center w-full gap-1 px-1">
-			<span
-				class={twMerge(css?.limits?.class ?? '', 'font-mono wm-slider-limits')}
-				style={css?.limits?.style ?? ''}
-			>
-				{+(resolvedConfig.min ?? 0)}
-			</span>
+		<div class="flex items-center w-full gap-1">
 			<div
 				class={twMerge('grow', 'wm-slider-bar')}
 				style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
@@ -113,69 +111,44 @@
 				on:pointerdown|stopPropagation
 			>
 				<RangeSlider
+					id="label"
 					springValues={{ stiffness: 1, damping: 1 }}
 					bind:slider
 					bind:values
-					step={resolvedConfig.step}
 					min={resolvedConfig.min == undefined ? 0 : +resolvedConfig.min}
 					max={resolvedConfig.max == undefined ? 1 : +resolvedConfig.max}
 					range
 					disabled={resolvedConfig.disabled}
+					pips
+					float
+					first="label"
+					last="label"
+					step={resolvedConfig.step ?? 1}
+					pipstep={(resolvedConfig.axisStep ?? 1) / (resolvedConfig.step ?? 1)}
+					formatter={format}
 				/>
+
 				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
-			<span
-				class={twMerge(css?.limits?.class ?? '', 'font-mono wm-slider-limits')}
-				style={css?.limits?.style ?? ''}
-			>
-				{+(resolvedConfig.max ?? 1)}
-			</span>
-		</div>
-		<div class="flex justify-between px-1">
-			<span
-				class={twMerge(
-					'font-mono text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
-					css?.values?.class ?? '',
-					'wm-slider-value'
-				)}
-				style={css?.values?.style ?? ''}
-			>
-				{values[0]}
-			</span>
-			<span
-				class={twMerge(
-					'font-mono text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
-					css?.values?.class ?? '',
-					'wm-slider-value'
-				)}
-				style={css?.values?.style ?? ''}
-			>
-				{values[1]}
-			</span>
 		</div>
 	</div>
 </AlignWrapper>
 
 <style>
-	:root {
-		--range-slider: #ff0000;
-		--range-handle-inactive: hsl(180, 4.6%, 61.8%);
-		--range-handle: #ff0000;
-		--range-handle-focus: hsl(244.1, 63.2%, 54.1%);
-		--range-handle-border: hsl(234, 67.6%, 71%);
-		--range-range-inactive: hsl(180, 4.6%, 61.8%);
-		--range-range: hsl(351.4, 59.4%, 58.4%);
-		--range-float-inactive: hsl(180, 4.6%, 61.8%);
-		--range-float: hsl(244.1, 63.2%, 54.1%);
-		--range-float-text: hsl(0, 0%, 100%);
+	:global(#label.rangeSlider) {
+		font-size: 12px;
+		text-transform: uppercase;
+	}
 
-		--range-pip: hsl(210, 14.3%, 53.3%);
-		--range-pip-text: hsl(210, 14.3%, 53.3%);
-		--range-pip-active: hsl(180, 25.4%, 24.7%);
-		--range-pip-active-text: hsl(180, 25.4%, 24.7%);
-		--range-pip-hover: hsl(180, 25.4%, 24.7%);
-		--range-pip-hover-text: hsl(180, 25.4%, 24.7%);
-		--range-pip-in-range: hsl(180, 25.4%, 24.7%);
-		--range-pip-in-range-text: hsl(180, 25.4%, 24.7%);
+	:global(#label.rangeSlider .rangeHandle) {
+		width: 2em;
+		height: 2em;
+	}
+
+	:global(#label.rangeSlider .rangeFloat) {
+		opacity: 1;
+		background: transparent;
+		top: 50%;
+		transform: translate(-50%, -50%);
 	}
 </style>

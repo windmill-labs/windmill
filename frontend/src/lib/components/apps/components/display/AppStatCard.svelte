@@ -71,7 +71,7 @@
 {#if render}
 	<div
 		class={twMerge(
-			'flex flex-row gap-4 items-center p-4 rounded-md shadow-md h-full',
+			'flex flex-row gap-4 items-center p-4 rounded-md shadow-md h-full border',
 			css?.container?.class,
 			'wm-statistic-card-container'
 		)}

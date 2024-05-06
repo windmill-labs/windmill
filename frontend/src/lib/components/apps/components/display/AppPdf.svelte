@@ -213,11 +213,7 @@
 				<div
 					bind:clientWidth={controlsWidth}
 					bind:clientHeight={controlsHeight}
-					class="flex {$mode !== 'preview'
-						? 'w-[calc(100%-2px)] top-[1px]'
-						: 'w-full top-0'} {wideView
-						? 'justify-center gap-14'
-						: '!justify-between'} overflow-x-auto bg-surface border-b mx-auto py-1"
+					class="flex flex-row w-full justify-between overflow-x-auto bg-surface border-b mx-auto py-1"
 				>
 					<div class="flex justify-start items-center px-2 text-secondary text-sm">
 						<Button
@@ -293,15 +289,11 @@
 							disabled={!doc}
 							size="xs"
 							color="light"
-							variant="border"
 							title="Download PDF"
 							aria-label="Download PDF"
 							btnClasses="!font-medium !px-2"
 						>
-							{#if wideView}
-								<span class="mr-1"> Download </span>
-							{/if}
-							<Download size={16} />
+							<Download size={14} />
 						</Button>
 					</div>
 				</div>

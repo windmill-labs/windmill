@@ -131,15 +131,7 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} hFull {verticalAlignment}>
-	<div
-		class="flex {resolvedConfig.vertical ? 'flex-col' : ''} items-center w-full h-full gap-1 px-1"
-	>
-		<span
-			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
-			style={css?.limits?.style ?? ''}
-		>
-			{resolvedConfig.vertical ? +(resolvedConfig?.max ?? 0) : +(resolvedConfig?.min ?? 0)}
-		</span>
+	<div class="flex {resolvedConfig.vertical ? 'flex-col' : ''} items-center w-full h-full gap-1">
 		<div
 			class={twMerge(
 				'grow',
@@ -147,40 +139,45 @@
 				'font-mono wm-slider-bar',
 				resolvedConfig?.vertical ? 'h-full' : 'w-full'
 			)}
-			style={css?.bar?.style}
+			style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
+				''}"
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
 			<RangeSlider
+				id="label"
 				springValues={{ stiffness: 1, damping: 1 }}
 				vertical={resolvedConfig.vertical}
 				bind:slider
 				bind:values
-				step={resolvedConfig.step}
+				step={resolvedConfig.step ?? 1}
+				pipstep={(resolvedConfig.axisStep ?? 1) / (resolvedConfig.step ?? 1)}
 				min={+(resolvedConfig?.min ?? 0)}
 				max={+(resolvedConfig?.max ?? 0)}
 				disabled={resolvedConfig.disabled}
+				pips
+				float
+				first="label"
+				last="label"
 			/>
 		</div>
-		<span
-			class={twMerge(css?.limits?.class, 'font-mono wm-slider-limits')}
-			style={css?.limits?.style ?? ''}
-		>
-			{resolvedConfig.vertical ? +(resolvedConfig?.min ?? 0) : +(resolvedConfig?.max ?? 1)}
-		</span>
-		<span class="mx-2">
-			<span
-				class={twMerge(spanClass, css?.value?.class ?? '', 'font-mono wm-slider-value')}
-				style={`${css?.value?.style ?? ''} ${width ? `width: ${width}px;` : ''}`}
-			>
-				{values[0]}
-			</span>
-		</span>
 	</div>
 </AlignWrapper>
 
-<style global>
-	.rangeSlider.vertical {
-		height: 80%;
-		min-height: 10px !important;
+<style>
+	:global(#label.rangeSlider) {
+		font-size: 12px;
+		text-transform: uppercase;
+	}
+
+	:global(#label.rangeSlider .rangeHandle) {
+		width: 2em;
+		height: 2em;
+	}
+
+	:global(#label.rangeSlider .rangeFloat) {
+		opacity: 1;
+		background: transparent;
+		top: 50%;
+		transform: translate(-50%, -50%);
 	}
 </style>

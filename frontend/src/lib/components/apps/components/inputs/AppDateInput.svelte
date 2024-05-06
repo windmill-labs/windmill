@@ -99,7 +99,7 @@
 			max={resolvedConfig.maxDate}
 			placeholder="Type..."
 			class={twMerge(
-				'windmillapp w-full py-1.5 text-sm px-2 app-editor-input',
+				'windmillapp w-full py-1.5 text-sm px-1 app-editor-input',
 				css?.input?.class,
 				'wm-date-input'
 			)}
