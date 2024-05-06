@@ -2030,15 +2030,17 @@ async fn spawn_dedicated_worker(
         let path2 = path.clone();
         let w_id = w_id.to_string();
 
-        let (content, lock, language, envs) = match sw {
+        let (content, lock, language, envs, codebase) = match sw {
             SpawnWorker::Script { path, hash } => {
                 let q = if let Some(hash) = hash {
                     get_script_content_by_hash(&hash, &w_id, &db).await.map(
-                        |r: ContentReqLangEnvs| Some((r.content, r.lockfile, r.language, r.envs)),
+                        |r: ContentReqLangEnvs| {
+                            Some((r.content, r.lockfile, r.language, r.envs, r.codebase))
+                        },
                     )
                 } else {
-                    sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
-                        "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
+                    sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool)>(
+                        "SELECT content, lock, language, envs, codebase IS NOT NULL FROM script WHERE path = $1 AND workspace_id = $2 AND
                             created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                             deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
                     )
@@ -2065,7 +2067,9 @@ async fn spawn_dedicated_worker(
                     return None;
                 }
             }
-            SpawnWorker::RawScript { content, lock, lang, .. } => (content, lock, Some(lang), None),
+            SpawnWorker::RawScript { content, lock, lang, .. } => {
+                (content, lock, Some(lang), None, false)
+            }
         };
 
         match language {
@@ -2120,6 +2124,7 @@ async fn spawn_dedicated_worker(
                 Some(ScriptLang::Bun) => {
                     crate::bun_executor::start_worker(
                         lock,
+                        codebase,
                         &db,
                         &content,
                         &base_internal_url,

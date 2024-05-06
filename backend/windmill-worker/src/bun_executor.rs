@@ -35,6 +35,7 @@ use windmill_common::{
     error::{self, to_anyhow, Result},
     jobs::QueuedJob,
     s3_helpers::attempt_fetch_bytes,
+    scripts::ScriptHash,
 };
 use windmill_parser::Typ;
 
@@ -451,6 +452,43 @@ pub async fn generate_wrapper_mjs(
     Ok(())
 }
 
+pub async fn pull_codebase(w_id: &str, script_hash: &ScriptHash, job_dir: &str) {
+    let hash = script_hash
+        .ok_or_else(|| {
+            error::Error::BadRequest(format!("job is missing an hash while being a codebase job"))
+        })?
+        .to_string();
+
+    let path = windmill_common::s3_helpers::bundle(&job.workspace_id, &hash);
+    let bun_cache_path = format!("{}/{}", BUN_CACHE_DIR, path);
+    let dst = format!("{job_dir}/main.js");
+    let dirs_splitted = bun_cache_path.split("/").collect_vec();
+    tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
+        tracing::info!("loading {bun_cache_path} from cache");
+        tokio::fs::symlink(&bun_cache_path, dst).await?;
+    } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        .read()
+        .await
+        .clone()
+    {
+        let bytes = attempt_fetch_bytes(os, &path).await?;
+        if *windmill_common::worker::CLOUD_HOSTED {
+            tokio::fs::write(dst, &bytes).await?;
+        } else {
+            tokio::fs::write(&bun_cache_path, &bytes).await?;
+            tokio::fs::symlink(bun_cache_path, dst).await?;
+        }
+
+        // extract_tar(bytes, job_dir).await?;
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    return Err(error::Error::ExecutionErr(
+        "codebase is an EE feature".to_string(),
+    ));
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
@@ -484,43 +522,6 @@ pub async fn handle_bun_job(
     }
 
     if codebase {
-        let hash = job
-            .script_hash
-            .ok_or_else(|| {
-                error::Error::BadRequest(format!(
-                    "job is missing an hash while being a codebase job"
-                ))
-            })?
-            .to_string();
-
-        let path = windmill_common::s3_helpers::bundle(&job.workspace_id, &hash);
-        let bun_cache_path = format!("{}/{}", BUN_CACHE_DIR, path);
-        let dst = format!("{job_dir}/main.js");
-        let dirs_splitted = bun_cache_path.split("/").collect_vec();
-        tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
-            tracing::info!("loading {bun_cache_path} from cache");
-            tokio::fs::symlink(&bun_cache_path, dst).await?;
-        } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-            .read()
-            .await
-            .clone()
-        {
-            let bytes = attempt_fetch_bytes(os, &path).await?;
-            if *windmill_common::worker::CLOUD_HOSTED {
-                tokio::fs::write(dst, &bytes).await?;
-            } else {
-                tokio::fs::write(&bun_cache_path, &bytes).await?;
-                tokio::fs::symlink(bun_cache_path, dst).await?;
-            }
-
-            // extract_tar(bytes, job_dir).await?;
-        }
-        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-        return Err(error::Error::ExecutionErr(
-            "codebase is an EE feature".to_string(),
-        ));
     } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -687,7 +688,6 @@ try {{
             )
             .await
         } else {
-            write_file(job_dir, "loader.bun.js", "").await?;
             Ok(())
         }
     };
@@ -753,6 +753,15 @@ try {{
                 &NODE_PATH,
                 "/tmp/nodejs/wrapper.mjs",
             ]
+        } else if codebase {
+            vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                &BUN_PATH,
+                "run",
+                "/tmp/bun/wrapper.mjs",
+            ]
         } else {
             vec![
                 "--config",
@@ -797,20 +806,25 @@ try {{
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*BUN_PATH);
-            bun_cmd
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(envs)
-                .envs(reserved_variables)
-                .envs(common_bun_proc_envs)
-                .args(vec![
+            let args = if codebase {
+                vec!["run", &script_path]
+            } else {
+                vec![
                     "run",
                     "-i",
                     "--prefer-offline",
                     "-r",
                     "./loader.bun.js",
                     &script_path,
-                ])
+                ]
+            };
+            bun_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(envs)
+                .envs(reserved_variables)
+                .envs(common_bun_proc_envs)
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
             bun_cmd
@@ -872,6 +886,7 @@ use std::sync::Arc;
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<String>,
+    codebase: bool,
     db: &sqlx::Pool<sqlx::Postgres>,
     inner_content: &str,
     base_internal_url: &str,
@@ -1049,7 +1064,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
     )
     .await?;
 
-    if annotation.nodejs_mode {
+    if annotation.nodejs_mode && !codebase {
         generate_wrapper_mjs(
             job_dir,
             w_id,

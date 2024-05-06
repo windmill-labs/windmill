@@ -144,7 +144,8 @@ export async function handleFile(
     const codebase = findCodebase(path, codebases);
 
     if (codebase) {
-      log.info(codebase.buildcmd);
+      const esbuild = await import("npm:esbuild");
+      log.info(esbuild);
     }
     const typed = (
       await parseMetadataFile(
