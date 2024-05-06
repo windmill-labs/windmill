@@ -212,7 +212,9 @@
 				{/each}
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
-			<FlowPathViewer noSide path={stepDetail.value.path} />
+			{#key stepDetail?.value?.path}
+				<FlowPathViewer noSide path={stepDetail.value.path} />
+			{/key}
 		{/if}
 	{:else}
 		<p class="font-medium text-secondary text-center pt-4 pb-8">
