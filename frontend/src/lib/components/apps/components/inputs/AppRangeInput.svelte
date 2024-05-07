@@ -74,6 +74,10 @@
 			handles.forEach((handle) => (handle.style.cssText = css?.handles?.style ?? ''))
 		}
 	}
+
+	const format = (v, i, p) => {
+		return `${v}`
+	}
 </script>
 
 {#each Object.keys(components['rangecomponent'].initialData.configuration) as key (key)}
@@ -99,13 +103,7 @@
 
 <AlignWrapper {render} {verticalAlignment}>
 	<div class="flex flex-col w-full">
-		<div class="flex items-center w-full gap-1 px-1">
-			<span
-				class={twMerge(css?.limits?.class ?? '', 'font-mono wm-slider-limits')}
-				style={css?.limits?.style ?? ''}
-			>
-				{+(resolvedConfig.min ?? 0)}
-			</span>
+		<div class="flex items-center w-full gap-1">
 			<div
 				class={twMerge('grow', 'wm-slider-bar')}
 				style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
@@ -113,45 +111,54 @@
 				on:pointerdown|stopPropagation
 			>
 				<RangeSlider
+					id="range-slider"
 					springValues={{ stiffness: 1, damping: 1 }}
 					bind:slider
 					bind:values
-					step={resolvedConfig.step}
 					min={resolvedConfig.min == undefined ? 0 : +resolvedConfig.min}
 					max={resolvedConfig.max == undefined ? 1 : +resolvedConfig.max}
 					range
 					disabled={resolvedConfig.disabled}
+					pips
+					float
+					first="label"
+					last="label"
+					step={resolvedConfig.step ?? 1}
+					pipstep={(resolvedConfig.axisStep ?? 1) / (resolvedConfig.step ?? 1)}
+					formatter={format}
 				/>
-				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
-			<span
-				class={twMerge(css?.limits?.class ?? '', 'font-mono wm-slider-limits')}
-				style={css?.limits?.style ?? ''}
-			>
-				{+(resolvedConfig.max ?? 1)}
-			</span>
-		</div>
-		<div class="flex justify-between px-1">
-			<span
-				class={twMerge(
-					'font-mono text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
-					css?.values?.class ?? '',
-					'wm-slider-value'
-				)}
-				style={css?.values?.style ?? ''}
-			>
-				{values[0]}
-			</span>
-			<span
-				class={twMerge(
-					'font-mono text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5',
-					css?.values?.class ?? '',
-					'wm-slider-value'
-				)}
-				style={css?.values?.style ?? ''}
-			>
-				{values[1]}
-			</span>
 		</div>
 	</div>
 </AlignWrapper>
+
+<style>
+	:global(#range-slider.rangeSlider) {
+		font-size: 12px;
+		text-transform: uppercase;
+	}
+
+	:global(.dark #range-slider.rangeSlider) {
+		background-color: #3b4252;
+	}
+
+	:global(#range-slider.rangeSlider .rangeHandle) {
+		width: 2em;
+		height: 2em;
+	}
+
+	:global(#range-slider.rangeSlider .rangeFloat) {
+		opacity: 1;
+		background: transparent;
+		top: 50%;
+		transform: translate(-50%, -50%);
+	}
+
+	:global(#range-slider.rangeSlider .rangeNub) {
+		background-color: #7e9abd;
+	}
+
+	:global(.dark #range-slider.rangeSlider > .rangePips > .pip) {
+		color: #eeeeee;
+	}
+</style>

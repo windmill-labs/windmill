@@ -97,7 +97,7 @@
 					<CurrencyInput
 						inputClasses={{
 							formatted: twMerge(
-								'px-2 w-full py-1.5 windmillapp app-editor-input h-8',
+								'px-2 text-sm w-full py-1.5 windmillapp app-editor-input',
 								css?.input?.class,
 								'wm-currency-input'
 							),

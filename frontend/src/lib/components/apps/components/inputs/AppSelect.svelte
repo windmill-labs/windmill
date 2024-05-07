@@ -221,6 +221,7 @@
 			<Select
 				inAppEditor={true}
 				--border-radius="0.250rem"
+				--clear-icon-color="#6b7280"
 				bind:filterText
 				on:filter={handleFilter}
 				on:clear={onClear}
