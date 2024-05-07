@@ -226,22 +226,24 @@ pub async fn cancel_job<'c>(
     .await?;
     tx = ntx;
 
-    // soft cancel parent if exists
-    if let Some(parent_job_id) = job.parent_job {
-        let job = get_queued_job_tx(parent_job_id, &w_id, &mut tx).await?;
-        if let Some(job) = job {
-            let (ntx, _) = cancel_single_job(
-                username,
-                reason.clone(),
-                &job,
-                w_id,
-                tx,
-                db,
-                rsmq.clone(),
-                false,
-            )
-            .await?;
-            tx = ntx;
+    // soft cancel parent if force cancel and job is a flow step
+    if force_cancel && job.is_flow_step {
+        if let Some(parent_job_id) = job.parent_job {
+            let job = get_queued_job_tx(parent_job_id, &w_id, &mut tx).await?;
+            if let Some(job) = job {
+                let (ntx, _) = cancel_single_job(
+                    username,
+                    reason.clone(),
+                    &job,
+                    w_id,
+                    tx,
+                    db,
+                    rsmq.clone(),
+                    false,
+                )
+                .await?;
+                tx = ntx;
+            }
         }
     }
 
