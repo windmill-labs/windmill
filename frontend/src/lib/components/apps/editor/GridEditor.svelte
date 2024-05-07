@@ -9,7 +9,7 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { push } from '$lib/history'
-	import { autogrow, dfs, expandGriditem, findGridItem, maxHeight } from './appUtils'
+	import { dfs, expandGriditem, findGridItem, maxHeight } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
@@ -33,8 +33,7 @@
 		parentWidth,
 		breakpoint,
 		allIdsInPath,
-		bgRuns,
-		growingComponents
+		bgRuns
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, scale, componentActive } = getContext<AppEditorContext>('AppEditorContext')
@@ -47,23 +46,9 @@
 			.filter((x) => x != undefined) as string[]
 	}
 
-	let previousMaxRow
-	let previousGrowingComponents = {}
-
 	let renderCount = 1
 
 	$: maxRow = maxHeight($app.grid, window.innerHeight, $breakpoint)
-	$: currentGrowingComponents = JSON.parse(JSON.stringify($growingComponents))
-
-	$: if (
-		maxRow !== previousMaxRow ||
-		JSON.stringify(currentGrowingComponents) !== JSON.stringify(previousGrowingComponents)
-	) {
-		autogrow($app.grid, maxRow, $growingComponents)
-		renderCount++
-		previousMaxRow = maxRow
-		previousGrowingComponents = currentGrowingComponents
-	}
 </script>
 
 {#key renderCount}
@@ -148,6 +133,7 @@
 					rowHeight={36}
 					cols={columnConfiguration}
 					gap={[4, 2]}
+					{maxRow}
 				>
 					<ComponentWrapper
 						id={dataItem.id}

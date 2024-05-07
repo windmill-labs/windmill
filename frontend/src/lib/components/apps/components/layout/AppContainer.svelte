@@ -21,7 +21,7 @@
 	export let groupFields: RichConfigurations | undefined = undefined
 	export let configuration: RichConfigurations
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, growingComponents } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let groupContext = writable({})
@@ -43,8 +43,6 @@
 		components['containercomponent'].initialData.configuration,
 		configuration
 	)
-
-	$: $growingComponents[id] = resolvedConfig.grow ?? false
 </script>
 
 <InitializeComponent {id} />

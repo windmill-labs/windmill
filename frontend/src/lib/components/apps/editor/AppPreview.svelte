@@ -20,7 +20,7 @@
 	import { columnConfiguration } from '../gridUtils'
 	import { HiddenComponent } from '../components'
 	import { deepEqual } from 'fast-equals'
-	import { dfs } from './appUtils'
+	import { dfs, maxHeight } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
 	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
@@ -103,8 +103,7 @@
 		darkMode,
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
-		debuggingComponents: writable({}),
-		growingComponents: writable({})
+		debuggingComponents: writable({})
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -162,6 +161,8 @@
 			}
 		}
 	}
+
+	$: maxRow = maxHeight($appStore.grid, window.innerHeight, $breakpoint)
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -214,6 +215,7 @@
 					rowHeight={36}
 					cols={columnConfiguration}
 					gap={[4, 2]}
+					{maxRow}
 				>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div

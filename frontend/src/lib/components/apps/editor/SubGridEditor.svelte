@@ -66,6 +66,12 @@
 	}
 
 	let container: HTMLElement | undefined = undefined
+
+	const rowHeight = 36
+	const rowGap = 2
+
+	const totalRowHeight = rowHeight + rowGap
+	$: maxRow = Math.floor(((containerHeight ?? 0) + rowGap) / totalRowHeight)
 </script>
 
 <div
@@ -95,6 +101,7 @@
 					: ''}
 			>
 				<Grid
+					{maxRow}
 					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
 					on:redraw={(e) => {
@@ -161,6 +168,7 @@
 				gap={[4, 2]}
 				parentWidth={$parentWidth - 17}
 				{containerWidth}
+				{maxRow}
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div

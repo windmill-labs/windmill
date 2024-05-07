@@ -15,6 +15,7 @@
 	export let cols: [number, number][]
 	export let gap = [10, 10]
 	export let throttleUpdate = 100
+	export let maxRow: number
 
 	export let allIdsInPath: string[] | undefined = undefined
 	export let containerWidth: number | undefined = undefined
@@ -81,9 +82,15 @@
 			{@const width =
 				Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
 				gapX * 2}
-			{@const height = (item[getComputedCols] && item[getComputedCols].h) * yPerPx - gapY * 2}
+			{@const height =
+				(item.data['fullHeight']
+					? maxRow - item[getComputedCols].y
+					: item[getComputedCols] && item[getComputedCols].h) *
+					yPerPx -
+				gapY * 2}
 			{@const top = (item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 			{@const left = (item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
+
 			<div
 				class="svlt-grid-item"
 				style="width: {width}px; height:{height}px; {onTop

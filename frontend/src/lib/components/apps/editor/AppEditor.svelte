@@ -156,7 +156,6 @@
 		cssEditorOpen,
 		previewTheme,
 		debuggingComponents: writable({}),
-		growingComponents: writable({})
 	})
 
 	let scale = writable(100)

@@ -1,9 +1,7 @@
 <script lang="ts">
-	import type { AppViewerContext } from '../types'
-
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher, getContext } from 'svelte'
+	import { onMount, createEventDispatcher } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
@@ -22,13 +20,11 @@
 	export let selectedIds: string[] | undefined
 	export let allIdsInPath: string[] | undefined
 	export let containerWidth: number | undefined = undefined
-
+	export let maxRow: number
 	export let scroller: HTMLElement | undefined = undefined
 	export let sensor = 20
 
 	export let parentWidth: number | undefined = undefined
-
-	const { growingComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	let getComputedCols
 
@@ -172,7 +168,7 @@
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
 			<MoveResize
-				onlyHorizontalResize={$growingComponents?.[item.id]}
+				onlyHorizontalResize={item.data['fullHeight']}
 				on:initmove={handleInitMove}
 				on:move={handleMove}
 				bind:shadow={shadows[item.id]}
@@ -186,7 +182,11 @@
 					? 0
 					: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
 					  gapX * 2}
-				height={(item[getComputedCols] && item[getComputedCols].h) * yPerPx - gapY * 2}
+				height={(item.data['fullHeight']
+					? maxRow - item[getComputedCols].y
+					: item[getComputedCols] && item[getComputedCols].h) *
+					yPerPx -
+					gapY * 2}
 				top={(item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 				left={(item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
 				item={item[getComputedCols]}

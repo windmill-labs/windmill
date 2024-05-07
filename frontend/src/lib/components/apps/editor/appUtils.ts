@@ -5,8 +5,7 @@ import type {
 	EditorBreakpoint,
 	FocusedGrid,
 	GeneralAppInput,
-	GridItem,
-	RichConfiguration
+	GridItem
 } from '../types'
 import {
 	ccomponents,
@@ -364,6 +363,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: init.horizontalAlignment,
 			verticalAlignment: init.verticalAlignment,
+			fullHeight: init.fullHeight,
 			id,
 			...(extra ?? {})
 		}
@@ -379,6 +379,7 @@ export function insertNewGridItem(
 	const id = keepId ?? getNextGridItemId(app)
 
 	const data = builddata(id)
+
 	if (data.type == 'aggridcomponentee' && !get(enterpriseLicense)) {
 		sendUserToast('AgGrid Enterprise Edition require Windmill Enterprise Edition', true)
 		throw Error('AgGrid Enterprise Edition require Windmill Enterprise Edition')
@@ -985,29 +986,18 @@ export function maxHeight(
 	const totalRowHeight = rowHeight + rowGap
 	const maxRows = Math.floor((windowHeight + rowGap) / totalRowHeight)
 
-	const maxRowPerGrid = Math.max(
+	const maxRowPerGrid = Math.min(
 		...grid.map((item) => {
 			const breakpointKey = breakpoint === 'sm' ? 3 : 12
 
 			const y = item[breakpointKey].y
 			const h = item[breakpointKey].h
 
+			console.log(y, h, y + h, maxRows)
+
 			return y + h
 		})
 	)
 
 	return Math.max(maxRowPerGrid, maxRows)
-}
-
-export function autogrow(
-	grid: GridItem[],
-	maxRow: number,
-	growingComponents: Record<string, boolean>
-) {
-	grid.forEach((item) => {
-		if (growingComponents?.[item.id] === true) {
-			item[12].h = maxRow - item[12].y
-			item[3].h = maxRow - item[3].y
-		}
-	})
 }
