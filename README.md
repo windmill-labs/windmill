@@ -352,6 +352,7 @@ you to have it being synced automatically everyday.
 | TIMEOUT_WAIT_RESULT       | 20                     | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
 | QUEUE_LIMIT_WAIT_RESULT   | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
 | DENO_AUTH_TOKENS          | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
+| DISABLE_RESPONSE_LOGS          | false                   | Disable response logs                                                   | Server                |
 
 ## Run a local dev setup
 ### only Frontend
