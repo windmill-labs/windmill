@@ -139,7 +139,8 @@
 	): Promise<ConcurrencyIntervals> {
 		//TODO: Add date filters to the backend to use the unused vars in here
 		return ConcurrencyGroupsService.getConcurrencyIntervals({
-			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined: concurrencyKey,
+			rowLimit: 1000,
+			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
 			workspace: $workspaceStore!
 		})
 	}
@@ -155,6 +156,7 @@
 		if (reset) {
 			jobs = undefined
 			completedJobs = undefined
+			concurrencyIntervals = undefined
 			intervalId && clearInterval(intervalId)
 			intervalId = setInterval(syncer, refreshRate)
 		}
@@ -166,7 +168,8 @@
 		}
 		loading = true
 		try {
-			jobs = await fetchJobs(maxTs, minTs)
+			let j = await fetchJobs(maxTs, minTs)
+			jobs = await filterJobsByConcurrencyKey(j)
 			computeCompletedJobs()
 			concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
 		} catch (err) {
@@ -228,8 +231,9 @@
 					}
 
 					loading = true
-					concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs);
-					const newJobs = await fetchJobs(maxTs, minTs ?? ts)
+					concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
+					let newJobs = await fetchJobs(maxTs, minTs ?? ts)
+					newJobs = await filterJobsByConcurrencyKey(newJobs) ?? []
 					if (newJobs && newJobs.length > 0 && jobs) {
 						const oldJobs = jobs?.map((x) => x.id)
 						jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
@@ -239,7 +243,6 @@
 						jobs = jobs
 						computeCompletedJobs()
 					}
-
 					loading = false
 				}
 			}
@@ -249,6 +252,16 @@
 	function computeCompletedJobs() {
 		completedJobs =
 			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
+	}
+
+	async function filterJobsByConcurrencyKey(jobs: Job[] | undefined) {
+		if (concurrencyKey == null || concurrencyKey == '' || jobs == undefined || jobs.length === 0)
+			return jobs
+
+		let c = (await ConcurrencyGroupsService.concurrencyKeysForJobUuids({
+			requestBody: jobs.map((e) => e.id)
+		}))['keys_by_job']
+		return jobs.filter((x) => c && c[x.id] && c[x.id] == concurrencyKey)
 	}
 
 	function onVisibilityChange() {

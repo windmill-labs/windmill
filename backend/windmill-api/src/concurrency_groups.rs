@@ -3,7 +3,7 @@ use crate::db::{ApiAuthed, DB};
 #[cfg(feature = "enterprise")]
 use axum::extract::Path;
 #[cfg(feature = "enterprise")]
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 #[cfg(feature = "enterprise")]
 use axum::{extract::Query, Extension, Json};
 use serde::Deserialize;
@@ -26,6 +26,7 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
         .route("/*id", delete(delete_concurrency_group))
+        .route("/keys", post(get_concurrency_keys_for_jobs))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -53,7 +54,8 @@ async fn list_concurrency_groups(
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ConcurrencyGroups>> {
     if !authed.is_admin {
-        return Err(PermissionDenied( "Only administrators can see concurrency groups".to_string(),
+        return Err(PermissionDenied(
+            "Only administrators can see concurrency groups".to_string(),
         ));
     }
 
@@ -157,7 +159,6 @@ async fn delete_concurrency_group(
     Ok(Json(()))
 }
 
-
 #[derive(Serialize)]
 struct ConcurrencyIntervals {
     concurrency_key: Option<String>,
@@ -197,7 +198,7 @@ async fn get_concurrent_intervals(
                 "SELECT id, started_at FROM queue
                     JOIN concurrency_key ON concurrency_key.job_id = queue.id
                     WHERE started_at IS NOT NULL AND workspace_id = $2 AND key = $1
-                    LIMIT $3",
+                    ORDER BY started_at DESC LIMIT $3",
                 // "SELECT started_at FROM queue JOIN (
                 //         SELECT uuid(jsonb_object_keys(job_uuids)) AS job_id
                 //         FROM concurrency_counter WHERE concurrency_id = $1
@@ -218,7 +219,7 @@ async fn get_concurrent_intervals(
         }
 
         None => sqlx::query!(
-            "SELECT started_at FROM queue WHERE started_at IS NOT NULL AND workspace_id = $1 AND script_path IS NOT NULL LIMIT $2",
+            "SELECT started_at FROM queue WHERE started_at IS NOT NULL AND workspace_id = $1 AND script_path IS NOT NULL ORDER BY started_at DESC LIMIT $2",
             w_id,
             row_limit,
         )
@@ -233,7 +234,7 @@ async fn get_concurrent_intervals(
         Some(key) => {
             sqlx::query!(
                 "SELECT job_id, ended_at, started_at FROM concurrency_key JOIN completed_job ON concurrency_key.job_id = completed_job.id
-                    WHERE workspace_id = $1 AND key = $2 AND ended_at IS NOT NULL LIMIT $3",
+                    WHERE workspace_id = $1 AND key = $2 AND ended_at IS NOT NULL ORDER BY started_at DESC LIMIT $3",
                 w_id,
                 key,
                 row_limit,
@@ -246,7 +247,7 @@ async fn get_concurrent_intervals(
         }
         None => {
             sqlx::query!(
-                "SELECT started_at, duration_ms FROM completed_job WHERE workspace_id = $1 LIMIT $2",
+                "SELECT started_at, duration_ms FROM completed_job WHERE workspace_id = $1 ORDER BY started_at DESC LIMIT $2",
                 w_id,
                 row_limit,
             )
@@ -274,13 +275,24 @@ async fn get_concurrency_key(
 
     Ok(Json(job.concurrency_key(&db).await?))
 }
-
-// async fn get_concurrency_keys_for_jobs(
-//     authed: ApiAuthed,
-//     Extension(db): Extension<DB>,
-//     Path((w_id, job_id)): Path<(String, Uuid)>,
-//     ) -> JsonResult<Vec<String>> {
-//
-//
-//     let ret = vec![]
-// }
+#[derive(Serialize)]
+struct ConcurrencyKeysByJob {
+    keys_by_job: HashMap<Uuid, String>,
+}
+async fn get_concurrency_keys_for_jobs(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(jobs): Json<Vec<Uuid>>,
+) -> JsonResult<ConcurrencyKeysByJob> {
+    Ok(Json(ConcurrencyKeysByJob {
+        keys_by_job: sqlx::query!(
+            "SELECT job_id, key FROM concurrency_key WHERE job_id = ANY($1)",
+            &jobs
+        )
+        .fetch_all(&db)
+        .await?
+        .iter()
+        .map(|row| (row.job_id, row.key.clone()))
+        .collect(),
+    }))
+}

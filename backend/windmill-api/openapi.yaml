@@ -7990,6 +7990,32 @@ paths:
               schema:
                 type: object
                 properties: {}
+  /concurrency_groups/keys:
+    post:
+      summary: Get concurrency keys for the given job uuids
+      operationId: concurrencyKeysForJobUuids
+      tags:
+        - concurrencyGroups
+      requestBody:
+        description: job uuids
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keys_by_job:
+                  type: object
+                  properties: {}
+      responses:
+        "200":
+          description: all concurrency groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConcurrencyGroup"
   /w/{workspace}/concurrency_groups/job_concurrency_key/{id}:
     get:
       summary: Get the concurrency key for a job that has concurrency limits enabled
@@ -8019,6 +8045,11 @@ paths:
           required: false
           schema:
             type: string
+        - in: query
+          name: row_limit
+          required: false
+          schema:
+            type: number
       responses:
         "200":
           description: time

@@ -50,11 +50,21 @@
 			count += change
 			result.push({ time: new Date(time), count } as AggregatedInterval)
 		}
-		// Add a point to continue the last count until t=
-		result.push({
-			time: new Date(),
-			count: result[result.length - 1].count
-		} as AggregatedInterval)
+
+		// Add points to continue the line towards the extremities
+		if (result.length > 0) {
+			let start_time = addSeconds(new Date(result[0].time), -300)
+			let start_count = 0
+			let end_count = result[result.length - 1].count
+			result.unshift({
+				time: start_time,
+				count: start_count
+			} as AggregatedInterval)
+			result.push({
+				time: new Date(),
+				count: end_count
+			} as AggregatedInterval)
+		}
 
 		return result
 	}
