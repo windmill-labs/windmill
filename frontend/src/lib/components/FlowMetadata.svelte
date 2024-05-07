@@ -11,10 +11,8 @@
 
 	export let job: Job
 	const SMALL_ICON_SIZE = 14
-	let scheduleEditor: ScheduleEditor
+	export let scheduleEditor: ScheduleEditor
 </script>
-
-<ScheduleEditor bind:this={scheduleEditor} />
 
 <div
 	class="rounded-md p-3 bg-surface-secondary shadow-sm sm:text-sm md:text-base"

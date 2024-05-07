@@ -482,7 +482,7 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     result_f: Fut,
     worker_name: &str,
     w_id: &str,
-) -> anyhow::Result<T>
+) -> error::Result<T>
 where
     Fut: Future<Output = anyhow::Result<T>>,
 {
@@ -514,10 +514,20 @@ where
             tracing::error!("Query timeout: {}", e);
             Error::ExecutionErr(format!("Query timeout after (>{}s)", timeout_ms/1000))
         })?,
-        _ = update_job, if job_id != Uuid::nil() => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+        ex = update_job, if job_id != Uuid::nil() => {
+            match ex {
+                UpdateJobPollingExit::Done => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+                UpdateJobPollingExit::AlreadyCompleted => Err(Error::AlreadyCompleted("Job already completed".to_string())).map_err(to_anyhow)?,
+            }
+        }
     }?;
     drop(tx);
     Ok(rows)
+}
+
+pub enum UpdateJobPollingExit {
+    Done,
+    AlreadyCompleted,
 }
 
 pub async fn update_job_poller<F, Fut>(
@@ -529,13 +539,14 @@ pub async fn update_job_poller<F, Fut>(
     worker_name: &str,
     w_id: &str,
     mut rx: broadcast::Receiver<()>,
-) where
+) -> UpdateJobPollingExit
+where
     F: Fn() -> Fut,
     Fut: Future<Output = i32>,
 {
     let update_job_interval = Duration::from_millis(500);
     if job_id == Uuid::nil() {
-        return;
+        return UpdateJobPollingExit::Done;
     }
     let db = db.clone();
 
@@ -593,28 +604,36 @@ pub async fn update_job_poller<F, Fut>(
                     }
                 }
 
-                let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
+                let (canceled, canceled_by, canceled_reason, already_completed) = sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason, false")
                     .bind(*mem_peak)
                     .bind(job_id)
                     .fetch_optional(&db)
                     .await
                     .unwrap_or_else(|e| {
                         tracing::error!(%e, "error updating job {job_id}: {e}");
-                        Some((false, None, None))
+                        Some((false, None, None, false))
                     })
-                    .unwrap_or((false, None, None));
+                    .unwrap_or_else(|| {
+                        // if the job is not in queue, it can only be in the completed_job so it is already complete
+                        (false, None, None, true)
+                    });
+                if already_completed {
+                    return UpdateJobPollingExit::AlreadyCompleted
+                }
                 if canceled {
                     canceled_by_ref.replace(CanceledBy {
                         username: canceled_by.clone(),
                         reason: canceled_reason.clone(),
                     });
-                    break;
+                    break
                 }
             }
             },
         );
     }
     tracing::info!("job {job_id} finished");
+
+    UpdateJobPollingExit::Done
 }
 
 pub enum CompactLogs {
@@ -897,6 +916,7 @@ pub async fn handle_child(
         TooManyLogs,
         Timeout,
         Cancelled,
+        AlreadyCompleted,
     }
 
     let (timeout_duration, timeout_warn_msg) =
@@ -914,7 +934,10 @@ pub async fn handle_child(
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout,
-            _ = update_job, if job_id != Uuid::nil() => KillReason::Cancelled,
+            ex = update_job, if job_id != Uuid::nil() => match ex {
+                UpdateJobPollingExit::Done => KillReason::Cancelled,
+                UpdateJobPollingExit::AlreadyCompleted => KillReason::AlreadyCompleted,
+            },
         };
         tx.send(()).expect("rx should never be dropped");
         drop(tx);

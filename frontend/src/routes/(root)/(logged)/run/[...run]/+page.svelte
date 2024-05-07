@@ -80,6 +80,7 @@
 	import { json } from 'svelte-highlight/languages'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -260,7 +261,11 @@
 			window.open(`/scripts/add#${encodeState(n)}`)
 		}
 	}
+
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor bind:this={scheduleEditor} />
 
 {#if (job?.job_kind == 'flow' || job?.job_kind == 'flowpreview') && job?.['running'] && job?.parent_job == undefined}
 	<Drawer bind:this={debugViewer} size="800px">
@@ -448,6 +453,18 @@
 						Force Cancel
 					</Button>
 				{/if}
+			{/if}
+			{#if job?.schedule_path}
+				<Button
+					size="sm"
+					on:click={() => {
+						if (!job || !job.schedule_path) {
+							return
+						}
+						scheduleEditor?.openEdit(job.schedule_path, job.job_kind == 'flow')
+					}}
+					startIcon={{ icon: Calendar }}>Edit schedule</Button
+				>
 			{/if}
 			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
 				{#if selectedJobStepType == 'single'}
@@ -650,7 +667,7 @@
 			</div>
 			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />
-				{#if job}<FlowMetadata {job} />{/if}
+				{#if job}<FlowMetadata {job} {scheduleEditor} />{/if}
 			</div>
 		</div>
 

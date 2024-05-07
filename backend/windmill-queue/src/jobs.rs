@@ -133,24 +133,16 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
-#[async_recursion]
-pub async fn cancel_job<'c: 'async_recursion>(
+pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
-    id: Uuid,
+    job_running: &QueuedJob,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job_running = get_queued_job_tx(id, &w_id, &mut tx).await?;
-
-    if job_running.is_none() {
-        return Ok((tx, None));
-    }
-    let job_running = job_running.unwrap();
-
     if ((job_running.running || job_running.root_job.is_some()) || (job_running.is_flow()))
         && !force_cancel
     {
@@ -158,7 +150,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
             username,
             reason,
-            id,
+            job_running.id,
             w_id
         )
         .fetch_optional(&mut *tx)
@@ -172,7 +164,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
             .unwrap_or_else(|| "unexplicited reasons".to_string());
         let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
         append_logs(
-            id,
+            job_running.id,
             w_id.to_string(),
             format!("canceled by {username}: (force cancel: {force_cancel})"),
             db,
@@ -180,7 +172,7 @@ pub async fn cancel_job<'c: 'async_recursion>(
         .await;
         let add_job = add_completed_job_error(
             &db,
-            &job_running,
+            job_running,
             job_running.mem_peak.unwrap_or(0),
             Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
             e,
@@ -189,16 +181,73 @@ pub async fn cancel_job<'c: 'async_recursion>(
             false,
         )
         .await;
+
         if let Err(e) = add_job {
             tracing::error!("Failed to add canceled job: {}", e);
         }
     }
     if let Some(mut rsmq) = rsmq.clone() {
-        rsmq.change_message_visibility(&job_running.tag, &id.to_string(), 0)
+        rsmq.change_message_visibility(&job_running.tag, &job_running.id.to_string(), 0)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
     }
 
+    Ok((tx, Some(job_running.id)))
+}
+
+pub async fn cancel_job<'c>(
+    username: &str,
+    reason: Option<String>,
+    id: Uuid,
+    w_id: &str,
+    mut tx: Transaction<'c, Postgres>,
+    db: &Pool<Postgres>,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    force_cancel: bool,
+) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
+    let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
+
+    if job.is_none() {
+        return Ok((tx, None));
+    }
+
+    let job = job.unwrap();
+
+    let (ntx, _) = cancel_single_job(
+        username,
+        reason.clone(),
+        &job,
+        w_id,
+        tx,
+        db,
+        rsmq.clone(),
+        force_cancel,
+    )
+    .await?;
+    tx = ntx;
+
+    // soft cancel parent if force cancel and job is a flow step
+    if force_cancel && job.is_flow_step {
+        if let Some(parent_job_id) = job.parent_job {
+            let job = get_queued_job_tx(parent_job_id, &w_id, &mut tx).await?;
+            if let Some(job) = job {
+                let (ntx, _) = cancel_single_job(
+                    username,
+                    reason.clone(),
+                    &job,
+                    w_id,
+                    tx,
+                    db,
+                    rsmq.clone(),
+                    false,
+                )
+                .await?;
+                tx = ntx;
+            }
+        }
+    }
+
+    // cancel children
     let mut jobs = vec![id];
     let mut jobs_to_cancel = vec![];
     while !jobs.is_empty() {
@@ -213,19 +262,23 @@ pub async fn cancel_job<'c: 'async_recursion>(
         jobs.extend(new_jobs.clone());
         jobs_to_cancel.extend(new_jobs);
     }
-    for job in jobs_to_cancel {
-        let (ntx, _) = cancel_job(
-            username,
-            reason.clone(),
-            job,
-            w_id,
-            tx,
-            db,
-            rsmq.clone(),
-            force_cancel,
-        )
-        .await?;
-        tx = ntx;
+    for job_id in jobs_to_cancel {
+        let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
+
+        if let Some(job) = job {
+            let (ntx, _) = cancel_single_job(
+                username,
+                reason.clone(),
+                &job,
+                w_id,
+                tx,
+                db,
+                rsmq.clone(),
+                force_cancel,
+            )
+            .await?;
+            tx = ntx;
+        }
     }
     Ok((tx, Some(id)))
 }
@@ -633,8 +686,19 @@ pub async fn add_completed_job<
             if let Some(schedule) = schedule {
                 skip_downstream_error_handlers = schedule.ws_error_handler_muted;
 
-                if !queued_job.is_flow() {
-                    // script only
+                // script or flow that failed on start and might not have been rescheduled
+                let schedule_next_tick = !queued_job.is_flow()
+                    || {
+                        let flow_status = queued_job.parse_flow_status();
+                        flow_status.is_some_and(|fs| {
+                            fs.step == 0
+                            && fs.modules.get(0).is_some_and(|m| {
+                                matches!(m, FlowStatusModule::WaitingForPriorSteps { .. }) || matches!(m, FlowStatusModule::Failure { job, ..} if job == &Uuid::nil())
+                            })
+                        })
+                    };
+
+                if schedule_next_tick {
                     if let Err(err) = handle_maybe_scheduled_job(
                         rsmq.clone(),
                         db,

@@ -58,6 +58,8 @@ pub enum Error {
     JsonErr(serde_json::Value),
     #[error("{0}")]
     OpenAIError(String),
+    #[error("{0}")]
+    AlreadyCompleted(String),
 }
 
 impl Error {
