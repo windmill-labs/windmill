@@ -25,7 +25,7 @@ use windmill_common::{
     error::JsonResult,
     jobs::JobKind,
     scripts::to_i64,
-    utils::{paginate, Pagination},
+    utils::{not_found_if_none, paginate, Pagination},
 };
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -34,6 +34,10 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_input))
         .route("/update", post(update_input))
         .route("/delete/:id", post(delete_input))
+        .route(
+            "/:job_or_input_id/args",
+            get(get_args_from_history_or_saved_input),
+        )
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Deserialize)]
@@ -123,7 +127,7 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = &format!(
-        "select id, created_at, created_by, args, success from completed_job \
+        "select id, created_at, created_by, CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, success from completed_job \
         where {} = $1 and job_kind = $2 and workspace_id = $3 \
         order by created_at desc limit $4 offset $5",
         r.runnable_type.column_name()
@@ -167,6 +171,27 @@ async fn get_input_history(
     Ok(Json(inputs))
 }
 
+async fn get_args_from_history_or_saved_input(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_or_input_id)): Path<(String, Uuid)>,
+) -> JsonResult<Option<Value>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let result_o = sqlx::query_scalar!(
+        "SELECT args FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT args FROM input WHERE id = $1 AND workspace_id = $2",
+        job_or_input_id,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let result = not_found_if_none(result_o, "Input args", job_or_input_id.to_string())?;
+
+    Ok(Json(result))
+}
+
 async fn list_saved_inputs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -179,7 +204,7 @@ async fn list_saved_inputs(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, InputRow>(
-        "select * from input \
+        "select id, workspace_id, runnable_id, runnable_type, name, CASE WHEN pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, created_at, created_by, is_public from input \
          where runnable_id = $1 and runnable_type = $2 and workspace_id = $3 \
          and (is_public IS true OR created_by = $4) \
          order by created_at desc limit $5 offset $6",

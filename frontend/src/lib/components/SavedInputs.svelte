@@ -17,6 +17,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import JobLoader from './runs/JobLoader.svelte'
+	import Skeleton from './common/skeleton/Skeleton.svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
@@ -32,8 +33,8 @@
 		isSaving?: boolean
 	}
 
-	let previousInputs: Input[] = []
-	let savedInputs: EditableInput[] = []
+	let previousInputs: Input[] | undefined = undefined
+	let savedInputs: EditableInput[] | undefined = undefined
 	let selectedInput: Input | null
 	let jobs: Job[] = []
 	let loading: boolean = false
@@ -92,7 +93,7 @@
 				is_public: false,
 				...requestBody
 			}
-			savedInputs = [input, ...savedInputs]
+			savedInputs = [input, ...(savedInputs ?? [])]
 		} catch (err) {
 			console.error(err)
 			sendUserToast(`Failed to save Input: ${err}`, true)
@@ -127,7 +128,7 @@
 				workspace: $workspaceStore!,
 				input: input.id
 			})
-			savedInputs = savedInputs.filter((i) => i.id !== input.id)
+			savedInputs = (savedInputs ?? []).filter((i) => i.id !== input.id)
 			if (selectedInput === input) {
 				selectedInput = null
 			}
@@ -148,6 +149,20 @@
 	function selectArgs(selected_args: any) {
 		dispatch('selected_args', selected_args)
 	}
+
+	async function loadLargeArgs(id: string | undefined) {
+		if (!id) return
+		largeArgs = await InputService.getArgsFromHistoryOrSavedInput({
+			jobOrInputId: id,
+			workspace: $workspaceStore!
+		})
+	}
+
+	let hasLargeArgs = false
+	$: hasLargeArgs =
+		typeof selectedInput?.args === 'string' && selectedInput?.args === 'WINDMILL_TOO_BIG'
+	let largeArgs: any = undefined
+	$: hasLargeArgs && loadLargeArgs(selectedInput?.id)
 </script>
 
 <JobLoader
@@ -192,7 +207,9 @@
 				</div>
 
 				<div class="w-full flex flex-col gap-2 h-full overflow-y-auto p">
-					{#if savedInputs.length > 0}
+					{#if savedInputs === undefined}
+						<Skeleton layout={[[8]]} />
+					{:else if savedInputs.length > 0}
 						{#each savedInputs as i}
 							<button
 								class={classNames(
@@ -290,7 +307,9 @@
 				<span class="text-sm font-semibold">Previous runs</span>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
-					{#if jobs.length > 0}
+					{#if loading}
+						<Skeleton layout={[[2]]} />
+					{:else if jobs.length > 0}
 						{#each jobs as i (i.id)}
 							<button
 								class={classNames(
@@ -331,7 +350,9 @@
 				</div>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
-					{#if previousInputs.length > 0}
+					{#if previousInputs === undefined}
+						<Skeleton layout={[[8]]} />
+					{:else if previousInputs.length > 0}
 						{#each previousInputs as i (i.id)}
 							<button
 								class={classNames(
@@ -390,15 +411,24 @@
 							btnClasses="w-full"
 							size="sm"
 							spacingSize="xl"
-							on:click={() => selectArgs(selectedInput?.args)}
-							disabled={Object.keys(selectedInput?.args || {}).length === 0}
+							on:click={() => selectArgs(hasLargeArgs ? largeArgs : selectedInput?.args)}
+							disabled={Object.keys(selectedInput?.args || {}).length === 0 ||
+								(hasLargeArgs && Object.keys(largeArgs || {}).length === 0)}
 						>
 							<ArrowLeftIcon class="w-4 h-4 mr-2" />
 							Use Input
 						</Button>
 					</div>
 					<div class="w-full min-h-0 grow overflow-auto">
-						{#if Object.keys(selectedInput?.args || {}).length > 0}
+						{#if hasLargeArgs}
+							{#if largeArgs}
+								<div class=" overflow-auto h-full p-2">
+									<ObjectViewer json={largeArgs} />
+								</div>
+							{:else}
+								<Skeleton layout={[[8]]} />
+							{/if}
+						{:else if Object.keys(selectedInput?.args || {}).length > 0}
 							<div class=" overflow-auto h-full p-2">
 								<ObjectViewer json={selectedInput?.args} />
 							</div>
