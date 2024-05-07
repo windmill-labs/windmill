@@ -31,9 +31,6 @@ export function argSigToJsonSchemaType(
 	} else if (t === 'datetime') {
 		newS.type = 'string'
 		newS.format = 'date-time'
-	} else if (t === 'date') {
-		newS.type = 'string'
-		newS.format = 'date'
 	} else if (typeof t !== 'string' && `object` in t) {
 		newS.type = 'object'
 		if (t.object) {
@@ -75,6 +72,10 @@ export function argSigToJsonSchemaType(
 				delete oldS[prop]
 			}
 		}
+	} else if ((oldS.format == 'date' || oldS.format === 'date-time') && newS.format == 'string') {
+		newS.format = oldS.format
+	} else if (newS.format == 'date-time' && oldS.format == 'date') {
+		newS.format = 'date'
 	} else if (oldS.items?.type != newS.items?.type) {
 		delete oldS.items
 	}

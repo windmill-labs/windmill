@@ -15,6 +15,7 @@
 	import LightweightResourcePicker from './LightweightResourcePicker.svelte'
 	import LightweightObjectResourceInput from './LightweightObjectResourceInput.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import DateInput from './DateInput.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import Multiselect from 'svelte-multiselect'
 	import Password from './Password.svelte'
@@ -376,7 +377,11 @@
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}
-					<DateTimeInput bind:value />
+					{#if format === 'date'}
+						<DateInput bind:value />
+					{:else}
+						<DateTimeInput useDropdown bind:value />
+					{/if}
 				{:else if inputCat == 'base64'}
 					<div class="flex flex-col my-6 w-full">
 						<input
