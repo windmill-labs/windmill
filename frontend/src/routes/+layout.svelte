@@ -3,6 +3,9 @@
 
 	import { Toaster } from 'svelte-sonner'
 	import '$lib/assets/app.css'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+
+	let darkMode = false
 </script>
 
 <svelte:head>
@@ -18,8 +21,10 @@
 
 <slot />
 
+<DarkModeObserver bind:darkMode />
+
 <div class="wrap">
-	<Toaster position="top-right" richColors closeButton />
+	<Toaster position="top-right" richColors closeButton theme={darkMode ? 'dark' : 'light'} />
 </div>
 
 <style>
