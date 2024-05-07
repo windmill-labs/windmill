@@ -1671,7 +1671,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let tag = job.tag.clone();
 
                     let arc_job = Arc::new(job);
-                    if let Some(err) = handle_queued_job(
+                    if let Err(err) = handle_queued_job(
                         arc_job.clone(),
                         db,
                         &authed_client,
@@ -1686,7 +1686,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         worker_code_execution_duration.clone(),
                     )
                     .await
-                    .err()
                     {
                         let is_init_script = arc_job.tag.as_str() == INIT_SCRIPT_TAG;
                         handle_job_error(
@@ -2831,6 +2830,14 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         if job.as_ref().workspace_id == "" {
             return Ok(());
         }
+
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
+        {
+            return Ok(());
+        }
+
         process_result(
             job,
             result,
