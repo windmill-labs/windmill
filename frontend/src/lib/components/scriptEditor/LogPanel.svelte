@@ -28,7 +28,6 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
@@ -148,10 +147,12 @@
 										Test to see the result here
 									{/if}
 								</span>
-								<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering">
-									The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+								>
+									The result renderer in Windmill supports rich display rendering, allowing you to
+									customize the display format of your results.
 								</Tooltip>
-
 							</div>
 						{/if}
 					</Pane>
