@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, Bug, Expand, Move, Network, Pen, Plug2 } from 'lucide-svelte'
+	import { Anchor, ArrowDownFromLine, Bug, Expand, Move, Network, Pen, Plug2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button, Popup } from '$lib/components/common'
@@ -114,6 +114,18 @@
 			</button>
 			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
 		{/if}
+
+		<button
+			title="Fill height"
+			class={classNames(
+				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+			)}
+			on:click={() => dispatch('fillHeight')}
+			on:pointerdown|stopPropagation
+		>
+			<ArrowDownFromLine aria-label="Expand position" size={14} />
+		</button>
 
 		<button
 			title="Expand"

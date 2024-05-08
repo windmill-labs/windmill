@@ -132,6 +132,7 @@
 			connecting={$connectingInput.opened}
 			on:lock
 			on:expand
+			on:fillHeight
 			{locked}
 			{inlineEditorOpened}
 			hasInlineEditor={component.type === 'textcomponent' &&

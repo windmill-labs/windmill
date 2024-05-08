@@ -727,7 +727,8 @@ const aggridcomponentconst = {
 					age: 84
 				}
 			]
-		} as StaticAppInput
+		} as StaticAppInput,
+		fullHeight: false
 	}
 } as const
 

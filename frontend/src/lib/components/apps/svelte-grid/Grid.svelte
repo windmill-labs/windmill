@@ -168,7 +168,6 @@
 	{#each sortedItems as item (item.id)}
 		{#if item[getComputedCols] != undefined}
 			<MoveResize
-				onlyHorizontalResize={item.data['fullHeight']}
 				on:initmove={handleInitMove}
 				on:move={handleMove}
 				bind:shadow={shadows[item.id]}
@@ -182,11 +181,7 @@
 					? 0
 					: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
 					  gapX * 2}
-				height={(item.data['fullHeight']
-					? maxRow - item[getComputedCols].y
-					: item[getComputedCols] && item[getComputedCols].h) *
-					yPerPx -
-					gapY * 2}
+				height={(item[getComputedCols] && item[getComputedCols].h) * yPerPx - gapY * 2}
 				top={(item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 				left={(item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
 				item={item[getComputedCols]}

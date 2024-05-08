@@ -162,6 +162,13 @@
 									expandGriditem($app.grid, dataItem.id, $breakpoint)
 									$app = $app
 								}}
+								on:fillHeight={() => {
+									const gridItem = findGridItem($app, dataItem.id)
+									if (gridItem) {
+										gridItem.data.fullHeight = !gridItem.data.fullHeight
+									}
+									$app = $app
+								}}
 							/>
 						</GridEditorMenu>
 					</ComponentWrapper>

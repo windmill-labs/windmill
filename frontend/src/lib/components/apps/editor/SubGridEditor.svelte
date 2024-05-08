@@ -153,6 +153,7 @@
 									)
 									$app = $app
 								}}
+								on:fillHeight={() => {}}
 							/>
 						</GridEditorMenu>
 					</ComponentWrapper>
