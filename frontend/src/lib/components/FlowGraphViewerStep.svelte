@@ -10,11 +10,12 @@
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import { scriptPathToHref } from '$lib/scripts'
-	import { cleanExpr } from '$lib/utils'
+	import { cleanExpr, copyToClipboard } from '$lib/utils'
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
+	import { Copy } from 'lucide-svelte'
 
 	export let flow: {
 		summary: string
@@ -212,6 +213,23 @@
 				{/each}
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
+			<div class="text-sm mb-1 flex justify-end flex-row">
+				<Button
+					size="xs2"
+					startIcon={{ icon: Copy }}
+					color="light"
+					on:click={() => {
+						if (typeof stepDetail !== 'string') {
+							const val = stepDetail?.value
+							if (val?.type == 'flow') {
+								copyToClipboard(val.path)
+							}
+						}
+					}}
+				>
+					Copy path
+				</Button>
+			</div>
 			<FlowPathViewer noSide path={stepDetail.value.path} />
 		{/if}
 	{:else}
