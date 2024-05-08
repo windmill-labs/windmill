@@ -332,7 +332,7 @@ async fn create_snapshot_script(
         while let Some(field) = multipart.next_field().await.unwrap() {
             let name = field.name().unwrap().to_string();
             let data = field.bytes().await.unwrap();
-            if name == "preview" {
+            if name == "script" {
                 let ns = Some(serde_json::from_slice(&data).map_err(to_anyhow)?);
                 let (new_hash, ntx) = create_script_internal(
                     ns.unwrap(),

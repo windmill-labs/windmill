@@ -195,6 +195,8 @@
 			} else {
 				sendUserToast('Bundle received was obsolete, ignoring', true)
 			}
+		} else if (event.data.type == 'clipboard') {
+			sendUserToast('Copied from clipboard: ' + event.data.text, false)
 		} else if (event.data.type == 'testBundleError') {
 			sendUserToast(event.data.error, true)
 		} else if (event.data.type == 'replaceFlow') {
@@ -348,10 +350,15 @@
 		})
 	}
 
-	function onKeyDown(event: KeyboardEvent) {
+	async function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
 			event.preventDefault()
 			runTest()
+		}
+		if ((event.ctrlKey || event.metaKey) && event.code === 'KeyC') {
+			document.execCommand('copy')
+		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
+			document.execCommand('cut')
 		}
 	}
 
