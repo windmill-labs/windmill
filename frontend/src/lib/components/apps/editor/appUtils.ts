@@ -421,6 +421,8 @@ export function insertNewGridItem(
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
+	data.fullHeight = false
+
 	const newItem = createNewGridItem(grid, id, data, columns)
 	grid.push(newItem)
 	return id

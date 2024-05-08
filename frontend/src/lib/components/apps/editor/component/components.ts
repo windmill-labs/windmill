@@ -727,8 +727,7 @@ const aggridcomponentconst = {
 					age: 84
 				}
 			]
-		} as StaticAppInput,
-		fullHeight: false
+		} as StaticAppInput
 	}
 } as const
 
@@ -959,8 +958,7 @@ export const components = {
 		initialData: {
 			configuration: {},
 			componentInput: undefined,
-			numberOfSubgrids: 1,
-			fullHeight: false
+			numberOfSubgrids: 1
 		}
 	},
 	listcomponent: {
@@ -1040,8 +1038,7 @@ export const components = {
 				subFieldType: 'object',
 				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
 			},
-			numberOfSubgrids: 1,
-			fullHeight: false
+			numberOfSubgrids: 1
 		}
 	},
 	textcomponent: {
@@ -2631,8 +2628,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			},
 			componentInput: undefined,
 			numberOfSubgrids: 2,
-			tabs: ['First tab', 'Second tab'] as string[],
-			fullHeight: false
+			tabs: ['First tab', 'Second tab'] as string[]
 		}
 	},
 	steppercomponent: {
@@ -2652,8 +2648,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				runnable: undefined
 			},
 			numberOfSubgrids: 2,
-			tabs: ['First', 'Second'] as string[],
-			fullHeight: false
+			tabs: ['First', 'Second'] as string[]
 		}
 	},
 	carousellistcomponent: {
@@ -2681,8 +2676,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				subFieldType: 'object',
 				value: [{ foo: 1 }, { foo: 2 }, { foo: 3 }] as object[]
 			},
-			numberOfSubgrids: 1,
-			fullHeight: false
+			numberOfSubgrids: 1
 		}
 	},
 	iconcomponent: {
@@ -2939,8 +2933,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				}
 			},
 			componentInput: undefined,
-			numberOfSubgrids: 1,
-			fullHeight: false
+			numberOfSubgrids: 1
 		}
 	},
 	mapcomponent: {
@@ -3015,8 +3008,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			configuration: {},
 			componentInput: undefined,
 			panes: [50, 50] as number[],
-			numberOfSubgrids: 2,
-			fullHeight: false
+			numberOfSubgrids: 2
 		}
 	},
 	horizontalsplitpanescomponent: {
@@ -3031,8 +3023,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			configuration: {},
 			componentInput: undefined,
 			panes: [50, 50] as number[],
-			numberOfSubgrids: 2,
-			fullHeight: false
+			numberOfSubgrids: 2
 		}
 	},
 	pdfcomponent: {
@@ -3124,8 +3115,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				}
 			},
 			componentInput: undefined,
-			numberOfSubgrids: 1,
-			fullHeight: false
+			numberOfSubgrids: 1
 		}
 	},
 	schemaformcomponent: {
@@ -3278,8 +3268,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					connections: []
 				}
-			] as AppInputSpec<'boolean', boolean>[],
-			fullHeight: false
+			] as AppInputSpec<'boolean', boolean>[]
 		}
 	},
 	statcomponent: {
@@ -3437,8 +3426,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					},
 					next: []
 				}
-			] as DecisionTreeNode[],
-			fullHeight: false
+			] as DecisionTreeNode[]
 		}
 	},
 	s3fileinputcomponent: {

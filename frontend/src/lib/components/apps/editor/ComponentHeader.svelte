@@ -124,7 +124,11 @@
 			on:click={() => dispatch('fillHeight')}
 			on:pointerdown|stopPropagation
 		>
-			<ArrowDownFromLine aria-label="Expand position" size={14} />
+			<ArrowDownFromLine
+				aria-label="Expand position"
+				size={14}
+				class={component.fullHeight ? 'text-orange-500' : ''}
+			/>
 		</button>
 
 		<button

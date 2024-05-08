@@ -445,16 +445,14 @@
 					</Button>
 				</div>
 
-				{#if componentSettings.item.data?.fullHeight !== undefined}
-					<Label label="Full height">
-						<svelte:fragment slot="header">
-							<Tooltip>
-								When enabled, the component will take the full height of the parent container.
-							</Tooltip>
-						</svelte:fragment>
-						<Toggle bind:checked={componentSettings.item.data.fullHeight} size="xs" />
-					</Label>
-				{/if}
+				<Label label="Full height">
+					<svelte:fragment slot="header">
+						<Tooltip>
+							When enabled, the component will take the full height of the parent container.
+						</Tooltip>
+					</svelte:fragment>
+					<Toggle bind:checked={componentSettings.item.data.fullHeight} size="xs" />
+				</Label>
 
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
