@@ -222,7 +222,13 @@
 						class={'h-full w-full center-center'}
 						on:pointerdown={() => ($selectedComponent = [dataItem.id])}
 					>
-						<Component render={true} component={dataItem.data} selected={false} locked={true} />
+						<Component
+							render={true}
+							component={dataItem.data}
+							selected={false}
+							locked={true}
+							currentGrid={app.grid}
+						/>
 					</div>
 				</GridViewer>
 			</div>

@@ -1,7 +1,17 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, ArrowDownFromLine, Bug, Expand, Move, Network, Pen, Plug2 } from 'lucide-svelte'
+	import {
+		Anchor,
+		ArrowDownFromLine,
+		Bug,
+		Expand,
+		EyeOff,
+		Move,
+		Network,
+		Pen,
+		Plug2
+	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button, Popup } from '$lib/components/common'
@@ -21,6 +31,7 @@
 	export let hasInlineEditor: boolean = false
 	export let inlineEditorOpened: boolean = false
 	export let errorHandledByComponent: boolean = false
+	export let willNotDisplay: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -113,6 +124,24 @@
 				<Network size={14} />
 			</button>
 			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
+		{/if}
+
+		{#if willNotDisplay}
+			<Popover>
+				<svelte:fragment slot="text">
+					This component won't render, because an other component above it is set to fill the
+					height.
+				</svelte:fragment>
+				<div
+					title="Fill height"
+					class={classNames(
+						'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+						'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
+					)}
+				>
+					<EyeOff aria-label="Expand position" size={14} />
+				</div>
+			</Popover>
 		{/if}
 
 		<button

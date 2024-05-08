@@ -6,7 +6,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
-	import { expandGriditem, findGridItem, selectId } from './appUtils'
+	import { expandGriditem, findGridItem, maxHeight, selectId } from './appUtils'
 	import Component from './component/Component.svelte'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
@@ -67,11 +67,8 @@
 
 	let container: HTMLElement | undefined = undefined
 
-	const rowHeight = 36
-	const rowGap = 2
-
-	const totalRowHeight = rowHeight + rowGap
-	$: maxRow = Math.floor(((containerHeight ?? 0) + rowGap) / totalRowHeight)
+	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+	let elem = findGridItem($app, id)
 </script>
 
 <div
@@ -88,7 +85,11 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		style="{containerHeight ? `height: ${containerHeight - 2}px;` : ''} {style ?? ''}"
+		style="{containerHeight
+			? `${elem?.data.fullHeight && $mode === 'preview' ? 'min-height' : 'height'}: ${
+					containerHeight - 2
+			  }px;`
+			: ''} {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
 			<div
@@ -130,6 +131,7 @@
 					>
 						<GridEditorMenu id={dataItem.id}>
 							<Component
+								currentGrid={$app.subgrids?.[subGridId] ?? []}
 								render={visible}
 								component={dataItem.data}
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}
@@ -187,6 +189,7 @@
 						component={dataItem.data}
 						selected={Boolean($selectedComponent?.includes(dataItem.id))}
 						locked={isFixed(dataItem)}
+						currentGrid={$app.subgrids?.[subGridId] ?? []}
 					/>
 				</div>
 			</GridViewer>

@@ -145,6 +145,7 @@
 					>
 						<GridEditorMenu id={dataItem.id}>
 							<Component
+								currentGrid={$app.grid}
 								render={true}
 								component={dataItem.data}
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}
