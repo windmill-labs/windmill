@@ -7271,6 +7271,26 @@ paths:
                 items:
                   $ref: "#/components/schemas/Input"
 
+  /w/{workspace}/inputs/{jobOrInputId}/args:
+    get:
+      summary: Get args from history or saved input
+      operationId: getArgsFromHistoryOrSavedInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: jobOrInputId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: args
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/inputs/list:
     get:
       summary: List saved Inputs for a Runnable
