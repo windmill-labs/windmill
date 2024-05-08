@@ -8,7 +8,7 @@
 		type Job
 	} from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
-	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
+	import { classNames, displayDate, displayDateOnly, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -356,11 +356,16 @@
 										{i.created_by}
 									</div>
 									<div
-										class="whitespace-nowrap col-span-3 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+									>
+										{displayDateOnly(new Date(i.created_at))}
+									</div>
+									<div
+										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
 									>
 										<TimeAgo date={i.created_at ?? ''} />
 									</div>
-									<div class="col-span-2">
+									<div class="col-span-1">
 										<a
 											target="_blank"
 											href="/run/{i.id}?workspace={$workspaceStore}"
