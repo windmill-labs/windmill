@@ -7,7 +7,6 @@ import {
   Confirm,
   JobService,
   log,
-  NewScript,
   readAll,
   Script,
   ScriptService,
@@ -36,7 +35,6 @@ import {
 import { ignoreF } from "./sync.ts";
 import { FSFSElement } from "./sync.ts";
 import {
-  Codebase,
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
@@ -143,9 +141,18 @@ export async function handleFile(
 
     const codebase = findCodebase(path, codebases);
 
+    let bundleContent: string | undefined = undefined;
     if (codebase) {
       const esbuild = await import("npm:esbuild");
-      log.info(esbuild);
+      log.info(`Starting building the bundle for ${path}`);
+      const out = await esbuild.build({
+        entryPoints: [path],
+        format: "esm",
+        bundle: true,
+        write: false,
+      });
+      bundleContent = out.outputFiles[0].text;
+      log.info(`Finished building the bundle for ${path}`);
     }
     const typed = (
       await parseMetadataFile(
@@ -240,7 +247,7 @@ export async function handleFile(
         ...requestBodyCommon,
         parent_hash: remote.hash,
       };
-      await createScript(codebase, workspaceId, body, workspace);
+      await createScript(bundleContent, workspaceId, body, workspace);
     } else {
       log.info(
         colors.yellow.bold(`Creating script without parent ${remotePath}`)
@@ -250,7 +257,7 @@ export async function handleFile(
         ...requestBodyCommon,
         parent_hash: undefined,
       };
-      await createScript(codebase, workspaceId, body, workspace);
+      await createScript(bundleContent, workspaceId, body, workspace);
     }
     return true;
   }
@@ -258,7 +265,7 @@ export async function handleFile(
 }
 
 async function createScript(
-  codebase: SyncCodebase | undefined,
+  bundleContent: string | undefined,
   workspaceId: string,
   body: {
     parent_hash: string | undefined;
@@ -284,7 +291,7 @@ async function createScript(
   },
   workspace: Workspace
 ) {
-  if (!codebase) {
+  if (!bundleContent) {
     // no parent hash
     await ScriptService.createScript({
       workspace: workspaceId,
@@ -293,17 +300,13 @@ async function createScript(
   } else {
     const form = new FormData();
     form.append("script", JSON.stringify(body));
-    form.append(
-      "file",
-      await Deno.readTextFile("/git/codebase-wmill/windmill/out.js")
-    );
+    form.append("file", bundleContent);
 
     const url =
       workspace.remote +
       "api/w/" +
       workspace.workspaceId +
       "/scripts/create_snapshot";
-    log.info(url);
     const req = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${workspace.token}` },

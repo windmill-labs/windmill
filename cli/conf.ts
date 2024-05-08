@@ -25,7 +25,6 @@ export interface SyncOptions {
 
 export interface Codebase {
   relative_path: string;
-  buildcmd: string;
   includes: string[];
 }
 

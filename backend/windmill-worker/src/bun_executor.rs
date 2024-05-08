@@ -452,14 +452,8 @@ pub async fn generate_wrapper_mjs(
     Ok(())
 }
 
-pub async fn pull_codebase(w_id: &str, script_hash: &ScriptHash, job_dir: &str) {
-    let hash = script_hash
-        .ok_or_else(|| {
-            error::Error::BadRequest(format!("job is missing an hash while being a codebase job"))
-        })?
-        .to_string();
-
-    let path = windmill_common::s3_helpers::bundle(&job.workspace_id, &hash);
+pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
+    let path = windmill_common::s3_helpers::bundle(&w_id, &id);
     let bun_cache_path = format!("{}/{}", BUN_CACHE_DIR, path);
     let dst = format!("{job_dir}/main.js");
     let dirs_splitted = bun_cache_path.split("/").collect_vec();
@@ -483,6 +477,10 @@ pub async fn pull_codebase(w_id: &str, script_hash: &ScriptHash, job_dir: &str) 
 
         // extract_tar(bytes, job_dir).await?;
     }
+
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    return Ok(());
+
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     return Err(error::Error::ExecutionErr(
         "codebase is an EE feature".to_string(),
@@ -492,7 +490,7 @@ pub async fn pull_codebase(w_id: &str, script_hash: &ScriptHash, job_dir: &str) 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
-    codebase: bool,
+    codebase: Option<String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -521,7 +519,8 @@ pub async fn handle_bun_job(
         ));
     }
 
-    if codebase {
+    if let Some(codebase) = codebase.as_ref() {
+        pull_codebase(&job.workspace_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
@@ -590,7 +589,7 @@ pub async fn handle_bun_job(
 
     let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
 
-    let init_logs = if codebase {
+    let init_logs = if codebase.is_some() {
         "\n\n--- NODE SNAPSHOT EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
@@ -623,7 +622,11 @@ pub async fn handle_bun_job(
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let main_name = main_override.unwrap_or("main".to_string());
 
-        let main_import = if codebase { "./main.js" } else { "./main.ts" };
+        let main_import = if codebase.is_some() {
+            "./main.js"
+        } else {
+            "./main.ts"
+        };
 
         let wrapper_content: String = format!(
             r#"
@@ -677,7 +680,7 @@ try {{
     };
 
     let write_loader_f = async {
-        if !codebase {
+        if !codebase.is_some() {
             build_loader(
                 job_dir,
                 base_internal_url,
@@ -698,7 +701,7 @@ try {{
         write_loader_f
     )?;
 
-    if annotation.nodejs_mode && !codebase {
+    if annotation.nodejs_mode && !codebase.is_some() {
         generate_wrapper_mjs(
             job_dir,
             &job.workspace_id,
@@ -753,7 +756,7 @@ try {{
                 &NODE_PATH,
                 "/tmp/nodejs/wrapper.mjs",
             ]
-        } else if codebase {
+        } else if codebase.is_some() {
             vec![
                 "--config",
                 "run.config.proto",
@@ -806,7 +809,7 @@ try {{
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*BUN_PATH);
-            let args = if codebase {
+            let args = if codebase.is_some() {
                 vec!["run", &script_path]
             } else {
                 vec![
@@ -886,7 +889,7 @@ use std::sync::Arc;
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<String>,
-    codebase: bool,
+    codebase: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     inner_content: &str,
     base_internal_url: &str,
@@ -895,6 +898,7 @@ pub async fn start_worker(
     envs: HashMap<String, String>,
     w_id: &str,
     script_path: &str,
+    script_hash: &Option<ScriptHash>,
     token: &str,
     job_completed_tx: JobCompletedSender,
     jobs_rx: Receiver<Arc<QueuedJob>>,
@@ -931,7 +935,10 @@ pub async fn start_worker(
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
     let annotation = get_annotation(inner_content);
-    if let Some(reqs) = requirements_o {
+
+    if let Some(codebase) = codebase.as_ref() {
+        pull_codebase(w_id, codebase, job_dir).await?;
+    } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
             return Err(error::Error::ExecutionErr(
@@ -1064,7 +1071,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
     )
     .await?;
 
-    if annotation.nodejs_mode && !codebase {
+    if annotation.nodejs_mode && !codebase.is_some() {
         generate_wrapper_mjs(
             job_dir,
             w_id,

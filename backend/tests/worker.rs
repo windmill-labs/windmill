@@ -1663,6 +1663,7 @@ func main(derp string) (string, error) {
     .to_owned();
 
     let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
         content,
         path: None,
         lock: None,
@@ -1694,6 +1695,7 @@ echo "hello $msg"
     .to_owned();
 
     let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
         content,
         path: None,
         lock: None,
@@ -1722,6 +1724,7 @@ def main():
     .to_owned();
 
     let job = JobPayload::Code(RawCode {
+        hash: None,
         content,
         path: None,
         language: ScriptLang::Python3,
@@ -1756,6 +1759,7 @@ def main():
     .to_owned();
 
     let job = JobPayload::Code(RawCode {
+        hash: None,
         content,
         path: None,
         language: ScriptLang::Python3,
@@ -1789,6 +1793,7 @@ def main():
     .to_owned();
 
     let job = JobPayload::Code(RawCode {
+        hash: None,
         content,
         path: None,
         language: ScriptLang::Python3,
@@ -3213,6 +3218,7 @@ async fn run_preview_relative_imports(db: &Pool<Postgres>, script_content: Strin
     let db2 = db.clone();
     in_test_worker(&db, async move {
         let job = RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
             content: script_content,
             path: Some("f/system/test_import".to_string()),
             language,

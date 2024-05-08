@@ -41,7 +41,7 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue},
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, JobPayload, QueuedJob},
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::{rd_string, StripPath},
     worker::{
@@ -2027,20 +2027,28 @@ async fn spawn_dedicated_worker(
             SpawnWorker::RawScript { path, .. } => path.to_string(),
             SpawnWorker::Script { path, .. } => path.to_string(),
         };
+
         let path2 = path.clone();
         let w_id = w_id.to_string();
 
-        let (content, lock, language, envs, codebase) = match sw {
+        let (content, lock, language, envs, codebase, hash) = match sw {
             SpawnWorker::Script { path, hash } => {
                 let q = if let Some(hash) = hash {
                     get_script_content_by_hash(&hash, &w_id, &db).await.map(
                         |r: ContentReqLangEnvs| {
-                            Some((r.content, r.lockfile, r.language, r.envs, r.codebase))
+                            Some((
+                                r.content,
+                                r.lockfile,
+                                r.language,
+                                r.envs,
+                                r.codebase,
+                                Some(hash),
+                            ))
                         },
                     )
                 } else {
-                    sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool)>(
-                        "SELECT content, lock, language, envs, codebase IS NOT NULL FROM script WHERE path = $1 AND workspace_id = $2 AND
+                    sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool, Option<ScriptHash>)>(
+                        "SELECT content, lock, language, envs, codebase IS NOT NULL, hash FROM script WHERE path = $1 AND workspace_id = $2 AND
                             created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                             deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
                     )
@@ -2049,6 +2057,7 @@ async fn spawn_dedicated_worker(
                     .fetch_optional(&db)
                     .await
                     .map_err(|e| Error::InternalErr(format!("expected content and lock: {e}")))
+                    .map(|x| x.map(|y| (y.0, y.1, y.2, y.3, if y.4 { y.5.map(|z| z.to_string()) } else { None }, y.5)))
                 };
                 if let Ok(q) = q {
                     if let Some(wp) = q {
@@ -2068,7 +2077,7 @@ async fn spawn_dedicated_worker(
                 }
             }
             SpawnWorker::RawScript { content, lock, lang, .. } => {
-                (content, lock, Some(lang), None, false)
+                (content, lock, Some(lang), None, None, None)
             }
         };
 
@@ -2133,6 +2142,7 @@ async fn spawn_dedicated_worker(
                         worker_envs,
                         &w_id,
                         &path,
+                        &hash,
                         &token,
                         job_completed_tx,
                         dedicated_worker_rx,
@@ -2183,6 +2193,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             tx,
             "admins",
             windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
+                hash: None,
                 content: content.clone(),
                 path: Some(format!("init_script_{worker_name}")),
                 language: ScriptLang::Bash,
@@ -2981,7 +2992,7 @@ struct ContentReqLangEnvs {
     lockfile: Option<String>,
     language: Option<ScriptLang>,
     envs: Option<Vec<String>>,
-    codebase: bool,
+    codebase: Option<String>,
 }
 
 async fn get_hub_script_content_and_requirements(
@@ -3018,7 +3029,7 @@ async fn get_hub_script_content_and_requirements(
         lockfile: script.lockfile,
         language: Some(script.language),
         envs: None,
-        codebase: false,
+        codebase: None,
     })
 }
 
@@ -3061,7 +3072,13 @@ async fn get_script_content_by_hash(
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
-    Ok(ContentReqLangEnvs { content: r.0, lockfile: r.1, language: r.2, envs: r.3, codebase: r.4 })
+    Ok(ContentReqLangEnvs {
+        content: r.0,
+        lockfile: r.1,
+        language: r.2,
+        envs: r.3,
+        codebase: Some(script_hash.to_string()),
+    })
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -3092,7 +3109,14 @@ async fn handle_code_execution_job(
             lockfile: job.raw_lock.clone(),
             language: job.language.to_owned(),
             envs: None,
-            codebase: false,
+            codebase: if job
+                .script_hash
+                .is_some_and(|y| y.0 == PREVIEW_IS_CODEBASE_HASH)
+            {
+                Some(job.id.to_string())
+            } else {
+                None
+            },
         },
         JobKind::Script_Hub => {
             get_hub_script_content_and_requirements(job.script_path.clone(), db).await?

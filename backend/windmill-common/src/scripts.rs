@@ -128,6 +128,8 @@ impl Display for ScriptKind {
     }
 }
 
+pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
+
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Script {
     pub workspace_id: String,

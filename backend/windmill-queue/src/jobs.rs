@@ -2881,6 +2881,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         JobPayload::Code(RawCode {
             content,
             path,
+            hash,
             language,
             lock,
             concurrent_limit,
@@ -2888,7 +2889,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             cache_ttl,
             dedicated_worker,
         }) => (
-            None,
+            hash,
             path,
             Some((content, lock)),
             JobKind::Preview,
