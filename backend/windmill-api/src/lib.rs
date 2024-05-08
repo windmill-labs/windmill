@@ -141,14 +141,12 @@ pub async fn run_server(
     ));
     let argon2 = Arc::new(Argon2::default());
 
+    let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
+        .ok()
+        .map(|x| x == "true")
+        .unwrap_or(false);
+
     let middleware_stack = ServiceBuilder::new()
-        .layer(
-            TraceLayer::new_for_http()
-                .on_response(MyOnResponse {})
-                .make_span_with(MyMakeSpan {})
-                .on_request(())
-                .on_failure(MyOnFailure {}),
-        )
         .layer(Extension(db.clone()))
         .layer(Extension(rsmq))
         .layer(Extension(user_db))
@@ -284,6 +282,18 @@ pub async fn run_server(
         )
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
+
+    let app = if disable_response_logs {
+        app
+    } else {
+        app.layer(
+            TraceLayer::new_for_http()
+                .on_response(MyOnResponse {})
+                .make_span_with(MyMakeSpan {})
+                .on_request(())
+                .on_failure(MyOnFailure {}),
+        )
+    };
 
     let instance_name = rd_string(5);
 
