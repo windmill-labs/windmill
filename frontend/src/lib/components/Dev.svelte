@@ -186,6 +186,7 @@
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
 		if (event.data.type == 'runTest') {
 			runTest()
+			event.preventDefault()
 		} else if (event.data.type == 'replaceScript') {
 			mode = 'script'
 			replaceScript(event.data)
@@ -193,7 +194,7 @@
 			if (event.data.id == lastBundleCommandId) {
 				testBundle(event.data.file)
 			} else {
-				sendUserToast('Bundle received was obsolete, ignoring', true)
+				sendUserToast(`Bundle received ${lastBundleCommandId} was obsolete, ignoring`, true)
 			}
 		} else if (event.data.type == 'testBundleError') {
 			sendUserToast(event.data.error, true)
@@ -349,10 +350,6 @@
 	}
 
 	async function onKeyDown(event: KeyboardEvent) {
-		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
-			event.preventDefault()
-			runTest()
-		}
 		if ((event.ctrlKey || event.metaKey) && event.code === 'KeyC') {
 			document.execCommand('copy')
 		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
@@ -549,7 +546,7 @@
 					<Button
 						disabled={currentScript === undefined}
 						color="dark"
-						on:click={() => {
+						on:click={(e) => {
 							runTest()
 						}}
 						btnClasses="w-full"
