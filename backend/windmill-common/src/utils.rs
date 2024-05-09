@@ -235,5 +235,6 @@ pub async fn send_email(
 
 pub async fn report_critical_error(error_message: String) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
+    #[cfg(feature = "enterprise")]
     trigger_critical_error_channels(error_message).await;
 }
