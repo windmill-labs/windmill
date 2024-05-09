@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.324.1](https://github.com/windmill-labs/windmill/compare/v1.324.0...v1.324.1) (2024-05-09)
+
+
+### Bug Fixes
+
+* **cli:** narrow codebases to bun ([252ac18](https://github.com/windmill-labs/windmill/commit/252ac18d477742d93a2004a0976a809d10bff3d1))
+
 ## [1.324.0](https://github.com/windmill-labs/windmill/compare/v1.323.6...v1.324.0) (2024-05-09)
 
 
