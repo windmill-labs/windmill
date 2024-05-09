@@ -1,5 +1,5 @@
 use crate::ee::LicensePlan::Community;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
