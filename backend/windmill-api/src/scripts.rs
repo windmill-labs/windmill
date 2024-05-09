@@ -315,6 +315,12 @@ fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+async fn create_snapshot_script() -> Result<(StatusCode, String)> {
+    Err(Error::BadRequest("Upgrade to EE to use bundle".to_string()))
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn create_snapshot_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -324,71 +330,65 @@ async fn create_snapshot_script(
     Path(w_id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    {
-        let mut script_hash = None;
-        let mut tx = None;
-        let mut uploaded = false;
-        while let Some(field) = multipart.next_field().await.unwrap() {
-            let name = field.name().unwrap().to_string();
-            let data = field.bytes().await.unwrap();
-            if name == "script" {
-                let ns = Some(serde_json::from_slice(&data).map_err(to_anyhow)?);
-                let (new_hash, ntx) = create_script_internal(
-                    ns.unwrap(),
-                    w_id.clone(),
-                    authed.clone(),
-                    db.clone(),
-                    rsmq.clone(),
-                    user_db.clone(),
-                    webhook.clone(),
+    let mut script_hash = None;
+    let mut tx = None;
+    let mut uploaded = false;
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let name = field.name().unwrap().to_string();
+        let data = field.bytes().await.unwrap();
+        if name == "script" {
+            let ns = Some(serde_json::from_slice(&data).map_err(to_anyhow)?);
+            let (new_hash, ntx) = create_script_internal(
+                ns.unwrap(),
+                w_id.clone(),
+                authed.clone(),
+                db.clone(),
+                rsmq.clone(),
+                user_db.clone(),
+                webhook.clone(),
+            )
+            .await?;
+            script_hash = Some(new_hash.to_string());
+            tx = Some(ntx);
+        }
+        if name == "file" {
+            let hash = script_hash.as_ref().ok_or_else(|| {
+                Error::BadRequest(
+                    "script need to be passed first in the multipart upload".to_string(),
                 )
-                .await?;
-                script_hash = Some(new_hash.to_string());
-                tx = Some(ntx);
-            }
-            if name == "file" {
-                let hash = script_hash.as_ref().ok_or_else(|| {
-                    Error::BadRequest(
-                        "script need to be passed first in the multipart upload".to_string(),
-                    )
-                })?;
+            })?;
 
-                uploaded = true;
-                if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                    .read()
+            uploaded = true;
+            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+                .read()
+                .await
+                .clone()
+            {
+                let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+                if let Err(e) = os
+                    .put(&object_store::path::Path::from(path.clone()), data)
                     .await
-                    .clone()
                 {
-                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-                    if let Err(e) = os
-                        .put(&object_store::path::Path::from(path.clone()), data)
-                        .await
-                    {
-                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                    }
-                } else {
-                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                    return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
                 }
+            } else {
+                return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
             }
-            // println!("Length of `{}` is {} bytes", name, data.len());
         }
-        if !uploaded {
-            return Err(Error::BadRequest("No file uploaded".to_string()));
-        }
-        if script_hash.is_none() {
-            return Err(Error::BadRequest(
-                "No script found in the uploaded file".to_string(),
-            ));
-        }
-
-        tx.unwrap().commit().await?;
-        return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
+        // println!("Length of `{}` is {} bytes", name, data.len());
+    }
+    if !uploaded {
+        return Err(Error::BadRequest("No file uploaded".to_string()));
+    }
+    if script_hash.is_none() {
+        return Err(Error::BadRequest(
+            "No script found in the uploaded file".to_string(),
+        ));
     }
 
-    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-    Err(Error::BadRequest("Upgrade to EE to use bundle".to_string()))
+    tx.unwrap().commit().await?;
+    return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
 
 async fn create_script(
