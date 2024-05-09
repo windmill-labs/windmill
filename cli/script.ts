@@ -139,9 +139,13 @@ export async function handleFile(
       .substring(0, path.indexOf("."))
       .replaceAll("\\", "/");
 
-    const codebase = findCodebase(path, codebases);
+    const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
+
+    const codebase =
+      language == "bun" ? findCodebase(path, codebases) : undefined;
 
     let bundleContent: string | undefined = undefined;
+
     if (codebase) {
       const esbuild = await import("npm:esbuild");
       log.info(`Starting building the bundle for ${path}`);
@@ -168,7 +172,6 @@ export async function handleFile(
         globalDeps
       )
     )?.payload;
-    const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
     const workspaceId = workspace.workspaceId;
 
