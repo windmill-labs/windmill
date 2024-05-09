@@ -128,6 +128,7 @@ impl Display for ScriptKind {
     }
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
 
 #[derive(Serialize, sqlx::FromRow)]
