@@ -34,7 +34,6 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, to_anyhow, Result},
     jobs::QueuedJob,
-    scripts::ScriptHash,
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
