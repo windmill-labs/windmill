@@ -3123,6 +3123,7 @@ async fn run_preview_script(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn run_bundle_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3132,7 +3133,6 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
-    #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     check_scopes(&authed, || format!("runscript"))?;
@@ -3213,7 +3213,6 @@ async fn run_bundle_preview_script(
 
             uploaded = true;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
                 .read()
                 .await
@@ -3245,6 +3244,13 @@ async fn run_bundle_preview_script(
     tx.unwrap().commit().await?;
 
     Ok((StatusCode::CREATED, job_id.unwrap().to_string()))
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+async fn run_bundle_preview_script() -> error::Result<(StatusCode, String)> {
+    return Err(Error::BadRequest(
+        "bundle preview is an ee feature".to_string(),
+    ));
 }
 
 #[derive(Deserialize)]
