@@ -60,13 +60,32 @@ export function findCodebase(
   codebases: SyncCodebase[]
 ): SyncCodebase | undefined {
   for (const c of codebases) {
+    let included = false;
+    let excluded = false;
+    if (c.includes == undefined || c.includes == null) {
+      included = true;
+    }
     if (typeof c.includes == "string") {
       c.includes = [c.includes];
     }
-    for (const r of c.includes) {
-      if (minimatch(path, r)) {
-        return c;
+    for (const r of c.includes ?? []) {
+      if (included) {
+        break;
       }
+      if (minimatch(path, r)) {
+        included = true;
+      }
+    }
+    if (typeof c.excludes == "string") {
+      c.excludes = [c.excludes];
+    }
+    for (const r of c.excludes ?? []) {
+      if (minimatch(path, r)) {
+        excluded = true;
+      }
+    }
+    if (included && !excluded) {
+      return c;
     }
   }
 }
