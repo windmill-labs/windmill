@@ -20,6 +20,12 @@ export interface SyncOptions {
   extraIncludes?: string[];
   excludes?: string[];
   defaultTs?: "bun" | "deno";
+  codebases?: Codebase[];
+}
+
+export interface Codebase {
+  relative_path: string;
+  includes: string[];
 }
 
 export async function readConfigFile(): Promise<SyncOptions> {

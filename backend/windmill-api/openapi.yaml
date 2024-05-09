@@ -8410,6 +8410,9 @@ components:
           type: boolean
         no_main_func:
           type: boolean
+        codebase:
+          type: string
+
       required:
         - hash
         - path
@@ -8426,6 +8429,7 @@ components:
         - kind
         - starred
         - no_main_func
+
 
     NewScript:
       type: object
@@ -8501,6 +8505,8 @@ components:
           type: boolean
         no_main_func:
           type: boolean
+        codebase:
+          type: string
       required:
         - path
         - summary

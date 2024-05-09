@@ -120,7 +120,7 @@ async fn load_cache(bin_path: &str, _hash: &str) -> (bool, String) {
             .await
             .clone()
         {
-            use crate::global_cache::attempt_fetch_bytes;
+            use windmill_common::s3_helpers::attempt_fetch_bytes;
 
             if let Ok(mut x) = attempt_fetch_bytes(os, &hash_to_os_path(_hash)).await {
                 if let Err(e) = write_binary_file(bin_path, &mut x).await {

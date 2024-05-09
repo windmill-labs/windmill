@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import { colors, encodeHex, log, yamlParse, yamlStringify } from "./deps.ts";
+import { colors, log, yamlParse, yamlStringify } from "./deps.ts";
 import {
   ScriptMetadata,
   defaultScriptMetadata,
@@ -25,6 +25,7 @@ import { ScriptLanguage } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps } from "./script.ts";
 import { yamlOptions } from "./sync.ts";
+import { generateHash } from "./utils.ts";
 
 export async function generateAllMetadata() {}
 
@@ -457,7 +458,11 @@ export async function replaceLock(o?: { lock?: string | string[] }) {
 export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
-    | (GlobalOptions & { path: string; workspaceRemote: Workspace })
+    | (GlobalOptions & {
+        path: string;
+        workspaceRemote: Workspace;
+        schemaOnly?: boolean;
+      })
     | undefined,
   globalDeps: GlobalDeps
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
@@ -509,7 +514,6 @@ export async function parseMetadataFile(
             false,
             globalDeps
           );
-
           scriptInitialMetadata = yamlParse(
             await Deno.readTextFile(metadataFilePath)
           ) as ScriptMetadata;
@@ -550,12 +554,6 @@ export async function readLockfile(): Promise<Lock> {
     await Deno.writeTextFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions));
     return lock;
   }
-}
-
-async function generateHash(content: string): Promise<string> {
-  const messageBuffer = new TextEncoder().encode(content);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", messageBuffer);
-  return encodeHex(hashBuffer);
 }
 
 export async function checkifMetadataUptodate(

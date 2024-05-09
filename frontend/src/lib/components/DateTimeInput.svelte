@@ -2,6 +2,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
 	import { Clock } from 'lucide-svelte'
+	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	export let value: string | undefined = undefined
 
@@ -12,6 +14,8 @@
 
 	let date: string | undefined = undefined
 	let time: string | undefined = undefined
+
+	// let format: 'local' | 'utc' = 'local'
 
 	function parseValue(value: string | undefined = undefined) {
 		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
@@ -115,4 +119,10 @@
 	>
 		Now
 	</Button>
+	<!-- <div>
+		<ToggleButtonGroup bind:selected={format}>
+			<ToggleButton light small value={'local'} label="local" />
+			<ToggleButton light small value={'utc'} label="utc" />
+		</ToggleButtonGroup>
+	</div> -->
 </div>

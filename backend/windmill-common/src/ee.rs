@@ -1,5 +1,5 @@
 use crate::ee::LicensePlan::Community;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -20,8 +20,9 @@ pub async fn get_license_plan() -> LicensePlan {
     return Community;
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
+#[derive(Serialize, Deserialize)]
 pub enum CriticalErrorChannel {}
 
-pub async fn trigger_critical_error_channels(_error_message: String) {}
+pub async fn trigger_critical_error_channels(_msg: String) {
+    // Implementation is not open source
+}
