@@ -227,7 +227,7 @@
 	) {
 		const buttons: any = []
 
-		if (!topHash && script && !$userStore?.operator) {
+		if (!topHash && script && !$userStore?.operator && !script.codebase) {
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
@@ -303,19 +303,21 @@
 				})
 			}
 
-			buttons.push({
-				label: 'Edit',
-				buttonProps: {
-					href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
-						topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
-					}`,
-					size: 'xs',
-					startIcon: Pen,
-					color: 'dark',
-					variant: 'contained',
-					disabled: !can_write
-				}
-			})
+			if (!script.codebase) {
+				buttons.push({
+					label: 'Edit',
+					buttonProps: {
+						href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
+						}`,
+						size: 'xs',
+						startIcon: Pen,
+						color: 'dark',
+						variant: 'contained',
+						disabled: !can_write
+					}
+				})
+			}
 		}
 
 		return buttons
@@ -482,9 +484,16 @@
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
 				>
+					{#if script.codebase}
+						<Badge
+							>bundle<Tooltip
+								>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
+							></Badge
+						>
+					{/if}
 					{#if script?.priority != undefined}
 						<div class="hidden md:block">
-							<Badge color="red" variant="outlined" size="xs">
+							<Badge color="blue" variant="outlined" size="xs">
 								{`Priority: ${script.priority}`}
 							</Badge>
 						</div>

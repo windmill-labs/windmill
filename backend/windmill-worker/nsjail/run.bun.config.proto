@@ -66,7 +66,7 @@ mount {
     src: "{JOB_DIR}/package.json"
     dst: "/tmp/{LANG}/package.json"
     is_bind: true
-    mandatory: true
+    mandatory: false
 }
 
 mount {
@@ -103,6 +103,13 @@ mount {
 mount {
     src: "{JOB_DIR}/main.ts"
     dst: "/tmp/{LANG}/main.ts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "{JOB_DIR}/main.js"
+    dst: "/tmp/{LANG}/main.js"
     is_bind: true
     mandatory: false
 }

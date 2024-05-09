@@ -1039,7 +1039,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let same_worker_tx2 = same_worker_tx2.clone();
                     let rsmq2 = rsmq2.clone();
                     let worker_name = worker_name2.clone();
-                    if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
+                    if matches!(jc.job.job_kind, JobKind::Noop) {
                         thread_count.fetch_add(1, Ordering::SeqCst);
                         let thread_count = thread_count.clone();
 
@@ -1131,15 +1131,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             .await
                             .expect("update config to trigger restart of all dedicated workers at that config");
                                 killpill_tx.send(()).unwrap_or_default();
+
                             }
                         });
                     } else {
                         let is_init_script_and_failure =
                             !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                        let is_dependency_job = matches!(
+                            jc.job.job_kind,
+                            JobKind::Dependencies | JobKind::FlowDependencies);
                         handle_receive_completed_job(
                             jc,
                             base_internal_url2,
-                            db2,
+                            db2.clone(),
                             worker_dir2,
                             same_worker_tx2,
                             rsmq2,
@@ -1152,6 +1156,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         if is_init_script_and_failure {
                             tracing::error!("init script errored, exiting");
                             killpill_tx2.send(()).unwrap_or_default();
+                        }
+                        if is_dependency_job && is_dedicated_worker {
+                            tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                            sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
+                        .execute(&db2)
+                        .await
+                        .expect("update config to trigger restart of all dedicated workers at that config");
+                            killpill_tx2.send(()).unwrap_or_default();
+
                         }
                     }
                 }

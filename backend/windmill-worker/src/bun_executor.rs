@@ -506,13 +506,20 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<Box<RawValue>> {
-    let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    if !codebase.is_some() {
+        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    } else {
+        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+    }
 
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
-    let annotation = get_annotation(inner_content);
+    let mut annotation = get_annotation(inner_content);
 
+    if codebase.is_some() {
+        annotation.nodejs_mode = true
+    }
     let main_override = get_main_override(job.args.as_ref());
 
     #[cfg(not(feature = "enterprise"))]
@@ -635,7 +642,7 @@ pub async fn handle_bun_job(
             r#"
 import {{ {main_name} }} from "{main_import}";
 
-const fs = require('fs/promises');
+import * as fs from "fs/promises";
 
 const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
     .then(({{ {spread} }}) => [ {spread} ])
@@ -757,6 +764,7 @@ try {{
                 "run.config.proto",
                 "--",
                 &NODE_PATH,
+                "--experimental-default-type=module",
                 "/tmp/nodejs/wrapper.mjs",
             ]
         } else if codebase.is_some() {
@@ -804,7 +812,7 @@ try {{
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
-                .args(vec![&script_path])
+                .args(vec!["--experimental-default-type=module", &script_path])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
             bun_cmd
@@ -909,7 +917,13 @@ pub async fn start_worker(
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
-    let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
+    if !codebase.is_some() {
+        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    } else {
+        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+    }
+
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
@@ -936,7 +950,6 @@ pub async fn start_worker(
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
-    let annotation = get_annotation(inner_content);
 
     if let Some(codebase) = codebase.as_ref() {
         pull_codebase(w_id, codebase, job_dir).await?;
@@ -1031,9 +1044,14 @@ pub async fn start_worker(
             ""
         };
 
+        let main_import = if codebase.is_some() {
+            "./main.js"
+        } else {
+            "./main.ts"
+        };
         let wrapper_content: String = format!(
             r#"
-import {{ main }} from "./main.ts";
+import {{ main }} from "{main_import}";
 import {{ createInterface }} from "node:readline"
 
 BigInt.prototype.toJSON = function () {{
@@ -1052,7 +1070,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
     }}
     try {{
         let {{ {spread} }} = JSON.parse(line) 
-        let res: any = await main(...[ {spread} ]);
+        let res = await main(...[ {spread} ]);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
         console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
@@ -1063,15 +1081,17 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
         write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
     }
 
-    build_loader(
-        job_dir,
-        base_internal_url,
-        token,
-        w_id,
-        script_path,
-        annotation.nodejs_mode,
-    )
-    .await?;
+    if !codebase.is_some() {
+        build_loader(
+            job_dir,
+            base_internal_url,
+            token,
+            w_id,
+            script_path,
+            annotation.nodejs_mode,
+        )
+        .await?;
+    }
 
     if annotation.nodejs_mode && !codebase.is_some() {
         generate_wrapper_mjs(
@@ -1098,7 +1118,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
             envs,
             context,
             common_bun_proc_envs,
-            vec![&script_path],
+            vec!["--experimental-default-type=module", &script_path],
             killpill_rx,
             job_completed_tx,
             token,
