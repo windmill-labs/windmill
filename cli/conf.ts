@@ -25,7 +25,8 @@ export interface SyncOptions {
 
 export interface Codebase {
   relative_path: string;
-  includes: string[];
+  includes?: string[];
+  excludes?: string[];
 }
 
 export async function readConfigFile(): Promise<SyncOptions> {

@@ -68,7 +68,12 @@ let command: any = new Command()
     }
     await Deno.writeTextFile(
       "wmill.yaml",
-      yamlStringify({ defaultTs: "bun", includes: [], excludes: [] })
+      yamlStringify({
+        defaultTs: "bun",
+        includes: [],
+        excludes: [],
+        codebases: [],
+      })
     );
     log.info(colors.green("wmill.yaml created"));
   })
