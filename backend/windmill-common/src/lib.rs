@@ -11,6 +11,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+#[cfg(feature = "enterprise")]
 use ee::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;

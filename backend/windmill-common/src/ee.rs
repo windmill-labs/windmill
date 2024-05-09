@@ -18,3 +18,10 @@ pub async fn get_license_plan() -> LicensePlan {
     // Implementation is not open source
     return Community;
 }
+
+pub async fn trigger_critical_error_channels(x: String) {
+    //not open-source
+    ()
+}
+
+pub enum CriticalErrorChannel {}
