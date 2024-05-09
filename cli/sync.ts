@@ -89,13 +89,26 @@ export function findCodebase(
     }
   }
 }
-function addCodebaseDigestIfRelevant(
+async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
   codebases: SyncCodebase[]
-): string {
+): Promise<string> {
   const isScript = path.endsWith(".script.yaml");
-  if (isScript) {
+  if (!isScript) {
+    return content;
+  }
+  let isTs = true;
+  try {
+    await Deno.stat(path.replace(".script.yaml", ".ts"));
+  } catch {
+    isTs = false;
+  }
+  if (!isTs) {
+    return content;
+  }
+  log.info(`isScript: ${isScript}, isTs: ${isTs}; ${path}`);
+  if (isTs) {
     const c = findCodebase(path, codebases);
     if (c) {
       const parsed: any = yamlParse(content);
@@ -144,7 +157,7 @@ export async function FSFSElement(
       async getContentText(): Promise<string> {
         const content = await Deno.readTextFile(localP);
 
-        return addCodebaseDigestIfRelevant(localP, content, codebases);
+        return await addCodebaseDigestIfRelevant(localP, content, codebases);
       },
     };
   }
