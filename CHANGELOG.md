@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.324.2](https://github.com/windmill-labs/windmill/compare/v1.324.1...v1.324.2) (2024-05-09)
+
+
+### Bug Fixes
+
+* fix build ([20dfbda](https://github.com/windmill-labs/windmill/commit/20dfbda69e643753b1ff17137ce18ed23ff45dd1))
+
 ## [1.324.1](https://github.com/windmill-labs/windmill/compare/v1.324.0...v1.324.1) (2024-05-09)
 
 
