@@ -2031,19 +2031,12 @@ async fn spawn_dedicated_worker(
         let path2 = path.clone();
         let w_id = w_id.to_string();
 
-        let (content, lock, language, envs, codebase, hash) = match sw {
+        let (content, lock, language, envs, codebase) = match sw {
             SpawnWorker::Script { path, hash } => {
                 let q = if let Some(hash) = hash {
                     get_script_content_by_hash(&hash, &w_id, &db).await.map(
                         |r: ContentReqLangEnvs| {
-                            Some((
-                                r.content,
-                                r.lockfile,
-                                r.language,
-                                r.envs,
-                                r.codebase,
-                                Some(hash),
-                            ))
+                            Some((r.content, r.lockfile, r.language, r.envs, r.codebase))
                         },
                     )
                 } else {
@@ -2057,7 +2050,7 @@ async fn spawn_dedicated_worker(
                     .fetch_optional(&db)
                     .await
                     .map_err(|e| Error::InternalErr(format!("expected content and lock: {e}")))
-                    .map(|x| x.map(|y| (y.0, y.1, y.2, y.3, if y.4 { y.5.map(|z| z.to_string()) } else { None }, y.5)))
+                    .map(|x| x.map(|y| (y.0, y.1, y.2, y.3, if y.4 { y.5.map(|z| z.to_string()) } else { None })))
                 };
                 if let Ok(q) = q {
                     if let Some(wp) = q {
@@ -2077,7 +2070,7 @@ async fn spawn_dedicated_worker(
                 }
             }
             SpawnWorker::RawScript { content, lock, lang, .. } => {
-                (content, lock, Some(lang), None, None, None)
+                (content, lock, Some(lang), None, None)
             }
         };
 
