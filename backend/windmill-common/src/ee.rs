@@ -19,7 +19,7 @@ pub async fn get_license_plan() -> LicensePlan {
     return Community;
 }
 
-pub async fn trigger_critical_error_channels(x: String) {
+pub async fn trigger_critical_error_channels(_x: String) {
     //not open-source
     ()
 }
