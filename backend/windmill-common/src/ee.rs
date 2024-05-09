@@ -1,4 +1,5 @@
 use crate::ee::LicensePlan::Community;
+use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -24,4 +25,5 @@ pub async fn trigger_critical_error_channels(_x: String) {
     ()
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum CriticalErrorChannel {}
