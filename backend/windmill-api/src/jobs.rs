@@ -3212,6 +3212,8 @@ async fn run_bundle_preview_script(
                 .to_string();
 
             uploaded = true;
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
                 .read()
                 .await

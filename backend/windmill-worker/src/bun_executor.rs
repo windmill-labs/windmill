@@ -34,9 +34,12 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, to_anyhow, Result},
     jobs::QueuedJob,
-    s3_helpers::attempt_fetch_bytes,
     scripts::ScriptHash,
 };
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::s3_helpers::attempt_fetch_bytes;
+
 use windmill_parser::Typ;
 
 const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
