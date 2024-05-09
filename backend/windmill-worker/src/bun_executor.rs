@@ -455,13 +455,13 @@ pub async fn generate_wrapper_mjs(
     Ok(())
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
     let path = windmill_common::s3_helpers::bundle(&w_id, &id);
     let bun_cache_path = format!("{}/{}", BUN_CACHE_DIR, path);
     let dst = format!("{job_dir}/main.js");
     let dirs_splitted = bun_cache_path.split("/").collect_vec();
     tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
         tracing::info!("loading {bun_cache_path} from cache");
         tokio::fs::symlink(&bun_cache_path, dst).await?;
@@ -481,10 +481,11 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         // extract_tar(bytes, job_dir).await?;
     }
 
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     return Ok(());
+}
 
-    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()> {
     return Err(error::Error::ExecutionErr(
         "codebase is an EE feature".to_string(),
     ));
@@ -901,7 +902,6 @@ pub async fn start_worker(
     envs: HashMap<String, String>,
     w_id: &str,
     script_path: &str,
-    script_hash: &Option<ScriptHash>,
     token: &str,
     job_completed_tx: JobCompletedSender,
     jobs_rx: Receiver<Arc<QueuedJob>>,

@@ -13,8 +13,10 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use axum::extract::Multipart;
+
 use axum::{
-    extract::Multipart,
     extract::{Extension, Path, Query},
     response::IntoResponse,
     routing::{get, post},
@@ -32,9 +34,13 @@ use std::{
 };
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::error::to_anyhow;
+
 use windmill_common::{
     db::UserDB,
-    error::{to_anyhow, Error, JsonResult, Result},
+    error::{Error, JsonResult, Result},
     jobs::JobPayload,
     schedule::Schedule,
     scripts::{

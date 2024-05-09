@@ -2142,7 +2142,6 @@ async fn spawn_dedicated_worker(
                         worker_envs,
                         &w_id,
                         &path,
-                        &hash,
                         &token,
                         job_completed_tx,
                         dedicated_worker_rx,
