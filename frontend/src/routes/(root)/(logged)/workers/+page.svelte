@@ -287,10 +287,11 @@
 			{/if}</div
 		>
 		{#each groupedWorkers as worker_group (worker_group[0])}
+			{@const config = (workerGroups ?? {})[worker_group[0]]}
 			<WorkspaceGroup
 				{customTags}
 				name={worker_group[0]}
-				config={(workerGroups ?? {})[worker_group[0]]}
+				{config}
 				on:reload={() => {
 					loadWorkerGroups()
 				}}
@@ -317,6 +318,10 @@
 						<Cell head>Last ping</Cell>
 						<Cell head>Worker start</Cell>
 						<Cell head>Nb of jobs executed</Cell>
+						{#if !config || config?.dedicated_worker == undefined}
+							<Cell head>Current job</Cell>
+							<Cell head>Occupancy rate</Cell>
+						{/if}
 						<Cell head>Version</Cell>
 						<Cell head last>Liveness</Cell>
 					</tr>
@@ -326,7 +331,7 @@
 						<tr class="border-t">
 							<Cell
 								first
-								colspan="7"
+								colspan={!config || config?.dedicated_worker == undefined ? 9 : 7}
 								scope="colgroup"
 								class="bg-surface-secondary/60 py-2 border-b"
 							>
@@ -339,7 +344,7 @@
 						</tr>
 
 						{#if workers}
-							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, wm_version }}
+							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version }}
 								<tr>
 									<Cell first>{worker}</Cell>
 									<Cell>
@@ -353,6 +358,21 @@
 									<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell>
 									<Cell>{displayDate(started_at)}</Cell>
 									<Cell>{jobs_executed}</Cell>
+									{#if !config || config?.dedicated_worker == undefined}
+										<Cell>
+											{#if current_job_id}
+												<a href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}>
+													View job
+												</a>
+												(workspace {current_job_workspace_id})
+											{:else}
+												None
+											{/if}
+										</Cell>
+										<Cell>
+											{Math.ceil(occupancy_rate ?? 0 * 100)}%
+										</Cell>
+									{/if}
 									<Cell
 										><div class="!text-2xs"
 											>{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip></div

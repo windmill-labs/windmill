@@ -606,7 +606,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         );
     }
 
-    #[cfg(feature = "prometheus")]
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -917,6 +916,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         } else {
             None
         };
+
+    let mut worker_code_execution_metric: f32 = 0.0;
 
     let mut jobs_executed = 0;
 
@@ -1373,14 +1374,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2 WHERE worker = $3",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $4",
                 jobs_executed,
                 tags.as_slice(),
+                worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
                 &worker_name
-            )
-            .execute(db)
-            .await
-            {
+            ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
@@ -1682,6 +1681,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         base_internal_url,
                         rsmq.clone(),
                         job_completed_tx.clone(),
+                        &mut worker_code_execution_metric,
                         worker_flow_initial_transition_duration.clone(),
                         worker_code_execution_duration.clone(),
                     )
@@ -2582,6 +2582,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     base_internal_url: &str,
     rsmq: Option<R>,
     job_completed_tx: JobCompletedSender,
+    worker_code_execution_metric: &mut f32,
     _worker_flow_initial_transition_duration: Option<Histo>,
     _worker_code_execution_duration: Option<Histo>,
 ) -> windmill_common::error::Result<()> {
@@ -2808,6 +2809,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             _ => {
                 #[cfg(feature = "prometheus")]
                 let timer = _worker_code_execution_duration.map(|x| x.start_timer());
+                let metric_timer = Instant::now();
                 let r = handle_code_execution_job(
                     job.as_ref(),
                     db,
@@ -2821,6 +2823,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     &mut column_order,
                 )
                 .await;
+                *worker_code_execution_metric += metric_timer.elapsed().as_secs_f32();
                 #[cfg(feature = "prometheus")]
                 timer.map(|x| x.stop_and_record());
                 r

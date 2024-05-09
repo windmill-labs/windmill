@@ -9678,6 +9678,12 @@ components:
           type: string
         wm_version:
           type: string
+        current_job_id:
+          type: string
+        current_job_workspace_id:
+          type: string
+        occupancy_rate:
+          type: number
       required:
         - worker
         - worker_instance

@@ -14,6 +14,7 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
@@ -43,9 +44,12 @@ struct WorkerPing {
     started_at: chrono::DateTime<chrono::Utc>,
     ip: String,
     jobs_executed: i32,
+    current_job_id: Option<Uuid>,
+    current_job_workspace_id: Option<String>,
     custom_tags: Option<Vec<String>>,
     worker_group: String,
     wm_version: String,
+    occupancy_rate: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -71,7 +75,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group, wm_version FROM worker_ping
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, current_job_id, current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate FROM worker_ping
          WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
          ORDER BY ping_at desc LIMIT $2 OFFSET $3",
         query.ping_since,
