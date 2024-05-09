@@ -872,6 +872,7 @@ dependencies = [
  "matchit",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "rustversion",
@@ -1447,18 +1448,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d59ae0466b83e838b81a54256c39d5d7c20b9d7daa10510a242d9b75abd5936e"
 dependencies = [
  "chrono",
- "chrono-tz-build 0.2.1",
- "phf",
-]
-
-[[package]]
-name = "chrono-tz"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93698b29de5e97ad0ae26447b344c482a7284c737d9ddc5f9e52b74a336671bb"
-dependencies = [
- "chrono",
- "chrono-tz-build 0.3.0",
+ "chrono-tz-build",
  "phf",
 ]
 
@@ -1467,17 +1457,6 @@ name = "chrono-tz-build"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "433e39f13c9a060046954e0592a8d0a4bcb1040125cbf91cb8ee58964cfb350f"
-dependencies = [
- "parse-zoneinfo",
- "phf",
- "phf_codegen",
-]
-
-[[package]]
-name = "chrono-tz-build"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c088aee841df9c3041febbb73934cfc39708749bf96dc827e3359cd39ef11b1"
 dependencies = [
  "parse-zoneinfo",
  "phf",
@@ -4352,6 +4331,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "multer"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a15d522be0a9c3e46fd2632e272d178f56387bdb5c9fbb3a36c649062e9b5219"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.1.0",
+ "httparse",
+ "log",
+ "memchr",
+ "mime",
+ "spin 0.9.8",
+ "version_check",
+]
+
+[[package]]
 name = "multiversion"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5222,7 +5219,7 @@ dependencies = [
  "atoi_simd",
  "bytemuck",
  "chrono",
- "chrono-tz 0.8.6",
+ "chrono-tz",
  "dyn-clone",
  "either",
  "ethnum",
@@ -5283,7 +5280,7 @@ dependencies = [
  "bitflags 2.5.0",
  "bytemuck",
  "chrono",
- "chrono-tz 0.8.6",
+ "chrono-tz",
  "comfy-table",
  "either",
  "hashbrown 0.14.5",
@@ -5395,7 +5392,7 @@ dependencies = [
  "base64 0.21.7",
  "bytemuck",
  "chrono",
- "chrono-tz 0.8.6",
+ "chrono-tz",
  "either",
  "hashbrown 0.14.5",
  "hex",
@@ -5475,7 +5472,7 @@ checksum = "ff48362bd1b078bbbec7e7ba9ec01fea58fee2887db22a8e3deaf78f322fa3c4"
 dependencies = [
  "ahash 0.8.11",
  "bytemuck",
- "chrono-tz 0.8.6",
+ "chrono-tz",
  "futures",
  "once_cell",
  "percent-encoding",
@@ -5531,7 +5528,7 @@ checksum = "86eb74ea6ddfe675aa5c3f33c00dadbe2b85f0e8e3887b85db1fd5a3397267fd"
 dependencies = [
  "atoi",
  "chrono",
- "chrono-tz 0.8.6",
+ "chrono-tz",
  "now",
  "once_cell",
  "polars-arrow",
@@ -9669,7 +9666,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "chrono",
- "chrono-tz 0.9.0",
+ "chrono-tz",
  "cookie 0.17.0",
  "crc",
  "cron",
@@ -9680,7 +9677,7 @@ dependencies = [
  "hmac",
  "http 1.1.0",
  "hyper 1.3.1",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "magic-crypt",
  "mime_guess",
@@ -9766,6 +9763,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-sts",
  "axum",
+ "bytes",
  "chrono",
  "cron",
  "git-version",
@@ -9773,7 +9771,7 @@ dependencies = [
  "hmac",
  "hyper 1.3.1",
  "indexmap 2.2.6",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "magic-crypt",
  "mail-send",
@@ -9835,7 +9833,7 @@ version = "1.323.6"
 dependencies = [
  "anyhow",
  "gosyn",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "regex",
  "windmill-parser",
@@ -9857,7 +9855,7 @@ name = "windmill-parser-py"
 version = "1.323.6"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "rustpython-parser",
  "serde_json",
  "windmill-parser",
@@ -9869,7 +9867,7 @@ version = "1.323.6"
 dependencies = [
  "anyhow",
  "async-recursion",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "phf",
  "regex",
@@ -9934,14 +9932,14 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "axum",
- "bigdecimal 0.4.3",
+ "bigdecimal 0.3.1",
  "chrono",
- "chrono-tz 0.9.0",
+ "chrono-tz",
  "cron",
  "futures-core",
  "hex",
  "hmac",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "prometheus",
  "regex",
@@ -9996,7 +9994,7 @@ dependencies = [
  "gcp_auth",
  "git-version",
  "hex",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "jsonwebtoken",
  "lazy_static",
  "mysql_async",

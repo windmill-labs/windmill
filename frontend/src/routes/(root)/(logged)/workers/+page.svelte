@@ -226,7 +226,9 @@
 							<div class="flex items-center gap-2">
 								<Button
 									size="sm"
+									variant="border"
 									startIcon={{ icon: FileJson }}
+									color="dark"
 									on:click={() => {
 										if (!workerGroups) {
 											return sendUserToast('No worker groups found', true)
@@ -240,7 +242,7 @@
 										sendUserToast('Worker groups config copied to clipboard as YAML')
 									}}
 								>
-									Copy groups config
+									<span class="hidden md:block">Copy groups config</span>
 								</Button>
 								<Button
 									size="sm"

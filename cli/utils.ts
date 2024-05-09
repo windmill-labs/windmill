@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
-import { log } from "./deps.ts";
+import { log, encodeHex } from "./deps.ts";
 
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
@@ -91,4 +91,29 @@ export function getHeaders(): Record<string, string> | undefined {
   } else {
     return undefined;
   }
+}
+
+export async function digestDir(path: string) {
+  const hashes: string = [];
+  for await (const e of Deno.readDir(path)) {
+    const npath = path + "/" + e.name;
+    if (e.isFile) {
+      hashes.push(await generateHashFromBuffer(await Deno.readFile(npath)));
+    } else if (e.isDirectory && !e.isSymlink) {
+      hashes.push(await digestDir(npath));
+    }
+  }
+  return await generateHash(hashes.join(""));
+}
+
+export async function generateHash(content: string): Promise<string> {
+  const messageBuffer = new TextEncoder().encode(content);
+  return await generateHashFromBuffer(messageBuffer);
+}
+
+export async function generateHashFromBuffer(
+  content: BufferSource
+): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", content);
+  return encodeHex(hashBuffer);
 }

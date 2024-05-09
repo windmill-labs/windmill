@@ -13,16 +13,19 @@
 
 use std::time::Duration;
 
-use reqwest::Result;
-
-pub async fn get_ip() -> Result<String> {
-    reqwest::ClientBuilder::new()
-        .timeout(Duration::from_secs(3))
+pub async fn get_ip() -> anyhow::Result<String> {
+    tokio::select! {
+        biased;
+        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+            return Err(anyhow::anyhow!("Expected to get ip under 10s"))
+        },
+        ip = reqwest::ClientBuilder::new()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5))
         .build()?
         .get("https://hub.windmill.dev/getip")
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await
+        .send() => Ok(ip?
+            .error_for_status()?
+            .text().await?),
+    }
 }
