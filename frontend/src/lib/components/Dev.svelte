@@ -195,8 +195,6 @@
 			} else {
 				sendUserToast('Bundle received was obsolete, ignoring', true)
 			}
-		} else if (event.data.type == 'clipboard') {
-			sendUserToast('Copied from clipboard: ' + event.data.text, false)
 		} else if (event.data.type == 'testBundleError') {
 			sendUserToast(event.data.error, true)
 		} else if (event.data.type == 'replaceFlow') {

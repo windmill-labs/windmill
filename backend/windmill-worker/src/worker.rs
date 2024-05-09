@@ -3069,7 +3069,11 @@ async fn get_script_content_by_hash(
         lockfile: r.1,
         language: r.2,
         envs: r.3,
-        codebase: Some(script_hash.to_string()),
+        codebase: if r.4 {
+            Some(script_hash.to_string())
+        } else {
+            None
+        },
     })
 }
 
