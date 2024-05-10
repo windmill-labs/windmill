@@ -2049,6 +2049,50 @@ pub async fn process_custom_concurrency_key(
     }
 }
 
+fn interpolate_args<T: Serialize>(
+    x: String,
+    args: &T,
+    workspace_id: &str,
+    parsed_args: &mut Option<serde_json::Value>,
+) -> String {
+    // Save this value to avoid parsing twice
+    if parsed_args.is_none() {
+        *parsed_args = Some(serde_json::to_value(args).unwrap_or_default());
+    }
+    let value = parsed_args.as_ref().unwrap();
+    let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
+    if RE_ARG_TAG.is_match(&workspaced) {
+        let mut interpolated = workspaced.clone();
+        for cap in RE_ARG_TAG.captures_iter(&workspaced) {
+            let arg_name = cap.get(1).unwrap().as_str();
+            let arg_value = value
+                .get(arg_name)
+                .and_then(|x| x.as_str())
+                .unwrap_or_default();
+            interpolated = interpolated.replace(format!("$args[{}]", arg_name).as_str(), arg_value);
+        }
+        interpolated
+    } else {
+        workspaced
+    }
+}
+
+fn fullpath_with_workspace(workspace_id: &str, script_path: Option<&String>, job_kind: &JobKind) -> String {
+    let path = script_path
+        .map(String::as_str)
+        .unwrap_or("tmp/main");
+    let is_flow = matches!(
+        job_kind,
+        &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow
+    );
+    format!(
+            "{}/{}/{}",
+            workspace_id,
+            if is_flow { "flow" } else { "script" },
+            path,
+        )
+}
+
 #[derive(FromRow)]
 pub struct ResultR {
     result: Option<Json<Box<RawValue>>>,
@@ -3350,6 +3394,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 
     let per_workspace: bool = DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed);
 
+    let mut parsed_args: Option<serde_json::Value> = None;
+
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(
             "{}:{}{}",
@@ -3372,25 +3418,8 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             tag = None;
         }
 
-        let interpolated_tag = tag.map(|x| {
-            let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
-            if RE_ARG_TAG.is_match(&workspaced) {
-                let mut interpolated = workspaced.clone();
-                for cap in RE_ARG_TAG.captures_iter(&workspaced) {
-                    let arg_name = cap.get(1).unwrap().as_str();
-                    let value = serde_json::to_value(&args).unwrap_or_default();
-                    let arg_value = value
-                        .get(arg_name)
-                        .and_then(|x| x.as_str())
-                        .unwrap_or_default();
-                    interpolated =
-                        interpolated.replace(format!("$args[{}]", arg_name).as_str(), arg_value);
-                }
-                interpolated
-            } else {
-                workspaced
-            }
-        });
+        let interpolated_tag =
+            tag.map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args));
 
         let default = || {
             let ntag = if job_kind == JobKind::Flow
@@ -3456,6 +3485,28 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         Ulid::new().into()
     };
 
+    if concurrent_limit.is_some() {
+        let path = script_path
+            .as_ref()
+            .map(String::as_str)
+            .unwrap_or("tmp/main");
+        let is_flow = matches!(
+            job_kind,
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow
+        );
+        let concurrency_key = custom_concurrency_key
+            .map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args))
+            .unwrap_or(fullpath_with_workspace(workspace_id, script_path.as_ref(), &job_kind));
+        sqlx::query!(
+            "INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+            concurrency_key,
+            job_id,
+        )
+        .execute(&mut tx)
+        .await
+        .map_err(|e| Error::InternalErr(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}")))?;
+    }
+
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
@@ -3499,20 +3550,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e}")))?;
-
-    if concurrent_limit.is_some() {
-        // let concurrency_key = process_custom_concurrency_key(queued_job, custom_concurrency_key)
-        let concurrency_key = custom_concurrency_key
-            .unwrap_or("process concurrency key fn not yet implemented".to_string());
-        sqlx::query!(
-            "INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
-            concurrency_key,
-            job_id,
-        )
-        .execute(&mut tx)
-        .await
-        .map_err(|e| Error::InternalErr(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e}")))?;
-    }
 
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
     #[cfg(feature = "prometheus")]
