@@ -20,9 +20,10 @@ use windmill_common::{
     error::JsonResult,
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    DB,
 };
 
-use crate::db::ApiAuthed;
+use crate::{db::ApiAuthed, utils::require_super_admin};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -66,21 +67,25 @@ pub struct ListWorkerQuery {
 
 async fn list_worker_pings(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(query): Query<ListWorkerQuery>,
 ) -> JsonResult<Vec<WorkerPing>> {
+    let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, current_job_id, current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate FROM worker_ping
-         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
-         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate
+        FROM worker_ping
+        WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
+        ORDER BY ping_at desc LIMIT $2 OFFSET $3",
         query.ping_since,
         per_page as i64,
-        offset as i64
+        offset as i64,
+        is_super_admin
     )
     .fetch_all(&mut *tx)
     .await?;

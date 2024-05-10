@@ -318,7 +318,7 @@
 						<Cell head>Last ping</Cell>
 						<Cell head>Worker start</Cell>
 						<Cell head>Nb of jobs executed</Cell>
-						{#if !config || config?.dedicated_worker == undefined}
+						{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 							<Cell head>Current job</Cell>
 							<Cell head>Occupancy rate</Cell>
 						{/if}
@@ -331,7 +331,7 @@
 						<tr class="border-t">
 							<Cell
 								first
-								colspan={!config || config?.dedicated_worker == undefined ? 9 : 7}
+								colspan={(!config || config?.dedicated_worker == undefined) && $superadmin ? 9 : 7}
 								scope="colgroup"
 								class="bg-surface-secondary/60 py-2 border-b"
 							>
@@ -358,7 +358,7 @@
 									<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell>
 									<Cell>{displayDate(started_at)}</Cell>
 									<Cell>{jobs_executed}</Cell>
-									{#if !config || config?.dedicated_worker == undefined}
+									{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 										<Cell>
 											{#if current_job_id}
 												<a href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}>
