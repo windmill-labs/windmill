@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.325.0](https://github.com/windmill-labs/windmill/compare/v1.324.2...v1.325.0) (2024-05-10)
+
+
+### Features
+
+* worker metrics ([#3697](https://github.com/windmill-labs/windmill/issues/3697)) ([696a561](https://github.com/windmill-labs/windmill/commit/696a5612f8551066b7b833ba555bd006914faff6))
+
+
+### Bug Fixes
+
+* **backend:** return flow result if flow fails or stops before early return ([#3704](https://github.com/windmill-labs/windmill/issues/3704)) ([67f4a4a](https://github.com/windmill-labs/windmill/commit/67f4a4afeec79daa81930124594ecf3131c18133))
+
 ## [1.324.2](https://github.com/windmill-labs/windmill/compare/v1.324.1...v1.324.2) (2024-05-09)
 
 
