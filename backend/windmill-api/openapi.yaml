@@ -6959,6 +6959,39 @@ paths:
               schema:
                 type: boolean
 
+  /workers/queue_metrics:
+    get:
+      summary: get queue metrics
+      operationId: getQueueMetrics
+      tags:
+        - worker
+      responses:
+        "200":
+          description: metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    values: 
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          created_at:
+                            type: number
+                          value: {}
+                        required:
+                          - created_at
+                          - value
+                  required:
+                    - id
+                    - values
+
   /configs/list_worker_groups:
     get:
       summary: list worker groups

@@ -35,6 +35,7 @@ pub fn global_service() -> Router {
             get(get_default_tags_per_workspace),
         )
         .route("/get_default_tags", get(get_default_tags))
+        .route("/queue_metrics", get(get_queue_metrics))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -126,4 +127,35 @@ async fn get_default_tags_per_workspace() -> JsonResult<bool> {
 
 async fn get_default_tags() -> JsonResult<Vec<String>> {
     Ok(Json(DEFAULT_TAGS.clone()))
+}
+
+#[derive(Serialize)]
+struct QueueMetric {
+    id: String,
+    values: Vec<serde_json::Value>,
+}
+
+async fn get_queue_metrics(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<QueueMetric>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let queue_metrics = sqlx::query_as!(
+        QueueMetric,
+        "WITH queue_metrics as (
+            SELECT id, value, created_at
+            FROM metrics
+            WHERE id LIKE 'queue_%'
+                AND created_at > now() - interval '14 day'
+            ORDER BY created_at ASC
+        )
+        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at)) as \"values!\"
+        FROM queue_metrics
+        GROUP BY id"
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(queue_metrics))
 }

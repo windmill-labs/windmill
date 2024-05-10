@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, current_job_id, current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate FROM worker_ping\n         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)\n         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
+  "query": "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate\n        FROM worker_ping\n        WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)\n        ORDER BY ping_at desc LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -68,7 +68,8 @@
       "Left": [
         "Int4",
         "Int8",
-        "Int8"
+        "Int8",
+        "Bool"
       ]
     },
     "nullable": [
@@ -78,13 +79,13 @@
       false,
       false,
       false,
-      true,
-      true,
+      null,
+      null,
       true,
       false,
       false,
       true
     ]
   },
-  "hash": "b1185971e335a55fa08941bb1e6fcdb29ebed58753aee834879f406fbf42438e"
+  "hash": "e00171cc3fc8f32922562d4fc4d3db56955fbc6ee9872d4b2e99157ebed131e0"
 }

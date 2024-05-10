@@ -7,6 +7,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import DefaultTags from '$lib/components/DefaultTags.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import QueueMetricsDrawer from '$lib/components/QueueMetricsDrawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -17,7 +18,7 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, truncate } from '$lib/utils'
-	import { AlertTriangle, FileJson, Plus } from 'lucide-svelte'
+	import { AlertTriangle, FileJson, LineChart, Plus } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import YAML from 'yaml'
 
@@ -160,7 +161,11 @@
 
 		await loadWorkerGroups()
 	}
+
+	let queueMetricsDrawer: Drawer
 </script>
+
+<QueueMetricsDrawer bind:drawer={queueMetricsDrawer} />
 
 <Drawer bind:this={importConfigDrawer} size="800px">
 	<DrawerContent
@@ -196,6 +201,20 @@
 				</div>
 				<div>
 					<DefaultTags bind:defaultTagPerWorkspace />
+				</div>
+				<div>
+					<Button
+						size="xs"
+						color="dark"
+						startIcon={{
+							icon: LineChart
+						}}
+						on:click={() => {
+							queueMetricsDrawer?.openDrawer()
+						}}
+					>
+						Queue metrics
+					</Button>
 				</div>
 			</div>
 		{/if}
