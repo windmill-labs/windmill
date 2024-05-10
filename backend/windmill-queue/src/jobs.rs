@@ -61,7 +61,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
-    utils::report_critical_error,
+    utils::{not_found_if_none, report_critical_error},
     worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
     BASE_URL, DB, METRICS_ENABLED,
 };
@@ -2006,47 +2006,8 @@ pub async fn custom_concurrency_key(
 async fn concurrency_key(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
-) -> Result<String, sqlx::Error> {
-    Ok(
-        process_custom_concurrency_key(
-            queued_job,
-            custom_concurrency_key(db, queued_job.id).await?,
-        )
-        .await,
-    )
-}
-
-pub async fn process_custom_concurrency_key(
-    queued_job: &QueuedJob,
-    concurrency_key: Option<String>,
-) -> String {
-    match concurrency_key {
-        Some(custom_concurrency_key) => {
-            let workspaced =
-                custom_concurrency_key.replace("$workspace", queued_job.workspace_id.as_str());
-            if RE_ARG_TAG.is_match(&workspaced) {
-                let mut interpolated = workspaced.clone();
-                for cap in RE_ARG_TAG.captures_iter(&workspaced) {
-                    let arg_name = cap.get(1).unwrap().as_str();
-                    let arg_value = match queued_job.args.as_ref() {
-                        Some(Json(args_map_json)) => match args_map_json.get(arg_name) {
-                            Some(arg_value_raw) => {
-                                serde_json::to_string(arg_value_raw).unwrap_or_default()
-                            }
-                            None => "".to_string(),
-                        },
-                        None => "".to_string(),
-                    };
-                    interpolated = interpolated
-                        .replace(format!("$args[{}]", arg_name).as_str(), arg_value.as_str());
-                }
-                interpolated
-            } else {
-                workspaced
-            }
-        }
-        None => queued_job.full_path_with_workspace(),
-    }
+) -> windmill_common::error::Result<String> {
+    not_found_if_none(custom_concurrency_key(db, queued_job.id).await?, "ConcurrencyKey", queued_job.id.to_string())
 }
 
 fn interpolate_args<T: Serialize>(
