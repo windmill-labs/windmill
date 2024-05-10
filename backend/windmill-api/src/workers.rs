@@ -14,14 +14,16 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    DB,
 };
 
-use crate::db::ApiAuthed;
+use crate::{db::ApiAuthed, utils::require_super_admin};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -33,6 +35,7 @@ pub fn global_service() -> Router {
             get(get_default_tags_per_workspace),
         )
         .route("/get_default_tags", get(get_default_tags))
+        .route("/queue_metrics", get(get_queue_metrics))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -43,9 +46,12 @@ struct WorkerPing {
     started_at: chrono::DateTime<chrono::Utc>,
     ip: String,
     jobs_executed: i32,
+    current_job_id: Option<Uuid>,
+    current_job_workspace_id: Option<String>,
     custom_tags: Option<Vec<String>>,
     worker_group: String,
     wm_version: String,
+    occupancy_rate: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -62,21 +68,25 @@ pub struct ListWorkerQuery {
 
 async fn list_worker_pings(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(query): Query<ListWorkerQuery>,
 ) -> JsonResult<Vec<WorkerPing>> {
+    let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, custom_tags, worker_group, wm_version FROM worker_ping
-         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
-         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate
+        FROM worker_ping
+        WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
+        ORDER BY ping_at desc LIMIT $2 OFFSET $3",
         query.ping_since,
         per_page as i64,
-        offset as i64
+        offset as i64,
+        is_super_admin
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -117,4 +127,36 @@ async fn get_default_tags_per_workspace() -> JsonResult<bool> {
 
 async fn get_default_tags() -> JsonResult<Vec<String>> {
     Ok(Json(DEFAULT_TAGS.clone()))
+}
+
+#[derive(Serialize)]
+struct QueueMetric {
+    id: String,
+    values: Vec<serde_json::Value>,
+}
+
+async fn get_queue_metrics(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<QueueMetric>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let queue_metrics = sqlx::query_as!(
+        QueueMetric,
+        "WITH queue_metrics as (
+            SELECT id, value, created_at
+            FROM metrics
+            WHERE id LIKE 'queue_%'
+                AND created_at > now() - interval '14 day'
+            ORDER BY created_at ASC
+        )
+        SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at)) as \"values!\"
+        FROM queue_metrics
+        GROUP BY id
+        ORDER BY id ASC"
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(queue_metrics))
 }

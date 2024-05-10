@@ -567,7 +567,9 @@ where
                 i+=1;
                 if i % 10 == 0 {
                     sqlx::query!(
-                        "UPDATE worker_ping SET ping_at = now() WHERE worker = $1",
+                        "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2 WHERE worker = $3",
+                        &job_id,
+                        &w_id,
                         &worker_name
                     )
                     .execute(&db)
