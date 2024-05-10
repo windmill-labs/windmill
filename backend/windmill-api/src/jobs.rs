@@ -2545,6 +2545,28 @@ async fn run_wait_result(
             )
             .await
             .ok();
+
+            // check if job errored out before getting to the node
+            if result.is_none() {
+                let row = sqlx::query(
+                    "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2 AND success IS FALSE",
+                )
+                .bind(uuid)
+                .bind(&w_id)
+                .fetch_optional(db)
+                .await?;
+                if let Some(row) = row {
+                    let raw_result = RawResult::from_row(&row)?;
+                    result = match format_result(
+                        raw_result.language.as_ref(),
+                        raw_result.flow_status.map(|x| x.0),
+                        raw_result.result.map(|x| x.0),
+                    ) {
+                        FormattedResult::RawValue(rv) => rv,
+                        FormattedResult::Vec(v) => Some(to_raw_value(&v)),
+                    };
+                }
+            }
         } else {
             let row = sqlx::query(
                 "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
