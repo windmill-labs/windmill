@@ -37,7 +37,7 @@
 		size="sm"
 		endIcon={{ icon: Plus }}
 		on:click={() => {
-			extra_params_vec = extra_params_vec.concat([['key', 'value']])
+			extra_params_vec = (extra_params_vec ?? []).concat([['key', 'value']])
 			sync()
 		}}
 	>
