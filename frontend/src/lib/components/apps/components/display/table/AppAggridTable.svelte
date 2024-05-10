@@ -205,6 +205,10 @@
 				row,
 				render,
 				wrapActions: resolvedConfig.wrapActions,
+				selectRow: () => {
+					toggleRow(p)
+					p.node.setSelected(true)
+				},
 				onSet: (id, value) => {
 					if (!inputs[id]) {
 						inputs[id] = { [rowIndex]: value }
