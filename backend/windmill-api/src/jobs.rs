@@ -2528,7 +2528,7 @@ async fn run_wait_result(
     w_id: String,
     node_id_for_empty_return: Option<String>,
 ) -> error::Result<Response> {
-    let mut result;
+    let mut result = None;
     let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
     let timeout_ms = if timeout <= 0 {
         2000
@@ -2552,29 +2552,9 @@ async fn run_wait_result(
             )
             .await
             .ok();
+        }
 
-            // check if job finished before getting to the node (failure or early stop)
-            if result.is_none() {
-                let row = sqlx::query(
-                    "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
-                )
-                .bind(uuid)
-                .bind(&w_id)
-                .fetch_optional(db)
-                .await?;
-                if let Some(row) = row {
-                    let raw_result = RawResult::from_row(&row)?;
-                    result = match format_result(
-                        raw_result.language.as_ref(),
-                        raw_result.flow_status.map(|x| x.0),
-                        raw_result.result.map(|x| x.0),
-                    ) {
-                        FormattedResult::RawValue(rv) => rv,
-                        FormattedResult::Vec(v) => Some(to_raw_value(&v)),
-                    };
-                }
-            }
-        } else {
+        if result.is_none() {
             let row = sqlx::query(
                 "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
             )
@@ -2592,8 +2572,6 @@ async fn run_wait_result(
                     FormattedResult::RawValue(rv) => rv,
                     FormattedResult::Vec(v) => Some(to_raw_value(&v)),
                 };
-            } else {
-                result = None;
             }
         }
 
