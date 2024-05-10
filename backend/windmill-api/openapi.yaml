@@ -6983,8 +6983,9 @@ paths:
                         type: object
                         properties:
                           created_at:
+                            type: string
+                          value:
                             type: number
-                          value: {}
                         required:
                           - created_at
                           - value

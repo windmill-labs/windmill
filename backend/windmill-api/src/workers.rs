@@ -152,7 +152,8 @@ async fn get_queue_metrics(
         )
         SELECT id, array_agg(json_build_object('value', value, 'created_at', created_at)) as \"values!\"
         FROM queue_metrics
-        GROUP BY id"
+        GROUP BY id
+        ORDER BY id ASC"
     )
     .fetch_all(&db)
     .await?;
