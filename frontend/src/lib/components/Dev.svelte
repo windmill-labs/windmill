@@ -197,7 +197,10 @@
 				sendUserToast(`Bundle received ${lastBundleCommandId} was obsolete, ignoring`, true)
 			}
 		} else if (event.data.type == 'testBundleError') {
-			sendUserToast(event.data.error, true)
+			sendUserToast(
+				typeof event.data.error == 'object' ? JSON.stringify(event.data.error) : event.data.error,
+				true
+			)
 		} else if (event.data.type == 'replaceFlow') {
 			mode = 'flow'
 			lockChanges = true
@@ -577,6 +580,7 @@
 				</Pane>
 				<Pane size={67}>
 					<LogPanel
+						{workspace}
 						lang={currentScript?.language}
 						previewJob={testJob}
 						{pastPreviews}

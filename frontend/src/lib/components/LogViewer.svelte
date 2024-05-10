@@ -19,6 +19,7 @@
 	export let jobId: string | undefined = undefined
 	export let tag: string | undefined
 	export let small = false
+	export let drawerOpen = false
 
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
@@ -101,7 +102,7 @@
 	}
 </script>
 
-<Drawer bind:this={logViewer} size="900px">
+<Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button
