@@ -2546,10 +2546,10 @@ async fn run_wait_result(
             .await
             .ok();
 
-            // check if job errored out before getting to the node
+            // check if job finished before getting to the node (failure or early stop)
             if result.is_none() {
                 let row = sqlx::query(
-                    "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2 AND success IS FALSE",
+                    "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
                 )
                 .bind(uuid)
                 .bind(&w_id)
