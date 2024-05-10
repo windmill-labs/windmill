@@ -20,10 +20,9 @@ pub async fn get_license_plan() -> LicensePlan {
     return Community;
 }
 
-pub async fn trigger_critical_error_channels(_x: String) {
-    //not open-source
-    ()
-}
-
 #[derive(Serialize, Deserialize)]
 pub enum CriticalErrorChannel {}
+
+pub async fn trigger_critical_error_channels(_msg: String) {
+    // Implementation is not open source
+}

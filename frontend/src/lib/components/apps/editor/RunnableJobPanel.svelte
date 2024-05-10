@@ -41,12 +41,15 @@
 			}
 		}
 	}
+
+	let logDrawerOpen = false
+	let resultDrawerOpen = false
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
-{#if $runnableJobEditorPanel.focused && $selectedComponentInEditor}
-	{@const frontendJob = $runnableJobEditorPanel?.frontendJobs[$selectedComponentInEditor]}
+{#if ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen}
+	{@const frontendJob = $runnableJobEditorPanel?.frontendJobs[$selectedComponentInEditor ?? '']}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class="absolute z-[100] top-0 right-0 border-t h-full"
@@ -61,6 +64,7 @@
 					</div>
 				{:else}
 					<LogViewer
+						bind:drawerOpen={logDrawerOpen}
 						small
 						jobId={testJob?.id}
 						duration={testJob?.['duration_ms']}
@@ -73,12 +77,13 @@
 			</Pane>
 			<Pane size={frontendJob ? 70 : 50} minSize={10} class="text-sm text-tertiary">
 				{#if frontendJob}
-					<pre class="overflow-x-auto break-words relative h-full px-2"
-						><DisplayResult result={frontendJob} /></pre
+					<pre class="overflow-x-auto break-words relative h-full px-2 pt-2"
+						><DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} /></pre
 					>
 				{:else if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<pre class="overflow-x-auto break-words relative h-full px-2"
+					<pre class="overflow-x-auto break-words relative h-full px-2 pt-2"
 						><DisplayResult
+							bind:drawerOpen={resultDrawerOpen}
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
 							result={testJob.result}
