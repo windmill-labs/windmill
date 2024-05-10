@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.323.6
+  version: 1.324.2
   title: Windmill API
 
   contact:
@@ -7271,6 +7271,26 @@ paths:
                 items:
                   $ref: "#/components/schemas/Input"
 
+  /w/{workspace}/inputs/{jobOrInputId}/args:
+    get:
+      summary: Get args from history or saved input
+      operationId: getArgsFromHistoryOrSavedInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: jobOrInputId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: args
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/inputs/list:
     get:
       summary: List saved Inputs for a Runnable
@@ -8390,6 +8410,9 @@ components:
           type: boolean
         no_main_func:
           type: boolean
+        codebase:
+          type: string
+
       required:
         - hash
         - path
@@ -8406,6 +8429,7 @@ components:
         - kind
         - starred
         - no_main_func
+
 
     NewScript:
       type: object
@@ -8481,6 +8505,8 @@ components:
           type: boolean
         no_main_func:
           type: boolean
+        codebase:
+          type: string
       required:
         - path
         - summary

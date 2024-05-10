@@ -3,7 +3,9 @@ import {
   CompletionsCommand,
   DenoLandProvider,
   UpgradeCommand,
+  colors,
   log,
+  yamlStringify,
 } from "./deps.ts";
 import flow from "./flow.ts";
 import app from "./apps.ts";
@@ -31,7 +33,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.323.6";
+export const VERSION = "v1.324.2";
 
 let command: any = new Command()
   .name("wmill")
@@ -58,6 +60,23 @@ let command: any = new Command()
     "Specify headers to use for all requests. e.g: \"HEADERS='h1: v1, h2: v2'\""
   )
   .version(VERSION)
+  .command("init", "Bootstrap a windmill project with a wmill.yaml file")
+  .action(async () => {
+    if (await Deno.stat("wmill.yaml").catch(() => null)) {
+      log.error(colors.red("wmill.yaml already exists"));
+      return;
+    }
+    await Deno.writeTextFile(
+      "wmill.yaml",
+      yamlStringify({
+        defaultTs: "bun",
+        includes: [],
+        excludes: [],
+        codebases: [],
+      })
+    );
+    log.info(colors.green("wmill.yaml created"));
+  })
   .command("app", app)
   .command("flow", flow)
   .command("script", script)
@@ -70,6 +89,7 @@ let command: any = new Command()
   .command("schedule", schedule)
   .command("dev", dev)
   .command("sync", sync)
+
   .command("version", "Show version information")
   .action(async (opts) => {
     console.log("CLI build against " + VERSION);

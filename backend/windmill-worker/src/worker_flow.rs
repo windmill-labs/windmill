@@ -3124,6 +3124,7 @@ fn raw_script_to_payload(
 ) -> JobPayloadWithTag {
     JobPayloadWithTag {
         payload: JobPayload::Code(RawCode {
+            hash: None,
             path,
             content: content.clone(),
             language: language.clone(),

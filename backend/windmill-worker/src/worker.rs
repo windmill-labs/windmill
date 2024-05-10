@@ -41,7 +41,7 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue},
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, JobPayload, QueuedJob},
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     utils::{rd_string, StripPath},
     worker::{
@@ -198,6 +198,7 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
+
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
@@ -1038,7 +1039,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     let same_worker_tx2 = same_worker_tx2.clone();
                     let rsmq2 = rsmq2.clone();
                     let worker_name = worker_name2.clone();
-                    if matches!(jc.job.job_kind, JobKind::Noop) || is_dedicated_worker {
+                    if matches!(jc.job.job_kind, JobKind::Noop) {
                         thread_count.fetch_add(1, Ordering::SeqCst);
                         let thread_count = thread_count.clone();
 
@@ -1130,15 +1131,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             .await
                             .expect("update config to trigger restart of all dedicated workers at that config");
                                 killpill_tx.send(()).unwrap_or_default();
+
                             }
                         });
                     } else {
                         let is_init_script_and_failure =
                             !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                        let is_dependency_job = matches!(
+                            jc.job.job_kind,
+                            JobKind::Dependencies | JobKind::FlowDependencies);
                         handle_receive_completed_job(
                             jc,
                             base_internal_url2,
-                            db2,
+                            db2.clone(),
                             worker_dir2,
                             same_worker_tx2,
                             rsmq2,
@@ -1151,6 +1156,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         if is_init_script_and_failure {
                             tracing::error!("init script errored, exiting");
                             killpill_tx2.send(()).unwrap_or_default();
+                        }
+                        if is_dependency_job && is_dedicated_worker {
+                            tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                            sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
+                        .execute(&db2)
+                        .await
+                        .expect("update config to trigger restart of all dedicated workers at that config");
+                            killpill_tx2.send(()).unwrap_or_default();
+
                         }
                     }
                 }
@@ -2025,18 +2039,21 @@ async fn spawn_dedicated_worker(
             SpawnWorker::RawScript { path, .. } => path.to_string(),
             SpawnWorker::Script { path, .. } => path.to_string(),
         };
+
         let path2 = path.clone();
         let w_id = w_id.to_string();
 
-        let (content, lock, language, envs) = match sw {
+        let (content, lock, language, envs, codebase) = match sw {
             SpawnWorker::Script { path, hash } => {
                 let q = if let Some(hash) = hash {
                     get_script_content_by_hash(&hash, &w_id, &db).await.map(
-                        |r: ContentReqLangEnvs| Some((r.content, r.lockfile, r.language, r.envs)),
+                        |r: ContentReqLangEnvs| {
+                            Some((r.content, r.lockfile, r.language, r.envs, r.codebase))
+                        },
                     )
                 } else {
-                    sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>)>(
-                        "SELECT content, lock, language, envs FROM script WHERE path = $1 AND workspace_id = $2 AND
+                    sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>, Option<Vec<String>>, bool, Option<ScriptHash>)>(
+                        "SELECT content, lock, language, envs, codebase IS NOT NULL, hash FROM script WHERE path = $1 AND workspace_id = $2 AND
                             created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
                             deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
                     )
@@ -2045,6 +2062,7 @@ async fn spawn_dedicated_worker(
                     .fetch_optional(&db)
                     .await
                     .map_err(|e| Error::InternalErr(format!("expected content and lock: {e}")))
+                    .map(|x| x.map(|y| (y.0, y.1, y.2, y.3, if y.4 { y.5.map(|z| z.to_string()) } else { None })))
                 };
                 if let Ok(q) = q {
                     if let Some(wp) = q {
@@ -2063,7 +2081,9 @@ async fn spawn_dedicated_worker(
                     return None;
                 }
             }
-            SpawnWorker::RawScript { content, lock, lang, .. } => (content, lock, Some(lang), None),
+            SpawnWorker::RawScript { content, lock, lang, .. } => {
+                (content, lock, Some(lang), None, None)
+            }
         };
 
         match language {
@@ -2118,6 +2138,7 @@ async fn spawn_dedicated_worker(
                 Some(ScriptLang::Bun) => {
                     crate::bun_executor::start_worker(
                         lock,
+                        codebase,
                         &db,
                         &content,
                         &base_internal_url,
@@ -2176,6 +2197,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             tx,
             "admins",
             windmill_common::jobs::JobPayload::Code(windmill_common::jobs::RawCode {
+                hash: None,
                 content: content.clone(),
                 path: Some(format!("init_script_{worker_name}")),
                 language: ScriptLang::Bash,
@@ -2982,6 +3004,7 @@ struct ContentReqLangEnvs {
     lockfile: Option<String>,
     language: Option<ScriptLang>,
     envs: Option<Vec<String>>,
+    codebase: Option<String>,
 }
 
 async fn get_hub_script_content_and_requirements(
@@ -3018,6 +3041,7 @@ async fn get_hub_script_content_and_requirements(
         lockfile: script.lockfile,
         language: Some(script.language),
         envs: None,
+        codebase: None,
     })
 }
 
@@ -3050,16 +3074,27 @@ async fn get_script_content_by_hash(
             Option<String>,
             Option<ScriptLang>,
             Option<Vec<String>>,
+            bool,
         ),
     >(
-        "SELECT content, lock, language, envs FROM script WHERE hash = $1 AND workspace_id = $2",
+        "SELECT content, lock, language, envs, codebase IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
     )
     .bind(script_hash.0)
     .bind(w_id)
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?;
-    Ok(ContentReqLangEnvs { content: r.0, lockfile: r.1, language: r.2, envs: r.3 })
+    Ok(ContentReqLangEnvs {
+        content: r.0,
+        lockfile: r.1,
+        language: r.2,
+        envs: r.3,
+        codebase: if r.4 {
+            Some(script_hash.to_string())
+        } else {
+            None
+        },
+    })
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -3075,35 +3110,48 @@ async fn handle_code_execution_job(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
 ) -> error::Result<Box<RawValue>> {
-    let ContentReqLangEnvs { content: inner_content, lockfile: requirements_o, language, envs } =
-        match job.job_kind {
-            JobKind::Preview => ContentReqLangEnvs {
-                content: job
-                    .raw_code
-                    .clone()
-                    .unwrap_or_else(|| "no raw code".to_owned()),
-                lockfile: job.raw_lock.clone(),
-                language: job.language.to_owned(),
-                envs: None,
+    let ContentReqLangEnvs {
+        content: inner_content,
+        lockfile: requirements_o,
+        language,
+        envs,
+        codebase,
+    } = match job.job_kind {
+        JobKind::Preview => ContentReqLangEnvs {
+            content: job
+                .raw_code
+                .clone()
+                .unwrap_or_else(|| "no raw code".to_owned()),
+            lockfile: job.raw_lock.clone(),
+            language: job.language.to_owned(),
+            envs: None,
+            codebase: if job
+                .script_hash
+                .is_some_and(|y| y.0 == PREVIEW_IS_CODEBASE_HASH)
+            {
+                Some(job.id.to_string())
+            } else {
+                None
             },
-            JobKind::Script_Hub => {
-                get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
-            }
-            JobKind::Script => {
-                get_script_content_by_hash(
-                    &job.script_hash.unwrap_or(ScriptHash(0)),
-                    &job.workspace_id,
-                    db,
-                )
-                .await?
-            }
-            JobKind::DeploymentCallback => {
-                get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
-            }
-            _ => unreachable!(
-                "handle_code_execution_job should never be reachable with a non-code execution job"
-            ),
-        };
+        },
+        JobKind::Script_Hub => {
+            get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
+        }
+        JobKind::Script => {
+            get_script_content_by_hash(
+                &job.script_hash.unwrap_or(ScriptHash(0)),
+                &job.workspace_id,
+                db,
+            )
+            .await?
+        }
+        JobKind::DeploymentCallback => {
+            get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
+        }
+        _ => unreachable!(
+            "handle_code_execution_job should never be reachable with a non-code execution job"
+        ),
+    };
 
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(
@@ -3306,6 +3354,7 @@ mount {{
         Some(ScriptLang::Bun) => {
             handle_bun_job(
                 requirements_o,
+                codebase,
                 mem_peak,
                 canceled_by,
                 job,
