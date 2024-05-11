@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.325.1](https://github.com/windmill-labs/windmill/compare/v1.325.0...v1.325.1) (2024-05-11)
+
+
+### Bug Fixes
+
+* **cli:** support whileloop in flow cli sync ([d0a6dda](https://github.com/windmill-labs/windmill/commit/d0a6ddab94dfae4d6fab40c4d41acb85dab18183))
+* improve nodejs mode after esm update ([87add79](https://github.com/windmill-labs/windmill/commit/87add79de2e4df38e59d2e334bba0487c8ff4ecc))
+* selectedRow for a table is set on table actions ([447e2d7](https://github.com/windmill-labs/windmill/commit/447e2d7742edcd0af7184f6e8e5e67cf99f8103b))
+
 ## [1.325.0](https://github.com/windmill-labs/windmill/compare/v1.324.2...v1.325.0) (2024-05-10)
 
 
