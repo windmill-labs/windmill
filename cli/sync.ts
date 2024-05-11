@@ -43,7 +43,7 @@ import {
 
 import { handleFile } from "./script.ts";
 import { deepEqual } from "./utils.ts";
-import { Codebase, SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
+import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 
