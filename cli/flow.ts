@@ -71,6 +71,8 @@ export async function pushFlow(
         }
       } else if (m.value.type == "forloopflow") {
         replaceInlineScripts(m.value.modules);
+      } else if (m.value.type == "whileloopflow") {
+        replaceInlineScripts(m.value.modules);
       } else if (m.value.type == "branchall") {
         m.value.branches.forEach((b) => replaceInlineScripts(b.modules));
       } else if (m.value.type == "branchone") {
