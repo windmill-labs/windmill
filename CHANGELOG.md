@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.325.2](https://github.com/windmill-labs/windmill/compare/v1.325.1...v1.325.2) (2024-05-11)
+
+
+### Bug Fixes
+
+* improve status exit dedicated workers ([12e302a](https://github.com/windmill-labs/windmill/commit/12e302a309ee8148d2a9d4a168807b97f5fd1709))
+
 ## [1.325.1](https://github.com/windmill-labs/windmill/compare/v1.325.0...v1.325.1) (2024-05-11)
 
 
