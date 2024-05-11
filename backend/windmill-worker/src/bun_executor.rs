@@ -640,7 +640,7 @@ pub async fn handle_bun_job(
 
         let wrapper_content: String = format!(
             r#"
-import {{ {main_name} }} from "{main_import}";
+import * as Main from "{main_import}";
 
 import * as fs from "fs/promises";
 
@@ -653,7 +653,7 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res = await {main_name}(...args);
+    let res = await Main.{main_name}(...args);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);
@@ -764,7 +764,6 @@ try {{
                 "run.config.proto",
                 "--",
                 &NODE_PATH,
-                "--experimental-default-type=module",
                 "/tmp/nodejs/wrapper.mjs",
             ]
         } else if codebase.is_some() {
@@ -812,7 +811,7 @@ try {{
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
-                .args(vec!["--experimental-default-type=module", &script_path])
+                .args(vec![&script_path])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
             bun_cmd
@@ -1051,8 +1050,8 @@ pub async fn start_worker(
         };
         let wrapper_content: String = format!(
             r#"
-import {{ main }} from "{main_import}";
-import {{ createInterface }} from "node:readline"
+import * as Main from "{main_import}";
+import * as Readline from "node:readline"
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -1062,7 +1061,7 @@ BigInt.prototype.toJSON = function () {{
 
 console.log('start'); 
 
-for await (const line of createInterface({{ input: process.stdin }})) {{
+for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
 
     if (line === "end") {{
@@ -1070,7 +1069,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
     }}
     try {{
         let {{ {spread} }} = JSON.parse(line) 
-        let res = await main(...[ {spread} ]);
+        let res = await Main.main(...[ {spread} ]);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
         console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
@@ -1118,7 +1117,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
             envs,
             context,
             common_bun_proc_envs,
-            vec!["--experimental-default-type=module", &script_path],
+            vec![&script_path],
             killpill_rx,
             job_completed_tx,
             token,
