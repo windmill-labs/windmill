@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
-	import TableCustom from './TableCustom.svelte'
-	import { copyToClipboard, roughSizeOfObject, truncate } from '$lib/utils'
+	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -43,6 +42,7 @@
 		| 'json'
 		| 'table-col'
 		| 'table-row'
+		| 'table-cell'
 		| 'html'
 		| 'png'
 		| 'file'
@@ -65,30 +65,14 @@
 	let enableHtml = false
 	let s3FileDisplayRawMode = false
 
-	function isRectangularArray(obj: any) {
-		if (!Array.isArray(obj) || obj.length == 0) {
-			return false
-		}
-		if (
-			!Object.values(obj)
-				.map(Array.isArray)
-				.reduce((a, b) => a && b)
-		) {
-			return false
-		}
-		let innerSize = obj[0].length
-
-		return Object.values(obj)
-			.map((x: any) => x.length == innerSize)
-			.reduce((a, b) => a && b)
+	function isArrayOfArrays(result: any): boolean {
+		return Array.isArray(result) && result.every((x) => Array.isArray(x))
 	}
 
-	function asListOfList(obj: any): ArrayLike<ArrayLike<any>> {
-		return obj as ArrayLike<ArrayLike<any>>
-	}
-
-	function isObjectOfArray(result: any[], keys: string[]): boolean {
-		return keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
+	function isObjectOfArrays(result: any[], keys: string[]): boolean {
+		return (
+			!Array.isArray(result) && keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
+		)
 	}
 
 	let largeObject: boolean | undefined = undefined
@@ -131,15 +115,12 @@
 				if (keys.length != 0) {
 					if (Array.isArray(result) && result.every((elt) => inferResultKind(elt) === 's3object')) {
 						return 's3object-list'
-					} else if (isRectangularArray(result)) {
-						return 'table-col'
 					} else if (keys.length == 1 && keys[0] == 'table-row') {
 						return 'table-row'
-					} else if (
-						(keys.length == 1 && keys[0] == 'table-col') ||
-						isObjectOfArray(result, keys)
-					) {
+					} else if (keys.length == 1 && keys[0] == 'table-col') {
 						return 'table-col'
+					} else if (keys.length == 1 && keys[0] == 'table-cell') {
+						return 'table-cell'
 					} else if (keys.length == 1 && keys[0] == 'html') {
 						return 'html'
 					} else if (keys.length == 1 && keys[0] == 'map') {
@@ -175,10 +156,16 @@
 						keys.includes('approvalPage')
 					) {
 						return 'approval'
-					} else if (keys.length === 1 && keys.includes('s3')) {
+					} else if (keys.length === 1 && keys.includes('s3') && typeof result.s3 === 'string') {
 						return 's3object'
 					} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
 						return 'markdown'
+					} else if (isArrayOfArrays(result)) {
+						return 'table-row'
+					} else if (isObjectOfArrays(result, keys)) {
+						return 'table-col'
+					} else if (isArrayOfObjects(result)) {
+						return 'table-cell'
 					}
 				}
 			} catch (err) {}
@@ -204,23 +191,65 @@
 		}
 	}
 
-	function isArrayWithObjects(json) {
+	function isArrayOfObjects(json) {
+		// check array of objects (with possible a first row of headers)
 		return (
 			Array.isArray(json) &&
 			json.length > 0 &&
-			json.every(
+			(json.every(
 				(item) =>
 					item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-			)
+			) ||
+				(Array.isArray(json[0]) &&
+					json[0].every((item) => typeof item === 'string') &&
+					json
+						.slice(1)
+						.every(
+							(item) =>
+								item &&
+								typeof item === 'object' &&
+								Object.keys(item).length > 0 &&
+								!Array.isArray(item)
+						)))
 		)
 	}
 
-	$: isTableDisplay = isArrayWithObjects(result)
-	let richRender: boolean = !forceJson
+	function handleTableCellHeaders(json: any) {
+		// handle possible a first row of headers
+		if (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			Array.isArray(json[0]) &&
+			json[0].every((item) => typeof item === 'string') &&
+			json
+				.slice(1)
+				.every(
+					(item) =>
+						item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
+				)
+		) {
+			const headers = json[0]
+			const rows = json.slice(1)
+
+			const result = rows.map((row) => {
+				const obj: { [key: string]: string } = {}
+
+				for (const header of headers) {
+					obj[header] = row[header]
+				}
+
+				return obj
+			})
+
+			return result
+		}
+
+		return json
+	}
 
 	type InputObject = { [key: string]: number[] }
 
-	function transform(input: InputObject): any[] {
+	function objectOfArraysToObjects(input: InputObject): any[] {
 		const maxLength = Math.max(...Object.values(input).map((arr) => arr.length))
 		const result: Array<{
 			[key: string]: number | null
@@ -243,14 +272,51 @@
 		return result
 	}
 
+	function arrayOfRowsToObjects(input: any) {
+		if (Array.isArray(input) && input.length > 0) {
+			// handle possible first row of headers
+			if (
+				input.length > 1 &&
+				Array.isArray(input[0]) &&
+				input[0].every((item) => typeof item === 'string')
+			) {
+				const headers = input[0]
+				const rows = input.slice(1)
+
+				return rows.map((row) => {
+					const obj: { [key: string]: string } = {}
+
+					for (let i = 0; i < headers.length; i++) {
+						obj[headers[i]] = row[i]
+					}
+
+					return obj
+				})
+			} else {
+				return input
+			}
+		}
+		return []
+	}
+
 	let globalForceJson: boolean = false
 </script>
 
 {#if is_render_all}
 	<div class="flex flex-col w-full gap-6">
 		{#if !noControls}
-			<div class="mb-2 text-tertiary text-sm">
-				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={globalForceJson} />
+			<div class="text-tertiary text-sm">
+				<ToggleButtonGroup
+					class="h-6"
+					selected={globalForceJson ? 'json' : 'pretty'}
+					on:selected={(ev) => {
+						globalForceJson = ev.detail === 'json'
+					}}
+				>
+					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+
+					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+				</ToggleButtonGroup>
 			</div>
 		{/if}
 		{#each result['render_all'] as res}
@@ -275,29 +341,19 @@
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
-				<div class="text-tertiary text-sm flex items-center">
-					{#if (resultKind && typeof result == 'object' && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson) || isTableDisplay}
+				<div class="text-tertiary text-sm">
+					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}
 						<ToggleButtonGroup
 							class="h-6"
-							selected={isTableDisplay
-								? richRender
-									? 'table'
-									: 'json'
-								: forceJson
-								? 'json'
-								: 'pretty'}
+							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
-								if (isTableDisplay) {
-									richRender = ev.detail === 'table'
-								}
 								forceJson = ev.detail === 'json'
 							}}
 						>
-							{#if resultKind && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson}
-								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
-							{/if}
-							{#if isTableDisplay}
+							{#if ['table-col', 'table-row', 'table-cell'].includes(resultKind ?? '')}
 								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
+							{:else}
+								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
 							{/if}
 							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
 						</ToggleButtonGroup>
@@ -327,22 +383,12 @@
 				</div>
 			</div>{#if !forceJson && resultKind == 'table-col'}
 				{@const data = 'table-col' in result ? result['table-col'] : result}
-				<AutoDataTable objects={transform(data)} />
+				<AutoDataTable objects={objectOfArraysToObjects(data)} />
 			{:else if !forceJson && resultKind == 'table-row'}
 				{@const data = 'table-row' in result ? result['table-row'] : result}
-				<div class="grid grid-flow-col-dense border border-gray-200 dark:border-gray-600">
-					<TableCustom>
-						<tbody slot="body">
-							{#each Array.isArray(asListOfList(data)) ? asListOfList(data) : [] as row}
-								<tr>
-									{#each row as v}
-										<td class="!text-xs">{truncate(JSON.stringify(v), 200) ?? ''}</td>
-									{/each}
-								</tr>
-							{/each}
-						</tbody>
-					</TableCustom>
-				</div>
+				<AutoDataTable objects={arrayOfRowsToObjects(data)} />
+			{:else if !forceJson && resultKind == 'table-cell'}
+				<AutoDataTable objects={handleTableCellHeaders(result)} />
 			{:else if !forceJson && resultKind == 'html'}
 				<div class="h-full">
 					{#if !requireHtmlApproval || enableHtml}
@@ -537,8 +583,6 @@
 				<div class="prose-xs dark:prose-invert !list-disc !list-outside">
 					<Markdown md={result?.md ?? result?.markdown} />
 				</div>
-			{:else if !forceJson && isTableDisplay && richRender}
-				<AutoDataTable objects={result} />
 			{:else if largeObject}
 				{#if result && typeof result == 'object' && 'file' in result}
 					<div
