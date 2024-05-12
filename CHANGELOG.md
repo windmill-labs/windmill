@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.326.1](https://github.com/windmill-labs/windmill/compare/v1.326.0...v1.326.1) (2024-05-12)
+
+
+### Bug Fixes
+
+* un-inline monaco editor workers for faster initial load ([e2991ef](https://github.com/windmill-labs/windmill/commit/e2991ef9237d17de5e6ef8074387998a96785396))
+
 ## [1.326.0](https://github.com/windmill-labs/windmill/compare/v1.325.2...v1.326.0) (2024-05-12)
 
 
