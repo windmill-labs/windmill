@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.326.0](https://github.com/windmill-labs/windmill/compare/v1.325.2...v1.326.0) (2024-05-12)
+
+
+### Features
+
+* logs can be downloaded directly from server/frontend if using shared volume ([a3a66d0](https://github.com/windmill-labs/windmill/commit/a3a66d0577f57cae6e0de5a942a35d45cc8e9472))
+
 ## [1.325.2](https://github.com/windmill-labs/windmill/compare/v1.325.1...v1.325.2) (2024-05-11)
 
 
