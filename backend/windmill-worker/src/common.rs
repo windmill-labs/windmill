@@ -652,7 +652,7 @@ async fn compact_logs(
     nlogs: String,
     total_size: Arc<AtomicU32>,
     compact_kind: CompactLogs,
-    worker_name: &str,
+    _worker_name: &str,
 ) -> error::Result<(String, String)> {
     let size = sqlx::query_scalar!(
         "SELECT char_length(logs) FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
