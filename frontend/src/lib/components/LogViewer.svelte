@@ -1,5 +1,9 @@
 <script lang="ts" context="module">
-	const s3LogPrefix = '[windmill] Previous logs have been saved to object storage at logs/'
+	const s3LogPrefixes = [
+		'[windmill] Previous logs have been saved to object storage at logs/',
+		'[windmill] Previous logs have been saved to disk at logs/',
+		'[windmill] No object storage set in instance settings. Previous logs have been saved to disk at '
+	]
 </script>
 
 <script lang="ts">
@@ -10,6 +14,7 @@
 	import AnsiUp from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
+	import Tooltip from './Tooltip.svelte'
 
 	export let content: string | undefined
 	export let isLoading: boolean
@@ -41,11 +46,38 @@
 		LOG_LIMIT = LOG_INC
 	}
 
-	$: downloadStartUrl = truncatedContent.startsWith(s3LogPrefix)
-		? truncatedContent.substring(s3LogPrefix.length, truncatedContent.indexOf('\n'))
-		: undefined
+	function findPrefixIndex(truncateContent: string): number | undefined {
+		let index = s3LogPrefixes.findIndex((x) => truncateContent.startsWith(x))
+		if (index == -1) {
+			return undefined
+		}
+		return index
+	}
+	function findStartUrl(truncateContent: string, prefixIndex: number | undefined = undefined) {
+		if (prefixIndex == undefined) {
+			return undefined
+		}
+		return prefixIndex && truncateContent
+			? truncateContent.substring(s3LogPrefixes[prefixIndex]?.length, truncateContent.indexOf('\n'))
+			: undefined
+	}
+
+	function tooltipText(prefixIndex: number | undefined) {
+		if (prefixIndex == undefined) {
+			return 'No path/file detected to download from'
+		} else if (prefixIndex == 0) {
+			return 'Download the previous logs from the instance configured object store'
+		} else if (prefixIndex == 1) {
+			return 'Attempt to download the logs from disk. Assume there is a shared disk between the workers and the server at /tmp/windmill/logs. Upgrade to EE to use an object store such as S3 instead of a shared volume.'
+		} else if (prefixIndex == 2) {
+			return 'Attempt to download the logs from disk. Assume there is a shared disk between the workers and the server at /tmp/windmill/logs. Since you are on EE, you can alternatively use an object store such as S3 configured in the instance settings instead of a shared volume..'
+		}
+	}
 
 	$: truncatedContent = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+
+	$: prefixIndex = findPrefixIndex(truncatedContent)
+	$: downloadStartUrl = findStartUrl(truncatedContent, prefixIndex)
 
 	function truncateContent(
 		jobContent: string | undefined,
@@ -134,7 +166,8 @@
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
-							on:click={getStoreLogs}>Show more...</button
+							on:click={getStoreLogs}
+							>Show more... <Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
 						><br
 						/>{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
 							on:click={() => showMoreTruncate(len)}>Show more</button
@@ -200,7 +233,7 @@
 			>{#if content}{@const len =
 					(content?.length ?? 0) +
 					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}
-						>Show more...</button
+						>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
 					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
 					/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
 					>{@html html}</span

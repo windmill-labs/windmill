@@ -37,6 +37,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - worker_logs:/tmp/windmill/logs
 
   windmill_worker:
     image: ${WM_IMAGE}
@@ -60,6 +62,7 @@ services:
       # mount the docker socket to allow to run docker containers from within the workers
       - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
+      - worker_logs:/tmp/windmill/logs
 
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
@@ -80,7 +83,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
+    volumes:
+      - worker_logs:/tmp/windmill/logs
   ## This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
   # windmill_worker_reports:
   #   image: ${WM_IMAGE}
@@ -142,4 +146,5 @@ services:
 volumes:
   db_data: null
   worker_dependency_cache: null
+  worker_logs: null
   lsp_cache: null
