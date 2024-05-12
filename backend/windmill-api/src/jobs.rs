@@ -12,6 +12,7 @@ use serde_json::value::RawValue;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
+use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
@@ -19,6 +20,7 @@ use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
     ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::worker::TMP_DIR;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
@@ -664,17 +666,17 @@ async fn get_job_internal(
 async fn get_logs_from_store(
     log_offset: i32,
     logs: &str,
-    log_file_index: Option<Vec<String>>,
+    log_file_index: &Option<Vec<String>>,
 ) -> Option<error::Result<Body>> {
     if log_offset > 0 {
-        if let Some(file_index) = log_file_index {
+        if let Some(file_index) = log_file_index.clone() {
             tracing::debug!("Getting logs from store: {file_index:?}");
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                 tracing::debug!("object store client present, streaming from there");
 
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
-                    for file_p in file_index {
+                    for file_p in file_index.clone() {
                         let file_p_2 = file_p.clone();
                         let file = os.get(&object_store::path::Path::from(file_p)).await;
                         if let Ok(file) = file {
@@ -696,6 +698,40 @@ async fn get_logs_from_store(
     }
     return None;
 }
+
+async fn get_logs_from_disk(
+    log_offset: i32,
+    logs: &str,
+    log_file_index: &Option<Vec<String>>,
+) -> Option<error::Result<Body>> {
+    if log_offset > 0 {
+        if let Some(file_index) = log_file_index.clone() {
+            for file_p in &file_index {
+                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
+                    .await
+                    .is_ok()
+                {
+                    return None;
+                }
+            }
+
+            let logs = logs.to_string();
+            let stream = async_stream::stream! {
+                for file_p in file_index.clone() {
+                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
+                    let mut buffer = Vec::new();
+                    file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
+                    yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
+                }
+
+                yield Ok(bytes::Bytes::from(logs))
+            };
+            return Some(Ok(Body::from_stream(stream)));
+        }
+    }
+    return None;
+}
+
 async fn get_job_logs(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
@@ -714,7 +750,11 @@ async fn get_job_logs(
     if let Some(record) = record {
         let logs = record.logs.unwrap_or_default();
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(record.log_offset, &logs, record.log_file_index).await
+        if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
+        {
+            return r;
+        }
+        if let Some(r) = get_logs_from_disk(record.log_offset, &logs, &record.log_file_index).await
         {
             return r;
         }
@@ -734,7 +774,10 @@ async fn get_job_logs(
 
         let logs = text.logs.unwrap_or_default();
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(text.log_offset, &logs, text.log_file_index).await {
+        if let Some(r) = get_logs_from_store(text.log_offset, &logs, &text.log_file_index).await {
+            return r;
+        }
+        if let Some(r) = get_logs_from_disk(text.log_offset, &logs, &text.log_file_index).await {
             return r;
         }
         Ok(Body::from(logs))
@@ -3649,45 +3692,20 @@ pub struct JobUpdate {
     pub flow_status: Option<serde_json::Value>,
 }
 
-// #[cfg(all(feature = "enterprise", feature = "parquet"))]
-// async fn get_logs_from_store(
-//     log_offset: i32,
-//     logs: &str,
-//     log_file_index: Option<Vec<String>>,
-// ) -> Option<error::Result<Body>> {
-//     if log_offset > 0 {
-//         if let Some(file_index) = log_file_index {
-//             tracing::debug!("Getting logs from store: {file_index:?}");
-//             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-//                 tracing::debug!("object store client present, streaming from there");
-
-//                 let logs = logs.to_string();
-//                 let stream = async_stream::stream! {
-//                     for file_p in file_index {
-//                         let file_p_2 = file_p.clone();
-//                         let file = os.get(&object_store::path::Path::from(file_p)).await;
-//                         if let Ok(file) = file {
-//                             if let Ok(bytes) = file.bytes().await {
-//                                 yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-//                             }
-//                         } else {
-//                             tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-//                         }
-//                     }
-
-//                     yield Ok(bytes::Bytes::from(logs))
-//                 };
-//                 return Some(Ok(Body::from_stream(stream)));
-//             } else {
-//                 tracing::debug!("object store client not present, cannot stream logs from store");
-//             }
-//         }
-//     }
-//     return None;
-// }
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+    let local_file = format!("{TMP_DIR}/logs/{file_p}");
+    if tokio::fs::metadata(&local_file).await.is_ok() {
+        let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
+        let res = Response::builder()
+            .header(http::header::CONTENT_TYPE, "text/plain")
+            .body(Body::from(bytes::Bytes::from(buffer)))
+            .unwrap();
+        return Ok(res);
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
         let file = os
             .get(&object_store::path::Path::from(format!("logs/{file_p}")))
@@ -3717,12 +3735,9 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
             "Object store client not present, cannot stream logs from store".to_string(),
         ));
     }
-}
 
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
     return Err(error::Error::NotFound(format!(
-        "Get log file is an EE feature: {}",
+        "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
         file_p
     )));
 }

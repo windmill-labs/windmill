@@ -26,7 +26,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
-use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
+use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -70,7 +70,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TMP_DIR,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
 };
 
 pub async fn build_args_map<'a>(
@@ -717,9 +717,9 @@ async fn compact_logs(
     );
 
     let mut new_current_logs = match compact_kind {
-        CompactLogs::NoS3 => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}, add object storage in the instance settings to save it on distributed storage and allow direct download from Windmill\n"),
+        CompactLogs::NoS3 => format!("[windmill] No object storage set in instance settings. Previous logs have been saved to disk at {path}\n"),
         CompactLogs::S3 => format!("[windmill] Previous logs have been saved to object storage at {path}\n"),
-        CompactLogs::NotEE => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}\n[windmill] Upgrade to EE and add object storage to save it persistentely on distributed storage and allow direct download from Windmill\n"),
+        CompactLogs::NotEE => format!("[windmill] Previous logs have been saved to disk at {path}\n"),
     };
     new_current_logs.push_str(&current_logs);
 

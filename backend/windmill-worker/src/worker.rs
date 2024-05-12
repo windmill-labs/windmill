@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::worker::TMP_DIR;
+
 use anyhow::Result;
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
@@ -185,10 +187,9 @@ pub async fn create_token_for_owner(
     Ok(token)
 }
 
-pub const TMP_DIR: &str = "/tmp/windmill";
-pub const TMP_LOGS_DIR: &str = "/tmp/windmill/logs";
+pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 
-pub const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
+pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");

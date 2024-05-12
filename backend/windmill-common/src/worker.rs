@@ -70,6 +70,8 @@ lazy_static::lazy_static! {
 
 }
 
+pub const TMP_DIR: &str = "/tmp/windmill";
+
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     let q = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",

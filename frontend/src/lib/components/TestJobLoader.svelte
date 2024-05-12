@@ -97,7 +97,11 @@
 				running: `running` in job && job.running,
 				logOffset: job.logs?.length ?? 0
 			})
-			job.logs = (job.logs ?? '').concat(getUpdate.new_logs ?? '')
+
+			if ((job.logs ?? '').length == 0) {
+				job.logs = getUpdate.new_logs ?? ''
+				logOffset = getUpdate.log_offset ?? 0
+			}
 		}
 	}
 
@@ -167,19 +171,26 @@
 		if (currentId === id) {
 			try {
 				if (job && `running` in job) {
+					const offset = logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
 					let previewJobUpdates = await JobService.getJobUpdates({
 						workspace: workspace!,
 						id,
 						running: job.running,
-						logOffset: logOffset == 0 ? (job.logs?.length ? job.logs?.length + 1 : 0) : logOffset
+						logOffset: offset
 					})
+
+					if (previewJobUpdates.new_logs) {
+						if (offset == 0) {
+							job.logs = previewJobUpdates.new_logs ?? ''
+						} else {
+							job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
+						}
+					}
 
 					if (previewJobUpdates.log_offset) {
 						logOffset = previewJobUpdates.log_offset ?? 0
 					}
-					if (previewJobUpdates.new_logs) {
-						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
-					}
+
 					if (previewJobUpdates.flow_status) {
 						job.flow_status = previewJobUpdates.flow_status as FlowStatus
 					}
