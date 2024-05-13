@@ -32,7 +32,6 @@ export type Resource<S extends string> = any;
 
 export const SHARED_FOLDER = "/shared";
 
-let clientSet = false;
 export function setClient(token?: string, baseUrl?: string) {
   if (baseUrl === undefined) {
     baseUrl =
@@ -46,16 +45,15 @@ export function setClient(token?: string, baseUrl?: string) {
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
-  clientSet = true;
 }
 
 const getEnv = (key: string) => {
   if (typeof window === "undefined") {
     // node
-    return process.env[key];
+    return process?.env?.[key];
   }
   // browser
-  return window.process.env[key];
+  return window?.process?.env?.[key];
 };
 
 /**
@@ -76,7 +74,6 @@ export async function getResource(
   path?: string,
   undefinedIfEmpty?: boolean
 ): Promise<any> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   path = path ?? getStatePath();
   try {
@@ -101,7 +98,6 @@ export async function getResource(
  * @returns root job id
  */
 export async function getRootJobId(jobId?: string): Promise<string> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   jobId = jobId ?? getEnv("WM_JOB_ID");
   if (jobId === undefined) {
@@ -163,13 +159,11 @@ export async function waitJob(
 }
 
 export async function getResult(jobId: string): Promise<any> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResult({ workspace, id: jobId });
 }
 
 export async function getResultMaybe(jobId: string): Promise<any> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResultMaybe({ workspace, id: jobId });
 }
@@ -186,8 +180,6 @@ function getParamNames(func: Function): string[] {
 }
 
 export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
-  !clientSet && setClient();
-
   return async (...y) => {
     const args: Record<string, any> = {};
     const paramNames = getParamNames(f);
@@ -219,8 +211,6 @@ export async function runScriptAsync(
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
-  !clientSet && setClient();
-
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
@@ -294,7 +284,6 @@ export async function setResource(
   path?: string,
   initializeToTypeIfNotExist?: string
 ): Promise<void> {
-  !clientSet && setClient();
   path = path ?? getStatePath();
   const workspace = getWorkspace();
   if (await ResourceService.existsResource({ workspace, path })) {
@@ -343,7 +332,6 @@ export async function setFlowUserState(
   value: any,
   errorIfNotPossible?: boolean
 ): Promise<void> {
-  !clientSet && setClient();
   if (value === undefined) {
     value = null;
   }
@@ -373,7 +361,6 @@ export async function getFlowUserState(
   key: string,
   errorIfNotPossible?: boolean
 ): Promise<any> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   try {
     return await JobService.getFlowUserState({
@@ -430,7 +417,6 @@ export async function getState(): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   try {
     return await VariableService.getVariableValue({ workspace, path });
@@ -454,7 +440,6 @@ export async function setVariable(
   isSecretIfNotExist?: boolean,
   descriptionIfNotExist?: string
 ): Promise<void> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   if (await VariableService.existsVariable({ workspace, path })) {
     await VariableService.updateVariable({
@@ -504,7 +489,6 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 export async function denoS3LightClientSettings(
   s3_resource_path: string | undefined
 ): Promise<DenoS3LightClientSettings> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   const s3Resource = await HelpersService.s3ResourceInfo({
     workspace: workspace,
@@ -532,7 +516,6 @@ export async function loadS3File(
   s3object: S3Object,
   s3ResourcePath: string | undefined = undefined
 ): Promise<Uint8Array | undefined> {
-  !clientSet && setClient();
   const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath);
   if (fileContentBlob === undefined) {
     return undefined;
@@ -574,8 +557,6 @@ export async function loadS3FileStream(
   s3object: S3Object,
   s3ResourcePath: string | undefined = undefined
 ): Promise<Blob | undefined> {
-  !clientSet && setClient();
-
   let params: Record<string, string> = {};
   params["file_key"] = s3object.s3;
   if (s3ResourcePath !== undefined) {
@@ -612,7 +593,6 @@ export async function writeS3File(
   fileContent: string | Blob,
   s3ResourcePath: string | undefined = undefined
 ): Promise<S3Object> {
-  !clientSet && setClient();
   let fileContentBlob: Blob;
   if (typeof fileContent === "string") {
     fileContentBlob = new Blob([fileContent as string], {
@@ -645,7 +625,6 @@ export async function getResumeUrls(approver?: string): Promise<{
   cancel: string;
 }> {
   const nonce = Math.floor(Math.random() * 4294967295);
-  !clientSet && setClient();
   const workspace = getWorkspace();
   return await JobService.getResumeUrls({
     workspace,
@@ -672,7 +651,6 @@ export function getResumeEndpoints(approver?: string): Promise<{
  * @returns jwt token
  */
 export async function getIdToken(audience: string): Promise<string> {
-  !clientSet && setClient();
   const workspace = getWorkspace();
   return await OidcService.getOidcToken({
     workspace,
