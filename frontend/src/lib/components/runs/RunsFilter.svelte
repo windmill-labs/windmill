@@ -12,6 +12,7 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
+	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 
 	// Filters
 	export let path: string | null = null
@@ -101,8 +102,12 @@
 					<ToggleButton value="path" label="Path" />
 					<ToggleButton value="user" label="User" />
 					<ToggleButton value="folder" label="Folder" />
-					<ToggleButton value="label" label="Label" />
-					<ToggleButton value="concurrencyKey" label="Concurrency" />
+					<ToggleButtonMore
+						togglableItems={[
+							{ label: 'ConcurrencyKey', value: 'concurrencyKey' },
+							{ label: 'Label', value: 'label' }
+						]}
+					/>
 				</ToggleButtonGroup>
 			</div>
 
