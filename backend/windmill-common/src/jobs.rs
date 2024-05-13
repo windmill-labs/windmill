@@ -345,6 +345,7 @@ pub enum JobPayload {
 pub struct RawCode {
     pub content: String,
     pub path: Option<String>,
+    pub hash: Option<i64>,
     pub language: ScriptLang,
     pub lock: Option<String>,
     pub concurrent_limit: Option<i32>,

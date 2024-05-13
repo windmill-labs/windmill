@@ -247,7 +247,7 @@ declare function clearFiles(id: string): void;
 /**  Display a toast message
  * @param message message to display
  */
-declare function showToast(message: string, error: boolean): void;
+declare function showToast(message: string, error?: boolean): void;
 `
 		: ''
 }

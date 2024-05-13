@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Label from './Label.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
@@ -16,6 +17,7 @@
 	export let disableVariablePicker: boolean | undefined = false
 	export let password: boolean = false
 	export let noExtra = false
+	export let dateFormat: string | undefined
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
 	let patternStr: string = pattern ?? ''
@@ -201,6 +203,13 @@
 			<option value={f}>{f}</option>
 		{/each}
 	</select>
+
+	{#if format == 'date'}
+		<div class="mt-1" />
+		<Label label="Date format">
+			<input type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
+		</Label>
+	{/if}
 {:else if kind == 'none'}
 	{#if !noExtra}
 		<label

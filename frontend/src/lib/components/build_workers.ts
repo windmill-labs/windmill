@@ -1,9 +1,17 @@
 import type { Environment } from 'monaco-editor/esm/vs/editor/editor.api.js'
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker&inline'
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker&inline'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker&inline'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker&inline'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker&inline'
+
+// inline to make it a library component easy to be imported until this if fixed: https://github.com/vitejs/vite/pull/16418
+// import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker&inline'
+// import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker&inline'
+// import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker&inline'
+// import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker&inline'
+// import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker&inline'
+
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
 interface MonacoEnvironmentEnhanced extends Environment {
 	workerOverrideGlobals: WorkerOverrideGlobals

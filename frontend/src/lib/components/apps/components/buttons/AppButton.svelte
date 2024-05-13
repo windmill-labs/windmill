@@ -192,7 +192,6 @@
 		if (iterContext && listInputs) {
 			listInputs.set(id, inputOutput)
 		}
-		console.log('success', r)
 	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >

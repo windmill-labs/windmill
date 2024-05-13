@@ -121,12 +121,18 @@
 	let isBg = id.startsWith('bg_')
 	$: isBg && updateBgRuns(loading)
 	$: fields && (currentStaticValues = computeStaticValues())
-	$: if (!deepEqual(currentStaticValues, lazyStaticValues)) {
-		lazyStaticValues = currentStaticValues
-		refreshIfAutoRefresh('static changed')
+	$: currentStaticValues && refreshOnStaticChange()
+
+	function refreshOnStaticChange() {
+		if (!deepEqual(currentStaticValues, lazyStaticValues)) {
+			lazyStaticValues = currentStaticValues
+			refreshIfAutoRefresh('static changed')
+		}
 	}
 
+	// $: sendUserToast('args' + JSON.stringify(runnableInputValues) + Boolean(extraQueryParams) || args)
 	// $: console.log(runnableInputValues)
+	let firstRefresh = true
 	$: (runnableInputValues || extraQueryParams || args) &&
 		resultJobLoader &&
 		refreshIfAutoRefresh('arg changed')
@@ -134,7 +140,20 @@
 	$: refreshOn =
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
-	function refreshIfAutoRefresh(_src: string) {
+	function refreshIfAutoRefresh(src: 'arg changed' | 'static changed') {
+		if (firstRefresh) {
+			firstRefresh = false
+			if (
+				src == 'arg changed' &&
+				args == undefined &&
+				Object.keys(runnableInputValues ?? {}).length == 0 &&
+				Object.keys(extraQueryParams ?? {}).length == 0
+			) {
+				// console.debug(`Skipping refreshing ${id} because ${_src} (first)`)
+				return
+			}
+		}
+
 		// console.debug(`Triggering refreshing ${id} because ${_src}`)
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)

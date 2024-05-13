@@ -35,8 +35,9 @@
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	export let script: Script & { canWrite: boolean }
+	export let script: Script & { canWrite: boolean; use_codebase: boolean }
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
@@ -122,14 +123,20 @@
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if script.canWrite && !script.archived}
+				{#if script.use_codebase}
+					<Badge
+						>bundle<Tooltip
+							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
+						></Badge
+					>
+				{:else if script.canWrite && !script.archived}
 					<div>
 						<Button
 							color="light"
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/scripts/edit/{script.path}"
+							href={'/scripts/edit/{script.path}'}
 						>
 							Edit
 						</Button>

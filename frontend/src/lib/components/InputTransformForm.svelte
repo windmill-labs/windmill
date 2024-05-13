@@ -42,6 +42,8 @@
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
+	$: console.log(schema.properties[argName])
+
 	$: inputCat = computeInputCat(
 		schema.properties[argName].type,
 		schema.properties[argName].format,

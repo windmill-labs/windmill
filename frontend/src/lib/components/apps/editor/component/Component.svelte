@@ -437,6 +437,7 @@
 				id={component.id}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
 				{render}
 			/>
 		{:else if component.type === 'formcomponent'}

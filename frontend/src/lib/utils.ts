@@ -36,6 +36,19 @@ export function parseQueryParams(url: string | undefined) {
 	return params
 }
 
+export function displayDateOnly(dateString: string | Date | undefined): string {
+	const date = new Date(dateString ?? '')
+	if (date.toString() === 'Invalid Date') {
+		return ''
+	} else {
+		return date.toLocaleDateString([], {
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit'
+		})
+	}
+}
+
 export function displayDate(
 	dateString: string | Date | undefined,
 	displaySecond = false,
@@ -788,9 +801,6 @@ export function computeShow(argName: string, expr: string | undefined, args: any
 	if (expr) {
 		try {
 			let r = evalJs(expr)(args ?? {})
-			if (!r && args[argName] !== undefined) {
-				delete args[argName]
-			}
 			return r
 		} catch (e) {
 			console.error(`Impossible to eval ${expr}:`, e)

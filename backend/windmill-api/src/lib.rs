@@ -25,6 +25,7 @@ use db::DB;
 use git_version::git_version;
 use reqwest::Client;
 use std::collections::HashMap;
+use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
@@ -104,6 +105,8 @@ lazy_static::lazy_static! {
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
@@ -141,14 +144,12 @@ pub async fn run_server(
     ));
     let argon2 = Arc::new(Argon2::default());
 
+    let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
+        .ok()
+        .map(|x| x == "true")
+        .unwrap_or(false);
+
     let middleware_stack = ServiceBuilder::new()
-        .layer(
-            TraceLayer::new_for_http()
-                .on_response(MyOnResponse {})
-                .make_span_with(MyMakeSpan {})
-                .on_request(())
-                .on_failure(MyOnFailure {}),
-        )
         .layer(Extension(db.clone()))
         .layer(Extension(rsmq))
         .layer(Extension(user_db))
@@ -285,6 +286,18 @@ pub async fn run_server(
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 
+    let app = if disable_response_logs {
+        app
+    } else {
+        app.layer(
+            TraceLayer::new_for_http()
+                .on_response(MyOnResponse {})
+                .make_span_with(MyMakeSpan {})
+                .on_request(())
+                .on_failure(MyOnFailure {}),
+        )
+    };
+
     let instance_name = rd_string(5);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -320,6 +333,7 @@ async fn is_up_to_date() -> Result<String, AppError> {
     let error_reading_version = || anyhow::anyhow!("Error reading latest released version");
     let version = HTTP_CLIENT
         .get("https://api.github.com/repos/windmill-labs/windmill/releases/latest")
+        .timeout(Duration::from_secs(10))
         .send()
         .await
         .context("Impossible to reach api.github")?

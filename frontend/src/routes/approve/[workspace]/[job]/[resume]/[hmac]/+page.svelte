@@ -18,6 +18,7 @@
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
@@ -132,7 +133,11 @@
 	$: if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
 		loadUser()
 	}
+
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor bind:this={scheduleEditor} />
 
 <CenteredModal title="Approval for resuming of flow" disableLogo>
 	{#if error}
@@ -186,7 +191,7 @@
 			</div>
 			<div class="w-full">
 				{#if job && job.raw_flow}
-					<FlowMetadata {job} />
+					<FlowMetadata {job} {scheduleEditor} />
 				{/if}
 			</div>
 		</div>

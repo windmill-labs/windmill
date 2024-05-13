@@ -21,7 +21,7 @@ if (!bo.success) {
     content.replaceAll("__require", "require")
   );
 
-  const dependencies: Record<string, string[]> = {};
+  const dependencies = {};
   for (const i of imports) {
     let [_, name, version] = i.path.match(captureVersion) ?? [];
     if (name == undefined) {
@@ -46,7 +46,7 @@ if (!bo.success) {
       }
     }
   }
-  const resolvedDeps: Record<string, string> = {};
+  const resolvedDeps = {};
   for (const i in dependencies) {
     const versions = dependencies[i];
     resolvedDeps[i] =
@@ -61,7 +61,7 @@ if (!bo.success) {
     JSON.stringify({ dependencies: resolvedDeps }, null, 2)
   );
 
-  function reduceIntersect(versions: string[], name: string): string {
+  function reduceIntersect(versions, name) {
     console.log(
       `multiple versions detected for ${name}: ${versions.join(", ")}`
     );

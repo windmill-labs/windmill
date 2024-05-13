@@ -32,7 +32,7 @@
 		size="sm"
 		endIcon={{ icon: Plus }}
 		on:click={() => {
-			scopes = scopes.concat('')
+			scopes = (scopes ?? []).concat('')
 		}}
 	>
 		Add item

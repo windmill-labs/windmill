@@ -11,10 +11,8 @@
 
 	export let job: Job
 	const SMALL_ICON_SIZE = 14
-	let scheduleEditor: ScheduleEditor
+	export let scheduleEditor: ScheduleEditor
 </script>
-
-<ScheduleEditor bind:this={scheduleEditor} />
 
 <div
 	class="rounded-md p-3 bg-surface-secondary shadow-sm sm:text-sm md:text-base"
@@ -88,19 +86,19 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			<div class="flex flex-row gap-2 items-center">
+			<div class="flex flex-row gap-2 items-center ml-0.5">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="text-secondary" />
 				{:else}
 					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
 				{/if}
-				<span>
+				<span class="truncate text-sm">
 					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
 				</span>
 			</div>
 		{/if}
 
-		<div class="flex flex-row gap-2 items-center">
+		<div class="flex flex-row gap-2 items-center text-sm">
 			<User size={SMALL_ICON_SIZE} class="text-secondary" />
 
 			<span>

@@ -35,11 +35,15 @@ use windmill_common::{
     error::{self, to_anyhow, Result},
     jobs::QueuedJob,
 };
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::s3_helpers::attempt_fetch_bytes;
+
 use windmill_parser::Typ;
 
-const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.ts");
+const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
 
-const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.ts");
+const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
@@ -76,7 +80,7 @@ pub async fn gen_lockfile(
     } else {
         let _ = write_file(
             &job_dir,
-            "build.ts",
+            "build.js",
             &format!(
                 r#"
 {}
@@ -100,7 +104,7 @@ pub async fn gen_lockfile(
             .current_dir(job_dir)
             .env_clear()
             .envs(common_bun_proc_envs.clone())
-            .args(vec!["run", "build.ts"])
+            .args(vec!["run", "build.js"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
@@ -370,7 +374,7 @@ try {{
 }}
 
 const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/wrapper.ts"],
+    entrypoints: ["{job_dir}/wrapper.mjs"],
     outdir: "./",
     target: "node",
     plugins: [p],
@@ -389,7 +393,7 @@ if (!bo.success) {{
     } else {
         write_file(
             &job_dir,
-            "loader.bun.ts",
+            "loader.bun.js",
             &format!(
                 r#"
 import {{ plugin }} from "bun";
@@ -450,9 +454,46 @@ pub async fn generate_wrapper_mjs(
     Ok(())
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
+    let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+    let bun_cache_path = format!("{}/{}", BUN_CACHE_DIR, path);
+    let dst = format!("{job_dir}/main.js");
+    let dirs_splitted = bun_cache_path.split("/").collect_vec();
+    tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
+    if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
+        tracing::info!("loading {bun_cache_path} from cache");
+        tokio::fs::symlink(&bun_cache_path, dst).await?;
+    } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        .read()
+        .await
+        .clone()
+    {
+        let bytes = attempt_fetch_bytes(os, &path).await?;
+        if *windmill_common::worker::CLOUD_HOSTED {
+            tokio::fs::write(dst, &bytes).await?;
+        } else {
+            tokio::fs::write(&bun_cache_path, &bytes).await?;
+            tokio::fs::symlink(bun_cache_path, dst).await?;
+        }
+
+        // extract_tar(bytes, job_dir).await?;
+    }
+
+    return Ok(());
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()> {
+    return Err(error::Error::ExecutionErr(
+        "codebase is an EE feature".to_string(),
+    ));
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
+    codebase: Option<String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &QueuedJob,
@@ -465,13 +506,20 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<Box<RawValue>> {
-    let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    if !codebase.is_some() {
+        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    } else {
+        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+    }
 
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
-    let annotation = get_annotation(inner_content);
+    let mut annotation = get_annotation(inner_content);
 
+    if codebase.is_some() {
+        annotation.nodejs_mode = true
+    }
     let main_override = get_main_override(job.args.as_ref());
 
     #[cfg(not(feature = "enterprise"))]
@@ -481,7 +529,9 @@ pub async fn handle_bun_job(
         ));
     }
 
-    if let Some(reqs) = requirements_o {
+    if let Some(codebase) = codebase.as_ref() {
+        pull_codebase(&job.workspace_id, codebase, job_dir).await?;
+    } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
             return Err(error::Error::ExecutionErr(
@@ -547,10 +597,11 @@ pub async fn handle_bun_job(
         // }
     }
 
-    let main_code = remove_pinned_imports(inner_content)?;
-    let _ = write_file(job_dir, "main.ts", &main_code).await?;
+    let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
 
-    let init_logs = if annotation.nodejs_mode {
+    let init_logs = if codebase.is_some() {
+        "\n\n--- NODE SNAPSHOT EXECUTION ---\n".to_string()
+    } else if annotation.nodejs_mode {
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
@@ -581,11 +632,17 @@ pub async fn handle_bun_job(
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let main_name = main_override.unwrap_or("main".to_string());
 
+        let main_import = if codebase.is_some() {
+            "./main.js"
+        } else {
+            "./main.ts"
+        };
+
         let wrapper_content: String = format!(
             r#"
-import {{ {main_name} }} from "./main.ts";
+import * as Main from "{main_import}";
 
-const fs = require('fs/promises');
+import * as fs from "fs/promises";
 
 const args = await fs.readFile('args.json', {{ encoding: 'utf8' }}).then(JSON.parse)
     .then(({{ {spread} }}) => [ {spread} ])
@@ -596,7 +653,7 @@ BigInt.prototype.toJSON = function () {{
 
 {dates}
 async function run() {{
-    let res: any = await {main_name}(...args);
+    let res = await Main.{main_name}(...args);
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);
@@ -614,7 +671,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
         Ok(()) as error::Result<()>
     };
 
@@ -633,15 +690,19 @@ try {{
     };
 
     let write_loader_f = async {
-        build_loader(
-            job_dir,
-            base_internal_url,
-            &client.get_token().await,
-            &job.workspace_id,
-            &job.script_path(),
-            annotation.nodejs_mode,
-        )
-        .await
+        if !codebase.is_some() {
+            build_loader(
+                job_dir,
+                base_internal_url,
+                &client.get_token().await,
+                &job.workspace_id,
+                &job.script_path(),
+                annotation.nodejs_mode,
+            )
+            .await
+        } else {
+            Ok(())
+        }
     };
 
     let (reserved_variables, _, _) = tokio::try_join!(
@@ -650,7 +711,7 @@ try {{
         write_loader_f
     )?;
 
-    if annotation.nodejs_mode {
+    if annotation.nodejs_mode && !codebase.is_some() {
         generate_wrapper_mjs(
             job_dir,
             &job.workspace_id,
@@ -705,6 +766,15 @@ try {{
                 &NODE_PATH,
                 "/tmp/nodejs/wrapper.mjs",
             ]
+        } else if codebase.is_some() {
+            vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                &BUN_PATH,
+                "run",
+                "/tmp/bun/wrapper.mjs",
+            ]
         } else {
             vec![
                 "--config",
@@ -715,8 +785,8 @@ try {{
                 "-i",
                 "--prefer-offline",
                 "-r",
-                "/tmp/bun/loader.bun.ts",
-                "/tmp/bun/wrapper.ts",
+                "/tmp/bun/loader.bun.js",
+                "/tmp/bun/wrapper.mjs",
             ]
         };
         nsjail_cmd
@@ -746,23 +816,28 @@ try {{
                 .stderr(Stdio::piped());
             bun_cmd
         } else {
-            let script_path = format!("{job_dir}/wrapper.ts");
+            let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*BUN_PATH);
+            let args = if codebase.is_some() {
+                vec!["run", &script_path]
+            } else {
+                vec![
+                    "run",
+                    "-i",
+                    "--prefer-offline",
+                    "-r",
+                    "./loader.bun.js",
+                    &script_path,
+                ]
+            };
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
-                .args(vec![
-                    "run",
-                    "-i",
-                    "--prefer-offline",
-                    "-r",
-                    "./loader.bun.ts",
-                    &script_path,
-                ])
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
             bun_cmd
@@ -824,6 +899,7 @@ use std::sync::Arc;
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<String>,
+    codebase: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     inner_content: &str,
     base_internal_url: &str,
@@ -840,7 +916,13 @@ pub async fn start_worker(
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
-    let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
+    if !codebase.is_some() {
+        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    } else {
+        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+    }
+
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
@@ -867,8 +949,10 @@ pub async fn start_worker(
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
-    let annotation = get_annotation(inner_content);
-    if let Some(reqs) = requirements_o {
+
+    if let Some(codebase) = codebase.as_ref() {
+        pull_codebase(w_id, codebase, job_dir).await?;
+    } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
         if splitted.len() != 2 {
             return Err(error::Error::ExecutionErr(
@@ -959,10 +1043,15 @@ pub async fn start_worker(
             ""
         };
 
+        let main_import = if codebase.is_some() {
+            "./main.js"
+        } else {
+            "./main.ts"
+        };
         let wrapper_content: String = format!(
             r#"
-import {{ main }} from "./main.ts";
-import {{ createInterface }} from "node:readline"
+import * as Main from "{main_import}";
+import * as Readline from "node:readline"
 
 BigInt.prototype.toJSON = function () {{
     return this.toString();
@@ -972,7 +1061,7 @@ BigInt.prototype.toJSON = function () {{
 
 console.log('start'); 
 
-for await (const line of createInterface({{ input: process.stdin }})) {{
+for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
 
     if (line === "end") {{
@@ -980,7 +1069,7 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
     }}
     try {{
         let {{ {spread} }} = JSON.parse(line) 
-        let res: any = await main(...[ {spread} ]);
+        let res = await Main.main(...[ {spread} ]);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
         console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
@@ -988,20 +1077,22 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
 }}
 "#,
         );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
     }
 
-    build_loader(
-        job_dir,
-        base_internal_url,
-        token,
-        w_id,
-        script_path,
-        annotation.nodejs_mode,
-    )
-    .await?;
+    if !codebase.is_some() {
+        build_loader(
+            job_dir,
+            base_internal_url,
+            token,
+            w_id,
+            script_path,
+            annotation.nodejs_mode,
+        )
+        .await?;
+    }
 
-    if annotation.nodejs_mode {
+    if annotation.nodejs_mode && !codebase.is_some() {
         generate_wrapper_mjs(
             job_dir,
             w_id,
@@ -1050,8 +1141,8 @@ for await (const line of createInterface({{ input: process.stdin }})) {{
                 "-i",
                 "--prefer-offline",
                 "-r",
-                "./loader.bun.ts",
-                &format!("{job_dir}/wrapper.ts"),
+                "./loader.bun.js",
+                &format!("{job_dir}/wrapper.mjs"),
             ],
             killpill_rx,
             job_completed_tx,

@@ -12,6 +12,7 @@ use serde_json::value::RawValue;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
+use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
@@ -19,6 +20,10 @@ use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
     ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::worker::TMP_DIR;
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
 use crate::db::ApiAuthed;
@@ -163,6 +168,7 @@ pub fn workspaced_service() -> Router {
                 .layer(cors.clone()),
         )
         .route("/run/preview", post(run_preview_script))
+        .route("/run/preview_bundle", post(run_bundle_preview_script))
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route(
@@ -660,17 +666,17 @@ async fn get_job_internal(
 async fn get_logs_from_store(
     log_offset: i32,
     logs: &str,
-    log_file_index: Option<Vec<String>>,
+    log_file_index: &Option<Vec<String>>,
 ) -> Option<error::Result<Body>> {
     if log_offset > 0 {
-        if let Some(file_index) = log_file_index {
+        if let Some(file_index) = log_file_index.clone() {
             tracing::debug!("Getting logs from store: {file_index:?}");
             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
                 tracing::debug!("object store client present, streaming from there");
 
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
-                    for file_p in file_index {
+                    for file_p in file_index.clone() {
                         let file_p_2 = file_p.clone();
                         let file = os.get(&object_store::path::Path::from(file_p)).await;
                         if let Ok(file) = file {
@@ -692,6 +698,40 @@ async fn get_logs_from_store(
     }
     return None;
 }
+
+async fn get_logs_from_disk(
+    log_offset: i32,
+    logs: &str,
+    log_file_index: &Option<Vec<String>>,
+) -> Option<error::Result<Body>> {
+    if log_offset > 0 {
+        if let Some(file_index) = log_file_index.clone() {
+            for file_p in &file_index {
+                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
+                    .await
+                    .is_ok()
+                {
+                    return None;
+                }
+            }
+
+            let logs = logs.to_string();
+            let stream = async_stream::stream! {
+                for file_p in file_index.clone() {
+                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
+                    let mut buffer = Vec::new();
+                    file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
+                    yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
+                }
+
+                yield Ok(bytes::Bytes::from(logs))
+            };
+            return Some(Ok(Body::from_stream(stream)));
+        }
+    }
+    return None;
+}
+
 async fn get_job_logs(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
@@ -710,7 +750,11 @@ async fn get_job_logs(
     if let Some(record) = record {
         let logs = record.logs.unwrap_or_default();
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(record.log_offset, &logs, record.log_file_index).await
+        if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
+        {
+            return r;
+        }
+        if let Some(r) = get_logs_from_disk(record.log_offset, &logs, &record.log_file_index).await
         {
             return r;
         }
@@ -730,7 +774,10 @@ async fn get_job_logs(
 
         let logs = text.logs.unwrap_or_default();
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(r) = get_logs_from_store(text.log_offset, &logs, text.log_file_index).await {
+        if let Some(r) = get_logs_from_store(text.log_offset, &logs, &text.log_file_index).await {
+            return r;
+        }
+        if let Some(r) = get_logs_from_disk(text.log_offset, &logs, &text.log_file_index).await {
             return r;
         }
         Ok(Body::from(logs))
@@ -2077,7 +2124,9 @@ enum PreviewKind {
     Identity,
     Http,
     Noop,
+    Bundle,
 }
+
 #[derive(Deserialize)]
 struct Preview {
     content: Option<String>,
@@ -2420,6 +2469,7 @@ pub async fn run_workflow_as_code(
     let (job_payload, tag, _delete_after_use, timeout) = match job.job_kind {
         JobKind::Preview => (
             JobPayload::Code(RawCode {
+                hash: None,
                 content: job.raw_code.unwrap_or_default(),
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
@@ -2521,7 +2571,7 @@ async fn run_wait_result(
     w_id: String,
     node_id_for_empty_return: Option<String>,
 ) -> error::Result<Response> {
-    let mut result;
+    let mut result = None;
     let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
     let timeout_ms = if timeout <= 0 {
         2000
@@ -2545,7 +2595,9 @@ async fn run_wait_result(
             )
             .await
             .ok();
-        } else {
+        }
+
+        if result.is_none() {
             let row = sqlx::query(
                 "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
             )
@@ -2563,8 +2615,6 @@ async fn run_wait_result(
                     FormattedResult::RawValue(rv) => rv,
                     FormattedResult::Vec(v) => Some(to_raw_value(&v)),
                 };
-            } else {
-                result = None;
             }
         }
 
@@ -3083,6 +3133,7 @@ async fn run_preview_script(
             Some(PreviewKind::Identity) => JobPayload::Identity,
             Some(PreviewKind::Noop) => JobPayload::Noop,
             _ => JobPayload::Code(RawCode {
+                hash: None,
                 content: preview.content.unwrap_or_default(),
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
@@ -3115,6 +3166,136 @@ async fn run_preview_script(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+async fn run_bundle_preview_script(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path(w_id): Path<String>,
+    Query(run_query): Query<RunJobQuery>,
+    mut multipart: axum::extract::Multipart,
+) -> error::Result<(StatusCode, String)> {
+    check_license_key_valid().await?;
+
+    check_scopes(&authed, || format!("runscript"))?;
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
+
+    let mut job_id = None;
+    let mut tx = None;
+    let mut uploaded = false;
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let name = field.name().unwrap().to_string();
+        let data = field.bytes().await.unwrap();
+        if name == "preview" {
+            let preview: Preview = serde_json::from_slice(&data).map_err(to_anyhow)?;
+
+            let scheduled_for = run_query.get_scheduled_for(&db).await?;
+            let tag = run_query.tag.clone().or(preview.tag.clone());
+            check_tag_available_for_workspace(&w_id, &tag).await?;
+            let ltx =
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq.clone());
+
+            let args = preview.args.unwrap_or_default();
+
+            // hmap.insert("")
+            let (uuid, ntx) = push(
+                &db,
+                ltx,
+                &w_id,
+                match preview.kind {
+                    Some(PreviewKind::Identity) => JobPayload::Identity,
+                    Some(PreviewKind::Noop) => JobPayload::Noop,
+                    _ => JobPayload::Code(RawCode {
+                        hash: Some(PREVIEW_IS_CODEBASE_HASH),
+                        content: preview.content.unwrap_or_default(),
+                        path: preview.path,
+                        language: preview.language.unwrap_or(ScriptLang::Deno),
+                        lock: preview.lock,
+                        concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
+                        concurrency_time_window_s: None, // TODO(gbouv): same as above
+                        cache_ttl: None,
+                        dedicated_worker: preview.dedicated_worker,
+                    }),
+                },
+                args,
+                authed.display_username(),
+                &authed.email,
+                username_to_permissioned_as(&authed.username),
+                scheduled_for,
+                None,
+                None,
+                None,
+                run_query.job_id,
+                false,
+                false,
+                None,
+                true,
+                tag,
+                run_query.timeout,
+                None,
+                None,
+            )
+            .await?;
+            job_id = Some(uuid);
+            tx = Some(ntx);
+        }
+        if name == "file" {
+            let id = job_id
+                .as_ref()
+                .ok_or_else(|| {
+                    Error::BadRequest(
+                        "script need to be passed first in the multipart upload".to_string(),
+                    )
+                })?
+                .to_string();
+
+            uploaded = true;
+
+            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+                .read()
+                .await
+                .clone()
+            {
+                let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+                if let Err(e) = os
+                    .put(&object_store::path::Path::from(path.clone()), data)
+                    .await
+                {
+                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                    return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
+                }
+            } else {
+                return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+            }
+        }
+        // println!("Length of `{}` is {} bytes", name, data.len());
+    }
+    if !uploaded {
+        return Err(Error::BadRequest("No file uploaded".to_string()));
+    }
+    if job_id.is_none() {
+        return Err(Error::BadRequest(
+            "No script found in the uploaded file".to_string(),
+        ));
+    }
+
+    tx.unwrap().commit().await?;
+
+    Ok((StatusCode::CREATED, job_id.unwrap().to_string()))
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+async fn run_bundle_preview_script() -> error::Result<(StatusCode, String)> {
+    return Err(Error::BadRequest(
+        "bundle preview is an ee feature".to_string(),
+    ));
 }
 
 #[derive(Deserialize)]
@@ -3511,45 +3692,20 @@ pub struct JobUpdate {
     pub flow_status: Option<serde_json::Value>,
 }
 
-// #[cfg(all(feature = "enterprise", feature = "parquet"))]
-// async fn get_logs_from_store(
-//     log_offset: i32,
-//     logs: &str,
-//     log_file_index: Option<Vec<String>>,
-// ) -> Option<error::Result<Body>> {
-//     if log_offset > 0 {
-//         if let Some(file_index) = log_file_index {
-//             tracing::debug!("Getting logs from store: {file_index:?}");
-//             if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-//                 tracing::debug!("object store client present, streaming from there");
-
-//                 let logs = logs.to_string();
-//                 let stream = async_stream::stream! {
-//                     for file_p in file_index {
-//                         let file_p_2 = file_p.clone();
-//                         let file = os.get(&object_store::path::Path::from(file_p)).await;
-//                         if let Ok(file) = file {
-//                             if let Ok(bytes) = file.bytes().await {
-//                                 yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-//                             }
-//                         } else {
-//                             tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-//                         }
-//                     }
-
-//                     yield Ok(bytes::Bytes::from(logs))
-//                 };
-//                 return Some(Ok(Body::from_stream(stream)));
-//             } else {
-//                 tracing::debug!("object store client not present, cannot stream logs from store");
-//             }
-//         }
-//     }
-//     return None;
-// }
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+    let local_file = format!("{TMP_DIR}/logs/{file_p}");
+    if tokio::fs::metadata(&local_file).await.is_ok() {
+        let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
+        let res = Response::builder()
+            .header(http::header::CONTENT_TYPE, "text/plain")
+            .body(Body::from(bytes::Bytes::from(buffer)))
+            .unwrap();
+        return Ok(res);
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
         let file = os
             .get(&object_store::path::Path::from(format!("logs/{file_p}")))
@@ -3579,12 +3735,9 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
             "Object store client not present, cannot stream logs from store".to_string(),
         ));
     }
-}
 
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
     return Err(error::Error::NotFound(format!(
-        "Get log file is an EE feature: {}",
+        "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
         file_p
     )));
 }

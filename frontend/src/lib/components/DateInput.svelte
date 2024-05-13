@@ -5,6 +5,7 @@
 	export let autofocus: boolean | null = false
 	export let minDate: string | undefined = undefined
 	export let maxDate: string | undefined = undefined
+	export let dateFormat: string | undefined = 'dd-MM-yyyy'
 
 	let date: string | undefined = undefined
 

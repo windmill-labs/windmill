@@ -2051,6 +2051,7 @@ This is a paragraph.
 		},
 		initialData: {
 			componentInput: undefined,
+			verticalAlignment: 'center',
 			configuration: {
 				items: {
 					type: 'static',
@@ -2248,6 +2249,12 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				axisStep: {
+					type: 'static',
+					value: 10,
+					fieldType: 'number',
+					tooltip: 'Spread between each number suggestion when using the arrow keys'
 				}
 			}
 		}
@@ -2353,9 +2360,14 @@ This is a paragraph.
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-
 					tooltip:
 						'Determine if the slider is disabled, or enabled (only disables interactions, and events)'
+				},
+				axisStep: {
+					type: 'static',
+					value: 10,
+					fieldType: 'number',
+					tooltip: 'Spread between each number suggestion when using the arrow keys'
 				}
 			}
 		}

@@ -72,49 +72,9 @@ pub async fn build_tar_and_push(
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn attempt_fetch_bytes(
-    client: Arc<dyn ObjectStore>,
-    path: &str,
-) -> error::Result<bytes::Bytes> {
-    use object_store::path::Path;
-
-    let object = client.get(&Path::from(path.clone())).await;
-    if let Err(e) = object {
-        tracing::info!(
-            "Failed to pull bytes from object store at path {path}. Error: {:?}",
-            e
-        );
-        return Err(error::Error::ExecutionErr(format!(
-            "Failed to pull bytes from object store: {path}"
-        )));
-    }
-
-    let bytes = object.unwrap().bytes().await;
-    if bytes.is_err() {
-        tracing::info!(
-            "Failed to read bytes from object store: {path}. Error: {:?}",
-            bytes.err()
-        );
-        return Err(error::Error::ExecutionErr(format!(
-            "Failed to read bytes from object store: {path}"
-        )));
-    }
-    let bytes = bytes.unwrap();
-
-    tracing::info!("{path} len: {}", bytes.len());
-
-    if bytes.len() == 0 {
-        tracing::info!("object {path} not found in bucket, bytes empty",);
-        return Err(error::Error::ExecutionErr(format!(
-            "object {path} does not exist in bucket"
-        )));
-    }
-
-    return Ok(bytes);
-}
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> error::Result<()> {
+    use windmill_common::s3_helpers::attempt_fetch_bytes;
+
     let folder_name = folder.split("/").last().unwrap();
 
     tracing::info!("Attempting to pull piptar {folder_name} from bucket");
@@ -125,7 +85,7 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
 
     // tracing::info!("B: {target} {folder}");
 
-    extract_pip_tar(bytes, &folder).await.map_err(|e| {
+    extract_tar(bytes, &folder).await.map_err(|e| {
         tracing::error!("Failed to extract piptar {folder_name}. Error: {:?}", e);
         e
     })?;
@@ -139,7 +99,7 @@ pub async fn pull_from_tar(client: Arc<dyn ObjectStore>, folder: String) -> erro
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn extract_pip_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
+pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use bytes::Buf;
     use tokio::fs::{self};
 
@@ -149,14 +109,14 @@ pub async fn extract_pip_tar(tar: bytes::Bytes, folder: &str) -> error::Result<(
     let mut ar = tar::Archive::new(tar.reader());
 
     if let Err(e) = ar.unpack(folder) {
-        tracing::info!("Failed to untar piptar. Error: {:?}", e);
+        tracing::info!("Failed to untar to {folder}. Error: {:?}", e);
         fs::remove_dir_all(&folder).await?;
         return Err(error::Error::ExecutionErr(format!(
             "Failed to untar piptar {folder}"
         )));
     }
     tracing::info!(
-        "Finished extracting pip tar {folder}. Took {}ms",
+        "Finished extracting tar to {folder}. Took {}ms",
         start.elapsed().as_millis(),
     );
     Ok(())

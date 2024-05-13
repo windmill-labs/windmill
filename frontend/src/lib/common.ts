@@ -39,6 +39,7 @@ export interface SchemaProperty {
 	showExpr?: string
 	password?: boolean
 	order?: string[]
+	dateFormat?: string
 }
 
 export interface ModalSchemaProperty {
@@ -61,6 +62,7 @@ export interface ModalSchemaProperty {
 	customErrorMessage?: string
 	showExpr?: string
 	password?: boolean
+	dateFormat?: string
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -82,7 +84,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		currencyLocale: schema.currencyLocale,
 		multiselect: schema.multiselect,
 		showExpr: schema.showExpr,
-		password: schema.password
+		password: schema.password,
+		dateFormat: schema.dateFormat
 	}
 }
 export type Schema = {

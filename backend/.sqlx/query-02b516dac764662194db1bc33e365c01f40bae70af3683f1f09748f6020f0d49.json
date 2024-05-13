@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tag, count(*) as count FROM queue WHERE\n        scheduled_for <= now() - ('3 seconds')::interval AND running = false\n        GROUP BY tag",
+  "query": "SELECT tag, count(*) as count FROM queue WHERE\n                scheduled_for <= now() - ('3 seconds')::interval AND running = false\n                GROUP BY tag",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       null
     ]
   },
-  "hash": "3e0e5e0076ae0f7771abd64f8c5bb7e003e3f85351c946a012037e0c874acf1a"
+  "hash": "02b516dac764662194db1bc33e365c01f40bae70af3683f1f09748f6020f0d49"
 }

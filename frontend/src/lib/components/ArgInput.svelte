@@ -91,6 +91,8 @@
 
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
+	$: console.log(type, format, itemsType?.type, enum_, contentEncoding, inputCat)
+
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let rawValue: string | undefined = undefined
 
@@ -291,6 +293,7 @@
 									bind:minRows={extra['minRows']}
 									bind:disableCreate={extra['disableCreate']}
 									bind:disableVariablePicker={extra['disableVariablePicker']}
+									bind:dateFormat={extra['dateFormat']}
 								/>
 							{:else if type == 'number' || type == 'integer'}
 								<NumberTypeNarrowing
@@ -552,6 +555,7 @@
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<SchemaForm
+							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
 							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
@@ -601,7 +605,7 @@
 				</div>
 			{:else if inputCat == 'date'}
 				{#if format === 'date'}
-					<DateInput {autofocus} bind:value />
+					<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
 				{:else}
 					<DateTimeInput useDropdown {autofocus} bind:value />
 				{/if}
