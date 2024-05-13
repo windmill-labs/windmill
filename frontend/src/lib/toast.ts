@@ -22,7 +22,9 @@ export function sendUserToast(
 			actions,
 			errorMessage,
 			duration,
-			onClose
+			onClose,
+			unstyled: true,
+			classes: error ? 'bg-red-50' : 'bg-green-500'
 		}
 	}
 

@@ -36,4 +36,14 @@
 	.wrap :global(strong) {
 		font-weight: 600;
 	}
+
+	:global([data-sonner-toaster][data-theme='dark']) {
+		--info-bg: #eaeef4 !important;
+		--info-border: #3b82f6 !important;
+		--info-text: #3b82f6 !important;
+
+		--error-bg: #fef2f2 !important;
+		--error-border: #ef4444 !important;
+		--error-text: #ef4444 !important;
+	}
 </style>

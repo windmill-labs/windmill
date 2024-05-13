@@ -18,7 +18,8 @@
 
 <div class="w-full flex flex-col gap-2">
 	<div>
-		<p class="text-xs font-semibold text-secondary break-words">{message}</p>
+		<p class="text-xs font-semibold text-primary dark:text-primary-inverse break-words">{message}</p
+		>
 		{#if errorMessage}
 			<p
 				class=" w-full text-secondary border border-red-200 rounded-md text-xs bg-red-100 p-2 overflow-auto mt-2"
