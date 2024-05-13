@@ -3447,14 +3447,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     };
 
     if concurrent_limit.is_some() {
-        let path = script_path
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or("tmp/main");
-        let is_flow = matches!(
-            job_kind,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow
-        );
         let concurrency_key = custom_concurrency_key
             .map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args))
             .unwrap_or(fullpath_with_workspace(workspace_id, script_path.as_ref(), &job_kind));

@@ -7974,7 +7974,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ConcurrencyGroup"
-  /concurrency_groups/{concurrency_id}:
+  /concurrency_groups/prune/{concurrency_id}:
     delete:
       summary: Delete concurrency group
       operationId: deleteConcurrencyGroup
@@ -8016,7 +8016,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ConcurrencyGroup"
-  /w/{workspace}/concurrency_groups/job_concurrency_key/{id}:
+  /concurrency_groups/{id}/key:
     get:
       summary: Get the concurrency key for a job that has concurrency limits enabled
       operationId: getConcurrencyKey

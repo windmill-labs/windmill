@@ -12,10 +12,12 @@ use axum::Router;
 
 #[cfg(feature = "enterprise")]
 use serde::Serialize;
+use sqlx::Postgres;
 #[cfg(feature = "enterprise")]
 use std::collections::HashMap;
 #[cfg(feature = "enterprise")]
 use uuid::Uuid;
+use windmill_common::db::UserDB;
 #[cfg(feature = "enterprise")]
 use windmill_common::error::Error::{InternalErr, PermissionDenied};
 #[cfg(feature = "enterprise")]
@@ -25,8 +27,9 @@ use windmill_common::error::JsonResult;
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
-        .route("/*id", delete(delete_concurrency_group))
+        .route("/prune/id", delete(prune_concurrency_group))
         .route("/keys", post(get_concurrency_keys_for_jobs))
+        .route("/:job_id/key", get(get_concurrency_key))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -35,9 +38,7 @@ pub fn global_service() -> Router {
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new()
-        .route("/intervals", get(get_concurrent_intervals))
-        .route("/job_concurrency_key/:job_id", get(get_concurrency_key))
+    Router::new().route("/intervals", get(get_concurrent_intervals))
 }
 
 #[cfg(feature = "enterprise")]
@@ -113,7 +114,7 @@ async fn list_concurrency_groups(
 }
 
 #[cfg(feature = "enterprise")]
-async fn delete_concurrency_group(
+async fn prune_concurrency_group(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(concurrency_key): Path<String>,
@@ -168,13 +169,17 @@ struct ConcurrencyIntervals {
 
 #[derive(Serialize)]
 struct CompletedJobDuration {
+    job_id: Option<Uuid>,
+    concurrency_key: Option<String>,
     started_at: chrono::DateTime<chrono::Utc>,
     ended_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Serialize)]
 struct RunningJobDuration {
-    started_at: chrono::DateTime<chrono::Utc>,
+    job_id: Option<Uuid>,
+    concurrency_key: Option<String>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -183,16 +188,13 @@ struct ConcurrentIntervalsParams {
     row_limit: Option<i64>,
 }
 
-async fn get_concurrent_intervals(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Query(iq): Query<ConcurrentIntervalsParams>,
-) -> JsonResult<ConcurrencyIntervals> {
-    let row_limit = iq.row_limit.unwrap_or(1000);
-    let concurrency_key = iq.concurrency_key;
-
-    let running_jobs = match &concurrency_key {
+async fn query_job_intervals<'c>(
+    concurrency_key: Option<&String>,
+    w_id: &String,
+    row_limit: i64,
+    mut tx: sqlx::Transaction<'c, Postgres>,
+) -> Result<(Vec<RunningJobDuration>, Vec<CompletedJobDuration>), sqlx::Error> {
+    let running_jobs = match concurrency_key {
         Some(key) => {
             sqlx::query!(
                 "SELECT id, started_at FROM queue
@@ -211,26 +213,30 @@ async fn get_concurrent_intervals(
                 w_id,
                 row_limit,
             )
-            .fetch_all(&db)
+            .fetch_all(&mut *tx)
             .await?
             .iter()
-            .map(|row| RunningJobDuration { started_at: row.started_at.unwrap() })
+            .map(|row| RunningJobDuration { job_id: Some(row.id),
+                                            concurrency_key: Some(key.clone()),
+                                            started_at: row.started_at })
             .collect()
         }
 
         None => sqlx::query!(
-            "SELECT started_at FROM queue WHERE started_at IS NOT NULL AND workspace_id = $1 AND script_path IS NOT NULL ORDER BY started_at DESC LIMIT $2",
+            "SELECT id, started_at, key as \"key?\" FROM queue LEFT JOIN concurrency_key ON job_id = id WHERE workspace_id = $1 AND script_path IS NOT NULL ORDER BY started_at DESC LIMIT $2",
             w_id,
             row_limit,
         )
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?
-        .iter()
-        .map(|row| RunningJobDuration { started_at: row.started_at.unwrap() })
+        .into_iter()
+        .map(|row| RunningJobDuration { job_id: Some(row.id),
+                                        concurrency_key: row.key,
+                                        started_at: row.started_at })
         .collect(),
     };
 
-    let completed_jobs = match &concurrency_key {
+    let completed_jobs = match concurrency_key {
         Some(key) => {
             sqlx::query!(
                 "SELECT job_id, ended_at, started_at FROM concurrency_key JOIN completed_job ON concurrency_key.job_id = completed_job.id
@@ -239,25 +245,80 @@ async fn get_concurrent_intervals(
                 key,
                 row_limit,
             )
-            .fetch_all(&db)
+            .fetch_all(&mut *tx)
             .await?
             .iter()
-            .map(|row| CompletedJobDuration{started_at: row.started_at, ended_at: row.ended_at.unwrap()})
+            .map(|row| CompletedJobDuration{ job_id: Some(row.job_id),
+                                                concurrency_key: Some(key.clone()),
+                                                started_at: row.started_at,
+                                                ended_at: row.ended_at.unwrap() })
             .collect()
         }
         None => {
             sqlx::query!(
-                "SELECT started_at, duration_ms FROM completed_job WHERE workspace_id = $1 ORDER BY started_at DESC LIMIT $2",
+                "SELECT id, started_at, duration_ms, key as \"key?\" FROM completed_job LEFT JOIN concurrency_key ON job_id = id WHERE workspace_id = $1 ORDER BY started_at DESC LIMIT $2",
                 w_id,
                 row_limit,
             )
-            .fetch_all(&db)
+            .fetch_all(&mut *tx)
             .await?
-            .iter()
-            .map(|row| CompletedJobDuration{started_at: row.started_at, ended_at: row.started_at + std::time::Duration::from_millis(row.duration_ms.try_into().unwrap()) })
+            .into_iter()
+            .map(|row| CompletedJobDuration{ job_id: Some(row.id),
+                                                concurrency_key: row.key,
+                                                started_at: row.started_at,
+                                                ended_at: row.started_at + std::time::Duration::from_millis(row.duration_ms.try_into().unwrap()) })
             .collect()
         }
     };
+
+    tx.commit().await?;
+
+    Ok((running_jobs, completed_jobs))
+}
+
+async fn get_concurrent_intervals(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(iq): Query<ConcurrentIntervalsParams>,
+) -> JsonResult<ConcurrencyIntervals> {
+    let row_limit = iq.row_limit.unwrap_or(1000);
+    let concurrency_key = iq.concurrency_key;
+
+    let db_tx = db.begin().await?;
+    let (running_jobs_db, completed_jobs_db) =
+        query_job_intervals(concurrency_key.as_ref(), &w_id, row_limit, db_tx).await?;
+    let user_tx = user_db.begin(&authed).await?;
+    let (running_jobs_user, completed_jobs_user) =
+        query_job_intervals(concurrency_key.as_ref(), &w_id, row_limit, user_tx).await?;
+
+    let running_jobs = running_jobs_db
+        .into_iter()
+        .map(|r| {
+            if running_jobs_user
+                .iter()
+                .any(|u| u.job_id.unwrap() == r.job_id.unwrap())
+            {
+                RunningJobDuration { ..r }
+            } else {
+                RunningJobDuration { job_id: None, ..r }
+            }
+        })
+        .collect();
+    let completed_jobs = completed_jobs_db
+        .into_iter()
+        .map(|r| {
+            if completed_jobs_user
+                .iter()
+                .any(|u| u.job_id.unwrap() == r.job_id.unwrap())
+            {
+                CompletedJobDuration { ..r }
+            } else {
+                CompletedJobDuration { job_id: None, ..r }
+            }
+        })
+        .collect();
 
     Ok(Json(ConcurrencyIntervals {
         concurrency_key,
@@ -267,18 +328,20 @@ async fn get_concurrent_intervals(
 }
 
 async fn get_concurrency_key(
-    authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Path(job_id): Path<Uuid>,
 ) -> JsonResult<Option<String>> {
-    let job = crate::jobs::get_job_internal(&db, &w_id, job_id, true).await?;
-
-    Ok(Json(job.concurrency_key(&db).await?))
+    let key = sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
+        .fetch_optional(&db)
+        .await?;
+    Ok(Json(key))
 }
+
 #[derive(Serialize)]
 struct ConcurrencyKeysByJob {
     keys_by_job: HashMap<Uuid, String>,
 }
+
 async fn get_concurrency_keys_for_jobs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
