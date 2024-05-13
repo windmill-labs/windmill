@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
+	import { format, isValid } from 'date-fns'
 
 	export let value: string | undefined = undefined
 	export let autofocus: boolean | null = false
@@ -9,32 +10,31 @@
 
 	let date: string | undefined = undefined
 
-	function parseValue(value: string | undefined = undefined) {
-		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
-		date = isValidDate(dateFromValue)
-			? `${dateFromValue!.getFullYear().toString()}-${(dateFromValue!.getMonth() + 1)
-					.toString()
-					.padStart(2, '0')}-${dateFromValue!.getDate().toString().padStart(2, '0')}`
-			: undefined
-	}
-
-	$: parseValue(value)
-
-	function isValidDate(d: Date | undefined): boolean {
-		return d instanceof Date && !isNaN(d as any)
-	}
-
 	const dispatch = createEventDispatcher()
 
-	function setDate(newDate: string | undefined) {
-		if (newDate && isValidDate(new Date(newDate))) {
-			let parsedDate = new Date(newDate)
-			value = parsedDate.toISOString()
-			dispatch('change', value)
+	function updateValue(newDate: string | undefined) {
+		if (newDate && isValid(new Date(newDate))) {
+			if (dateFormat === undefined) {
+				dateFormat = 'dd-MM-yyyy'
+			}
+
+			try {
+				let dateFromValue: Date | undefined = newDate ? new Date(newDate) : undefined
+
+				if (dateFromValue === undefined) {
+					return
+				}
+
+				const parsedDate = format(dateFromValue, dateFormat)
+				value = parsedDate
+
+				dispatch('change', value)
+			} catch (error) {
+				console.error('Failed to parse date:', error)
+				return
+			}
 		}
 	}
-
-	$: setDate(date)
 
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
@@ -47,5 +47,10 @@
 		class="!w-full app-editor-input"
 		min={minDate}
 		max={maxDate}
+		on:change={() => {
+			if (date) {
+				updateValue(date)
+			}
+		}}
 	/>
 </div>

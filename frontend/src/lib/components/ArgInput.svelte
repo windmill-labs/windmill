@@ -91,8 +91,6 @@
 
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
-	$: console.log(type, format, itemsType?.type, enum_, contentEncoding, inputCat)
-
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let rawValue: string | undefined = undefined
 

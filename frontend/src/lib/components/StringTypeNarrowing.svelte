@@ -5,6 +5,7 @@
 	import Toggle from './Toggle.svelte'
 	import { Button } from './common'
 	import Alert from './common/alert/Alert.svelte'
+	import ClearableInput from './common/clearableInput/ClearableInput.svelte'
 	import RegexGen from './copilot/RegexGen.svelte'
 
 	export let pattern: string | undefined
@@ -80,6 +81,11 @@
 		}
 		return 'none'
 	}
+	const presetOptions = [
+		{ label: 'ISO Format', format: 'yyyy-MM-dd' },
+		{ label: 'US Format', format: 'MM/dd/yyyy' },
+		{ label: 'EU Format', format: 'dd/MM/yyyy' }
+	]
 </script>
 
 <RadioButton
@@ -206,9 +212,22 @@
 
 	{#if format == 'date'}
 		<div class="mt-1" />
-		<Label label="Date format">
-			<input type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
-		</Label>
+
+		<div class="grid grid-cols-3 gap-2">
+			<Label label="Date format" class="col-span-2">
+				<ClearableInput type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
+			</Label>
+			<Label label="Presets">
+				<select
+					bind:value={dateFormat}
+					disabled={dateFormat ? !presetOptions.map((f) => f.format).includes(dateFormat) : false}
+				>
+					{#each presetOptions as f}
+						<option value={f.format}>{f.label}</option>
+					{/each}
+				</select>
+			</Label>
+		</div>
 	{/if}
 {:else if kind == 'none'}
 	{#if !noExtra}
