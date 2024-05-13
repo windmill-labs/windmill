@@ -21,7 +21,6 @@
 	let containsLabel = false
 	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
 		const groupedLogs: Record<string, Job[]> = {}
-		console.log(jobs)
 
 		if (!jobs) return groupedLogs
 
@@ -64,7 +63,6 @@
 			.forEach((key) => {
 				sortedLogs[key] = groupedLogs[key]
 			})
-		console.log(sortedLogs)
 
 		return sortedLogs
 	}

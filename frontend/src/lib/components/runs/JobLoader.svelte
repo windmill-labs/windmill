@@ -277,7 +277,6 @@
 	}
 
 	function updateConcurrencyKeyMap() {
-		console.log(concurrencyIntervals)
 		for (const vec of [concurrencyIntervals?.running_jobs, concurrencyIntervals?.completed_jobs]) {
 			if (vec == undefined) continue
 			for (const interval of vec) {
@@ -326,17 +325,19 @@
 						permissioned_as: '-',
 						tag: '-',
 						job_kind: 'flow',
-						duration_ms: x.ended_at && x.started_at ? ((new Date(x.ended_at)).getTime() - (new Date(x.started_at).getTime())): 0
+						duration_ms:
+							x.ended_at && x.started_at
+								? new Date(x.ended_at).getTime() - new Date(x.started_at).getTime()
+								: 0
 					} as Job)
 			)
 		let ret: Job[] = []
 		if (externalQueued) {
-		ret=	ret.concat(externalQueued)
+			ret = ret.concat(externalQueued)
 		}
 		if (externalCompleted) {
-	ret = 		ret.concat(externalCompleted)
+			ret = ret.concat(externalCompleted)
 		}
-		console.log(externalCompleted)
 		externalJobs = ret
 	}
 

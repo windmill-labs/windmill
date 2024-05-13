@@ -100,6 +100,11 @@
 	let jobLoader: JobLoader | undefined = undefined
 	let externalJobs: Job[] | undefined;
 
+	let graphIsRunsChart: boolean = true
+	let graph: 'RunChart' | 'ConcurrencyChart'
+
+	$: graph  = graphIsRunsChart ? 'RunChart' : 'ConcurrencyChart'
+
 	let manualDatePicker: ManuelDatePicker
 
 	$: (user ||
@@ -369,6 +374,7 @@
 	<div class="w-full h-screen">
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
+				<div class="flex-col">
 				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
 					<h1
 						class={twMerge(
@@ -385,6 +391,12 @@
 						All past and schedule executions of scripts and flows, including previews. You only see
 						your own runs or runs of groups you belong to unless you are an admin.
 					</Tooltip>
+				</div>
+					<Toggle
+						size={'xs'}
+						bind:checked={graphIsRunsChart}
+						options={{ right: 'Run Durations', left: "Concurrency"}}
+					/>
 				</div>
 				<RunsFilter
 					bind:isSkipped
@@ -409,7 +421,7 @@
 		</div>
 
 		<div class="p-2 w-full">
-			{#if false}
+			{#if graph === 'RunChart'}
 				<RunChart
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
@@ -421,7 +433,7 @@
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
-			{:else}
+			{:else if graph === 'ConcurrencyChart'}
 				<ConcurrentJobsChart
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
@@ -546,6 +558,7 @@
 						<RunsTable
 							{jobs}
 							{externalJobs}
+							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
 							bind:selectedId
 							bind:selectedWorkspace
@@ -613,19 +626,33 @@
 					on:change={reloadJobsWithoutFilterError}
 				/>
 			</div>
-		</div>RunChart
+		</div>
 		<div class="p-2 w-full">
-			<RunChart
-				minTimeSet={minTs}
-				maxTimeSet={maxTs}
-				maxIsNow={maxTs == undefined}
-				jobs={completedJobs}
-				on:zoom={async (e) => {
-					minTs = e.detail.min.toISOString()
-					maxTs = e.detail.max.toISOString()
-					jobLoader?.loadJobs(minTs, maxTs, true)
-				}}
-			/>
+			{#if graph === 'RunChart'}
+				<RunChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					jobs={completedJobs}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{:else if graph === 'ConcurrencyChart'}
+				<ConcurrentJobsChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					{concurrencyIntervals}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{/if}
 		</div>
 		<div class="flex flex-col gap-4 md:flex-row w-full p-4">
 			<div class="flex items-center flex-row gap-2 grow">
