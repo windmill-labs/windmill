@@ -70,6 +70,8 @@ lazy_static::lazy_static! {
 
 }
 
+pub const TMP_DIR: &str = "/tmp/windmill";
+
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     let q = sqlx::query!(
         "SELECT value FROM global_settings WHERE name = $1",
@@ -140,15 +142,54 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
                 .map(|x| format!("{}:{}", x.workspace_id, x.path)),
         )
     };
+    let mut vcpus = std::process::Command::new("cat")
+        .args(["/sys/fs/cgroup/cpu.max"])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_string()
+                .split(" ")
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+                .get(0)
+                .map(|s| s.to_string())
+        })
+        .flatten();
+
+    if vcpus.is_none() {
+        vcpus = std::process::Command::new("cat")
+            .args(["/sys/fs/cgroup/cpu/cpu.cfs_quota_us"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    }
+
+    let mut memory = std::process::Command::new("cat")
+        .args(["/sys/fs/cgroup/memory.max"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+
+    if memory.is_none() {
+        memory = std::process::Command::new("cat")
+            .args(["/sys/fs/cgroup/memory/memory.limit_in_bytes"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    }
+
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
         worker_instance,
         worker_name,
         ip,
         tags.as_slice(),
         *WORKER_GROUP,
         dw,
-        crate::utils::GIT_VERSION
+        crate::utils::GIT_VERSION,
+        vcpus.map(|x| x.parse::<i64>().ok()).flatten(),
+        memory.map(|x| x.parse::<i64>().ok()).flatten()
     )
     .execute(db)
     .await

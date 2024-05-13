@@ -159,6 +159,8 @@
 		path: string
 		language: Preview['language']
 		lock?: string
+		isCodebase?: boolean
+		tag?: string
 	}
 
 	let currentScript: LastEditScript | undefined = undefined
@@ -177,13 +179,28 @@
 	let lockChanges = false
 	let timeout: NodeJS.Timeout | undefined = undefined
 
+	let loadingCodebaseButton = false
+	let lastBundleCommandId = ''
+
 	const el = (event) => {
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
 		if (event.data.type == 'runTest') {
 			runTest()
+			event.preventDefault()
 		} else if (event.data.type == 'replaceScript') {
 			mode = 'script'
 			replaceScript(event.data)
+		} else if (event.data.type == 'testBundle') {
+			if (event.data.id == lastBundleCommandId) {
+				testBundle(event.data.file)
+			} else {
+				sendUserToast(`Bundle received ${lastBundleCommandId} was obsolete, ignoring`, true)
+			}
+		} else if (event.data.type == 'testBundleError') {
+			sendUserToast(
+				typeof event.data.error == 'object' ? JSON.stringify(event.data.error) : event.data.error,
+				true
+			)
 		} else if (event.data.type == 'replaceFlow') {
 			mode = 'flow'
 			lockChanges = true
@@ -223,6 +240,47 @@
 		window.parent?.postMessage({ type: 'refresh' }, '*')
 	})
 
+	async function testBundle(file: string) {
+		testJobLoader?.abstractRun(async () => {
+			try {
+				const form = new FormData()
+				form.append(
+					'preview',
+					JSON.stringify({
+						content: currentScript?.content,
+						kind: 'bundle',
+						path: currentScript?.path,
+						args,
+						language: currentScript?.language,
+						tag: currentScript?.tag
+					})
+				)
+				form.append('file', file)
+
+				const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
+
+				const req = await fetch(url, {
+					method: 'POST',
+					body: form,
+					headers: {
+						Authorization: 'Bearer ' + token
+					}
+				})
+				if (req.status != 201) {
+					throw Error(
+						`Script snapshot creation was not successful: ${req.status} - ${
+							req.statusText
+						} - ${await req.text()}`
+					)
+				}
+				return await req.text()
+			} catch (e) {
+				sendUserToast(`Failed to send bundle ${e}`, true)
+				throw Error(e)
+			}
+		})
+		loadingCodebaseButton = false
+	}
 	onDestroy(() => {
 		window.removeEventListener('message', el)
 		if (socket && socket.readyState === WebSocket.OPEN) {
@@ -261,15 +319,21 @@
 			if (!currentScript) {
 				return
 			}
-			//@ts-ignore
-			testJobLoader.runPreview(
-				currentScript.path,
-				currentScript.content,
-				currentScript.language,
-				args,
-				undefined,
-				useLock ? currentScript.lock : undefined
-			)
+			if (currentScript.isCodebase) {
+				loadingCodebaseButton = true
+				lastBundleCommandId = Math.random().toString(36).substring(7)
+				window.parent?.postMessage({ type: 'testBundle', id: lastBundleCommandId }, '*')
+			} else {
+				//@ts-ignore
+				testJobLoader.runPreview(
+					currentScript.path,
+					currentScript.content,
+					currentScript.language,
+					args,
+					currentScript.tag,
+					useLock ? currentScript.lock : undefined
+				)
+			}
 		} else {
 			flowPreviewButtons?.openPreview()
 		}
@@ -288,10 +352,11 @@
 		})
 	}
 
-	function onKeyDown(event: KeyboardEvent) {
-		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
-			event.preventDefault()
-			runTest()
+	async function onKeyDown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && event.code === 'KeyC') {
+			document.execCommand('copy')
+		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
+			document.execCommand('cut')
 		}
 	}
 
@@ -445,7 +510,9 @@
 			</div>
 			<div class="text-center w-full text-lg truncate py-1 text-primary">
 				{currentScript?.path ?? 'Not editing a script'}
-				{currentScript?.language ?? ''}
+				<span class="text-2xs text-secondary">{currentScript?.language ?? ''}</span><span
+					class="text-2xs text-secondary">{currentScript?.isCodebase ? ' (codebase)' : ''}</span
+				>
 			</div>
 
 			<div class="absolute top-2 right-2 !text-tertiary text-xs">
@@ -482,7 +549,7 @@
 					<Button
 						disabled={currentScript === undefined}
 						color="dark"
-						on:click={() => {
+						on:click={(e) => {
 							runTest()
 						}}
 						btnClasses="w-full"
@@ -493,7 +560,9 @@
 						}}
 						shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
 					>
-						{#if testIsLoading}
+						{#if loadingCodebaseButton}
+							Bundle is building...
+						{:else if testIsLoading}
 							Running
 						{:else}
 							Test
@@ -511,6 +580,7 @@
 				</Pane>
 				<Pane size={67}>
 					<LogPanel
+						{workspace}
 						lang={currentScript?.language}
 						previewJob={testJob}
 						{pastPreviews}

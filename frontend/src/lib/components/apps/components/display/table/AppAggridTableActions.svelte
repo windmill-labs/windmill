@@ -23,6 +23,7 @@
 	export let onSet: (id: string, value: any) => void
 	export let onRemove: (id: string) => void
 	export let wrapActions: boolean | undefined = undefined
+	export let selectRow: () => void
 
 	const dispatch = createEventDispatcher()
 	const { selectedComponent, hoverStore, mode, connectingInput } =
@@ -51,7 +52,8 @@
 						$hoverStore = undefined
 					}
 				}}
-				on:pointerdown|stopPropagation={() => {
+				on:pointerdown|stopPropagation={(e) => {
+					selectRow()
 					$selectedComponent = [action.id]
 				}}
 				class={twMerge(
@@ -135,6 +137,7 @@
 							noWFull
 							preclickAction={async () => {
 								dispatch('toggleRow')
+								selectRow()
 							}}
 							id={action.id}
 							customCss={action.customCss}
@@ -159,6 +162,7 @@
 							onToggle={action.onToggle}
 							preclickAction={async () => {
 								dispatch('toggleRow')
+								selectRow()
 							}}
 							verticalAlignment="center"
 							{controls}
@@ -178,6 +182,7 @@
 								onSelect={action.onSelect}
 								preclickAction={async () => {
 									dispatch('toggleRow')
+									selectRow()
 								}}
 								{controls}
 							/>
@@ -190,6 +195,7 @@
 						{render}
 						preclickAction={async () => {
 							dispatch('toggleRow')
+							selectRow()
 						}}
 						noWFull
 						id={action.id}
@@ -213,6 +219,7 @@
 						onToggle={action.onToggle}
 						preclickAction={async () => {
 							dispatch('toggleRow')
+							selectRow()
 						}}
 					/>
 				{:else if action.type == 'selectcomponent'}
@@ -230,6 +237,7 @@
 							onSelect={action.onSelect}
 							preclickAction={async () => {
 								dispatch('toggleRow')
+								selectRow()
 							}}
 						/>
 					</div>

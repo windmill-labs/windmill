@@ -25,6 +25,7 @@ use db::DB;
 use git_version::git_version;
 use reqwest::Client;
 use std::collections::HashMap;
+use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
@@ -104,6 +105,8 @@ lazy_static::lazy_static! {
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
         .build().unwrap();
 
@@ -330,6 +333,7 @@ async fn is_up_to_date() -> Result<String, AppError> {
     let error_reading_version = || anyhow::anyhow!("Error reading latest released version");
     let version = HTTP_CLIENT
         .get("https://api.github.com/repos/windmill-labs/windmill/releases/latest")
+        .timeout(Duration::from_secs(10))
         .send()
         .await
         .context("Impossible to reach api.github")?

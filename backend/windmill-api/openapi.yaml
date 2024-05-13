@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.323.6
+  version: 1.327.0
   title: Windmill API
 
   contact:
@@ -6959,6 +6959,40 @@ paths:
               schema:
                 type: boolean
 
+  /workers/queue_metrics:
+    get:
+      summary: get queue metrics
+      operationId: getQueueMetrics
+      tags:
+        - worker
+      responses:
+        "200":
+          description: metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    values: 
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          created_at:
+                            type: string
+                          value:
+                            type: number
+                        required:
+                          - created_at
+                          - value
+                  required:
+                    - id
+                    - values
+
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -8410,6 +8444,9 @@ components:
           type: boolean
         no_main_func:
           type: boolean
+        codebase:
+          type: string
+
       required:
         - hash
         - path
@@ -8426,6 +8463,7 @@ components:
         - kind
         - starred
         - no_main_func
+
 
     NewScript:
       type: object
@@ -8501,6 +8539,8 @@ components:
           type: boolean
         no_main_func:
           type: boolean
+        codebase:
+          type: string
       required:
         - path
         - summary
@@ -9698,6 +9738,12 @@ components:
           type: string
         wm_version:
           type: string
+        current_job_id:
+          type: string
+        current_job_workspace_id:
+          type: string
+        occupancy_rate:
+          type: number
       required:
         - worker
         - worker_instance

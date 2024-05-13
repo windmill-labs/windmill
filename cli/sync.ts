@@ -45,6 +45,7 @@ import { handleFile } from "./script.ts";
 import { deepEqual } from "./utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { removePathPrefix } from "./types.ts";
+import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -54,8 +55,85 @@ type DynFSElement = {
   getChildren(): AsyncIterable<DynFSElement>;
 };
 
-export async function FSFSElement(p: string): Promise<DynFSElement> {
-  function _internal_element(localP: string, isDir: boolean): DynFSElement {
+export function findCodebase(
+  path: string,
+  codebases: SyncCodebase[]
+): SyncCodebase | undefined {
+  for (const c of codebases) {
+    let included = false;
+    let excluded = false;
+    if (c.includes == undefined || c.includes == null) {
+      included = true;
+    }
+    if (typeof c.includes == "string") {
+      c.includes = [c.includes];
+    }
+    for (const r of c.includes ?? []) {
+      if (included) {
+        break;
+      }
+      if (minimatch(path, r)) {
+        included = true;
+      }
+    }
+    if (typeof c.excludes == "string") {
+      c.excludes = [c.excludes];
+    }
+    for (const r of c.excludes ?? []) {
+      if (minimatch(path, r)) {
+        excluded = true;
+      }
+    }
+    if (included && !excluded) {
+      return c;
+    }
+  }
+}
+async function addCodebaseDigestIfRelevant(
+  path: string,
+  content: string,
+  codebases: SyncCodebase[]
+): Promise<string> {
+  const isScript = path.endsWith(".script.yaml");
+  if (!isScript) {
+    return content;
+  }
+  let isTs = true;
+  try {
+    await Deno.stat(path.replace(".script.yaml", ".ts"));
+  } catch {
+    isTs = false;
+  }
+  if (!isTs) {
+    return content;
+  }
+  log.info(`isScript: ${isScript}, isTs: ${isTs}; ${path}`);
+  if (isTs) {
+    const c = findCodebase(path, codebases);
+    if (c) {
+      const parsed: any = yamlParse(content);
+      if (parsed && typeof parsed == "object") {
+        parsed["codebase"] = c.digest;
+        return yamlStringify(parsed, yamlOptions);
+      } else {
+        throw Error(
+          `Expected local yaml ${path} to be an object, found: ${content} instead`
+        );
+      }
+    }
+  }
+  return content;
+}
+
+export async function FSFSElement(
+  p: string,
+  codebases: SyncCodebase[]
+): Promise<DynFSElement> {
+  function _internal_element(
+    localP: string,
+    isDir: boolean,
+    codebases: SyncCodebase[]
+  ): DynFSElement {
     return {
       isDirectory: isDir,
       path: localP.substring(p.length + 1),
@@ -63,7 +141,11 @@ export async function FSFSElement(p: string): Promise<DynFSElement> {
         if (!isDir) return [];
         try {
           for await (const e of Deno.readDir(localP)) {
-            yield _internal_element(path.join(localP, e.name), e.isDirectory);
+            yield _internal_element(
+              path.join(localP, e.name),
+              e.isDirectory,
+              codebases
+            );
           }
         } catch (e) {
           log.warning(`Error reading dir: ${localP}, ${e}`);
@@ -74,11 +156,12 @@ export async function FSFSElement(p: string): Promise<DynFSElement> {
       // },
       async getContentText(): Promise<string> {
         const content = await Deno.readTextFile(localP);
-        return content;
+
+        return await addCodebaseDigestIfRelevant(localP, content, codebases);
       },
     };
   }
-  return _internal_element(p, (await Deno.stat(p)).isDirectory);
+  return _internal_element(p, (await Deno.stat(p)).isDirectory, codebases);
 }
 
 function prioritizeName(name: string): string {
@@ -727,6 +810,8 @@ async function pull(opts: GlobalOptions & SyncOptions) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
+  const codebases = await listSyncCodebases(opts);
+
   log.info(
     colors.gray(
       "Computing the files to update locally to match remote (taking wmill.yaml into account)"
@@ -748,8 +833,8 @@ async function pull(opts: GlobalOptions & SyncOptions) {
     !opts.json
   );
   const local = !opts.stateful
-    ? await FSFSElement(Deno.cwd())
-    : await FSFSElement(path.join(Deno.cwd(), ".wmill"));
+    ? await FSFSElement(Deno.cwd(), codebases)
+    : await FSFSElement(path.join(Deno.cwd(), ".wmill"), []);
   const changes = await compareDynFSElement(
     remote,
     local,
@@ -924,6 +1009,7 @@ function removeSuffix(str: string, suffix: string) {
 
 async function push(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
+  const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
     log.info("--raw is now the default, you can remove it as a flag");
   }
@@ -962,7 +1048,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
     !opts.json
   );
 
-  const local = await FSFSElement(path.join(Deno.cwd(), ""));
+  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);
   const changes = await compareDynFSElement(
     local,
     remote,
@@ -991,10 +1077,11 @@ async function push(opts: GlobalOptions & SyncOptions) {
     ) {
       return;
     }
+
     log.info(colors.gray(`Applying changes to files ...`));
 
     const alreadySynced: string[] = [];
-    const globalDeps = await findGlobalDeps();
+    const globalDeps = await findGlobalDeps(codebases);
 
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
@@ -1012,7 +1099,9 @@ async function push(opts: GlobalOptions & SyncOptions) {
             workspace,
             alreadySynced,
             opts.message,
-            globalDeps
+            globalDeps,
+            codebases,
+            opts
           )
         ) {
           if (opts.stateful && stateExists) {
@@ -1026,7 +1115,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
             alreadySynced,
             opts.message,
             opts,
-            globalDeps
+            globalDeps,
+            codebases
           )
         ) {
           if (opts.stateful && stateExists) {
@@ -1067,7 +1157,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
             alreadySynced,
             opts.message,
             opts,
-            globalDeps
+            globalDeps,
+            codebases
           )
         ) {
           continue;

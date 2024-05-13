@@ -1,3 +1,6 @@
 dist/
 src/
 node_modules/
+types/
+windmill.d.ts
+windmill.js

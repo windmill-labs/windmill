@@ -37,6 +37,7 @@
 	export let workspaceId: string | undefined = undefined
 	export let hideAsJson: boolean = false
 	export let noControls: boolean = false
+	export let drawerOpen = false
 
 	let resultKind:
 		| 'json'
@@ -273,7 +274,7 @@
 			: 'min-h-[200px]'}"
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
-			<div class="flex justify-between items-center w-full pb-1">
+			<div class="flex justify-between items-center w-full">
 				<div class="text-tertiary text-sm flex items-center">
 					{#if (resultKind && typeof result == 'object' && !['json', 's3object', 's3object-list', 'table-col', 'table-row'].includes(resultKind) && !hideAsJson) || isTableDisplay}
 						<ToggleButtonGroup
@@ -302,7 +303,7 @@
 						</ToggleButtonGroup>
 					{/if}
 				</div>
-				<div class="text-tertiary text-xs flex gap-2 z-10 items-center">
+				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
 						<Popover
@@ -313,14 +314,14 @@
 								customize the display format of your results.
 							</svelte:fragment>
 							<div class="-mt-1">
-								<InfoIcon size={16} />
+								<InfoIcon size={14} />
 							</div>
 						</Popover>
 						<button on:click={() => copyToClipboard(toJsonStr(result))} class="-mt-1">
-							<ClipboardCopy size={16} />
+							<ClipboardCopy size={14} />
 						</button>
 						<button on:click={jsonViewer.openDrawer} class="-mt-1">
-							<Expand size={16} />
+							<Expand size={14} />
 						</button>
 					{/if}
 				</div>
@@ -603,7 +604,7 @@
 	</div>
 
 	{#if !disableExpand && !noControls}
-		<Drawer bind:this={jsonViewer} size="900px">
+		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
 					<Button
