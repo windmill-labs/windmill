@@ -3,9 +3,12 @@
 	import RunRow from './RunRow.svelte'
 	import VirtualList from 'svelte-tiny-virtual-list'
 	import { createEventDispatcher, onMount } from 'svelte'
+	import Tooltip from '../Tooltip.svelte'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
+	export let externalJobs: Job[] | undefined = undefined
+	export let showExternalJobs: boolean = false
 	export let selectedId: string | undefined = undefined
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
@@ -18,6 +21,7 @@
 	let containsLabel = false
 	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
 		const groupedLogs: Record<string, Job[]> = {}
+		console.log(jobs)
 
 		if (!jobs) return groupedLogs
 
@@ -60,11 +64,17 @@
 			.forEach((key) => {
 				sortedLogs[key] = groupedLogs[key]
 			})
+		console.log(sortedLogs)
 
 		return sortedLogs
 	}
 
-	$: groupedJobs = jobs ? groupJobsByDay(jobs) : undefined
+	$: groupedJobs =
+		jobs && externalJobs
+			? showExternalJobs
+				? groupJobsByDay([...jobs, ...externalJobs])
+				: groupJobsByDay(jobs)
+			: undefined
 
 	type FlatJobs =
 		| {
@@ -125,6 +135,13 @@
 	}
 	*/
 
+	function jobCountString(jobCount: number) {
+		const jc = jobCount
+		const isTruncated = jc == 1000
+
+		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
+	}
+
 	function computeHeight() {
 		tableHeight = document.querySelector('#runs-table-wrapper')!.parentElement?.clientHeight ?? 0
 	}
@@ -145,9 +162,15 @@
 		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4"
 		bind:clientHeight={header}
 	>
-		<div class="w-1/12 text-2xs"
-			>{jobs?.length == 1000 ? '1000+' : jobs ? jobs.length.toString() : '...'} jobs</div
-		>
+		{#if showExternalJobs && externalJobs}
+			<div class="w-1/12 text-2xs">
+				{jobs && jobCountString(jobs.length + externalJobs.length)}<Tooltip
+					>{externalJobs.length} jobs obscured</Tooltip
+				>
+			</div>
+		{:else}
+			<div class="w-1/12 text-2xs">{jobs && jobCountString(jobs.length)}</div>
+		{/if}
 		<div class="w-4/12 text-xs font-semibold">Timestamp</div>
 		<div class="w-4/12 text-xs font-semibold">Path</div>
 		{#if containsLabel}
@@ -207,7 +230,7 @@
 		</div>
 	</VirtualList>
 </div>
-{#if jobs?.length == 0}
+{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
 	<tr>
 		<td colspan="4" class="text-center py-8">
 			<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>

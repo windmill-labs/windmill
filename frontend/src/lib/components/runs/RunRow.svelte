@@ -14,6 +14,7 @@
 		Hourglass,
 		ListFilter,
 		Play,
+		ShieldQuestion,
 		X
 	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -31,6 +32,8 @@
 	export let activeLabel: string | null
 
 	let scheduleEditor: ScheduleEditor
+
+	$: isExternal = job && job.id === '-'
 </script>
 
 <Portal>
@@ -42,7 +45,7 @@
 <div
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
-		selectedId === job.id ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+		selectedId === job.id && !isExternal ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'flex flex-row items-center h-full'
 	)}
 	style="width: {containerWidth}px"
@@ -51,7 +54,11 @@
 	}}
 >
 	<div class="w-1/12 flex justify-center">
-		{#if 'success' in job && job.success}
+		{#if isExternal}
+			<Badge color="gray" baseClass="!px-1.5">
+				<ShieldQuestion size={14} />
+			</Badge>
+		{:else if 'success' in job && job.success}
 			{#if job.is_skipped}
 				<Badge color="green" rounded>
 					<FastForward size={14} />
@@ -108,21 +115,25 @@
 					<div class="whitespace-nowrap text-xs font-semibold truncate">
 						{#if job.script_path}
 							<div class="flex flex-row gap-1 items-center">
-								<a
-									href="/run/{job.id}?workspace={job.workspace_id}"
-									class="truncate w-30 dark:text-blue-400"
-								>
-									{job.script_path}
-								</a>
-								<Button
-									size="xs2"
-									color="light"
-									on:click={() => {
-										dispatch('filterByPath', job.script_path)
-									}}
-								>
-									<ListFilter size={10} />
-								</Button>
+								{#if isExternal}
+									<span class="w-30 justify-center">-</span>
+								{:else}
+									<a
+										href="/run/{job.id}?workspace={job.workspace_id}"
+										class="truncate w-30 dark:text-blue-400"
+									>
+										{job.script_path}
+									</a>
+									<Button
+										size="xs2"
+										color="light"
+										on:click={() => {
+											dispatch('filterByPath', job.script_path)
+										}}
+									>
+										<ListFilter size={10} />
+									</Button>
+								{/if}
 								{#if job.script_path?.startsWith('f/')}
 									<Button
 										size="xs2"
@@ -218,15 +229,17 @@
 				<div class="text-xs">
 					{job.created_by}
 				</div>
-				<Button
-					size="xs2"
-					color="light"
-					on:click={() => {
-						dispatch('filterByUser', job.created_by)
-					}}
-				>
-					<ListFilter size={10} />
-				</Button>
+				{#if !isExternal}
+					<Button
+						size="xs2"
+						color="light"
+						on:click={() => {
+							dispatch('filterByUser', job.created_by)
+						}}
+					>
+						<ListFilter size={10} />
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	</div>

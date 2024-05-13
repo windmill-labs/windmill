@@ -98,6 +98,7 @@
 	let cancelAllJobs = false
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
+	let externalJobs: Job[] | undefined;
 
 	let manualDatePicker: ManuelDatePicker
 
@@ -326,6 +327,7 @@
 	bind:queue_count
 	{autoRefresh}
 	bind:completedJobs
+	bind:externalJobs
 	bind:concurrencyIntervals
 	{concurrencyKey}
 	{argError}
@@ -352,7 +354,11 @@
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
 		{#if selectedId}
-			<JobPreview blankLink id={selectedId} workspace={selectedWorkspace} />
+			{#if selectedId === '-'}
+				<div class="p-4">There is no information available for this job</div>
+			{:else}
+				<JobPreview blankLink id={selectedId} workspace={selectedWorkspace} />
+			{/if}
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -539,6 +545,7 @@
 					{#if jobs}
 						<RunsTable
 							{jobs}
+							{externalJobs}
 							activeLabel={label}
 							bind:selectedId
 							bind:selectedWorkspace
@@ -558,7 +565,11 @@
 				</Pane>
 				<Pane size={40} minSize={15} class="border-t">
 					{#if selectedId}
-						<JobPreview id={selectedId} workspace={selectedWorkspace} />
+						{#if selectedId === '-'}
+							<div class="p-4">There is no information available for this job</div>
+						{:else}
+							<JobPreview id={selectedId} workspace={selectedWorkspace} />
+						{/if}
 					{:else}
 						<div class="text-xs m-4">No job selected</div>
 					{/if}
@@ -728,6 +739,7 @@
 			<RunsTable
 				activeLabel={label}
 				{jobs}
+				{externalJobs}
 				bind:selectedId
 				bind:selectedWorkspace
 				on:select={() => {
