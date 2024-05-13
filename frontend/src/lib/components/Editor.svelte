@@ -27,6 +27,8 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
+	import processStdContent from '$lib/process.d.ts.txt?raw'
+	import windmillFetchContent from '$lib/windmill_fetch.d.ts.txt?raw'
 
 	import { MonacoLanguageClient } from 'monaco-languageclient'
 
@@ -757,10 +759,22 @@
 			} else if (lang === 'typescript') {
 				const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
 				if (scriptLang == 'bun') {
-					languages.typescript.typescriptDefaults.setExtraLibs([stdLib])
+					const processLib = { content: processStdContent, filePath: 'process.d.ts' }
+					console.log(processLib)
+
+					languages.typescript.typescriptDefaults.setExtraLibs([stdLib, processLib])
 				} else {
 					const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
 					languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
+					let localContent = windmillFetchContent
+					let p = '/tmp/monaco/windmill.d.ts'
+					let nuri = mUri.parse(p)
+					let localModel = meditor.getModel(nuri)
+					if (localModel) {
+						localModel.setValue(localContent)
+					} else {
+						meditor.createModel(localContent, 'typescript', nuri)
+					}
 				}
 				if (scriptLang == 'bun' && ata == undefined) {
 					const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1051,6 +1065,7 @@
 			noUnusedLocals: true,
 			strict: true,
 			noLib: false,
+			allowImportingTsExtensions: true,
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 

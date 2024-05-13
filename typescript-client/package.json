@@ -6,6 +6,8 @@
   "license": "Apache 2.0",
   "devDependencies": {
     "@types/node": "^20.4.10",
+    "dts-bundle-generator": "^9.5.1",
+    "esbuild": "^0.21.1",
     "typescript": "^5.4.5"
   },
   "main": "dist/index.js",

@@ -269,8 +269,8 @@
 		if (!editor) return
 		if (lang == 'deno') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
-		} else if (lang === 'bun') {
-			editor.insertAtCursor(`Bun.env["${name}"]`)
+		} else if (lang === 'bun' || lang == 'nativets') {
+			editor.insertAtCursor(`process.env["${name}"]`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import os')) {
 				editor.insertAtBeginning('import os\n')
@@ -285,8 +285,6 @@
 			editor.insertAtCursor(`$${name}`)
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Env:${name}`)
-		} else if (lang == 'nativets') {
-			editor.insertAtCursor(name)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -333,13 +331,11 @@
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/variables/get_value/${path}"`
 			)
 		} else if (lang == 'nativets') {
-			editor.insertAtCursor(
-				'await fetch(`${BASE_INTERNAL_URL}/api/w/${WM_WORKSPACE}/variables/get_value/' +
-					path +
-					'`, {\nheaders: { Authorization: `Bearer ${WM_TOKEN}` }'
-			)
-			editor.arrowDown()
-			editor.insertAtCursor('.then(res => res.json())')
+			const code = editor.getCode()
+			if (!code.includes(`import * as wmill from`)) {
+				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
+			}
+			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -400,13 +396,11 @@
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/resources/get_value_interpolated/${path}"`
 			)
 		} else if (lang == 'nativets') {
-			editor.insertAtCursor(
-				'await fetch(`${BASE_INTERNAL_URL}/api/w/${WM_WORKSPACE}/resources/get_value_interpolated/' +
-					path +
-					'`, {\nheaders: { Authorization: `Bearer ${WM_TOKEN}` }'
-			)
-			editor.arrowDown()
-			editor.insertAtCursor('.then(res => res.json())')
+			const code = editor.getCode()
+			if (!code.includes(`import * as wmill from`)) {
+				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
+			}
+			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}

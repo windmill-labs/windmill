@@ -411,3 +411,27 @@ interface Console {
 }
 
 declare var console: Console;
+
+declare var process: Process
+
+interface Process {
+    env: {
+      WM_TOKEN: string;
+      WM_WORKSPACE: string;
+      WM_EMAIL: string;
+      WM_USERNAME: string;
+      WM_BASE_URL: string;
+      WM_JOB_ID: string;
+      WM_JOB_PATH: string;
+      WM_FLOW_JOB_ID: string;
+      WM_ROOT_FLOW_JOB_ID: string;
+      WM_FLOW_PATH: string;
+      WM_SCHEDULE_PATH: string;
+      WM_PERMISSIONED_AS: string;
+      WM_STATE_PATH: string;
+      WM_FLOW_STEP_ID: string;
+      WM_OBJECT_PATH: string;
+      WM_OIDC_JWT: string;
+      WM_WORKER_GROUP: string;
+    }
+}

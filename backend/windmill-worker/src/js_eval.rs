@@ -579,6 +579,7 @@ pub struct LogString {
 }
 
 pub async fn eval_fetch_timeout(
+    env_code: String,
     ts_expr: String,
     js_expr: String,
     args: Option<&Json<HashMap<String, Box<RawValue>>>>,
@@ -681,7 +682,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code)) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             }
         };
@@ -722,11 +723,26 @@ pub async fn eval_fetch_timeout(
     Ok(r)
 }
 
-async fn eval_fetch(js_runtime: &mut JsRuntime, expr: &str) -> anyhow::Result<Box<RawValue>> {
+const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
+
+async fn eval_fetch(
+    js_runtime: &mut JsRuntime,
+    expr: &str,
+    env_code: Option<String>,
+) -> anyhow::Result<Box<RawValue>> {
+    if let Some(env_code) = env_code.as_ref() {
+        let _ = js_runtime
+            .load_side_module(
+                &deno_core::resolve_url("file:///windmill.ts")?,
+                Some(format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()).into()),
+            )
+            .await?;
+    }
+
     let _ = js_runtime
         .load_side_module(
             &deno_core::resolve_url("file:///eval.ts")?,
-            Some(expr.to_string().into()),
+            Some(format!("{}\n{expr}", env_code.unwrap_or_default()).into()),
         )
         .await?;
 

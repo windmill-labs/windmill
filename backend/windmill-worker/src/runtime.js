@@ -36,6 +36,8 @@ globalThis.FileReader = fileReader.FileReader;
 globalThis.console = new console.Console((msg, level) =>
   globalThis.Deno.core.ops.op_log(msg)
 );
+globalThis.AbortController = abortSignal.AbortController;
+globalThis.AbortSignal = abortSignal.AbortSignal;
 // Object.assign(globalThis, {
 //   console: nonEnumerable(
 //     new console.Console((msg, level) => core.print(msg, level > 1))
@@ -122,8 +124,8 @@ globalThis.console = new console.Console((msg, level) =>
 //   FormData: nonEnumerable(formData.FormData),
 
 //   // abort signal
-//   AbortController: nonEnumerable(abortSignal.AbortController),
-//   AbortSignal: nonEnumerable(abortSignal.AbortSignal),
+// AbortController: nonEnumerable(abortSignal.AbortController),
+// AbortSignal: nonEnumerable(abortSignal.AbortSignal),
 
 //   //   // web sockets
 //   //   WebSocket: nonEnumerable(webSocket.WebSocket),
