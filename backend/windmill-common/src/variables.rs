@@ -277,12 +277,6 @@ pub async fn get_reserved_variables(
             is_custom: false,
         },
         ContextualVariable {
-            name: "WM_STATE_PATH_NEW".to_string(),
-            value: state_path,
-            description: "State resource path unique to a script and its trigger (legacy)".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
             name: "WM_FLOW_STEP_ID".to_string(),
             value: step_id.unwrap_or_else(|| "".to_string()),
             description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),

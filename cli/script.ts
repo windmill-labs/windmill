@@ -208,6 +208,7 @@ export async function handleFile(
       no_main_func: typed?.no_main_func,
       priority: typed?.priority,
       codebase: codebase?.digest,
+      timeout: typed?.timeout,
     };
 
     if (remote) {
@@ -236,7 +237,8 @@ export async function handleFile(
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
-            typed.priority == Boolean(remote.priority))
+            typed.priority == Boolean(remote.priority) &&
+            typed.timeout == remote.timeout)
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;

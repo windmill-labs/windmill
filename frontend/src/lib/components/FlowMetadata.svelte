@@ -86,19 +86,19 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			<div class="flex flex-row gap-2 items-center">
+			<div class="flex flex-row gap-2 items-center ml-0.5">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="text-secondary" />
 				{:else}
 					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
 				{/if}
-				<span>
+				<span class="truncate text-sm">
 					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
 				</span>
 			</div>
 		{/if}
 
-		<div class="flex flex-row gap-2 items-center">
+		<div class="flex flex-row gap-2 items-center text-sm">
 			<User size={SMALL_ICON_SIZE} class="text-secondary" />
 
 			<span>

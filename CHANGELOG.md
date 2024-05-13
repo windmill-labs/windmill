@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.327.0](https://github.com/windmill-labs/windmill/compare/v1.326.1...v1.327.0) (2024-05-13)
+
+
+### Features
+
+* nativets can use the wmill library + setClient not required anymore ([#3714](https://github.com/windmill-labs/windmill/issues/3714)) ([8b21f08](https://github.com/windmill-labs/windmill/commit/8b21f0812c939542ed84863de029b60f94526417))
+
+## [1.326.1](https://github.com/windmill-labs/windmill/compare/v1.326.0...v1.326.1) (2024-05-12)
+
+
+### Bug Fixes
+
+* un-inline monaco editor workers for faster initial load ([e2991ef](https://github.com/windmill-labs/windmill/commit/e2991ef9237d17de5e6ef8074387998a96785396))
+
+## [1.326.0](https://github.com/windmill-labs/windmill/compare/v1.325.2...v1.326.0) (2024-05-12)
+
+
+### Features
+
+* logs can be downloaded directly from server/frontend if using shared volume ([a3a66d0](https://github.com/windmill-labs/windmill/commit/a3a66d0577f57cae6e0de5a942a35d45cc8e9472))
+
+## [1.325.2](https://github.com/windmill-labs/windmill/compare/v1.325.1...v1.325.2) (2024-05-11)
+
+
+### Bug Fixes
+
+* improve status exit dedicated workers ([12e302a](https://github.com/windmill-labs/windmill/commit/12e302a309ee8148d2a9d4a168807b97f5fd1709))
+
+## [1.325.1](https://github.com/windmill-labs/windmill/compare/v1.325.0...v1.325.1) (2024-05-11)
+
+
+### Bug Fixes
+
+* **cli:** support whileloop in flow cli sync ([d0a6dda](https://github.com/windmill-labs/windmill/commit/d0a6ddab94dfae4d6fab40c4d41acb85dab18183))
+* improve nodejs mode after esm update ([87add79](https://github.com/windmill-labs/windmill/commit/87add79de2e4df38e59d2e334bba0487c8ff4ecc))
+* selectedRow for a table is set on table actions ([447e2d7](https://github.com/windmill-labs/windmill/commit/447e2d7742edcd0af7184f6e8e5e67cf99f8103b))
+
 ## [1.325.0](https://github.com/windmill-labs/windmill/compare/v1.324.2...v1.325.0) (2024-05-10)
 
 

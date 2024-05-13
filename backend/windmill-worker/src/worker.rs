@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::worker::TMP_DIR;
+
 use anyhow::Result;
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
@@ -185,10 +187,9 @@ pub async fn create_token_for_owner(
     Ok(token)
 }
 
-pub const TMP_DIR: &str = "/tmp/windmill";
-pub const TMP_LOGS_DIR: &str = "/tmp/windmill/logs";
+pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 
-pub const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
+pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
@@ -2556,6 +2557,7 @@ pub struct JobCompleted {
 async fn do_nativets(
     job: &QueuedJob,
     client: &AuthedClientBackgroundTask,
+    env_code: String,
     code: String,
     db: &Pool<Postgres>,
     mem_peak: &mut i32,
@@ -2570,6 +2572,7 @@ async fn do_nativets(
     };
 
     let result = eval_fetch_timeout(
+        env_code,
         code.clone(),
         transpile_ts(code)?,
         job_args,
@@ -3267,17 +3270,24 @@ async fn handle_code_execution_job(
 
         let reserved_variables = get_reserved_variables(job, &client.get_token().await, db).await?;
 
-        let code = format!(
-            "const BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\n{}\n{}",
+        let env_code = format!(
+            "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
             reserved_variables
                 .iter()
-                .map(|(k, v)| format!("const {} = '{}';\n", k, v))
+                .map(|(k, v)| format!("const {} = '{}';\nprocess.env['{}'] = '{}';\n", k, v, k, v))
                 .collect::<Vec<String>>()
-                .join("\n"),
-            inner_content
-        );
-        let (result, ts_logs) =
-            do_nativets(job, &client, code, db, mem_peak, canceled_by, worker_name).await?;
+                .join("\n"));
+        let (result, ts_logs) = do_nativets(
+            job,
+            &client,
+            env_code,
+            inner_content,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+        )
+        .await?;
         append_logs(job.id, job.workspace_id.clone(), ts_logs, db).await;
         return Ok(result);
     }

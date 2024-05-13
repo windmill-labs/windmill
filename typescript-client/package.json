@@ -1,11 +1,13 @@
 {
   "name": "windmill-client",
   "description": "Windmill SDK client for browsers and Node.js",
-  "version": "1.325.0",
+  "version": "1.327.0",
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
   "devDependencies": {
     "@types/node": "^20.4.10",
+    "dts-bundle-generator": "^9.5.1",
+    "esbuild": "^0.21.1",
     "typescript": "^5.4.5"
   },
   "main": "dist/index.js",

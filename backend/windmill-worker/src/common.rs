@@ -26,7 +26,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
-use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
+use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -39,6 +39,7 @@ use windmill_queue::{append_logs, CanceledBy};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::process::ExitStatusExt;
 
+use std::process::ExitStatus;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::{
@@ -69,7 +70,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TMP_DIR,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
 };
 
 pub async fn build_args_map<'a>(
@@ -651,7 +652,7 @@ async fn compact_logs(
     nlogs: String,
     total_size: Arc<AtomicU32>,
     compact_kind: CompactLogs,
-    worker_name: &str,
+    _worker_name: &str,
 ) -> error::Result<(String, String)> {
     let size = sqlx::query_scalar!(
         "SELECT char_length(logs) FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
@@ -716,9 +717,9 @@ async fn compact_logs(
     );
 
     let mut new_current_logs = match compact_kind {
-        CompactLogs::NoS3 => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}, add object storage in the instance settings to save it on distributed storage and allow direct download from Windmill\n"),
+        CompactLogs::NoS3 => format!("[windmill] No object storage set in instance settings. Previous logs have been saved to disk at {path}\n"),
         CompactLogs::S3 => format!("[windmill] Previous logs have been saved to object storage at {path}\n"),
-        CompactLogs::NotEE => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}\n[windmill] Upgrade to EE and add object storage to save it persistentely on distributed storage and allow direct download from Windmill\n"),
+        CompactLogs::NotEE => format!("[windmill] Previous logs have been saved to disk at {path}\n"),
     };
     new_current_logs.push_str(&current_logs);
 
@@ -1145,26 +1146,7 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => {
-            if status.success() {
-                Ok(())
-            } else if let Some(code) = status.code() {
-                Err(error::Error::ExitStatus(code))
-            } else {
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                return Err(error::Error::ExecutionErr(format!(
-                    "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
-                    status.signal(),
-                    status.stopped_signal(),
-                    status.core_dumped()
-                )));
-
-                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-                return Err(error::Error::ExecutionErr(String::from(
-                    "process terminated by signal",
-                )));
-            }
-        }
+        Ok(Ok(status)) => process_status(status),
         Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
             "job process killed because {kill_reason:#?}"
         ))),
@@ -1172,6 +1154,26 @@ pub async fn handle_child(
     }
 }
 
+pub fn process_status(status: ExitStatus) -> error::Result<()> {
+    if status.success() {
+        Ok(())
+    } else if let Some(code) = status.code() {
+        Err(error::Error::ExitStatus(code))
+    } else {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        return Err(error::Error::ExecutionErr(format!(
+            "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
+            status.signal(),
+            status.stopped_signal(),
+            status.core_dumped()
+        )));
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        return Err(error::Error::ExecutionErr(String::from(
+            "process terminated by signal",
+        )));
+    }
+}
 pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
     return cmd
         .spawn()
