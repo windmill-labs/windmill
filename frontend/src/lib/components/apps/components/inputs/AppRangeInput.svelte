@@ -154,10 +154,6 @@
 		transform: translate(-50%, -50%);
 	}
 
-	:global(#range-slider.rangeSlider .rangeNub) {
-		background-color: #7e9abd;
-	}
-
 	:global(.dark #range-slider.rangeSlider > .rangePips > .pip) {
 		color: #eeeeee;
 	}

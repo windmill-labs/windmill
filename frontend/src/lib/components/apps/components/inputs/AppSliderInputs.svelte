@@ -141,7 +141,7 @@
 			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
 			<RangeSlider
-				id="range-slider"
+				id="slider-input"
 				springValues={{ stiffness: 1, damping: 1 }}
 				vertical={resolvedConfig.vertical}
 				bind:slider
@@ -161,17 +161,17 @@
 </AlignWrapper>
 
 <style>
-	:global(#range-slider.rangeSlider) {
+	:global(#slider-input.rangeSlider) {
 		font-size: 12px;
 		text-transform: uppercase;
 	}
 
-	:global(#range-slider.rangeSlider .rangeHandle) {
+	:global(#slider-input.rangeSlider .rangeHandle) {
 		width: 2em;
 		height: 2em;
 	}
 
-	:global(#range-slider.rangeSlider .rangeFloat) {
+	:global(#slider-input.rangeSlider .rangeFloat) {
 		opacity: 1;
 		background: transparent;
 		top: 50%;
