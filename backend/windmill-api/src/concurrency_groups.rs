@@ -28,7 +28,6 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
         .route("/prune/id", delete(prune_concurrency_group))
-        .route("/keys", post(get_concurrency_keys_for_jobs))
         .route("/:job_id/key", get(get_concurrency_key))
 }
 
@@ -340,22 +339,4 @@ async fn get_concurrency_key(
 #[derive(Serialize)]
 struct ConcurrencyKeysByJob {
     keys_by_job: HashMap<Uuid, String>,
-}
-
-async fn get_concurrency_keys_for_jobs(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Json(jobs): Json<Vec<Uuid>>,
-) -> JsonResult<ConcurrencyKeysByJob> {
-    Ok(Json(ConcurrencyKeysByJob {
-        keys_by_job: sqlx::query!(
-            "SELECT job_id, key FROM concurrency_key WHERE job_id = ANY($1)",
-            &jobs
-        )
-        .fetch_all(&db)
-        .await?
-        .iter()
-        .map(|row| (row.job_id, row.key.clone()))
-        .collect(),
-    }))
 }

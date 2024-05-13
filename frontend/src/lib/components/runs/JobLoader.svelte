@@ -44,6 +44,7 @@
 
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
+	let concurrencyKeyMap: Map<string, string> = new Map<string, string>()
 
 	$: jobKinds = computeJobKinds(jobKindsCat)
 	$: ($workspaceStore && loadJobsIntern(true)) ||
@@ -168,10 +169,11 @@
 		}
 		loading = true
 		try {
+			concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
+			updateConcurrencyKeyMap()
 			let j = await fetchJobs(maxTs, minTs)
 			jobs = await filterJobsByConcurrencyKey(j)
 			computeCompletedJobs()
-			concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
 			console.error(JSON.stringify(err))
@@ -232,6 +234,7 @@
 
 					loading = true
 					concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
+					updateConcurrencyKeyMap()
 					let newJobs = await fetchJobs(maxTs, minTs ?? ts)
 					newJobs = await filterJobsByConcurrencyKey(newJobs) ?? []
 					if (newJobs && newJobs.length > 0 && jobs) {
@@ -255,13 +258,10 @@
 	}
 
 	async function filterJobsByConcurrencyKey(jobs: Job[] | undefined) {
-		if (concurrencyKey == null || concurrencyKey == '' || jobs == undefined || jobs.length === 0)
+		if (concurrencyKey == null || concurrencyKey === '' || jobs == undefined || jobs.length === 0)
 			return jobs
 
-		let c = (await ConcurrencyGroupsService.concurrencyKeysForJobUuids({
-			requestBody: jobs.map((e) => e.id)
-		}))['keys_by_job']
-		return jobs.filter((x) => c && c[x.id] && c[x.id] == concurrencyKey)
+		return jobs.filter((x) => concurrencyKeyMap.get(x.id) === concurrencyKey)
 	}
 
 	function onVisibilityChange() {
@@ -269,6 +269,17 @@
 			sync = false
 		} else {
 			sync = true
+		}
+	}
+
+	function updateConcurrencyKeyMap() {
+		for (const vec of [concurrencyIntervals?.running_jobs, concurrencyIntervals?.completed_jobs]) {
+			if (vec == undefined) continue
+			for (const interval of vec) {
+				if (interval.job_id && interval.concurrency_key && concurrencyKeyMap.get(interval.job_id) == undefined) {
+					concurrencyKeyMap.set(interval.job_id, interval.concurrency_key)
+				}
+			}
 		}
 	}
 
