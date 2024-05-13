@@ -163,6 +163,7 @@
 	}
 
 	$: maxRow = maxHeight($appStore.grid, window.innerHeight, $breakpoint)
+	$: console.log(maxRow)
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -212,6 +213,7 @@
 					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
+					let:hidden
 					rowHeight={36}
 					cols={columnConfiguration}
 					gap={[4, 2]}
@@ -227,7 +229,7 @@
 							component={dataItem.data}
 							selected={false}
 							locked={true}
-							currentGrid={app.grid}
+							{hidden}
 						/>
 					</div>
 				</GridViewer>

@@ -988,6 +988,10 @@ export function maxHeight(
 	const totalRowHeight = rowHeight + rowGap
 	const maxRows = Math.floor((windowHeight + rowGap) / totalRowHeight)
 
+	if (!grid.length) {
+		return maxRows
+	}
+
 	const maxRowPerGrid = Math.max(
 		...grid.map((item) => {
 			const breakpointKey = breakpoint === 'sm' ? 3 : 12

@@ -98,7 +98,7 @@
 					: ''} top: {top}px; left: {left}px;"
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} item={item[getComputedCols]} />
+					<slot dataItem={item} item={item[getComputedCols]} hidden={false} />
 				{/if}
 			</div>
 		{/each}

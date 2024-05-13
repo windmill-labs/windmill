@@ -9,7 +9,7 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { push } from '$lib/history'
-	import { dfs, expandGriditem, findGridItem, maxHeight } from './appUtils'
+	import { dfs, expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
@@ -47,8 +47,6 @@
 	}
 
 	let renderCount = 1
-
-	$: maxRow = maxHeight($app.grid, window.innerHeight, $breakpoint)
 </script>
 
 {#key renderCount}
@@ -130,10 +128,10 @@
 						$app.grid = e.detail
 					}}
 					let:dataItem
+					let:hidden
 					rowHeight={36}
 					cols={columnConfiguration}
 					gap={[4, 2]}
-					{maxRow}
 				>
 					<ComponentWrapper
 						id={dataItem.id}
@@ -145,7 +143,7 @@
 					>
 						<GridEditorMenu id={dataItem.id}>
 							<Component
-								currentGrid={$app.grid}
+								{hidden}
 								render={true}
 								component={dataItem.data}
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}

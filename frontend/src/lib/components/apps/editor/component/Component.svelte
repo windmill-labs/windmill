@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import type { AppComponent } from './components'
 	import {
@@ -80,7 +80,7 @@
 	export let selected: boolean
 	export let locked: boolean = false
 	export let render: boolean
-	export let currentGrid: GridItem[]
+	export let hidden: boolean
 
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -104,24 +104,6 @@
 			}
 		}, 50)
 	}
-
-	function isUpperComponentFillingHeight(grid: GridItem[], id: string) {
-		const c = grid.find((x) => x.id === id)
-
-		if (!c) return false
-
-		const { x, y, w } = c[12]
-
-		const above = grid.filter((v) => {
-			const { x: vx, y: vy, w: vw } = v[12]
-
-			return vy < y && vx <= x && vx + vw >= x + w
-		})
-
-		return above.length > 0
-	}
-
-	$: willNotDisplay = isUpperComponentFillingHeight(currentGrid, component.id)
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -136,7 +118,7 @@
 	on:mouseout|stopPropagation={mouseOut}
 	class="h-full flex flex-col w-full component {initializing
 		? 'overflow-hidden h-0'
-		: ''} {willNotDisplay && $mode === 'preview' ? 'hidden' : ''} "
+		: ''} {hidden && $mode === 'preview' ? 'hidden' : ''} "
 >
 	{#if $mode !== 'preview'}
 		<ComponentHeader
@@ -147,7 +129,7 @@
 					$hoverStore = component.id
 				}
 			}}
-			{willNotDisplay}
+			willNotDisplay={hidden}
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}

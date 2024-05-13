@@ -68,6 +68,7 @@
 	let container: HTMLElement | undefined = undefined
 
 	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+	$: console.log(id, maxRow, containerHeight)
 	let elem = findGridItem($app, id)
 </script>
 
@@ -102,7 +103,6 @@
 					: ''}
 			>
 				<Grid
-					{maxRow}
 					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
 					on:redraw={(e) => {
@@ -113,6 +113,7 @@
 					}}
 					selectedIds={$selectedComponent}
 					let:dataItem
+					let:hidden
 					rowHeight={36}
 					cols={columnConfiguration}
 					gap={[4, 2]}
@@ -131,7 +132,7 @@
 					>
 						<GridEditorMenu id={dataItem.id}>
 							<Component
-								currentGrid={$app.subgrids?.[subGridId] ?? []}
+								{hidden}
 								render={visible}
 								component={dataItem.data}
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}
@@ -172,6 +173,7 @@
 				allIdsInPath={$allIdsInPath}
 				items={$app.subgrids?.[subGridId] ?? []}
 				let:dataItem
+				let:hidden
 				rowHeight={36}
 				cols={columnConfiguration}
 				gap={[4, 2]}
@@ -179,6 +181,8 @@
 				{containerWidth}
 				{maxRow}
 			>
+				{maxRow}
+				{containerHeight}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
 					on:pointerdown|stopPropagation={(e) => selectComponent(e, dataItem.id)}
@@ -189,7 +193,7 @@
 						component={dataItem.data}
 						selected={Boolean($selectedComponent?.includes(dataItem.id))}
 						locked={isFixed(dataItem)}
-						currentGrid={$app.subgrids?.[subGridId] ?? []}
+						{hidden}
 					/>
 				</div>
 			</GridViewer>
