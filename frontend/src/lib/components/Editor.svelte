@@ -760,8 +760,6 @@
 				const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
 				if (scriptLang == 'bun') {
 					const processLib = { content: processStdContent, filePath: 'process.d.ts' }
-					console.log(processLib)
-
 					languages.typescript.typescriptDefaults.setExtraLibs([stdLib, processLib])
 				} else {
 					const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
