@@ -388,7 +388,8 @@
 				{@const data = 'table-row' in result ? result['table-row'] : result}
 				<AutoDataTable objects={arrayOfRowsToObjects(data)} />
 			{:else if !forceJson && resultKind == 'table-row-object'}
-				<AutoDataTable objects={handleArrayOfObjectsHeaders(result)} />
+				{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
+				<AutoDataTable objects={handleArrayOfObjectsHeaders(data)} />
 			{:else if !forceJson && resultKind == 'html'}
 				<div class="h-full">
 					{#if !requireHtmlApproval || enableHtml}
