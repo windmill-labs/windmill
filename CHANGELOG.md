@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.327.0](https://github.com/windmill-labs/windmill/compare/v1.326.1...v1.327.0) (2024-05-13)
+
+
+### Features
+
+* nativets can use the wmill library + setClient not required anymore ([#3714](https://github.com/windmill-labs/windmill/issues/3714)) ([8b21f08](https://github.com/windmill-labs/windmill/commit/8b21f0812c939542ed84863de029b60f94526417))
+
 ## [1.326.1](https://github.com/windmill-labs/windmill/compare/v1.326.0...v1.326.1) (2024-05-12)
 
 
