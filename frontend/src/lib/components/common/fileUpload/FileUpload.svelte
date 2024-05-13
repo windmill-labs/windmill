@@ -213,7 +213,7 @@
 	})
 </script>
 
-<div class="w-full h-full p-2 flex flex-col">
+<div class="w-full h-full p-0 flex flex-col">
 	{#if $fileUploads.length > 0 && !forceDisplayUploads}
 		<div class="border rounded-md flex flex-col gap-1 divide-y h-full w-full p-1">
 			<div class="flex h-full overflow-y-auto flex-col">

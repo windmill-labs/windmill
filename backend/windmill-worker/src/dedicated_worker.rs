@@ -16,7 +16,8 @@ use std::{collections::VecDeque, process::Stdio, sync::Arc};
 use anyhow::Context;
 
 use crate::{
-    common::start_child_process, JobCompleted, JobCompletedSender, MAX_BUFFERED_DEDICATED_JOBS,
+    common::{process_status, start_child_process},
+    JobCompleted, JobCompletedSender, MAX_BUFFERED_DEDICATED_JOBS,
 };
 
 use futures::{future, Future};
@@ -108,7 +109,11 @@ pub async fn handle_dedicated_process(
             .wait()
             .await
             .expect("child process encountered an error");
-        tracing::info!("child status was: {}", status);
+        if let Err(e) = process_status(status) {
+            tracing::error!("child exit status was not success: {e}");
+        } else {
+            tracing::info!("child exist status was success");
+        }
     });
 
     let mut jobs = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);

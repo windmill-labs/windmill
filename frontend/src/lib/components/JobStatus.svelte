@@ -41,7 +41,7 @@
 	</div>
 {:else if job && 'running' in job}
 	<div class="flex flex-row gap-1 items-center">
-		<Badge icon={{ icon: Clock, position: 'left' }}>Queued</Badge>
+		<Badge color="orange" icon={{ icon: Clock, position: 'left' }}>Queued</Badge>
 		<NoWorkerWithTagWarning tag={job.tag} />
 	</div>
 {:else}

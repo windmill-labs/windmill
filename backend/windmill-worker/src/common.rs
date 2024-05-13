@@ -26,7 +26,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
-use windmill_common::worker::{CLOUD_HOSTED, WORKER_CONFIG};
+use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -39,6 +39,7 @@ use windmill_queue::{append_logs, CanceledBy};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::process::ExitStatusExt;
 
+use std::process::ExitStatus;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::{
@@ -69,7 +70,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR, TMP_DIR,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
 };
 
 pub async fn build_args_map<'a>(
@@ -482,7 +483,7 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T>(
     result_f: Fut,
     worker_name: &str,
     w_id: &str,
-) -> anyhow::Result<T>
+) -> error::Result<T>
 where
     Fut: Future<Output = anyhow::Result<T>>,
 {
@@ -514,10 +515,20 @@ where
             tracing::error!("Query timeout: {}", e);
             Error::ExecutionErr(format!("Query timeout after (>{}s)", timeout_ms/1000))
         })?,
-        _ = update_job, if job_id != Uuid::nil() => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+        ex = update_job, if job_id != Uuid::nil() => {
+            match ex {
+                UpdateJobPollingExit::Done => Err(Error::ExecutionErr("Job cancelled".to_string())).map_err(to_anyhow)?,
+                UpdateJobPollingExit::AlreadyCompleted => Err(Error::AlreadyCompleted("Job already completed".to_string())).map_err(to_anyhow)?,
+            }
+        }
     }?;
     drop(tx);
     Ok(rows)
+}
+
+pub enum UpdateJobPollingExit {
+    Done,
+    AlreadyCompleted,
 }
 
 pub async fn update_job_poller<F, Fut>(
@@ -529,13 +540,14 @@ pub async fn update_job_poller<F, Fut>(
     worker_name: &str,
     w_id: &str,
     mut rx: broadcast::Receiver<()>,
-) where
+) -> UpdateJobPollingExit
+where
     F: Fn() -> Fut,
     Fut: Future<Output = i32>,
 {
     let update_job_interval = Duration::from_millis(500);
     if job_id == Uuid::nil() {
-        return;
+        return UpdateJobPollingExit::Done;
     }
     let db = db.clone();
 
@@ -556,7 +568,9 @@ pub async fn update_job_poller<F, Fut>(
                 i+=1;
                 if i % 10 == 0 {
                     sqlx::query!(
-                        "UPDATE worker_ping SET ping_at = now() WHERE worker = $1",
+                        "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2 WHERE worker = $3",
+                        &job_id,
+                        &w_id,
                         &worker_name
                     )
                     .execute(&db)
@@ -593,28 +607,36 @@ pub async fn update_job_poller<F, Fut>(
                     }
                 }
 
-                let (canceled, canceled_by, canceled_reason) = sqlx::query_as::<_, (bool, Option<String>, Option<String>)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason")
+                let (canceled, canceled_by, canceled_reason, already_completed) = sqlx::query_as::<_, (bool, Option<String>, Option<String>, bool)>("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled, canceled_by, canceled_reason, false")
                     .bind(*mem_peak)
                     .bind(job_id)
                     .fetch_optional(&db)
                     .await
                     .unwrap_or_else(|e| {
                         tracing::error!(%e, "error updating job {job_id}: {e}");
-                        Some((false, None, None))
+                        Some((false, None, None, false))
                     })
-                    .unwrap_or((false, None, None));
+                    .unwrap_or_else(|| {
+                        // if the job is not in queue, it can only be in the completed_job so it is already complete
+                        (false, None, None, true)
+                    });
+                if already_completed {
+                    return UpdateJobPollingExit::AlreadyCompleted
+                }
                 if canceled {
                     canceled_by_ref.replace(CanceledBy {
                         username: canceled_by.clone(),
                         reason: canceled_reason.clone(),
                     });
-                    break;
+                    break
                 }
             }
             },
         );
     }
     tracing::info!("job {job_id} finished");
+
+    UpdateJobPollingExit::Done
 }
 
 pub enum CompactLogs {
@@ -630,7 +652,7 @@ async fn compact_logs(
     nlogs: String,
     total_size: Arc<AtomicU32>,
     compact_kind: CompactLogs,
-    worker_name: &str,
+    _worker_name: &str,
 ) -> error::Result<(String, String)> {
     let size = sqlx::query_scalar!(
         "SELECT char_length(logs) FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
@@ -695,9 +717,9 @@ async fn compact_logs(
     );
 
     let mut new_current_logs = match compact_kind {
-        CompactLogs::NoS3 => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}, add object storage in the instance settings to save it on distributed storage and allow direct download from Windmill\n"),
+        CompactLogs::NoS3 => format!("[windmill] No object storage set in instance settings. Previous logs have been saved to disk at {path}\n"),
         CompactLogs::S3 => format!("[windmill] Previous logs have been saved to object storage at {path}\n"),
-        CompactLogs::NotEE => format!("[windmill] worker {worker_name}: Logs length has exceeded a threshold\n[windmill] Previous logs have been saved to disk at {path}\n[windmill] Upgrade to EE and add object storage to save it persistentely on distributed storage and allow direct download from Windmill\n"),
+        CompactLogs::NotEE => format!("[windmill] Previous logs have been saved to disk at {path}\n"),
     };
     new_current_logs.push_str(&current_logs);
 
@@ -897,6 +919,7 @@ pub async fn handle_child(
         TooManyLogs,
         Timeout,
         Cancelled,
+        AlreadyCompleted,
     }
 
     let (timeout_duration, timeout_warn_msg) =
@@ -914,7 +937,10 @@ pub async fn handle_child(
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout,
-            _ = update_job, if job_id != Uuid::nil() => KillReason::Cancelled,
+            ex = update_job, if job_id != Uuid::nil() => match ex {
+                UpdateJobPollingExit::Done => KillReason::Cancelled,
+                UpdateJobPollingExit::AlreadyCompleted => KillReason::AlreadyCompleted,
+            },
         };
         tx.send(()).expect("rx should never be dropped");
         drop(tx);
@@ -1120,26 +1146,7 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => {
-            if status.success() {
-                Ok(())
-            } else if let Some(code) = status.code() {
-                Err(error::Error::ExitStatus(code))
-            } else {
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                return Err(error::Error::ExecutionErr(format!(
-                    "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
-                    status.signal(),
-                    status.stopped_signal(),
-                    status.core_dumped()
-                )));
-
-                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-                return Err(error::Error::ExecutionErr(String::from(
-                    "process terminated by signal",
-                )));
-            }
-        }
+        Ok(Ok(status)) => process_status(status),
         Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
             "job process killed because {kill_reason:#?}"
         ))),
@@ -1147,6 +1154,26 @@ pub async fn handle_child(
     }
 }
 
+pub fn process_status(status: ExitStatus) -> error::Result<()> {
+    if status.success() {
+        Ok(())
+    } else if let Some(code) = status.code() {
+        Err(error::Error::ExitStatus(code))
+    } else {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        return Err(error::Error::ExecutionErr(format!(
+            "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
+            status.signal(),
+            status.stopped_signal(),
+            status.core_dumped()
+        )));
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        return Err(error::Error::ExecutionErr(String::from(
+            "process terminated by signal",
+        )));
+    }
+}
 pub async fn start_child_process(mut cmd: Command, executable: &str) -> Result<Child, Error> {
     return cmd
         .spawn()

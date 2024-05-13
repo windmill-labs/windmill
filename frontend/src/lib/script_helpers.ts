@@ -13,7 +13,8 @@ export {
 	PYTHON_FAILURE_MODULE_CODE
 }
 
-export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
+export const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
+//import * as wmill from './windmill.ts'
 
 export async function main(example_input: number = 3) {
   // "3" is the default value of example_input, it can be overriden with code or using the UI
@@ -24,7 +25,8 @@ export async function main(example_input: number = 3) {
 }
 `
 
-export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed but benefits from a dedicated highly efficient runtime
+export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
+//import * as wmill from './windmill.ts'
 
 export async function main() {
   const res = await fetch("https://jsonplaceholder.typicode.com/todos/1", {

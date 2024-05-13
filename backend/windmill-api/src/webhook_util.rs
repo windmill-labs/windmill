@@ -71,6 +71,7 @@ impl WebhookShared {
         let (tx, mut rx) = mpsc::unbounded_channel::<WebhookPayload>();
         let _process = tokio::spawn(async move {
             let client = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
                 // TODO: investigate pool timeouts and such if TCP load is high
                 .timeout(Duration::from_secs(5))
                 .build()

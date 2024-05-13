@@ -447,9 +447,17 @@
 			<h2 class="mt-8 mb-4">Others</h2>
 
 			{#if connectsManual && connectsManual?.length < 10}
-				<div class="text-tertiary p-2">
+				<div class="text-secondary p-2">
 					Resource Types have not been synced with the hub. Go to the admins workspace to sync them
-					(and add a schedule to do daily).
+					(and add a schedule to do daily):
+					<p class="mt-4"
+						>1. Go to the "admins" workspaces:
+						<img src="/sync_resource_types.png" alt="sync resource types" class="mt-2" />
+					</p>
+					<p class="mt-4">
+						2: Run the synchronization script:
+						<img src="/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
+					</p>
 				</div>
 			{/if}
 

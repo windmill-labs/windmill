@@ -304,7 +304,7 @@
 			>
 				{#if flow?.value?.priority != undefined}
 					<div class="hidden md:block">
-						<HeaderBadge color="red" variant="outlined" size="xs">
+						<HeaderBadge color="blue" variant="outlined" size="xs">
 							{`Priority: ${flow?.value?.priority}`}
 						</HeaderBadge>
 					</div>

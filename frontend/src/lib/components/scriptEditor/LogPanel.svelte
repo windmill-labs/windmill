@@ -28,7 +28,6 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-
 	export let lang: Preview['language'] | undefined
 	export let previewIsLoading = false
 	export let previewJob: Job | undefined
@@ -36,6 +35,7 @@
 	export let editor: Editor | undefined = undefined
 	export let diffEditor: DiffEditor | undefined = undefined
 	export let args: Record<string, any> | undefined = undefined
+	export let workspace: string | undefined = undefined
 
 	type DrawerContent = {
 		mode: 'json' | Preview['language'] | 'plain'
@@ -67,9 +67,7 @@
 
 <Drawer bind:open={drawerOpen} size="800px">
 	<DrawerContent title={drawerContent?.title} on:close={() => closeDrawer()}>
-		{#if drawerContent?.content == undefined}
-			<div class="p-2"> <Loader2 class="animate-spin" /> </div>
-		{:else if drawerContent?.mode === 'json'}
+		{#if drawerContent?.mode === 'json'}
 			<DisplayResult
 				workspaceId={previewJob?.workspace_id}
 				jobId={previewJob?.id}
@@ -80,7 +78,7 @@
 				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-surface shadow-inner p-2"
 				>{drawerContent?.content}
 			</pre>
-		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash' || drawerContent?.mode === 'nativets'}
+		{:else if drawerContent?.mode}
 			<HighlightCode language={drawerContent?.mode} code={drawerContent?.content} />
 		{/if}
 	</DrawerContent>
@@ -148,10 +146,12 @@
 										Test to see the result here
 									{/if}
 								</span>
-								<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering">
-									The result renderer in Windmill supports rich display rendering, allowing you to customize the display format of your results.
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+								>
+									The result renderer in Windmill supports rich display rendering, allowing you to
+									customize the display format of your results.
 								</Tooltip>
-
 							</div>
 						{/if}
 					</Pane>
@@ -175,8 +175,10 @@
 						{#each pastPreviews as { id, created_at, success }}
 							<tr>
 								<Cell first>
-									<a class="pr-3" href="/run/{id}?workspace={$workspaceStore}" target="_blank"
-										>{id.substring(30)}</a
+									<a
+										class="pr-3"
+										href="/run/{id}?workspace={workspace ?? $workspaceStore}"
+										target="_blank">{id.substring(30)}</a
 									>
 								</Cell>
 								<Cell>{displayDate(created_at)}</Cell>
@@ -193,7 +195,7 @@
 										on:click|preventDefault={() => {
 											openDrawer({ mode: 'json', content: undefined, title: 'Result' })
 											JobService.getCompletedJobResult({
-												workspace: $workspaceStore ?? 'NO_W',
+												workspace: workspace ?? $workspaceStore ?? 'NO_W',
 												id
 											}).then((res) => {
 												drawerContent && (drawerContent.content = res)
@@ -209,11 +211,10 @@
 										on:click|preventDefault={async () => {
 											const code = (
 												await JobService.getCompletedJob({
-													workspace: $workspaceStore ?? 'NO_W',
+													workspace: workspace ?? $workspaceStore ?? 'NO_W',
 													id
 												})
 											).raw_code
-
 											openDrawer({
 												mode: lang ?? 'plain',
 												content: String(code),
@@ -229,7 +230,9 @@
 										class="text-xs"
 										on:click|preventDefault={async () => {
 											const logs = await (
-												await fetch(OpenAPI.BASE + `/w/${$workspaceStore}/jobs_u/get_logs/${id}`)
+												await fetch(
+													OpenAPI.BASE + `/w/${workspace ?? $workspaceStore}/jobs_u/get_logs/${id}`
+												)
 											).text()
 											console.log(logs)
 											openDrawer({ mode: 'plain', content: String(logs), title: `Logs for ${id}` })

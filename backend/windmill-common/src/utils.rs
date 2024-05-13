@@ -6,7 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::ee::{trigger_critical_error_channels, LICENSE_KEY_ID};
+#[cfg(feature = "enterprise")]
+use crate::ee::trigger_critical_error_channels;
+use crate::ee::LICENSE_KEY_ID;
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::server::Smtp;
@@ -233,5 +235,6 @@ pub async fn send_email(
 
 pub async fn report_critical_error(error_message: String) -> () {
     tracing::error!("CRITICAL ERROR: {error_message}");
+    #[cfg(feature = "enterprise")]
     trigger_critical_error_channels(error_message).await;
 }
