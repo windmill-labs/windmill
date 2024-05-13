@@ -42,7 +42,7 @@
 		| 'json'
 		| 'table-col'
 		| 'table-row'
-		| 'table-cell'
+		| 'table-row-object'
 		| 'html'
 		| 'png'
 		| 'file'
@@ -119,8 +119,8 @@
 						return 'table-row'
 					} else if (keys.length == 1 && keys[0] == 'table-col') {
 						return 'table-col'
-					} else if (keys.length == 1 && keys[0] == 'table-cell') {
-						return 'table-cell'
+					} else if (keys.length == 1 && keys[0] == 'table-row-object') {
+						return 'table-row-object'
 					} else if (keys.length == 1 && keys[0] == 'html') {
 						return 'html'
 					} else if (keys.length == 1 && keys[0] == 'map') {
@@ -165,7 +165,7 @@
 					} else if (isObjectOfArrays(result, keys)) {
 						return 'table-col'
 					} else if (isArrayOfObjects(result)) {
-						return 'table-cell'
+						return 'table-row-object'
 					}
 				}
 			} catch (err) {}
@@ -214,7 +214,7 @@
 		)
 	}
 
-	function handleTableCellHeaders(json: any) {
+	function handleArrayOfObjectsHeaders(json: any) {
 		// handle possible a first row of headers
 		if (
 			Array.isArray(json) &&
@@ -350,7 +350,7 @@
 								forceJson = ev.detail === 'json'
 							}}
 						>
-							{#if ['table-col', 'table-row', 'table-cell'].includes(resultKind ?? '')}
+							{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
 								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
 							{:else}
 								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
@@ -387,8 +387,8 @@
 			{:else if !forceJson && resultKind == 'table-row'}
 				{@const data = 'table-row' in result ? result['table-row'] : result}
 				<AutoDataTable objects={arrayOfRowsToObjects(data)} />
-			{:else if !forceJson && resultKind == 'table-cell'}
-				<AutoDataTable objects={handleTableCellHeaders(result)} />
+			{:else if !forceJson && resultKind == 'table-row-object'}
+				<AutoDataTable objects={handleArrayOfObjectsHeaders(result)} />
 			{:else if !forceJson && resultKind == 'html'}
 				<div class="h-full">
 					{#if !requireHtmlApproval || enableHtml}
