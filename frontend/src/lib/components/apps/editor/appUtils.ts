@@ -980,13 +980,14 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 export function maxHeight(
 	grid: GridItem[],
 	windowHeight: number,
-	breakpoint: EditorBreakpoint = 'lg'
+	breakpoint: EditorBreakpoint = 'lg',
+	subGrids: Record<string, GridItem[]> | undefined = undefined
 ) {
 	const rowHeight = 36
 	const rowGap = 2
 
 	const totalRowHeight = rowHeight + rowGap
-	const maxRows = Math.floor((windowHeight + rowGap) / totalRowHeight)
+	let maxRows = Math.floor((windowHeight - rowGap) / totalRowHeight)
 
 	if (!grid.length) {
 		return maxRows

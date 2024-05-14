@@ -269,6 +269,7 @@ export type AppViewerContext = {
 	cssEditorOpen: Writable<boolean>
 	previewTheme: Writable<string | undefined>
 	debuggingComponents: Writable<Record<string, number>>
+	subGridMaxRows: Writable<Record<string, number>>
 }
 
 export type AppEditorContext = {

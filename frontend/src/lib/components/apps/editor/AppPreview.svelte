@@ -69,6 +69,7 @@
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
 	const state = writable({})
+	const subGridMaxRows = writable({})
 
 	let parentContext = getContext<AppViewerContext>('AppViewerContext')
 
@@ -103,7 +104,8 @@
 		darkMode,
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
-		debuggingComponents: writable({})
+		debuggingComponents: writable({}),
+		subGridMaxRows
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -162,8 +164,7 @@
 		}
 	}
 
-	$: maxRow = maxHeight($appStore.grid, window.innerHeight, $breakpoint)
-	$: console.log(maxRow)
+	$: maxRow = maxHeight($appStore.grid, window.innerHeight, $breakpoint, $appStore.subgrids)
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -204,7 +205,7 @@
 			class={twMerge(
 				'p-2 overflow-visible',
 				app.css?.['app']?.['grid']?.class ?? '',
-				'wm-app-grid  subgrid'
+				'wm-app-grid subgrid'
 			)}
 			bind:clientWidth={$parentWidth}
 		>
@@ -239,6 +240,7 @@
 
 	{#if isLocked}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			on:click={() => (isLocked = false)}
 			class="absolute inset-0 center-center bg-black/20 z-50 backdrop-blur-[1px] cursor-pointer"

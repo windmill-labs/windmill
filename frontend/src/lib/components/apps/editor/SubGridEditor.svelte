@@ -68,8 +68,6 @@
 	let container: HTMLElement | undefined = undefined
 
 	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
-	$: console.log(id, maxRow, containerHeight)
-	let elem = findGridItem($app, id)
 </script>
 
 <div
@@ -86,11 +84,7 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		style="{containerHeight
-			? `${elem?.data.fullHeight && $mode === 'preview' ? 'min-height' : 'height'}: ${
-					containerHeight - 2
-			  }px;`
-			: ''} {style ?? ''}"
+		style="{containerHeight ? `height: ${containerHeight}px;` : ''} {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
 			<div
@@ -181,8 +175,6 @@
 				{containerWidth}
 				{maxRow}
 			>
-				{maxRow}
-				{containerHeight}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
 					on:pointerdown|stopPropagation={(e) => selectComponent(e, dataItem.id)}

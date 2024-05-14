@@ -156,6 +156,7 @@
 		cssEditorOpen,
 		previewTheme,
 		debuggingComponents: writable({}),
+		subGridMaxRows: writable({})
 	})
 
 	let scale = writable(100)
