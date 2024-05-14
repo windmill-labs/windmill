@@ -74,7 +74,7 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
     add_completed_job_error, append_logs, get_queued_job, get_result_by_id_from_running_flow,
-    job_is_complete, push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel, RE_ARG_TAG,
+    job_is_complete, push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -875,7 +875,7 @@ impl RunJobQuery {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct ListQueueQuery {
     pub script_path_start: Option<String>,
     pub script_path_exact: Option<String>,
@@ -903,13 +903,7 @@ pub struct ListQueueQuery {
     pub is_not_schedule: Option<bool>,
 }
 
-fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
-    let mut sqlb = SqlBuilder::select_from("queue")
-        .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .limit(1000)
-        .clone();
-
+pub fn filter_list_queue_query(mut sqlb: SqlBuilder, lq: &ListQueueQuery, w_id: &str) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -1010,6 +1004,17 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
 
     sqlb
+
+}
+
+pub fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
+    let sqlb = SqlBuilder::select_from("queue")
+        .fields(fields)
+        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .limit(1000)
+        .clone();
+
+    filter_list_queue_query(sqlb, lq, w_id)
 }
 
 #[derive(Serialize, FromRow)]
@@ -3890,20 +3895,7 @@ async fn get_job_update(
     }
 }
 
-fn list_completed_jobs_query(
-    w_id: &str,
-    per_page: usize,
-    offset: usize,
-    lq: &ListCompletedQuery,
-    fields: &[&str],
-) -> SqlBuilder {
-    let mut sqlb = SqlBuilder::select_from("completed_job")
-        .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
-
+pub fn filter_list_completed_query(mut sqlb: SqlBuilder, lq: &ListCompletedQuery, w_id: &str) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -3997,6 +3989,23 @@ fn list_completed_jobs_query(
     }
 
     sqlb
+}
+
+pub fn list_completed_jobs_query(
+    w_id: &str,
+    per_page: usize,
+    offset: usize,
+    lq: &ListCompletedQuery,
+    fields: &[&str],
+) -> SqlBuilder {
+    let sqlb = SqlBuilder::select_from("completed_job")
+        .fields(fields)
+        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .offset(offset)
+        .limit(per_page)
+        .clone();
+
+    filter_list_completed_query(sqlb, lq, w_id)
 }
 #[derive(Deserialize, Clone)]
 pub struct ListCompletedQuery {

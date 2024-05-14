@@ -137,13 +137,33 @@
 	async function fetchConcurrencyIntervals(
 		concurrencyKey: string | null,
 		startedBefore: string | undefined,
-		endedAfter: string | undefined
+		startedAfter: string | undefined
 	): Promise<ConcurrencyIntervals> {
-		//TODO: Add date filters to the backend to use the unused vars in here
 		return ConcurrencyGroupsService.getConcurrencyIntervals({
 			rowLimit: 1000,
 			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			createdOrStartedBefore: startedBefore,
+			createdOrStartedAfter: startedAfter,
+			schedulePath,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			jobKinds,
+			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			running: success == 'running' ? true : undefined,
+			isSkipped: isSkipped ? undefined : false,
+			isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			label: label === null || label === '' ? undefined : label,
+			isNotSchedule: showSchedules == false ? true : undefined,
+			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined,
+			allWorkspaces: allWorkspaces ? true : undefined
 		})
 	}
 
