@@ -39,6 +39,7 @@ pub enum ScriptLang {
     Snowflake,
     Graphql,
     Mssql,
+    Php,
 }
 
 impl ScriptLang {
@@ -57,6 +58,7 @@ impl ScriptLang {
             ScriptLang::Snowflake => "snowflake",
             ScriptLang::Mssql => "mssql",
             ScriptLang::Graphql => "graphql",
+            ScriptLang::Php => "php",
         }
     }
 }

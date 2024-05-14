@@ -107,6 +107,7 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
+windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
 axum = { version = "^0.7", features = ["multipart"] } 
@@ -139,6 +140,7 @@ rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
 rustpython-parser = { git = "https://github.com/RustPython/Parser", rev = "9ce55aefdeb35e2f706ce0b02d5a2dfe6295fc57" }
+php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb411dec09450946ef57920b7ffced7f6495d" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"

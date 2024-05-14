@@ -18,6 +18,7 @@ mod graphql_executor;
 mod js_eval;
 mod mysql_executor;
 mod pg_executor;
+mod php_executor;
 mod python_executor;
 mod worker;
 mod worker_flow;

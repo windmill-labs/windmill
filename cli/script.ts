@@ -671,17 +671,24 @@ async function bootstrap(
 export type GlobalDeps = {
   pkgs: Record<string, string>;
   reqs: Record<string, string>;
+  composers: Record<string, string>;
 };
 export async function findGlobalDeps(
   codebases: SyncCodebase[]
 ): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
+  const composers: { [key: string]: string } = {};
   const els = await FSFSElement(Deno.cwd(), codebases);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
     p = "/" + p;
     return (
-      !isDir && !(p.endsWith("/package.json") || p.endsWith("requirements.txt"))
+      !isDir &&
+      !(
+        p.endsWith("/package.json") ||
+        p.endsWith("requirements.txt") ||
+        p.endsWith("composer.json")
+      )
     );
   }, els)) {
     if (entry.isDirectory || entry.ignored) continue;
@@ -690,9 +697,11 @@ export async function findGlobalDeps(
       pkgs[entry.path.substring(0, entry.path.length - 12)] = content;
     } else if (entry.path.endsWith("requirements.txt")) {
       reqs[entry.path.substring(0, entry.path.length - 16)] = content;
+    } else if (entry.path.endsWith("composer.json")) {
+      composers[entry.path.substring(0, entry.path.length - 13)] = content;
     }
   }
-  return { pkgs, reqs };
+  return { pkgs, reqs, composers };
 }
 async function generateMetadata(
   opts: GlobalOptions & {

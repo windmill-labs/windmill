@@ -22,6 +22,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/php/php.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 
@@ -84,6 +85,7 @@
 		| 'sql'
 		| 'graphql'
 		| 'powershell'
+		| 'php'
 		| 'css'
 		| 'javascript'
 	export let code: string = ''
@@ -163,6 +165,12 @@
 			if (pos) {
 				editor.setPosition({ lineNumber: pos.lineNumber + 1, column: pos.column })
 			}
+		}
+	}
+
+	export function backspace(): void {
+		if (editor) {
+			editor.trigger('keyboard', 'deleteLeft', {})
 		}
 	}
 

@@ -28,6 +28,8 @@ export function scriptLangToEditorLang(lang: Script['language'] | undefined) {
 		return 'shell'
 	} else if (lang == 'powershell') {
 		return 'powershell'
+	} else if (lang == 'php') {
+		return 'php'
 	} else if (lang == 'graphql') {
 		return 'graphql'
 	} else if (lang == undefined) {
@@ -103,6 +105,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker', string][] = [
 	['mssql', 'MS SQL Server'],
 	['graphql', 'GraphQL'],
 	['powershell', 'PowerShell'],
+	['php', 'PHP'],
 	['docker', 'Docker']
 ]
 export const defaultScriptLanguages = Object.fromEntries(scriptLanguagesArray)
