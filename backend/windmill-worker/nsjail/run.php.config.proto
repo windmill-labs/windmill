@@ -99,6 +99,28 @@ mount {
     rw: true
     is_bind: true
 }
+
+mount {
+    src: "{JOB_DIR}/composer.json"
+    dst: "/tmp/composer.json"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "{JOB_DIR}/composer.lock"
+    dst: "/tmp/composer.lock"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "{JOB_DIR}/vendor"
+    dst: "/tmp/vendor"
+    is_bind: true
+    mandatory: false
+}
+
 iface_no_lo: true
 
 mount {
