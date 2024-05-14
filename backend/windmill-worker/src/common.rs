@@ -654,15 +654,6 @@ async fn compact_logs(
     compact_kind: CompactLogs,
     _worker_name: &str,
 ) -> error::Result<(String, String)> {
-    let size = sqlx::query_scalar!(
-        "SELECT char_length(logs) FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
-        job_id,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .unwrap_or(0);
     let mut prev_logs = sqlx::query_scalar!(
         "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
         job_id,
@@ -672,39 +663,58 @@ async fn compact_logs(
     .await?
     .flatten()
     .unwrap_or_default();
+    let size = prev_logs.char_indices().count() as i32;
     let nlogs_len = nlogs.char_indices().count();
-    let modulo = nlogs_len % LARGE_LOG_THRESHOLD_SIZE;
-    let extra_split = modulo < nlogs_len;
-    let excess_size_modulo = if extra_split { nlogs_len - modulo } else { 0 };
-    let excess_size = excess_size_modulo
-        + nlogs
-            .chars()
-            .skip(excess_size_modulo)
-            .find_position(|x| x.is_line_break())
-            .map(|(i, _)| i + 1)
-            .unwrap_or(0);
+    let to_keep_in_db = usize::max(
+        usize::min(nlogs_len, 3000),
+        nlogs_len % LARGE_LOG_THRESHOLD_SIZE,
+    );
+    let extra_split = to_keep_in_db < nlogs_len;
+    let stored_in_storage_len = if extra_split {
+        nlogs_len - to_keep_in_db
+    } else {
+        0
+    };
+    let extra_to_newline = nlogs
+        .chars()
+        .skip(stored_in_storage_len)
+        .find_position(|x| x.is_line_break())
+        .map(|(i, _)| i)
+        .unwrap_or(to_keep_in_db);
+    let stored_in_storage_to_newline = stored_in_storage_len + extra_to_newline;
 
-    let (excess_prev_logs, current_logs) = if extra_split {
-        let split_idx = nlogs
-            .char_indices()
-            .nth(excess_size)
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        let (excess_prev_logs, current_logs) = nlogs.split_at(split_idx);
-        // tracing::error!(
-        //     "{:?} {:?} {} {}",
-        //     excess_prev_logs.lines().last(),
-        //     current_logs.lines().next(),
-        //     split_idx,
-        //     excess_size_modulo
-        // );
-        (excess_prev_logs, current_logs.to_string())
+    tracing::error!(
+        "nlog_len: {nlogs_len}, modulo: {to_keep_in_db}, stored_in_storage_len: {stored_in_storage_len}, extra_to_newline: {extra_to_newline}, extra_split: {extra_split}, {}",
+        nlogs
+        .chars()
+        .skip(stored_in_storage_len).collect::<String>());
+
+    let (append_to_storage, stored_in_db) = if extra_split {
+        if stored_in_storage_to_newline == nlogs.len() {
+            (nlogs.as_ref(), "".to_string())
+        } else {
+            let split_idx = nlogs
+                .char_indices()
+                .nth(stored_in_storage_to_newline)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let (append_to_storage, stored_in_db) = nlogs.split_at(split_idx);
+            // tracing::error!("{append_to_storage} ||||| {stored_in_db}");
+            // tracing::error!(
+            //     "{:?} {:?} {} {}",
+            //     excess_prev_logs.lines().last(),
+            //     current_logs.lines().next(),
+            //     split_idx,
+            //     excess_size_modulo
+            // );
+            (append_to_storage, stored_in_db.to_string())
+        }
     } else {
         // tracing::error!("{:?}", nlogs.lines().last());
         ("", nlogs.to_string())
     };
 
-    let new_size_with_excess = size + excess_size as i32;
+    let new_size_with_excess = size + stored_in_storage_to_newline as i32;
 
     let new_size = total_size.fetch_add(
         new_size_with_excess as u32,
@@ -717,11 +727,11 @@ async fn compact_logs(
     );
 
     let mut new_current_logs = match compact_kind {
-        CompactLogs::NoS3 => format!("[windmill] No object storage set in instance settings. Previous logs have been saved to disk at {path}\n"),
-        CompactLogs::S3 => format!("[windmill] Previous logs have been saved to object storage at {path}\n"),
-        CompactLogs::NotEE => format!("[windmill] Previous logs have been saved to disk at {path}\n"),
+        CompactLogs::NoS3 => format!("\n[windmill] No object storage set in instance settings. Previous logs have been saved to disk at {path}"),
+        CompactLogs::S3 => format!("\n[windmill] Previous logs have been saved to object storage at {path}"),
+        CompactLogs::NotEE => format!("\n[windmill] Previous logs have been saved to disk at {path}"),
     };
-    new_current_logs.push_str(&current_logs);
+    new_current_logs.push_str(&stored_in_db);
 
     sqlx::query!(
         "UPDATE job_logs SET logs = $1, log_offset = $2, 
@@ -735,7 +745,7 @@ async fn compact_logs(
     )
     .execute(db)
     .await?;
-    prev_logs.push_str(&excess_prev_logs);
+    prev_logs.push_str(&append_to_storage);
 
     return Ok((prev_logs, path));
 }
@@ -852,7 +862,7 @@ async fn append_job_logs(
     }
 }
 
-pub const LARGE_LOG_THRESHOLD_SIZE: usize = 5000;
+pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
