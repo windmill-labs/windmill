@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.328.0](https://github.com/windmill-labs/windmill/compare/v1.327.0...v1.328.0) (2024-05-13)
+
+
+### Features
+
+* **frontend:** allows to specify column order for rich display ([#3709](https://github.com/windmill-labs/windmill/issues/3709)) ([c883db3](https://github.com/windmill-labs/windmill/commit/c883db310195a37c61937c4e2808c45dd7798afd))
+
+
+### Bug Fixes
+
+* fix edit button on script row ([e21ac60](https://github.com/windmill-labs/windmill/commit/e21ac60547f09e892b6c02ba322b41be6a67755d))
+* **frontend:** fix slider component styling ([#3720](https://github.com/windmill-labs/windmill/issues/3720)) ([ef0eba7](https://github.com/windmill-labs/windmill/commit/ef0eba7c335e57da9eb72fca6016f1efbf3c36c3))
+
 ## [1.327.0](https://github.com/windmill-labs/windmill/compare/v1.326.1...v1.327.0) (2024-05-13)
 
 
