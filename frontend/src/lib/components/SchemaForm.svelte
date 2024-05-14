@@ -158,6 +158,7 @@
 								{showSchemaExplorer}
 								simpleTooltip={schemaFieldTooltip[argName]}
 								{onlyMaskPassword}
+								nullable={schema.properties[argName].nullable}
 							>
 								<svelte:fragment slot="actions">
 									{#if linkedSecretCandidates?.includes(argName)}

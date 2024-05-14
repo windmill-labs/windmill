@@ -72,6 +72,7 @@
 	export let simpleTooltip: string | undefined = undefined
 	export let customErrorMessage: string | undefined = undefined
 	export let onlyMaskPassword = false
+	export let nullable: boolean = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -98,7 +99,7 @@
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					value = ''
+					value = nullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
 					value = enum_?.[0]
 				} else if (inputCat == 'boolean') {
@@ -157,7 +158,9 @@
 	}
 
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
-		if (required && (v == undefined || v == null || v === '')) {
+		if (nullable && emptyString(v)) {
+			value = null
+		} else if (required && (v == undefined || v == null || v === '')) {
 			error = 'Required'
 			valid && (valid = false)
 		} else {

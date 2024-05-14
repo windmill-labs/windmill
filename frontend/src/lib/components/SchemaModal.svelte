@@ -60,7 +60,8 @@
 					  }
 					: undefined,
 			showExpr: schema.showExpr,
-			password: schema.password
+			password: schema.password,
+			nullable: schema.nullable
 		}
 	}
 
@@ -134,6 +135,7 @@
 		property.items = undefined
 		property.showExpr = undefined
 		property.password = undefined
+		property.nullable = false
 		drawer.closeDrawer()
 	}
 
@@ -260,12 +262,12 @@
 						format={property.format}
 						extra={property}
 						disabled={property.password}
+						nullable={property.nullable}
 					/>
-					<Toggle
-						options={{ right: 'Required' }}
-						class="!justify-start"
-						bind:checked={property.required}
-					/>
+					<div>
+						<Toggle options={{ right: 'Required' }} size="xs" bind:checked={property.required} />
+						<Toggle options={{ right: 'Nullable' }} size="xs" bind:checked={property.nullable} />
+					</div>
 				</div>
 				{#if isFlowInput}
 					<Alert type="info" title="Default not used by webhooks" size="xs" collapsible>
