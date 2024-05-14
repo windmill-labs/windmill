@@ -57,9 +57,8 @@
 		if (prefixIndex == undefined) {
 			return undefined
 		}
-		console.log(truncateContent, prefixIndex, truncateContent.substring(2).indexOf('\n') + 2)
 		const end = truncateContent.substring(1).indexOf('\n')
-		return prefixIndex && truncateContent
+		return prefixIndex != undefined && truncateContent
 			? truncateContent.substring(
 					s3LogPrefixes[prefixIndex]?.length,
 					end == -1 ? undefined : end + 1
@@ -103,7 +102,7 @@
 	$: truncatedContent && scrollToBottom()
 
 	$: html = ansi_up.ansi_to_html(
-		downloadStartUrl && prefixIndex
+		downloadStartUrl && prefixIndex != undefined
 			? truncatedContent.substring(
 					truncatedContent.substring(1).indexOf('\n') + 2,
 					truncatedContent.length
