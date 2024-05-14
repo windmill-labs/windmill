@@ -136,7 +136,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href={'/scripts/edit/{script.path}'}
+							href="/scripts/edit/{script.path}"
 						>
 							Edit
 						</Button>

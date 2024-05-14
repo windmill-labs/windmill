@@ -86,8 +86,8 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/loader.bun.ts"
-    dst: "/tmp/{LANG}/loader.bun.ts"
+    src: "{JOB_DIR}/loader.bun.js"
+    dst: "/tmp/{LANG}/loader.bun.js"
     is_bind: true
     mandatory: false
 }
