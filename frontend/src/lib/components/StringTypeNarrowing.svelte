@@ -3,6 +3,7 @@
 	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
 	import Alert from './common/alert/Alert.svelte'
 	import ClearableInput from './common/clearableInput/ClearableInput.svelte'
@@ -214,7 +215,13 @@
 		<div class="mt-1" />
 
 		<div class="grid grid-cols-3 gap-2">
-			<Label label="Date format" class="col-span-2">
+			<Label label="Date format passed to script" class="col-span-2">
+				<svelte:fragment slot="header">
+					<Tooltip light>
+						Setting the date output format will allow you to specify how the date will be passed to
+						the script.
+					</Tooltip>
+				</svelte:fragment>
 				<ClearableInput type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
 			</Label>
 			<Label label="Presets">
