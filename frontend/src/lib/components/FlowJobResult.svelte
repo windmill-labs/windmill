@@ -4,6 +4,11 @@
 	import LogViewer from './LogViewer.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import { Drawer } from './common'
+	import AllFlowLogs from './AllFlowLogs.svelte'
+	import type { DurationStatus } from './graph'
+	import type { Writable } from 'svelte/store'
 
 	export let result: any
 	export let logs: string | undefined
@@ -14,8 +19,10 @@
 	export let jobId: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let refreshLog: boolean = false
+	export let durationStates: Writable<Record<string, DurationStatus>> | undefined
 
 	let lastJobId: string | undefined = undefined
+	let drawer: Drawer | undefined = undefined
 
 	$: jobId != lastJobId && diffJobId()
 
@@ -50,6 +57,11 @@
 	}
 </script>
 
+<Drawer bind:this={drawer}>
+	<DrawerContent title="Explore all steps' logs" on:close={drawer.closeDrawer}
+		><AllFlowLogs states={durationStates} /></DrawerContent
+	>
+</Drawer>
 <div
 	class:border={!noBorder}
 	class="grid {!col
@@ -67,6 +79,9 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} h-full relative">
+		<div class="absolute z-40 text-sm top-1.5 left-2"
+			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
+		>
 		<LogViewer content={logs ?? ''} {jobId} isLoading={false} tag={undefined} />
 	</div>
 </div>

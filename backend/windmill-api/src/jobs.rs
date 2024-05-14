@@ -732,10 +732,18 @@ async fn get_logs_from_disk(
     return None;
 }
 
+fn content_plain(body: Body) -> Response {
+    use axum::http::header;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap()
+}
+
 async fn get_job_logs(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::Result<Body> {
+) -> error::Result<Response> {
     let record = sqlx::query!(
         "SELECT CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
         FROM completed_job 
@@ -752,13 +760,13 @@ async fn get_job_logs(
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
         {
-            return r;
+            return r.map(content_plain);
         }
         if let Some(r) = get_logs_from_disk(record.log_offset, &logs, &record.log_file_index).await
         {
-            return r;
+            return r.map(content_plain);
         }
-        Ok(Body::from(logs))
+        Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
             "SELECT CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
@@ -775,12 +783,12 @@ async fn get_job_logs(
         let logs = text.logs.unwrap_or_default();
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) = get_logs_from_store(text.log_offset, &logs, &text.log_file_index).await {
-            return r;
+            return r.map(content_plain);
         }
         if let Some(r) = get_logs_from_disk(text.log_offset, &logs, &text.log_file_index).await {
-            return r;
+            return r.map(content_plain);
         }
-        Ok(Body::from(logs))
+        Ok(content_plain(Body::from(logs)))
     }
 }
 
