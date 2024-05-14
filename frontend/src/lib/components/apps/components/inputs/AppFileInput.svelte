@@ -46,6 +46,8 @@
 			fileInput?.clearFiles()
 		}
 	}
+
+	let files: File[] | undefined = undefined
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -90,6 +92,7 @@
 			class={twMerge('w-full h-full', css?.container?.class, 'wm-file-input')}
 			style={css?.container?.style}
 			submittedText={submittedFileText}
+			bind:files
 		>
 			{text}
 		</FileInput>
