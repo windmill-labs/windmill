@@ -1031,7 +1031,8 @@ struct ListableQueuedJob {
 }
 
 async fn list_queue_jobs(
-    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(lq): Query<ListQueueQuery>,
 ) -> error::JsonResult<Vec<ListableQueuedJob>> {
@@ -1061,9 +1062,11 @@ async fn list_queue_jobs(
         ],
     )
     .sql()?;
+    let mut tx = user_db.begin(&authed).await?;
     let jobs = sqlx::query_as::<_, ListableQueuedJob>(&sql)
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(Json(jobs))
 }
 
@@ -3954,7 +3957,7 @@ pub struct ListCompletedQuery {
 
 async fn list_completed_jobs(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
@@ -4002,9 +4005,11 @@ async fn list_completed_jobs(
         ],
     )
     .sql()?;
+    let mut tx = user_db.begin(&authed).await?;
     let jobs = sqlx::query_as::<_, ListableCompletedJob>(&sql)
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(Json(jobs))
 }
 
