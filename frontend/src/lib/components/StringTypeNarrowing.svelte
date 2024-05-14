@@ -1,9 +1,12 @@
 <script lang="ts">
+	import Label from './Label.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
 	import Alert from './common/alert/Alert.svelte'
+	import ClearableInput from './common/clearableInput/ClearableInput.svelte'
 	import RegexGen from './copilot/RegexGen.svelte'
 
 	export let pattern: string | undefined
@@ -16,6 +19,7 @@
 	export let disableVariablePicker: boolean | undefined = false
 	export let password: boolean = false
 	export let noExtra = false
+	export let dateFormat: string | undefined
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
 	let patternStr: string = pattern ?? ''
@@ -30,7 +34,8 @@
 		'yaml',
 		'sql',
 		// 'time',
-		'date-time'
+		'date-time',
+		'date'
 		// 'duration',
 		// 'ipv6',
 		// 'jsonpointer',
@@ -77,6 +82,11 @@
 		}
 		return 'none'
 	}
+	const presetOptions = [
+		{ label: 'ISO Format', format: 'yyyy-MM-dd' },
+		{ label: 'US Format', format: 'MM/dd/yyyy' },
+		{ label: 'EU Format', format: 'dd/MM/yyyy' }
+	]
 </script>
 
 <RadioButton
@@ -200,6 +210,32 @@
 			<option value={f}>{f}</option>
 		{/each}
 	</select>
+
+	{#if format == 'date'}
+		<div class="mt-1" />
+
+		<div class="grid grid-cols-3 gap-2">
+			<Label label="Date format passed to script" class="col-span-2">
+				<svelte:fragment slot="header">
+					<Tooltip light>
+						Setting the date output format will allow you to specify how the date will be passed to
+						the script.
+					</Tooltip>
+				</svelte:fragment>
+				<ClearableInput type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
+			</Label>
+			<Label label="Presets">
+				<select
+					bind:value={dateFormat}
+					disabled={dateFormat ? !presetOptions.map((f) => f.format).includes(dateFormat) : false}
+				>
+					{#each presetOptions as f}
+						<option value={f.format}>{f.label}</option>
+					{/each}
+				</select>
+			</Label>
+		</div>
+	{/if}
 {:else if kind == 'none'}
 	{#if !noExtra}
 		<label

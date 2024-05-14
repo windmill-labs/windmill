@@ -23,6 +23,7 @@
 	import ArgEnum from './ArgEnum.svelte'
 	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import DateInput from './DateInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
@@ -290,6 +291,7 @@
 									bind:minRows={extra['minRows']}
 									bind:disableCreate={extra['disableCreate']}
 									bind:disableVariablePicker={extra['disableVariablePicker']}
+									bind:dateFormat={extra['dateFormat']}
 								/>
 							{:else if type == 'number' || type == 'integer'}
 								<NumberTypeNarrowing
@@ -312,6 +314,7 @@
 				<pre class="font-main whitespace-normal">{description}</pre>
 			</div>
 		{/if}
+
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				{#if extra['min'] != undefined && extra['max'] != undefined}
@@ -599,7 +602,11 @@
 					/>
 				</div>
 			{:else if inputCat == 'date'}
-				<DateTimeInput useDropdown {autofocus} bind:value />
+				{#if format === 'date'}
+					<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+				{:else}
+					<DateTimeInput useDropdown {autofocus} bind:value />
+				{/if}
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
 				<div class="border my-1 mb-4 w-full border-primary">
 					<SimpleEditor
