@@ -91,8 +91,6 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	customCss?: Record<string, ComponentCssProperty>
 	// Number of subgrids
 	numberOfSubgrids?: number
-	fullHeight?: boolean
-	fullHeightMobile?: boolean
 }
 
 export type ComponentSet = {

@@ -229,6 +229,7 @@
 							component={dataItem.data}
 							selected={false}
 							locked={true}
+							fullHeight={dataItem?.[$breakpoint]?.fullHeight}
 							{hidden}
 						/>
 					</div>

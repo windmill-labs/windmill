@@ -246,7 +246,8 @@ export function createNewGridItem(
 	const newComponent = {
 		fixed: false,
 		x: 0,
-		y: 0
+		y: 0,
+		fullHeight: false
 	}
 
 	let newData: AppComponent = JSON.parse(JSON.stringify(data))
@@ -363,8 +364,6 @@ export function appComponentFromType<T extends keyof typeof components>(
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: init.horizontalAlignment,
 			verticalAlignment: init.verticalAlignment,
-			fullHeight: init.fullHeight,
-			fullHeightMobile: init.fullHeightMobile,
 			id,
 			...(extra ?? {})
 		}
@@ -442,8 +441,6 @@ export function copyComponent(
 	const newItem = insertNewGridItem(
 		app,
 		(id) => {
-			item.data.fullHeight = false
-			item.data.fullHeightMobile = false
 			if (item.data.type === 'tablecomponent') {
 				return {
 					...item.data,

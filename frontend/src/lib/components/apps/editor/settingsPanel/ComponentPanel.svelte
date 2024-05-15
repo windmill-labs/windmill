@@ -445,8 +445,8 @@
 				</div>
 
 				<Toggle
-					bind:checked={componentSettings.item.data.fullHeight}
-					size="xs"
+				bind:checked={componentSettings.item['lg'].fullHeight}
+				size="xs"
 					options={{
 						right: 'Desktop full height',
 						rightTooltip:
@@ -455,7 +455,7 @@
 				/>
 
 				<Toggle
-					bind:checked={componentSettings.item.data.fullHeightMobile}
+					bind:checked={componentSettings.item['sm'].fullHeight}
 					size="xs"
 					options={{
 						right: 'Mobile full height',

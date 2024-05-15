@@ -81,6 +81,7 @@
 	export let locked: boolean = false
 	export let render: boolean
 	export let hidden: boolean
+	export let fullHeight: boolean
 
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -132,6 +133,7 @@
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}
+			{fullHeight}
 			connecting={$connectingInput.opened}
 			on:lock
 			on:expand

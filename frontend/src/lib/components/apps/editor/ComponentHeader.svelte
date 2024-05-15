@@ -21,6 +21,7 @@
 	export let hasInlineEditor: boolean = false
 	export let inlineEditorOpened: boolean = false
 	export let errorHandledByComponent: boolean = false
+	export let fullHeight: boolean = false
 	//export let willNotDisplay: boolean = false
 
 	const dispatch = createEventDispatcher()
@@ -146,7 +147,7 @@
 			<ArrowDownFromLine
 				aria-label="Expand position"
 				size={14}
-				class={component.fullHeight ? 'text-orange-500' : ''}
+				class={fullHeight ? 'text-orange-500' : ''}
 			/>
 		</button>
 

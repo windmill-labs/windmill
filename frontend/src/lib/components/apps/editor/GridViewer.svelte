@@ -88,7 +88,7 @@
 				Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
 				gapX * 2}
 			{@const height =
-				((breakpoint === 'lg' ? item.data['fullHeight'] : item.data['fullHeightMobile'])
+				(item?.[breakpoint]?.fullHeight
 					? maxRow - item[getComputedCols].y
 					: item[getComputedCols] && item[getComputedCols].h) *
 					yPerPx -

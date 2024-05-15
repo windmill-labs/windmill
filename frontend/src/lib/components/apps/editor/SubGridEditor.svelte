@@ -125,6 +125,7 @@
 						<GridEditorMenu id={dataItem.id}>
 							<Component
 								{hidden}
+								fullHeight={dataItem?.[$breakpoint]?.fullHeight}
 								render={visible}
 								component={dataItem.data}
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}
@@ -150,12 +151,8 @@
 								}}
 								on:fillHeight={() => {
 									const gridItem = findGridItem($app, dataItem.id)
-									if (gridItem) {
-										if ($breakpoint === 'lg') {
-											gridItem.data.fullHeight = !gridItem.data.fullHeight
-										} else if ($breakpoint === 'sm') {
-											gridItem.data.fullHeightMobile = !gridItem.data.fullHeightMobile
-										}
+									if (gridItem?.[$breakpoint]) {
+										gridItem[$breakpoint].fullHeight = !gridItem[$breakpoint].fullHeight
 									}
 									$app = $app
 								}}
@@ -182,6 +179,7 @@
 					class={classNames('h-full w-full center-center', 'top-0')}
 				>
 					<Component
+						fullHeight={dataItem?.[$breakpoint]?.fullHeight}
 						render={visible}
 						component={dataItem.data}
 						selected={Boolean($selectedComponent?.includes(dataItem.id))}
