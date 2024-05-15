@@ -173,6 +173,9 @@ COPY --from=downloader --chmod=755 /deno /usr/bin/deno
 
 COPY --from=oven/bun:1.1.7 /usr/local/bin/bun /usr/bin/bun
 
+COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
+COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
+
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 

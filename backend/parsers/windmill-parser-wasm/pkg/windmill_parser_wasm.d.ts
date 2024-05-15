@@ -70,6 +70,11 @@ export function parse_db_resource(code: string): string | undefined;
 * @returns {string}
 */
 export function parse_graphql(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_php(code: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -89,6 +94,7 @@ export interface InitOutput {
   readonly parse_mssql: (a: number, b: number, c: number) => void;
   readonly parse_db_resource: (a: number, b: number, c: number) => void;
   readonly parse_graphql: (a: number, b: number, c: number) => void;
+  readonly parse_php: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

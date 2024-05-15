@@ -53,7 +53,8 @@
                 "snowflake",
                 "graphql",
                 "powershell",
-                "mssql"
+                "mssql",
+                "php"
               ]
             }
           }

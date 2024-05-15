@@ -48,7 +48,7 @@
 		loading: false
 	})
 
-	let result: undefined = undefined
+	let result: undefined | any = undefined
 
 	const resolvedConfig = initConfig(
 		components['agchartscomponent'].initialData.configuration,
@@ -118,7 +118,6 @@
 			data: options.data,
 			series: options.series
 		})
-
 		AgChartsInstance?.update(chartInstance, options)
 	}
 
@@ -209,24 +208,25 @@
 	})
 
 	$: resolvedXData && resolvedDatasets && resolvedDatasetsValues && chartInstance && updateChart()
-	$: result && updateChartByResult()
+	$: result && chartInstance && updateChartByResult()
 
 	function updateChartByResult() {
 		if (!result || !chartInstance) {
 			return
 		}
 
+		if (typeof result !== 'object') {
+			return
+		}
 		const options = {
 			container: document.getElementById(`agchart-${id}`) as HTMLElement,
-			data: result?.['data'],
-			series: result?.['series']
+			...result
 		}
 
 		outputs.result.set({
 			data: result?.['data'],
 			series: result?.['series']
 		})
-
 		AgChartsInstance?.update(chartInstance, options)
 	}
 
@@ -313,6 +313,7 @@
 		class={twMerge('w-full h-full', css?.container?.class, 'wm-agchart')}
 		style={css?.container?.style ?? ''}
 	>
+		<!-- {JSON.stringify(result)} -->
 		<div id={`agchart-${id}`} class="h-full w-full" />
 	</div>
 </RunnableWrapper>

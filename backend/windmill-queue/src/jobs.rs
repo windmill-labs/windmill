@@ -1864,7 +1864,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             , suspend_until = null
             WHERE id = $1
             RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-                running,  script_hash,  script_path,  args,   right(logs, 20000000) as logs,  raw_code,  canceled,  canceled_by,  
+                running,  script_hash,  script_path,  args,   right(logs, 900000) as logs,  raw_code,  canceled,  canceled_by,  
                 canceled_reason,  last_ping,  job_kind,  env_id,  schedule_path,  permissioned_as, 
                 flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
                 same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 

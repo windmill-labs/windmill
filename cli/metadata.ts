@@ -30,7 +30,7 @@ import { generateHash } from "./utils.ts";
 export async function generateAllMetadata() {}
 
 function findClosestRawReqs(
-  lang: "bun" | "python3" | undefined,
+  lang: "bun" | "python3" | "php" | undefined,
   remotePath: string,
   globalDeps: GlobalDeps
 ): string | undefined {
@@ -46,6 +46,15 @@ function findClosestRawReqs(
     });
   } else if (lang == "python3") {
     Object.entries(globalDeps.reqs).forEach(([k, v]) => {
+      if (
+        remotePath.startsWith(k) &&
+        k.length >= (bestCandidate?.k ?? "").length
+      ) {
+        bestCandidate = { k, v };
+      }
+    });
+  } else if (lang == "php") {
+    Object.entries(globalDeps.composers).forEach(([k, v]) => {
       if (
         remotePath.startsWith(k) &&
         k.length >= (bestCandidate?.k ?? "").length
@@ -77,14 +86,14 @@ export async function generateMetadataInternal(
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
   const rawReqs = findClosestRawReqs(
-    language as "bun" | "python3" | undefined,
+    language as "bun" | "python3" | "php" | undefined,
     scriptPath,
     globalDeps
   );
   if (rawReqs) {
     log.info(
       colors.blue(
-        `Found raw requirements (package.json/requirements.txt) for ${scriptPath}, using it`
+        `Found raw requirements (package.json/requirements.txt/composer.json) for ${scriptPath}, using it`
       )
     );
   }
@@ -184,7 +193,8 @@ async function updateScriptLock(
       language == "bun" ||
       language == "python3" ||
       language == "go" ||
-      language == "deno"
+      language == "deno" ||
+      language == "php"
     )
   ) {
     return;

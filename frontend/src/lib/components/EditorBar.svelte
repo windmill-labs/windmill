@@ -86,11 +86,19 @@
 		'go',
 		'deno',
 		'bun',
-		'nativets'
+		'nativets',
+		'php'
 	].includes(lang ?? '')
-	$: showVarPicker = ['python3', 'bash', 'powershell', 'go', 'deno', 'bun', 'nativets'].includes(
-		lang ?? ''
-	)
+	$: showVarPicker = [
+		'python3',
+		'bash',
+		'powershell',
+		'go',
+		'deno',
+		'bun',
+		'nativets',
+		'php'
+	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
 		'bash',
@@ -98,10 +106,13 @@
 		'go',
 		'deno',
 		'bun',
-		'nativets'
+		'nativets',
+		'php'
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
-		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) || lang === 'python3'
+		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
+		lang === 'python3' ||
+		lang === 'php'
 
 	let codeViewer: Drawer
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
@@ -187,11 +198,46 @@
 			if (!code.includes('from typing import TypedDict')) {
 				editor.insertAtBeginning('from typing import TypedDict\n')
 			}
+		} else if (lang === 'php') {
+			const phpSchema = phpCompile(resourceType.schema as any)
+			const rtName = toCamel(capitalize(name))
+			editor.insertAtCursor(`if (!class_exists('${rtName}')) {\nclass ${rtName} {\n${phpSchema}\n`)
+			editor.backspace()
+			editor.insertAtCursor('}')
 		} else {
 			const tsSchema = compile(resourceType.schema as any)
-			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}\n`)
+			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
+	}
+
+	function phpCompile(schema: Schema) {
+		let res = '	'
+		const entries = Object.entries(schema.properties)
+		if (entries.length === 0) {
+			return 'array'
+		}
+		let i = 0
+		for (let [name, prop] of entries) {
+			let typ = 'array'
+			if (prop.type === 'array') {
+				typ = 'array'
+			} else if (prop.type === 'string') {
+				typ = 'string'
+			} else if (prop.type === 'number') {
+				typ = 'float'
+			} else if (prop.type === 'integer') {
+				typ = 'int'
+			} else if (prop.type === 'boolean') {
+				typ = 'bool'
+			}
+			res += `public ${typ} $${name};`
+			i++
+			if (i < entries.length) {
+				res += '\n'
+			}
+		}
+		return res
 	}
 	function pythonCompile(schema: Schema) {
 		let res = ''
@@ -285,6 +331,8 @@
 			editor.insertAtCursor(`$${name}`)
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Env:${name}`)
+		} else if (lang == 'php') {
+			editor.insertAtCursor(`getenv('${name}');`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -336,6 +384,11 @@
 				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
+		} else if (lang == 'php') {
+			editor.insertAtCursor(`$ch = curl_init(getenv('BASE_INTERNAL_URL') . '/api/w/' . getenv('WM_WORKSPACE') . '/variables/get_value/${path}');
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+$var = json_decode(curl_exec($ch));`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -401,6 +454,11 @@
 				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
+		} else if (lang == 'php') {
+			editor.insertAtCursor(`$ch = curl_init(getenv('BASE_INTERNAL_URL') . '/api/w/' . getenv('WM_WORKSPACE') . '/resources/get_value_interpolated/${path}');
+curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+$res = json_decode(curl_exec($ch));`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}

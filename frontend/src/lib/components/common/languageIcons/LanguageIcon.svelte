@@ -15,6 +15,7 @@
 	import BunIcon from '$lib/components/icons/BunIcon.svelte'
 	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
 	import type { Script } from '$lib/gen'
+	import PHPIcon from '$lib/components/icons/PHPIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -42,7 +43,8 @@
 		snowflake: 'Snowflake',
 		mysql: 'MySQL',
 		mssql: 'MS SQL Server',
-		bun: 'TypeScript'
+		bun: 'TypeScript',
+		php: 'PHP'
 	}
 
 	const langToComponent: Record<
@@ -66,7 +68,8 @@
 		powershell: PowershellIcon,
 		postgresql: PostgresIcon,
 		nativets: RestIcon,
-		graphql: GraphqlIcon
+		graphql: GraphqlIcon,
+		php: PHPIcon
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8
