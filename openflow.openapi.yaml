@@ -232,6 +232,7 @@ components:
             - mssql
             - graphql
             - nativets
+            - php
         path:
           type: string
         lock:

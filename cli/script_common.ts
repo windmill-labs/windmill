@@ -11,7 +11,8 @@ export type ScriptLanguage =
   | "bigquery"
   | "snowflake"
   | "mssql"
-  | "graphql";
+  | "graphql"
+  | "php";
 
 export function inferContentTypeFromFilePath(
   contentPath: string,
@@ -45,6 +46,8 @@ export function inferContentTypeFromFilePath(
     return "bash";
   } else if (contentPath.endsWith(".ps1")) {
     return "powershell";
+  } else if (contentPath.endsWith("php")) {
+    return "php";
   } else {
     throw new Error(
       "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))
