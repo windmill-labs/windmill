@@ -400,6 +400,8 @@ export function filePathExtensionFromContentType(
     return ".sh";
   } else if (language === "powershell") {
     return ".ps1";
+  } else if (language === "php") {
+    return ".php";
   } else {
     throw new Error("Invalid language: " + language);
   }

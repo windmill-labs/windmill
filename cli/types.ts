@@ -184,7 +184,8 @@ export function getTypeStrFromPath(
     parsed.ext == ".sql" ||
     parsed.ext == ".gql" ||
     parsed.ext == ".ps1" ||
-    parsed.ext == ".js"
+    parsed.ext == ".js" ||
+    parsed.ext == ".php"
   ) {
     return "script";
   }

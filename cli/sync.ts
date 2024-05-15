@@ -249,6 +249,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "bun") ext = "bun.ts";
       else if (language == "nativets") ext = "native.ts";
       else if (language == "frontend") ext = "frontend.js";
+      else if (language == "php") ext = "php";
       else ext = "no_ext";
 
       return [`${name}.inline_script.`, ext];
@@ -553,6 +554,7 @@ export async function elementsToMap(
         "sql",
         "gql",
         "ps1",
+        "php",
         "js",
         "lock",
       ].includes(path.split(".").pop() ?? "")
