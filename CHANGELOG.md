@@ -5,6 +5,7 @@
 
 ### Features
 
+* add concurrency limit observability [#3586](https://github.com/windmill-labs/windmill/pull/3586)
 * **frontend:** Add context section ([#3745](https://github.com/windmill-labs/windmill/issues/3745)) ([0191dca](https://github.com/windmill-labs/windmill/commit/0191dca347800a1f95ce7184db0b21e4ebb6c796))
 * **frontend:** add nullable arg ([#3729](https://github.com/windmill-labs/windmill/issues/3729)) ([cadc758](https://github.com/windmill-labs/windmill/commit/cadc758fc7b8d77f6906cd71b819443fdcc8a514))
 * **frontend:** full height component ([#3676](https://github.com/windmill-labs/windmill/issues/3676)) ([6ff6a60](https://github.com/windmill-labs/windmill/commit/6ff6a603f71fdf472a1290edd72a660697cea7cb))
