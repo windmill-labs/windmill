@@ -129,7 +129,6 @@
 					$hoverStore = component.id
 				}
 			}}
-			willNotDisplay={hidden}
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}
