@@ -448,7 +448,7 @@
 					bind:checked={componentSettings.item.data.fullHeight}
 					size="xs"
 					options={{
-						right: 'Full height',
+						right: 'Desktop full height',
 						rightTooltip:
 							'When enabled, the component will take the full height of the parent container.'
 					}}
@@ -458,7 +458,7 @@
 					bind:checked={componentSettings.item.data.fullHeightMobile}
 					size="xs"
 					options={{
-						right: 'Mobule full height',
+						right: 'Mobile full height',
 						rightTooltip:
 							'When enabled, the component will take the full height of the parent container.'
 					}}
