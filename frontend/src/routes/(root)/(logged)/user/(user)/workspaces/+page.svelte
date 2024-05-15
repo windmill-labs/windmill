@@ -111,7 +111,7 @@
 				workspace: $workspaceStore!
 			})
 			if (!emptyString(defaultApp.default_app_path)) {
-				goto(`/apps/get/${defaultApp.default_app_path}`)
+				await goto(`/apps/get/${defaultApp.default_app_path}`)
 			} else {
 				await goto(rd ?? '/')
 			}

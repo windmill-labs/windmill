@@ -97,25 +97,65 @@
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
 				// Check if the result is an image
-				if (['png', 'svg', 'jpeg', 'html', 'gif'].includes(keys[0]) && keys.length == 1) {
+				if (
+					[
+						'png',
+						'svg',
+						'jpeg',
+						'html',
+						'gif',
+						'table-row',
+						'table-col',
+						'table-row-object'
+					].includes(keys[0]) &&
+					keys.length == 1
+				) {
 					// Check if the image is too large (10mb)
 					largeObject = roughSizeOfObject(result) > 10000000
 
-					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html' | 'gif'
+					return keys[0] as
+						| 'png'
+						| 'svg'
+						| 'jpeg'
+						| 'html'
+						| 'gif'
+						| 'table-row'
+						| 'table-col'
+						| 'table-row-object'
+				}
+
+				if (Array.isArray(result)) {
+					largeObject = roughSizeOfObject(result) > 5000000
+
+					if (largeObject) {
+						return 'json'
+					} else if (result.every((elt) => inferResultKind(elt) === 's3object')) {
+						largeObject = result.length > 100
+						if (largeObject) {
+							return 'json'
+						}
+						return 's3object-list'
+					} else if (isArrayOfArrays(result)) {
+						return 'table-row'
+					} else if (isObjectOfArrays(result, keys)) {
+						return 'table-col'
+					} else if (isArrayOfObjects(result)) {
+						return 'table-row-object'
+					} else {
+						return 'json'
+					}
 				}
 
 				let length = roughSizeOfObject(result)
 				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = length > 50000
+				largeObject = length > 100000
 
 				if (largeObject) {
 					return 'json'
 				}
 
 				if (keys.length != 0) {
-					if (Array.isArray(result) && result.every((elt) => inferResultKind(elt) === 's3object')) {
-						return 's3object-list'
-					} else if (keys.length == 1 && keys[0] == 'table-row') {
+					if (keys.length == 1 && keys[0] == 'table-row') {
 						return 'table-row'
 					} else if (keys.length == 1 && keys[0] == 'table-col') {
 						return 'table-col'
@@ -160,12 +200,6 @@
 						return 's3object'
 					} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
 						return 'markdown'
-					} else if (isArrayOfArrays(result)) {
-						return 'table-row'
-					} else if (isObjectOfArrays(result, keys)) {
-						return 'table-col'
-					} else if (isArrayOfObjects(result)) {
-						return 'table-row-object'
 					}
 				}
 			} catch (err) {}
