@@ -118,7 +118,6 @@
 			data: options.data,
 			series: options.series
 		})
-
 		AgChartsInstance?.update(chartInstance, options)
 	}
 
@@ -209,7 +208,7 @@
 	})
 
 	$: resolvedXData && resolvedDatasets && resolvedDatasetsValues && chartInstance && updateChart()
-	$: result && updateChartByResult()
+	$: result && chartInstance && updateChartByResult()
 
 	function updateChartByResult() {
 		if (!result || !chartInstance) {
@@ -226,7 +225,6 @@
 			data: result?.['data'],
 			series: result?.['series']
 		})
-
 		AgChartsInstance?.update(chartInstance, options)
 	}
 
@@ -313,6 +311,7 @@
 		class={twMerge('w-full h-full', css?.container?.class, 'wm-agchart')}
 		style={css?.container?.style ?? ''}
 	>
+		<!-- {JSON.stringify(result)} -->
 		<div id={`agchart-${id}`} class="h-full w-full" />
 	</div>
 </RunnableWrapper>
