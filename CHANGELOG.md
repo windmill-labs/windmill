@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.330.0](https://github.com/windmill-labs/windmill/compare/v1.329.0...v1.330.0) (2024-05-15)
+
+
+### Features
+
+* add php ([#3725](https://github.com/windmill-labs/windmill/issues/3725)) ([6e805d8](https://github.com/windmill-labs/windmill/commit/6e805d82524a4deea554cf63b8411c2cfe798489))
+
+
+### Bug Fixes
+
+* **bun:** improve relative path type assistant in monaco for bun ([1cf0bda](https://github.com/windmill-labs/windmill/commit/1cf0bda6d2fbaaffa9c3de8c6b5a191db93fc17a))
+* remove schemas from typescript client ([4c70c6a](https://github.com/windmill-labs/windmill/commit/4c70c6a4e654a6a8dd4fb06b4caf7cbee540ccce))
+
 ## [1.329.0](https://github.com/windmill-labs/windmill/compare/v1.328.0...v1.329.0) (2024-05-15)
 
 
