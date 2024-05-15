@@ -39,6 +39,7 @@
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import ContextVariables from './ContextVariables.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -289,6 +290,8 @@
 							{/if}
 						</div>
 					{/if}
+					<ContextVariables type={component.type} />
+
 					{#key $stateId}
 						{#if componentSettings.item.data.componentInput?.type === 'runnable'}
 							{#if Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length > 0}
