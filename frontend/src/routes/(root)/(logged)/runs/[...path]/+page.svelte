@@ -31,7 +31,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { Calendar, Clock } from 'lucide-svelte'
+	import { AlertTriangle, Calendar, Clock } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -120,6 +120,7 @@
 		schedulePath ||
 		jobKindsCat ||
 		concurrencyKey ||
+		graph ||
 		minTs ||
 		maxTs ||
 		allWorkspaces ||
@@ -325,6 +326,15 @@
 				return 'RunChart'
 		}
 	}
+
+	const warnJobLimitMsg =
+		'The exact number of concurrent job at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
+
+	$: warnJobLimit =
+		graph === 'ConcurrencyChart' &&
+		concurrencyIntervals !== undefined &&
+		(concurrencyIntervals.running_jobs.length === 1000 ||
+			concurrencyIntervals.completed_jobs.length === 1000)
 </script>
 
 <JobLoader
@@ -434,16 +444,23 @@
 
 		<div class="p-2 w-full">
 			<div class="relative z-10">
-				<div class="absolute  right-0 -mt-6">
-					<ToggleButtonGroup
-						bind:selected={graph}
-						on:selected={() => {
-							graphIsRunsChart = graph == 'RunChart'
-						}}
-					>
-						<ToggleButton value="RunChart" label="Duration" />
-						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
-					</ToggleButtonGroup>
+				<div class="absolute right-0 -mt-6">
+					<div class="flex flex-row justify-between items-center">
+						<ToggleButtonGroup
+							bind:selected={graph}
+							on:selected={() => {
+								graphIsRunsChart = graph === 'RunChart'
+							}}
+						>
+							<ToggleButton value="RunChart" label="Duration" />
+							<ToggleButton
+								value="ConcurrencyChart"
+								label="Concurrency"
+								icon={warnJobLimit ? AlertTriangle : undefined}
+								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
+							/>
+						</ToggleButtonGroup>
+					</div>
 				</div>
 			</div>
 			{#if graph === 'RunChart'}

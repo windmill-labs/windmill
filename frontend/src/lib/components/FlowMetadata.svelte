@@ -1,24 +1,17 @@
 <script lang="ts">
-	import { ConcurrencyGroupsService, type Job } from '$lib/gen'
+	import { type Job } from '$lib/gen'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { displayDate } from '$lib/utils'
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
-	import { Clock, MemoryStick, Calendar, Bot, User, Code2, GitPullRequestClosed} from 'lucide-svelte'
+	import { Clock, MemoryStick, Calendar, Bot, User, Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	export let job: Job
 	const SMALL_ICON_SIZE = 14
 	export let scheduleEditor: ScheduleEditor
-	let lastJobId : string | undefined = undefined;
-	let concurrencyKey : string | undefined = undefined;
-	$: job?.id && lastJobId !== job.id && getConcurrencyKey()
-	async function getConcurrencyKey() {
-		lastJobId = job.id;
-		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({"id": job.id});
-	}
 </script>
 
 <div
@@ -37,15 +30,6 @@
 			<Tooltip>{job?.created_at}</Tooltip>
 		</span>
 	</div>
-	{#if concurrencyKey}
-		<div class="flex flex-row gap-2 items-center">
-			<GitPullRequestClosed size={SMALL_ICON_SIZE} class="text-secondary" />
-			<span class="text-2xs text-secondary">
-				<a href={`/runs/?job_kinds=all&graph=ConcurrencyKey&concurrency_key=${concurrencyKey}`}>{concurrencyKey}</a>
-			</span>
-			<Tooltip>This job has a concurrency limit</Tooltip>
-		</div>
-	{/if}
 	{#if job && 'started_at' in job && job.started_at}
 		<div class="flex flex-row gap-2 items-center">
 			<Clock size={SMALL_ICON_SIZE} class="text-secondary" />
