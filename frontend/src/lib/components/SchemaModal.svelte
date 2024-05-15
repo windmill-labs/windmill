@@ -268,9 +268,27 @@
 						nullable={property.nullable}
 					/>
 					<div>
-						<Toggle options={{ right: 'Required' }} size="xs" bind:checked={property.required} />
-						{#if property.selectedType == 'string'}
-							<Toggle options={{ right: 'Nullable' }} size="xs" bind:checked={property.nullable} />
+						<Toggle
+							options={{ right: 'Required' }}
+							size="xs"
+							bind:checked={property.required}
+							on:change={(event) => {
+								if (event?.detail) {
+									property.nullable = false
+								}
+							}}
+						/>
+						{#if property?.selectedType === 'string'}
+							<Toggle
+								options={{
+									right: 'Nullable',
+									rightTooltip:
+										'If enabled, the default value will be null and not an empty string.'
+								}}
+								size="xs"
+								bind:checked={property.nullable}
+								disabled={property?.required}
+							/>
 						{/if}
 					</div>
 				</div>

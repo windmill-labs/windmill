@@ -317,6 +317,19 @@
 								<ObjectTypeNarrowing bind:format />
 							{/if}
 						</div>
+						{#if !required && type === 'string'}
+							<div class="mt-2 border-t pt-4">
+								<Toggle
+									options={{
+										right: 'Nullable',
+										rightTooltip:
+											'If enabled, the default value will be null and not an empty string.'
+									}}
+									size="xs"
+									bind:checked={extra.nullable}
+								/>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}
