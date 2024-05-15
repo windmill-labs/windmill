@@ -17,7 +17,7 @@
 	$: job?.id && lastJobId !== job.id && getConcurrencyKey()
 	async function getConcurrencyKey() {
 		lastJobId = job.id;
-		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({"id": job.id, "workspace": job.workspace_id});
+		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({"id": job.id});
 	}
 </script>
 
@@ -41,7 +41,7 @@
 		<div class="flex flex-row gap-2 items-center">
 			<GitPullRequestClosed size={SMALL_ICON_SIZE} class="text-secondary" />
 			<span class="text-2xs text-secondary">
-				<a href={`/runs/?job_kinds=all&concurrency_key=${concurrencyKey}`}>{concurrencyKey}</a>
+				<a href={`/runs/?job_kinds=all&graph=ConcurrencyKey&concurrency_key=${concurrencyKey}`}>{concurrencyKey}</a>
 			</span>
 			<Tooltip>This job has a concurrency limit</Tooltip>
 		</div>

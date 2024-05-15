@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Scatter } from 'svelte-chartjs'
+	import { Line } from 'svelte-chartjs'
 	import 'chartjs-adapter-date-fns'
 	import zoomPlugin from 'chartjs-plugin-zoom'
 	import {
@@ -25,20 +25,35 @@
 	const dispatch = createEventDispatcher()
 
 	function calculateTimeSeries(concurrencyIntervals: ConcurrencyIntervals): AggregatedInterval[] {
-		const timeline = new Map<number, number>() // Holds count of concurrent processes at each moment
-		concurrencyIntervals.completed_jobs?.forEach(({ started_at, ended_at }) => {
+		const timeline = new Map<number, { count: number; id_started: string[]; id_ended: string[] }>()
+		concurrencyIntervals.completed_jobs?.forEach(({ job_id, started_at, ended_at }) => {
 			if (started_at != undefined && ended_at != undefined) {
 				const startTime = new Date(started_at).getTime()
 				const endTime = new Date(ended_at).getTime()
-				timeline.set(startTime, (timeline.get(startTime) || 0) + 1)
-				timeline.set(endTime, (timeline.get(endTime) || 0) - 1)
+
+				if (!timeline.has(startTime))
+					timeline.set(startTime, { count: 0, id_started: [], id_ended: [] })
+				if (!timeline.has(endTime))
+					timeline.set(endTime, { count: 0, id_started: [], id_ended: [] })
+
+				const s = timeline.get(startTime)!
+				const e = timeline.get(endTime)!
+
+				s.count += 1
+				s.id_started.push(job_id ?? 'unknown')
+				e.count -= 1
+				e.id_ended.push(job_id ?? 'unknown')
 			}
 		})
 
-		concurrencyIntervals.running_jobs.forEach(({ started_at }) => {
+		concurrencyIntervals.running_jobs?.forEach(({ job_id, started_at }) => {
 			if (started_at != undefined) {
 				const startTime = new Date(started_at).getTime()
-				timeline.set(startTime, (timeline.get(startTime) || 0) + 1)
+				if (!timeline.has(startTime))
+					timeline.set(startTime, { count: 0, id_started: [], id_ended: [] })
+				const s = timeline.get(startTime)!
+				s.count += 1
+				s.id_started.push(job_id ?? 'unknown')
 			}
 		})
 
@@ -47,13 +62,17 @@
 		for (const [time, change] of [...timeline.entries()].sort(
 			([time1], [time2]) => time1 - time2
 		)) {
-			count += change
-			result.push({ time: new Date(time), count } as AggregatedInterval)
+			count += change.count
+			let msg = ''
+			msg += change.id_started.length != 0 ? `${change.id_started.join(',')} started` : ''
+			msg += change.id_started.length != 0 && change.id_ended.length != 0 ? '\n' : ''
+			msg += change.id_ended.length != 0 ? `${change.id_ended.join(',')} ended` : ''
+			result.push({ time: new Date(time), count, msg } as AggregatedInterval)
 		}
 
 		// Add points to continue the line towards the extremities
 		if (result.length > 0) {
-			let start_time = addSeconds(new Date(result[0].time), -300)
+			let start_time = addSeconds(new Date(result[0].time), -1)
 			let start_count = 0
 			let end_count = result[result.length - 1].count
 			result.unshift({
@@ -68,7 +87,7 @@
 
 		return result
 	}
-	type AggregatedInterval = { time: Date; count: number }
+	type AggregatedInterval = { time: Date; count: number; msg?: string }
 
 	let intervals: AggregatedInterval[] | undefined = undefined
 	$: intervals = concurrencyIntervals ? calculateTimeSeries(concurrencyIntervals) : undefined
@@ -97,9 +116,8 @@
 				data:
 					intervals?.map((job) => ({
 						x: job.time as any,
-						y: job.count
-						// id: job.id,
-						// path: job.script_path
+						y: job.count,
+						id: job.msg
 					})) ?? []
 			}
 		]
@@ -188,8 +206,8 @@
 			},
 			tooltip: {
 				callbacks: {
-					label: function (context) {
-						return context.raw.x
+					footer: function (context) {
+						return context[context.length - 1].raw.id
 					}
 				}
 			}
@@ -210,13 +228,21 @@
 				title: {
 					display: true,
 					text: 'concurrent jobs'
+				},
+				beginAtZero: true,
+				ticks: {
+					stepSize: 1
 				}
 			}
 		},
-		animation: false
+		animation: false,
+		interaction: {
+			intersect: false,
+			mode: 'index'
+		}
 	} as any
 </script>
 
 <div class="relative max-h-40">
-	<Scatter {data} {options} />
+	<Line {data} {options} />
 </div>

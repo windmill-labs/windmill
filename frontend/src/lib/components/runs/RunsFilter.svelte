@@ -10,7 +10,7 @@
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 
@@ -102,12 +102,16 @@
 					<ToggleButton value="path" label="Path" />
 					<ToggleButton value="user" label="User" />
 					<ToggleButton value="folder" label="Folder" />
-					<ToggleButtonMore
-						togglableItems={[
-							{ label: 'ConcurrencyKey', value: 'concurrencyKey' },
-							{ label: 'Label', value: 'label' }
-						]}
-					/>
+					{#if $enterpriseLicense}
+						<ToggleButtonMore
+							togglableItems={[
+								{ label: 'ConcurrencyKey', value: 'concurrencyKey' },
+								{ label: 'Label', value: 'label' }
+							]}
+						/>
+					{:else}
+						<ToggleButton value="label" label="Label" />
+					{/if}
 				</ToggleButtonGroup>
 			</div>
 

@@ -261,10 +261,6 @@ async fn get_concurrent_intervals(
 
     sqlb_q.and_where_is_not_null("started_at");
 
-    // When we have a concurrency key defined, fetch jobs from other workspaces
-    // as obscured unless we're in the admins workspace. This is to show the
-    // potential concurrency races without showing jobs that don't belong to
-    // the workspace.
     let sqlb_all_workspaces: Option<(SqlBuilder, SqlBuilder)> =
         if concurrency_key.is_some() && w_id != "admins" {
             Some((
@@ -339,7 +335,7 @@ async fn get_concurrent_intervals(
 
     // This second transaction using the raw db lets us get info for jobs that
     // the user has no access to. Before returning that, we will hide the ids
-    if should_fetch_obscured_jobs {
+    if should_fetch_obscured_jobs && concurrency_key.is_some() {
         let (sql_q, sql_c) = if let Some(sqlb) = sqlb_all_workspaces {
             (sqlb.0.query()?, sqlb.1.query()?)
         } else {
@@ -406,9 +402,4 @@ async fn get_concurrency_key(
         .fetch_optional(&db)
         .await?;
     Ok(Json(key))
-}
-
-#[derive(Serialize)]
-struct ConcurrencyKeysByJob {
-    keys_by_job: HashMap<Uuid, String>,
 }

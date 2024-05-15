@@ -44,6 +44,7 @@
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	let label: string | null = $page.url.searchParams.get('label')
+	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
 		'success'
@@ -79,7 +80,6 @@
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
-	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 
 	let queue_count: Tweened<number> | undefined = undefined
 	let jobKinds: string | undefined = undefined
@@ -98,12 +98,13 @@
 	let cancelAllJobs = false
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
-	let externalJobs: Job[] | undefined;
+	let externalJobs: Job[] | undefined
 
-	let graphIsRunsChart: boolean = true
+	const g = $page.url.searchParams.get('graph')
+	let graphIsRunsChart: boolean = g ? g === 'ConcurrencyChart' : true
 	let graph: 'RunChart' | 'ConcurrencyChart'
 
-	$: graph  = graphIsRunsChart ? 'RunChart' : 'ConcurrencyChart'
+	$: graph = graphIsRunsChart ? 'RunChart' : 'ConcurrencyChart'
 
 	let manualDatePicker: ManuelDatePicker
 
@@ -308,6 +309,18 @@
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
+
+
+	function chartName(graph: string): string | undefined {
+		switch (graph) {
+			case "RunChart":
+				return "Run durations"
+			case "ConcurrencyChart":
+				return "Concurrencies"
+			default:
+				return ""
+		}
+	}
 </script>
 
 <JobLoader
@@ -375,27 +388,27 @@
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
 				<div class="flex-col">
-				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-					<h1
-						class={twMerge(
-							'!text-2xl font-semibold leading-6 tracking-tight',
-							$userStore?.operator ? 'pl-10' : ''
-						)}
-					>
-						Runs
-					</h1>
+					<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
+						<h1
+							class={twMerge(
+								'!text-2xl font-semibold leading-6 tracking-tight',
+								$userStore?.operator ? 'pl-10' : ''
+							)}
+						>
+							Runs
+						</h1>
 
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-					>
-						All past and schedule executions of scripts and flows, including previews. You only see
-						your own runs or runs of groups you belong to unless you are an admin.
-					</Tooltip>
-				</div>
+						<Tooltip
+							documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+						>
+							All past and schedule executions of scripts and flows, including previews. You only
+							see your own runs or runs of groups you belong to unless you are an admin.
+						</Tooltip>
+					</div>
 					<Toggle
 						size={'xs'}
 						bind:checked={graphIsRunsChart}
-						options={{ right: 'Run Durations', left: "Concurrency"}}
+						options={{ left: chartName(graph) }}
 					/>
 				</div>
 				<RunsFilter

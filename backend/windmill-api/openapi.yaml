@@ -7997,7 +7997,6 @@ paths:
       tags:
         - concurrencyGroups
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
       responses:
         "200":
