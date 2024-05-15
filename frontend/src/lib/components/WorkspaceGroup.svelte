@@ -93,7 +93,8 @@
 		'flow',
 		'hub',
 		'other',
-		'bun'
+		'bun',
+		'php'
 	]
 	const nativeTags = [
 		'nativets',

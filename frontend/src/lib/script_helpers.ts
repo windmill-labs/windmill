@@ -190,6 +190,26 @@ export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [St
 }
 `
 
+export const PHP_INIT_CODE = `<?php
+
+// remove the first // of the following lines to specify packages to install using composer
+// // require:
+// // monolog/monolog@3.6.0
+// // stripe/stripe-php
+
+function main(
+	// Postgresql $a,
+  // array $b,
+  // object $c,
+	int $d = 123,
+	string $e = "default value",
+	float $f = 3.5,
+  bool $g = true,
+) {
+	return $d;
+}
+`
+
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -378,7 +398,8 @@ const ALL_INITIAL_CODE = [
 	BUN_INIT_CODE_CLEAR,
 	BUN_INIT_CODE_APPROVAL,
 	BASH_INIT_CODE,
-	POWERSHELL_INIT_CODE
+	POWERSHELL_INIT_CODE,
+	PHP_INIT_CODE
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -454,6 +475,8 @@ export function initialCode(
 		return MSSQL_INIT_CODE
 	} else if (language == 'graphql') {
 		return GRAPHQL_INIT_CODE
+	} else if (language == 'php') {
+		return PHP_INIT_CODE
 	} else if (language == 'bun') {
 		if (kind === 'approval') {
 			return BUN_INIT_CODE_APPROVAL

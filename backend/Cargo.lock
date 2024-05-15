@@ -209,6 +209,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ariadne"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1cb2a2046bea8ce5e875551f5772024882de0b540c7f93dfc5d6cf1ca8b030c"
+dependencies = [
+ "yansi",
+]
+
+[[package]]
 name = "array-init"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5098,6 +5107,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "php-parser-rs"
+version = "0.1.3"
+source = "git+https://github.com/php-rust-tools/parser?rev=ec4cb411dec09450946ef57920b7ffced7f6495d#ec4cb411dec09450946ef57920b7ffced7f6495d"
+dependencies = [
+ "ariadne",
+ "clap",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9877,6 +9898,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-php"
+version = "1.327.0"
+dependencies = [
+ "anyhow",
+ "convert_case 0.6.0",
+ "itertools 0.10.5",
+ "lazy_static",
+ "php-parser-rs",
+ "regex",
+ "serde_json",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-py"
 version = "1.329.0"
 dependencies = [
@@ -9946,6 +9981,7 @@ dependencies = [
  "windmill-parser-bash",
  "windmill-parser-go",
  "windmill-parser-graphql",
+ "windmill-parser-php",
  "windmill-parser-py",
  "windmill-parser-sql",
  "windmill-parser-ts",
@@ -10006,6 +10042,7 @@ dependencies = [
  "bytes",
  "chrono",
  "const_format",
+ "convert_case 0.6.0",
  "deno_ast",
  "deno_console",
  "deno_core",
@@ -10056,6 +10093,7 @@ dependencies = [
  "windmill-parser-bash",
  "windmill-parser-go",
  "windmill-parser-graphql",
+ "windmill-parser-php",
  "windmill-parser-py",
  "windmill-parser-py-imports",
  "windmill-parser-sql",
@@ -10299,6 +10337,12 @@ checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
 dependencies = [
  "lzma-sys",
 ]
+
+[[package]]
+name = "yansi"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
 
 [[package]]
 name = "yoke"
