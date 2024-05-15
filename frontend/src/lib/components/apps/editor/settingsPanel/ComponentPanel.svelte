@@ -38,7 +38,6 @@
 	import MenuItems from './MenuItems.svelte'
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
-	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
@@ -445,14 +444,15 @@
 					</Button>
 				</div>
 
-				<Label label="Full height">
-					<svelte:fragment slot="header">
-						<Tooltip>
-							When enabled, the component will take the full height of the parent container.
-						</Tooltip>
-					</svelte:fragment>
-					<Toggle bind:checked={componentSettings.item.data.fullHeight} size="xs" />
-				</Label>
+				<Toggle
+					bind:checked={componentSettings.item.data.fullHeight}
+					size="xs"
+					options={{
+						right: 'Full height',
+						rightTooltip:
+							'When enabled, the component will take the full height of the parent container.'
+					}}
+				/>
 
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}

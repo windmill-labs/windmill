@@ -162,14 +162,16 @@
 		}
 	}
 
-	$: maxRow = maxHeight($appStore.grid, window.innerHeight, $breakpoint)
+	let appHeight: number = 0
+
+	$: maxRow = maxHeight($appStore.grid, appHeight, $breakpoint)
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative h-full">
+<div class="relative h-full" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 
