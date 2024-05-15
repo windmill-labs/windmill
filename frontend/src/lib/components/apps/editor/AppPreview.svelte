@@ -69,7 +69,6 @@
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
 	const state = writable({})
-	const subGridMaxRows = writable({})
 
 	let parentContext = getContext<AppViewerContext>('AppViewerContext')
 
@@ -104,8 +103,7 @@
 		darkMode,
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
-		debuggingComponents: writable({}),
-		subGridMaxRows
+		debuggingComponents: writable({})
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined

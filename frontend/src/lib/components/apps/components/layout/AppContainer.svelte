@@ -26,7 +26,7 @@
 
 	let groupContext = writable({})
 
-	let outputs = initOutput($worldStore, id, { group: $groupContext, grow: true })
+	let outputs = initOutput($worldStore, id, { group: $groupContext })
 
 	$: outputs.group.set($groupContext, true)
 
