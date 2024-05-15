@@ -71,10 +71,8 @@
 
 	let connectionString = ''
 	let validConnectionString = true
-	function parseConnectionString(close: (_: any) => void) {
-		// parse postgres connection string
-		const regex =
-			/postgres:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
+	function parseConnectionString(close: (_: any) => void) {		const regex =
+			/postgresql?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
 		const match = connectionString.match(regex)
 		if (match) {
 			validConnectionString = true
