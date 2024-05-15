@@ -8,6 +8,7 @@
 	import javascript from 'svelte-highlight/languages/javascript'
 	import sql from 'svelte-highlight/languages/sql'
 	import powershell from 'svelte-highlight/languages/powershell'
+	import php from 'svelte-highlight/languages/php'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
@@ -45,6 +46,8 @@
 				return sql
 			case 'powershell':
 				return powershell
+			case 'php':
+				return php
 
 			default:
 				return typescript

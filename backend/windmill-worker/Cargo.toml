@@ -29,6 +29,7 @@ windmill-parser-py-imports.workspace = true
 windmill-parser-bash.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
+windmill-parser-php.workspace = true
 windmill-git-sync.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
@@ -80,6 +81,7 @@ tokio-util = { workspace = true, optional = true }
 openidconnect = { workspace = true, optional = true}
 tar = { workspace = true, optional = true}
 object_store = { workspace = true, optional = true}
+convert_case.workspace = true
 
 [build-dependencies]
 deno_fetch.workspace = true

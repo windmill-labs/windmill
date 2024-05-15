@@ -92,3 +92,8 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
 pub fn parse_graphql(code: &str) -> String {
     wrap_sig(windmill_parser_graphql::parse_graphql_sig(code))
 }
+
+#[wasm_bindgen]
+pub fn parse_php(code: &str) -> String {
+    wrap_sig(windmill_parser_php::parse_php_signature(code, None))
+}
