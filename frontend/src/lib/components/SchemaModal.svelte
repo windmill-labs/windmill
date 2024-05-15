@@ -61,6 +61,7 @@
 					: undefined,
 			showExpr: schema.showExpr,
 			password: schema.password,
+			nullable: schema.nullable,
 			dateFormat: schema.format
 		}
 	}
@@ -135,6 +136,7 @@
 		property.items = undefined
 		property.showExpr = undefined
 		property.password = undefined
+		property.nullable = false
 		property.dateFormat = undefined
 		drawer.closeDrawer()
 	}
@@ -263,12 +265,32 @@
 						format={property.format}
 						extra={property}
 						disabled={property.password}
+						nullable={property.nullable}
 					/>
-					<Toggle
-						options={{ right: 'Required' }}
-						class="!justify-start"
-						bind:checked={property.required}
-					/>
+					<div>
+						<Toggle
+							options={{ right: 'Required' }}
+							size="xs"
+							bind:checked={property.required}
+							on:change={(event) => {
+								if (event?.detail) {
+									property.nullable = false
+								}
+							}}
+						/>
+						{#if property?.selectedType === 'string'}
+							<Toggle
+								options={{
+									right: 'Nullable',
+									rightTooltip:
+										'If enabled, the default value will be null and not an empty string.'
+								}}
+								size="xs"
+								bind:checked={property.nullable}
+								disabled={property?.required}
+							/>
+						{/if}
+					</div>
 				</div>
 				{#if isFlowInput}
 					<Alert type="info" title="Default not used by webhooks" size="xs" collapsible>

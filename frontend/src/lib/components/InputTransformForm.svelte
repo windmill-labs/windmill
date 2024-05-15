@@ -406,6 +406,7 @@
 					{itemPicker}
 					bind:pickForField
 					showSchemaExplorer
+					nullable={schema.properties[argName].nullable}
 				/>
 			{:else if arg.expr != undefined}
 				<div class="border mt-2">
