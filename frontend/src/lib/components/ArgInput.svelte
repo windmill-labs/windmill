@@ -118,7 +118,7 @@
 			}
 		}
 
-		if (nnullable && inputCat === 'string' && value === '') {
+		if (nnullable && type === 'string' && value === '') {
 			value = null
 		}
 	}
@@ -169,7 +169,8 @@
 
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (nullable && emptyString(v)) {
-			value = null
+			error = ''
+			valid && (valid = true)
 		} else if (required && (v == undefined || v == null || v === '')) {
 			error = 'Required'
 			valid && (valid = false)
