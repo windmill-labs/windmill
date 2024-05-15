@@ -95,6 +95,7 @@
 							nestedRequired={schema.properties[argName].required}
 							itemsType={schema.properties[argName].items}
 							extra={schema.properties[argName]}
+							nullable={schema.properties[argName].nullable}
 						/>
 					{/if}
 					<div class="pt-6 mt-0.5">

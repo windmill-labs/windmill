@@ -151,6 +151,7 @@
 							bind:pickForField
 							bind:extra={schema.properties[argName]}
 							simpleTooltip={schemaFieldTooltip[argName]}
+							nullable={schema.properties[argName].nullable}
 						/>
 					{/if}
 				{/if}
