@@ -48,7 +48,7 @@
 		loading: false
 	})
 
-	let result: undefined = undefined
+	let result: undefined | any = undefined
 
 	const resolvedConfig = initConfig(
 		components['agchartscomponent'].initialData.configuration,
@@ -215,10 +215,12 @@
 			return
 		}
 
+		if (typeof result !== 'object') {
+			return
+		}
 		const options = {
 			container: document.getElementById(`agchart-${id}`) as HTMLElement,
-			data: result?.['data'],
-			series: result?.['series']
+			...result
 		}
 
 		outputs.result.set({
