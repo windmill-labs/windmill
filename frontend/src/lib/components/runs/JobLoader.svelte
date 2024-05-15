@@ -191,11 +191,11 @@
 		}
 		loading = true
 		try {
-			concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
+			concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, undefined)
 			updateConcurrencyKeyMap()
-			computeExternalJobs()
+			computeExternalJobs(minTs)
 			let j = await fetchJobs(maxTs, minTs)
-			jobs = await filterJobsByConcurrencyKey(j)
+			jobs = await filterJobsByConcurrencyKey(j, minTs)
 			computeCompletedJobs()
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
@@ -256,11 +256,11 @@
 					}
 
 					loading = true
-					concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, minTs)
+					concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, undefined)
 					updateConcurrencyKeyMap()
-					computeExternalJobs()
+					computeExternalJobs(minTs)
 					let newJobs = await fetchJobs(maxTs, minTs ?? ts)
-					newJobs = (await filterJobsByConcurrencyKey(newJobs)) ?? []
+					newJobs = (await filterJobsByConcurrencyKey(newJobs, minTs)) ?? []
 					if (newJobs && newJobs.length > 0 && jobs) {
 						const oldJobs = jobs?.map((x) => x.id)
 						jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
@@ -281,11 +281,13 @@
 			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
 	}
 
-	async function filterJobsByConcurrencyKey(jobs: Job[] | undefined) {
+	async function filterJobsByConcurrencyKey(jobs: Job[] | undefined, minTs: string | undefined) {
 		if (concurrencyKey == null || concurrencyKey === '' || jobs == undefined || jobs.length === 0)
 			return jobs
 
-		return jobs.filter((x) => concurrencyKeyMap.get(x.id) === concurrencyKey)
+		let minDate = minTs ? new Date(minTs) : undefined
+
+		return jobs.filter((x) => concurrencyKeyMap.get(x.id) === concurrencyKey && (!minDate || (x.started_at && minDate < new Date(x.started_at))))
 	}
 
 	function onVisibilityChange() {
@@ -311,9 +313,10 @@
 		}
 	}
 
-	function computeExternalJobs() {
+	function computeExternalJobs(minTs: string | undefined) {
+		let minDate = minTs ? new Date(minTs) : undefined
 		let externalQueued = concurrencyIntervals?.running_jobs
-			.filter((x) => !x.job_id)
+			.filter((x) => !x.job_id && (!minDate || (x.started_at && minDate < new Date(x.started_at))))
 			.map(
 				(x) =>
 					({
@@ -325,7 +328,7 @@
 					} as Job)
 			)
 		let externalCompleted = concurrencyIntervals?.completed_jobs
-			.filter((x) => !x.job_id)
+			.filter((x) => !x.job_id && (!minDate || (x.started_at && minDate < new Date(x.started_at))))
 			.map(
 				(x) =>
 					({
