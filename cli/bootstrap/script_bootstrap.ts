@@ -78,4 +78,10 @@ func main() (interface{}, error) {
 `,
 
   powershell: `Write-Output "Hello world"`,
+
+  php: `<?php
+function main() {
+  return "Hello world";
+}
+`,
 };
