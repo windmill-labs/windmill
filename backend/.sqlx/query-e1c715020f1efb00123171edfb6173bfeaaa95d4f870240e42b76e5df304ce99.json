@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "path",
-        "type_info": "Varchar"
+        "name": "hash",
+        "type_info": "Int8"
       },
       {
         "ordinal": 1,
@@ -15,21 +15,26 @@
       },
       {
         "ordinal": 2,
+        "name": "concurrency_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -56,34 +61,35 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "delete_after_use",
         "type_info": "Bool"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "timeout",
         "type_info": "Int4"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
+        "Text",
         "Text"
       ]
     },
     "nullable": [
       false,
+      true,
       true,
       true,
       true,
@@ -95,5 +101,5 @@
       true
     ]
   },
-  "hash": "b69891c25dd029b1a54e97ace292433e1485324ff7dc802fe75d21c8c6db1d42"
+  "hash": "e1c715020f1efb00123171edfb6173bfeaaa95d4f870240e42b76e5df304ce99"
 }

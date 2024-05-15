@@ -249,6 +249,7 @@ pub async fn get_latest_deployed_hash_for_path(
 ) -> error::Result<(
     scripts::ScriptHash,
     Option<Tag>,
+    Option<String>,
     Option<i32>,
     Option<i32>,
     Option<i32>,
@@ -259,7 +260,7 @@ pub async fn get_latest_deployed_hash_for_path(
     Option<i32>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
@@ -273,6 +274,7 @@ pub async fn get_latest_deployed_hash_for_path(
     Ok((
         scripts::ScriptHash(script.hash),
         script.tag,
+        script.concurrency_key,
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,
@@ -291,6 +293,7 @@ pub async fn get_latest_hash_for_path<'c>(
 ) -> error::Result<(
     scripts::ScriptHash,
     Option<Tag>,
+    Option<String>,
     Option<i32>,
     Option<i32>,
     Option<i32>,
@@ -300,7 +303,7 @@ pub async fn get_latest_hash_for_path<'c>(
     Option<i32>,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout FROM script where path = $1 AND workspace_id = $2 AND
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout FROM script where path = $1 AND workspace_id = $2 AND
     created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
     deleted = false AND archived = false)",
         script_path,
@@ -314,6 +317,7 @@ pub async fn get_latest_hash_for_path<'c>(
     Ok((
         scripts::ScriptHash(script.hash),
         script.tag,
+        script.concurrency_key,
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,

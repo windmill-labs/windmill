@@ -10,12 +10,14 @@
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
+	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 
 	// Filters
 	export let path: string | null = null
 	export let label: string | null = null
+	export let concurrencyKey: string | null = null
 	export let success: 'running' | 'success' | 'failure' | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
@@ -34,11 +36,12 @@
 	export let allWorkspaces = false
 
 	$: displayedLabel = label
+	$: displayedConcurrencyKey = concurrencyKey
 
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
 
-	export let filterBy: 'path' | 'user' | 'folder' | 'label' = 'path'
+	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' = 'path'
 
 	const dispatch = createEventDispatcher()
 
@@ -57,10 +60,14 @@
 		} else if (label !== null && label !== '' && filterBy !== 'label') {
 			manuallySet = true
 			filterBy = 'label'
+		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
+			manuallySet = true
+			filterBy = 'concurrencyKey'
 		}
 	}
 
 	let labelTimeout: NodeJS.Timeout | undefined = undefined
+	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <div class="flex gap-4">
@@ -86,6 +93,7 @@
 							user = null
 							folder = null
 							label = null
+							concurrencyKey = null
 						} else {
 							manuallySet = false
 						}
@@ -94,7 +102,12 @@
 					<ToggleButton value="path" label="Path" />
 					<ToggleButton value="user" label="User" />
 					<ToggleButton value="folder" label="Folder" />
-					<ToggleButton value="label" label="Label" />
+					<ToggleButtonMore
+						togglableItems={[
+							{ label: 'Concurrency key', value: 'concurrencyKey' },
+							{ label: 'Label', value: 'label' }
+						]}
+					/>
 				</ToggleButtonGroup>
 			</div>
 
@@ -236,6 +249,47 @@
 
 								labelTimeout = setTimeout(() => {
 									label = displayedLabel
+								}, 1000)
+							}}
+						/>
+					</div>
+				{/key}
+			{:else if filterBy === 'concurrencyKey'}
+				{#key concurrencyKey}
+					<div class="relative">
+						{#if concurrencyKey}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									concurrencyKey = null
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+						<span class="text-xs absolute -top-4"
+							>Concurrency Key <Tooltip>
+								For concurrency limited jobs, the concurrency key defines a group of jobs that share
+								the same limits.
+								{#if !$enterpriseLicense}
+									Concurrency limits are an EE feature.
+								{/if}
+							</Tooltip></span
+						>
+
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedConcurrencyKey}
+							on:keydown={(e) => {
+								if (concurrencyKeyTimeout) {
+									clearTimeout(concurrencyKeyTimeout)
+								}
+
+								concurrencyKeyTimeout = setTimeout(() => {
+									concurrencyKey = displayedConcurrencyKey
 								}, 1000)
 							}}
 						/>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Job } from '$lib/gen'
+	import { type Job } from '$lib/gen'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { displayDate } from '$lib/utils'
 	import ScheduleEditor from './ScheduleEditor.svelte'

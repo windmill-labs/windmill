@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND lock IS not NULL AND lock_error_logs IS NULL)",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout FROM script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND archived = false)",
   "describe": {
     "columns": [
       {
@@ -15,21 +15,26 @@
       },
       {
         "ordinal": 2,
+        "name": "concurrency_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -56,19 +61,14 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "priority",
         "type_info": "Int2"
-      },
-      {
-        "ordinal": 8,
-        "name": "delete_after_use",
-        "type_info": "Bool"
       },
       {
         "ordinal": 9,
@@ -88,12 +88,12 @@
       true,
       true,
       true,
-      false,
       true,
+      false,
       true,
       true,
       true
     ]
   },
-  "hash": "ef132ac8d79579b08d7359789b6f22991f51e1c945efc2924df6253d62b83bba"
+  "hash": "9d25fbd21a63e6e9ccfdbf0460c8b3ca6d7fa05600067f379659b59b6f2bf418"
 }

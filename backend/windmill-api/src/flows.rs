@@ -912,6 +912,7 @@ mod tests {
                         path: None,
                         lock: None,
                         tag: None,
+                        custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                     },

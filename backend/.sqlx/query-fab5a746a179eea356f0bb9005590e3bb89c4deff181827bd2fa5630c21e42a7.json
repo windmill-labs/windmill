@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) as count, COALESCE(MAX(ended_at), now() - INTERVAL '1 second' * $2)  as max_ended_at FROM custom_concurrency_key_ended  WHERE key = $1 AND ended_at >=  (now() - INTERVAL '1 second' * $2)",
+  "query": "SELECT COUNT(*) as count, COALESCE(MAX(ended_at), now() - INTERVAL '1 second' * $2)  as max_ended_at FROM concurrency_key WHERE key = $1 AND ended_at >=  (now() - INTERVAL '1 second' * $2)",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       null
     ]
   },
-  "hash": "0b74ab3a237b2b7f54c05c7ea74294317fcd039870268eaa930f1ba8b8250559"
+  "hash": "fab5a746a179eea356f0bb9005590e3bb89c4deff181827bd2fa5630c21e42a7"
 }

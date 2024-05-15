@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+  "query": "select tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -10,21 +10,26 @@
       },
       {
         "ordinal": 1,
+        "name": "concurrency_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -51,22 +56,22 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "delete_after_use",
         "type_info": "Bool"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "timeout",
         "type_info": "Int4"
       }
@@ -82,6 +87,7 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
@@ -89,5 +95,5 @@
       true
     ]
   },
-  "hash": "6b313cc9a57ae3c943bda4a3213f7f6231a44b6ef5a52754074d136007f4f72a"
+  "hash": "1a612eb0b64eddd2c5657ef73598c47886545796424f8612135b711e2b9ddb6c"
 }
