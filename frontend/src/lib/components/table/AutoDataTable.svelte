@@ -30,6 +30,9 @@
 			let hds: string[] = []
 			let objs = objects.map((obj) => {
 				let rowData = obj && typeof obj == 'object' ? obj : {}
+				if (Array.isArray(rowData)) {
+					rowData = Object.fromEntries(rowData.map((x, i) => ['col' + i, x]))
+				}
 				let ks = Object.keys(rowData)
 				ks.forEach((x) => {
 					if (!hds.includes(x)) {
