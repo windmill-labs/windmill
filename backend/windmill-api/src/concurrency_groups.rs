@@ -15,16 +15,16 @@ use sql_builder::bind::Bind;
 use sql_builder::SqlBuilder;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-use std::collections::HashMap;
 use uuid::Uuid;
 use windmill_common::db::UserDB;
 use windmill_common::error::Error::{InternalErr, PermissionDenied};
 use windmill_common::error::JsonResult;
+use windmill_common::utils::require_admin;
 
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_concurrency_groups))
-        .route("/prune/id", delete(prune_concurrency_group))
+        .route("/prune/*concurrency_key", delete(prune_concurrency_group))
         .route("/:job_id/key", get(get_concurrency_key))
 }
 
@@ -35,67 +35,25 @@ pub fn workspaced_service() -> Router {
 #[derive(Serialize)]
 pub struct ConcurrencyGroups {
     concurrency_key: String,
-    total_running: usize,
-    total_completed_within_time_window: usize,
+    total_running: i64,
 }
 
 async fn list_concurrency_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ConcurrencyGroups>> {
-    if !authed.is_admin {
-        return Err(PermissionDenied(
-            "Only administrators can see concurrency groups".to_string(),
-        ));
-    }
+    require_admin(authed.is_admin, &authed.username)?;
 
-    // let concurrency_time_window_s = concurrency.time_window;
-    let concurrency_time_window_s = 51;
-    let concurrency_groups_raw = sqlx::query_as::<_, (String, serde_json::Value)>(
-        "SELECT concurrency_id, job_uuids FROM concurrency_counter ORDER BY concurrency_id ASC",
-    )
-    .fetch_all(&db)
+    let concurrency_counts = sqlx::query_as::<_, (String, i64)>(
+        "SELECT concurrency_id, (select COUNT(*) from jsonb_object_keys(job_uuids)) as n_job_uuids FROM concurrency_counter",
+    ).fetch_all(&db)
     .await?;
 
-    let completed_count = sqlx::query!(
-        "SELECT key, COUNT(*) as count FROM concurrency_key
-            WHERE ended_at IS NOT NULL AND ended_at >=  (now() - INTERVAL '1 second' * $1) GROUP BY key",
-        f64::from(concurrency_time_window_s)
-    )
-    .fetch_all(&db)
-    .await
-    .map_err(|e| {
-        InternalErr(format!(
-            "Error getting concurrency limited completed jobs count: {e}"
-        ))
-    })?;
-
-    let completed_by_key = completed_count
-        .iter()
-        .fold(HashMap::new(), |mut acc, entry| {
-            *acc.entry(entry.key.clone()).or_insert(0) += entry.count.unwrap_or(0);
-            acc
-        });
     let mut concurrency_groups: Vec<ConcurrencyGroups> = vec![];
-    for (concurrency_key, job_uuids_json) in concurrency_groups_raw {
-        let job_uuids_map = serde_json::from_value::<HashMap<String, serde_json::Value>>(
-            job_uuids_json,
-        )
-        .map_err(|err| {
-            InternalErr(format!(
-                "Error deserializing concurrency_counter table content: {}",
-                err.to_string()
-            ))
-        })?;
+    for (concurrency_key, count) in concurrency_counts {
         concurrency_groups.push(ConcurrencyGroups {
             concurrency_key: concurrency_key.clone(),
-            total_running: job_uuids_map.len().into(),
-            total_completed_within_time_window: completed_by_key
-                .get(&concurrency_key)
-                .cloned()
-                .unwrap_or(0)
-                .try_into()
-                .unwrap_or(0),
+            total_running: count,
         })
     }
 
@@ -261,6 +219,10 @@ async fn get_concurrent_intervals(
 
     sqlb_q.and_where_is_not_null("started_at");
 
+    // When we have a concurrency key defined, fetch jobs from other workspaces
+    // as obscured unless we're in the admins workspace. This is to show the
+    // potential concurrency races without showing jobs that don't belong to
+    // the workspace.
     let sqlb_all_workspaces: Option<(SqlBuilder, SqlBuilder)> =
         if concurrency_key.is_some() && w_id != "admins" {
             Some((

@@ -10482,12 +10482,9 @@ components:
           type: string
         total_running:
           type: number
-        total_completed_within_time_window:
-          type: number
       required:
         - concurrency_key
         - total_running
-        - total_completed_within_time_window
 
     ConcurrencyIntervals:
       type: object

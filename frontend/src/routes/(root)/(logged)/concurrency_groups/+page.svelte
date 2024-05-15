@@ -3,7 +3,7 @@
 	import { ConcurrencyGroupsService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { RefreshCw, Trash } from 'lucide-svelte'
@@ -12,8 +12,6 @@
 
 	let concurrencyGroups: ConcurrencyGroup[] | undefined = undefined
 
-	let selectedGroup: ConcurrencyGroup | undefined = undefined
-	let groupDrawer: Drawer
 
 	let doLoadConcurrencyGroups = false
 	let concurrencyGroupsLoading = false
@@ -62,27 +60,6 @@
 	}
 </script>
 
-<Drawer bind:this={groupDrawer}>
-	<DrawerContent
-		title="Instance Group {selectedGroup?.concurrency_id}"
-		on:close={groupDrawer.closeDrawer}
-	>
-		{#if selectedGroup?.job_uuids && selectedGroup?.job_uuids.length > 0}
-			<h3 class="mb-2">Jobs running for this group</h3>
-
-			<ul>
-				{#each selectedGroup?.job_uuids as jobUuid}
-					<li>
-						<a target="_blank" rel="noreferrer" href="/run/{jobUuid}"> {jobUuid} </a>
-					</li>
-				{/each}
-			</ul>
-		{:else}
-			<h3>No job running for this group</h3>
-		{/if}
-	</DrawerContent>
-</Drawer>
-
 <CenteredPage>
 	<PageHeader title="Concurrency Groups">
 		<Button
@@ -105,20 +82,16 @@
 					<th />
 				</tr>
 				<tbody slot="body">
-					{#each concurrencyGroups as { concurrency_id, job_uuids }}
+					{#each concurrencyGroups as { concurrency_key, total_running }}
 						<tr>
 							<td>
 								<a
-									href="#{concurrency_id}"
-									on:click={() => {
-										selectedGroup = { concurrency_id, job_uuids }
-										groupDrawer.openDrawer()
-									}}
-									>{concurrency_id}
+									href={`/runs/?job_kinds=all&graph=ConcurrencyKey&concurrency_key=${concurrency_key}`}
+									>{concurrency_key}
 								</a>
 							</td>
 							<td>
-								{job_uuids.length}
+								{total_running}
 							</td>
 							<td>
 								<div class="flex justify-center">
@@ -128,7 +101,7 @@
 										btnClasses="justify-center w-12"
 										startIcon={{ icon: Trash, classes: 'text-red-500' }}
 										on:click={() => {
-											deleteConcurrencyGroup(concurrency_id)
+											deleteConcurrencyGroup(concurrency_key)
 										}}
 										iconOnly={true}
 									/>
