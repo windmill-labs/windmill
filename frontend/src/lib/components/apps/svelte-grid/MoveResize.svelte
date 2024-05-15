@@ -26,7 +26,6 @@
 	export let nativeContainer
 	export let onTop
 	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
-	export let onlyHorizontalResize: boolean = false
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
@@ -316,27 +315,20 @@
 
 	const resizePointerMove = ({ pageX, pageY }) => {
 		if (shadow) {
-			if (onlyHorizontalResize) {
-				// Resize horizontally only
-				newSize.width = initSize.width + ((pageX - resizeInitPos.x) / $scale) * 100
-				newSize.width = Math.min(newSize.width, (cols - shadow.x) * xPerPx - gapX * 2)
+			newSize.width = initSize.width + ((pageX - resizeInitPos.x) / $scale) * 100
+			newSize.height = initSize.height + ((pageY - resizeInitPos.y) / $scale) * 100
+
+			// Get max col number
+			let maxWidth = cols - shadow.x
+			maxWidth = maxWidth
+
+			// Limit bound
+			newSize.width = Math.min(newSize.width, maxWidth * xPerPx - gapX * 2)
+
+			if (xPerPx) {
+				// Limit col & row
 				shadow.w = Math.round(Math.max((newSize.width + gapX * 2) / xPerPx, 1))
-			} else {
-				newSize.width = initSize.width + ((pageX - resizeInitPos.x) / $scale) * 100
-				newSize.height = initSize.height + ((pageY - resizeInitPos.y) / $scale) * 100
-
-				// Get max col number
-				let maxWidth = cols - shadow.x
-				maxWidth = maxWidth
-
-				// Limit bound
-				newSize.width = Math.min(newSize.width, maxWidth * xPerPx - gapX * 2)
-
-				if (xPerPx) {
-					// Limit col & row
-					shadow.w = Math.round(Math.max((newSize.width + gapX * 2) / xPerPx, 1))
-					shadow.h = Math.round(Math.max((newSize.height + gapY * 2) / yPerPx, 1))
-				}
+				shadow.h = Math.round(Math.max((newSize.height + gapY * 2) / yPerPx, 1))
 			}
 			repaint(false, false) // Repaint function assuming parameters control updates
 		}

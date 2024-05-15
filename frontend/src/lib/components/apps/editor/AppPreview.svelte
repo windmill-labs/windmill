@@ -162,7 +162,7 @@
 		}
 	}
 
-	$: maxRow = maxHeight($appStore.grid, window.innerHeight, $breakpoint, $appStore.subgrids)
+	$: maxRow = maxHeight($appStore.grid, window.innerHeight, $breakpoint)
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />

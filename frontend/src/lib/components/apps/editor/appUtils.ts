@@ -980,8 +980,7 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 export function maxHeight(
 	grid: GridItem[],
 	windowHeight: number,
-	breakpoint: EditorBreakpoint = 'lg',
-	subGrids: Record<string, GridItem[]> | undefined = undefined
+	breakpoint: EditorBreakpoint = 'lg'
 ) {
 	const rowHeight = 36
 	const rowGap = 2
@@ -993,16 +992,12 @@ export function maxHeight(
 		return maxRows
 	}
 
-	const maxRowPerGrid = Math.max(
-		...grid.map((item) => {
-			const breakpointKey = breakpoint === 'sm' ? 3 : 12
-
-			const y = item[breakpointKey].y
-			const h = item[breakpointKey].h
-
-			return y + h
-		})
-	)
+	const breakpointKey = breakpoint === 'sm' ? 3 : 12
+	const maxRowPerGrid = grid.reduce((max, item) => {
+		const y = item[breakpointKey].y
+		const h = item[breakpointKey].h
+		return Math.max(max, y + h)
+	}, 0)
 
 	return Math.max(maxRowPerGrid, maxRows)
 }
