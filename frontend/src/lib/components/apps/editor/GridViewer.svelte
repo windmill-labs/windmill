@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { updateComponentVisibility } from '../svelte-grid/utils/overlap'
-
 	import { onMount, createEventDispatcher } from 'svelte'
 
 	import type { FilledItem } from '../svelte-grid/types'
@@ -92,7 +90,6 @@
 				gapY * 2}
 			{@const top = (item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 			{@const left = (item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
-			{@const hidden = updateComponentVisibility(item, items, getComputedCols)}
 
 			<div
 				class="svlt-grid-item"
@@ -101,7 +98,7 @@
 					: ''} top: {top}px; left: {left}px;"
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} item={item[getComputedCols]} {hidden} />
+					<slot dataItem={item} item={item[getComputedCols]} hidden={false} />
 				{/if}
 			</div>
 		{/each}
