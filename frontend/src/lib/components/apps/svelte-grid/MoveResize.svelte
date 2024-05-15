@@ -330,7 +330,7 @@
 				shadow.w = Math.round(Math.max((newSize.width + gapX * 2) / xPerPx, 1))
 				shadow.h = Math.round(Math.max((newSize.height + gapY * 2) / yPerPx, 1))
 			}
-			repaint(false, false) // Repaint function assuming parameters control updates
+			repaint(false, false)
 		}
 	}
 
