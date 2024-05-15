@@ -102,16 +102,12 @@
 					<ToggleButton value="path" label="Path" />
 					<ToggleButton value="user" label="User" />
 					<ToggleButton value="folder" label="Folder" />
-					{#if $enterpriseLicense}
-						<ToggleButtonMore
-							togglableItems={[
-								{ label: 'ConcurrencyKey', value: 'concurrencyKey' },
-								{ label: 'Label', value: 'label' }
-							]}
-						/>
-					{:else}
-						<ToggleButton value="label" label="Label" />
-					{/if}
+					<ToggleButtonMore
+						togglableItems={[
+							{ label: 'Concurrency key', value: 'concurrencyKey' },
+							{ label: 'Label', value: 'label' }
+						]}
+					/>
 				</ToggleButtonGroup>
 			</div>
 
@@ -276,6 +272,9 @@
 							>Concurrency Key <Tooltip>
 								For concurrency limited jobs, the concurrency key defines a group of jobs that share
 								the same limits.
+								{#if !$enterpriseLicense}
+									Concurrency limits are an EE feature.
+								{/if}
 							</Tooltip></span
 						>
 

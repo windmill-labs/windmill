@@ -33,6 +33,8 @@
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
 	import { Calendar, Clock } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
@@ -100,11 +102,8 @@
 	let jobLoader: JobLoader | undefined = undefined
 	let externalJobs: Job[] | undefined
 
-	const g = $page.url.searchParams.get('graph')
-	let graphIsRunsChart: boolean = g ? g === 'ConcurrencyChart' : true
-	let graph: 'RunChart' | 'ConcurrencyChart'
-
-	$: graph = graphIsRunsChart ? 'RunChart' : 'ConcurrencyChart'
+	let graph: 'RunChart' | 'ConcurrencyChart' = typeOfChart($page.url.searchParams.get('graph'))
+	let graphIsRunsChart: boolean = graph ? graph === 'ConcurrencyChart' : true
 
 	let manualDatePicker: ManuelDatePicker
 
@@ -219,6 +218,12 @@
 			searchParams.delete('label')
 		}
 
+		if (graph != 'RunChart') {
+			searchParams.set('graph', graph)
+		} else {
+			searchParams.delete('graph')
+		}
+
 		let newPath = path ? `/${path}` : '/'
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
 		history.replaceState(history.state, '', newUrl.toString())
@@ -310,15 +315,14 @@
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
 
-
-	function chartName(graph: string): string | undefined {
-		switch (graph) {
-			case "RunChart":
-				return "Run durations"
-			case "ConcurrencyChart":
-				return "Concurrencies"
+	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
+		switch (s) {
+			case 'RunChart':
+				return 'RunChart'
+			case 'ConcurrencyChart':
+				return 'ConcurrencyChart'
 			default:
-				return ""
+				return 'RunChart'
 		}
 	}
 </script>
@@ -405,11 +409,6 @@
 							see your own runs or runs of groups you belong to unless you are an admin.
 						</Tooltip>
 					</div>
-					<Toggle
-						size={'xs'}
-						bind:checked={graphIsRunsChart}
-						options={{ left: chartName(graph) }}
-					/>
 				</div>
 				<RunsFilter
 					bind:isSkipped
@@ -434,6 +433,19 @@
 		</div>
 
 		<div class="p-2 w-full">
+			<div class="relative z-10">
+				<div class="absolute  right-0 -mt-6">
+					<ToggleButtonGroup
+						bind:selected={graph}
+						on:selected={() => {
+							graphIsRunsChart = graph == 'RunChart'
+						}}
+					>
+						<ToggleButton value="RunChart" label="Duration" />
+						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
+					</ToggleButtonGroup>
+				</div>
+			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
 					minTimeSet={minTs}
@@ -641,6 +653,19 @@
 			</div>
 		</div>
 		<div class="p-2 w-full">
+			<div class="relative z-10">
+				<div class="absolute right-2">
+					<ToggleButtonGroup
+						bind:selected={graph}
+						on:selected={() => {
+							graphIsRunsChart = graph == 'RunChart'
+						}}
+					>
+						<ToggleButton value="RunChart" label="Duration" />
+						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
+					</ToggleButtonGroup>
+				</div>
+			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
 					minTimeSet={minTs}
