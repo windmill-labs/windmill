@@ -86,10 +86,10 @@
 			</div>
 			<div>
 				{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}
-				<Tooltip
-					>The scripts will be run on behalf of the author and a tight policy ensure security about
-					the possible inputs of the runnables.</Tooltip
-				>
+				<Tooltip>
+					The scripts will be run on behalf of the author and a tight policy ensure security about
+					the possible inputs of the runnables.
+				</Tooltip>
 			</div>
 		</div>
 	</div>
@@ -125,9 +125,8 @@
 					$app.grid = e.detail
 				}}
 				let:dataItem
-				rowHeight={36}
+				let:hidden
 				cols={columnConfiguration}
-				gap={[4, 2]}
 			>
 				<ComponentWrapper
 					id={dataItem.id}
@@ -139,10 +138,12 @@
 				>
 					<GridEditorMenu id={dataItem.id}>
 						<Component
+							{hidden}
 							render={true}
 							component={dataItem.data}
 							selected={Boolean($selectedComponent?.includes(dataItem.id))}
 							locked={isFixed(dataItem)}
+							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 							on:lock={() => {
 								const gridItem = findGridItem($app, dataItem.id)
 								if (gridItem) {
@@ -154,6 +155,14 @@
 								push(history, $app)
 								$selectedComponent = [dataItem.id]
 								expandGriditem($app.grid, dataItem.id, $breakpoint)
+								$app = $app
+							}}
+							on:fillHeight={() => {
+								const gridItem = findGridItem($app, dataItem.id)
+								const b = $breakpoint === 'sm' ? 3 : 12
+								if (gridItem?.[b]) {
+									gridItem[b].fullHeight = !gridItem[b].fullHeight
+								}
 								$app = $app
 							}}
 						/>

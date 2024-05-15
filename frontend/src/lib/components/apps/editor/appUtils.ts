@@ -246,7 +246,8 @@ export function createNewGridItem(
 	const newComponent = {
 		fixed: false,
 		x: 0,
-		y: 0
+		y: 0,
+		fullHeight: false
 	}
 
 	let newData: AppComponent = JSON.parse(JSON.stringify(data))
@@ -378,6 +379,7 @@ export function insertNewGridItem(
 	const id = keepId ?? getNextGridItemId(app)
 
 	const data = builddata(id)
+
 	if (data.type == 'aggridcomponentee' && !get(enterpriseLicense)) {
 		sendUserToast('AgGrid Enterprise Edition require Windmill Enterprise Edition', true)
 		throw Error('AgGrid Enterprise Edition require Windmill Enterprise Edition')
@@ -971,4 +973,30 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 				return [k, undefined]
 			})
 	)
+}
+
+export const ROW_HEIGHT = 36
+export const ROW_GAP_Y = 2
+export const ROW_GAP_X = 4
+
+export function maxHeight(
+	grid: GridItem[],
+	windowHeight: number,
+	breakpoint: EditorBreakpoint = 'lg'
+) {
+	const totalRowHeight = ROW_HEIGHT + ROW_GAP_Y
+	let maxRows = Math.floor((windowHeight - ROW_GAP_Y) / totalRowHeight)
+
+	if (!grid.length) {
+		return maxRows
+	}
+
+	const breakpointKey = breakpoint === 'sm' ? 3 : 12
+	const maxRowPerGrid = grid.reduce((max, item) => {
+		const y = item[breakpointKey].y
+		const h = item[breakpointKey].h
+		return Math.max(max, y + h)
+	}, 0)
+
+	return Math.max(maxRowPerGrid, maxRows)
 }

@@ -10,6 +10,7 @@ export interface Positon {
 
 interface ItemLayout extends Size, Positon {
 	fixed: boolean
+	fullHeight: boolean
 }
 
 export type FilledItem<T> = { [width: number]: Required<ItemLayout>; data: T; id: string }

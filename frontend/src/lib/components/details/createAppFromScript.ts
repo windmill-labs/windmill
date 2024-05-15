@@ -7,14 +7,16 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					x: 0,
 					y: 0,
 					w: 2,
-					h: 8
+					h: 8,
+					fullHeight: false
 				},
 				'12': {
 					fixed: false,
 					x: 0,
 					y: 0,
 					w: 12,
-					h: 21
+					h: 21,
+					fullHeight: false
 				},
 				data: {
 					type: 'verticalsplitpanescomponent',
@@ -40,14 +42,16 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 						x: 0,
 						y: 1,
 						w: 3,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 19
+						h: 19,
+						fullHeight: false
 					},
 					data: {
 						type: 'schemaformcomponent',
@@ -77,14 +81,16 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 						x: 0,
 						y: 0,
 						w: 1,
-						h: 1
+						h: 1,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 19,
 						w: 12,
-						h: 1
+						h: 1,
+						fullHeight: false
 					},
 					data: {
 						type: 'buttoncomponent',
@@ -262,14 +268,16 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 						x: 0,
 						y: 0,
 						w: 2,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 20
+						h: 20,
+						fullHeight: false
 					},
 					data: {
 						type: 'tabscomponent',
@@ -306,14 +314,16 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 						x: 0,
 						y: 0,
 						w: 2,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 18
+						h: 18,
+						fullHeight: false
 					},
 					data: {
 						type: 'displaycomponent',
@@ -339,14 +349,16 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 						x: 0,
 						y: 0,
 						w: 2,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 18
+						h: 18,
+						fullHeight: false
 					},
 					data: {
 						type: 'jobidlogcomponent',
@@ -410,14 +422,16 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					x: 0,
 					y: 0,
 					w: 2,
-					h: 8
+					h: 8,
+					fullHeight: false
 				},
 				'12': {
 					fixed: false,
 					x: 0,
 					y: 0,
 					w: 12,
-					h: 21
+					h: 21,
+					fullHeight: false
 				},
 				data: {
 					type: 'verticalsplitpanescomponent',
@@ -443,14 +457,16 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						x: 0,
 						y: 1,
 						w: 3,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 19
+						h: 19,
+						fullHeight: false
 					},
 					data: {
 						type: 'schemaformcomponent',
@@ -480,14 +496,16 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						x: 0,
 						y: 0,
 						w: 1,
-						h: 1
+						h: 1,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 19,
 						w: 12,
-						h: 1
+						h: 1,
+						fullHeight: false
 					},
 					data: {
 						type: 'buttoncomponent',
@@ -665,14 +683,16 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						x: 0,
 						y: 0,
 						w: 2,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 20
+						h: 20,
+						fullHeight: false
 					},
 					data: {
 						type: 'tabscomponent',
@@ -709,14 +729,16 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						x: 0,
 						y: 0,
 						w: 2,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 18
+						h: 18,
+						fullHeight: false
 					},
 					data: {
 						type: 'jobidflowstatuscomponent',
@@ -743,14 +765,16 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						x: 0,
 						y: 0,
 						w: 2,
-						h: 8
+						h: 8,
+						fullHeight: false
 					},
 					'12': {
 						fixed: false,
 						x: 0,
 						y: 0,
 						w: 12,
-						h: 18
+						h: 18,
+						fullHeight: false
 					},
 					data: {
 						type: 'jobidlogcomponent',

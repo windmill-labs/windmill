@@ -6,6 +6,7 @@ function makeItem(item) {
 	const { min = { w: 1, h: 1 }, max } = item
 	return {
 		fixed: false,
+		fullHeight: false,
 		min: {
 			w: Math.max(1, min.w),
 			h: Math.max(1, min.h)
