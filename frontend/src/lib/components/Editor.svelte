@@ -685,7 +685,7 @@
 		}
 
 		const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
-		const hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
+		const hostname = getHostname()
 
 		let encodedImportMap = ''
 		// if (lang == 'typescript') {
@@ -693,6 +693,7 @@
 		// 	let worker = await languages.typescript.getTypeScriptWorker()
 		// 	console.log(worker)
 		// }
+
 		if (useWebsockets) {
 			if (lang == 'typescript' && scriptLang === 'deno') {
 				ata = undefined
@@ -756,88 +757,6 @@
 						]
 					}
 				)
-			} else if (lang === 'typescript') {
-				const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
-				if (scriptLang == 'bun') {
-					const processLib = { content: processStdContent, filePath: 'process.d.ts' }
-					languages.typescript.typescriptDefaults.setExtraLibs([stdLib, processLib])
-				} else {
-					const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
-					languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
-					let localContent = windmillFetchContent
-					let p = '/tmp/monaco/windmill.d.ts'
-					let nuri = mUri.parse(p)
-					let localModel = meditor.getModel(nuri)
-					if (localModel) {
-						localModel.setValue(localContent)
-					} else {
-						meditor.createModel(localContent, 'typescript', nuri)
-					}
-				}
-				if (scriptLang == 'bun' && ata == undefined) {
-					const addLibraryToRuntime = async (code: string, _path: string) => {
-						const path = 'file://' + _path
-						let uri = mUri.parse(path)
-						console.log('adding library to runtime', path)
-						languages.typescript.typescriptDefaults.addExtraLib(code, path)
-						try {
-							await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
-						} catch (e) {
-							console.log('error writing file', e)
-						}
-					}
-
-					const addLocalFile = async (code: string, _path: string) => {
-						let p = new URL(_path, uri).href
-						// if (_path?.startsWith('/')) {
-						// 	p = 'file://' + p
-						// }
-						let nuri = mUri.parse(p)
-						console.log('adding local file', _path, nuri.toString())
-						if (editor) {
-							let localModel = meditor.getModel(nuri)
-							if (localModel) {
-								localModel.setValue(code)
-							} else {
-								meditor.createModel(code, 'javascript', nuri)
-							}
-							try {
-								if (model) {
-									model?.setValue(model.getValue())
-								}
-							} catch (e) {
-								console.log('error resetting model', e)
-							}
-						}
-					}
-					await initWasm()
-					const root = await genRoot(hostname)
-					console.log('SETUP TYPE ACQUISITION', { root, path })
-					ata = setupTypeAcquisition({
-						projectName: 'Windmill',
-						depsParser: (c) => {
-							return parseDeps(c)
-						},
-						root,
-						scriptPath: path,
-						logger: console,
-						delegate: {
-							receivedFile: addLibraryToRuntime,
-							localFile: addLocalFile,
-							progress: (downloaded: number, total: number) => {
-								// console.log({ dl, ttl })
-							},
-							started: () => {
-								console.log('ATA start')
-							},
-							finished: (f) => {
-								console.log('ATA done')
-							}
-						}
-					})
-					ata?.('import "bun-types"')
-					ata?.(code)
-				}
 			} else if (lang === 'python') {
 				await connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/pyright`,
@@ -974,6 +893,11 @@
 	}
 
 	let pathTimeout: NodeJS.Timeout | undefined = undefined
+
+	function getHostname() {
+		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
+	}
+
 	function handlePathChange() {
 		console.log('path changed, reloading language server', initialPath, path)
 		initialPath = path
@@ -1210,6 +1134,7 @@
 
 		reloadWebsocket()
 
+		setTypescriptExtraLibs()
 		return () => {
 			console.log('disposing editor')
 			ata = undefined
@@ -1220,6 +1145,94 @@
 				console.log('disposed editor')
 			} catch (err) {
 				console.log('error disposing editor', err)
+			}
+		}
+	}
+
+	async function setTypescriptExtraLibs() {
+		if (lang === 'typescript' && scriptLang != 'deno') {
+			const hostname = getHostname()
+
+			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+			if (scriptLang == 'bun') {
+				const processLib = { content: processStdContent, filePath: 'process.d.ts' }
+				languages.typescript.typescriptDefaults.setExtraLibs([stdLib, processLib])
+			} else {
+				const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
+				languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
+				let localContent = windmillFetchContent
+				let p = '/tmp/monaco/windmill.d.ts'
+				let nuri = mUri.parse(p)
+				let localModel = meditor.getModel(nuri)
+				if (localModel) {
+					localModel.setValue(localContent)
+				} else {
+					meditor.createModel(localContent, 'typescript', nuri)
+				}
+			}
+			if (scriptLang == 'bun' && ata == undefined) {
+				const addLibraryToRuntime = async (code: string, _path: string) => {
+					const path = 'file://' + _path
+					let uri = mUri.parse(path)
+					console.log('adding library to runtime', path)
+					languages.typescript.typescriptDefaults.addExtraLib(code, path)
+					try {
+						await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
+					} catch (e) {
+						console.log('error writing file', e)
+					}
+				}
+
+				const addLocalFile = async (code: string, _path: string) => {
+					let p = new URL(_path, uri).href
+					// if (_path?.startsWith('/')) {
+					// 	p = 'file://' + p
+					// }
+					let nuri = mUri.parse(p)
+					console.log('adding local file', _path, nuri.toString())
+					if (editor) {
+						let localModel = meditor.getModel(nuri)
+						if (localModel) {
+							localModel.setValue(code)
+						} else {
+							meditor.createModel(code, 'typescript', nuri)
+						}
+						try {
+							if (model) {
+								model?.setValue(model.getValue())
+							}
+						} catch (e) {
+							console.log('error resetting model', e)
+						}
+					}
+				}
+				await initWasm()
+				const root = await genRoot(hostname)
+				console.log('SETUP TYPE ACQUISITION', { root, path })
+				ata = setupTypeAcquisition({
+					projectName: 'Windmill',
+					depsParser: (c) => {
+						return parseDeps(c)
+					},
+					root,
+					scriptPath: path,
+					logger: console,
+					delegate: {
+						receivedFile: addLibraryToRuntime,
+						localFile: addLocalFile,
+						progress: (downloaded: number, total: number) => {
+							// console.log({ dl, ttl })
+						},
+						started: () => {
+							console.log('ATA start')
+						},
+						finished: (f) => {
+							console.log('ATA done')
+						}
+					}
+				})
+				ata?.('import "bun-types"')
+				ata?.(code)
 			}
 		}
 	}
