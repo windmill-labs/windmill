@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.330.1](https://github.com/windmill-labs/windmill/compare/v1.330.0...v1.330.1) (2024-05-15)
+
+
+### Bug Fixes
+
+* php worker tag migration ([#3732](https://github.com/windmill-labs/windmill/issues/3732)) ([14e9c22](https://github.com/windmill-labs/windmill/commit/14e9c22c0753ef01a442b331edaf978d0ab3d39b))
+
 ## [1.330.0](https://github.com/windmill-labs/windmill/compare/v1.329.0...v1.330.0) (2024-05-15)
 
 
