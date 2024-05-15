@@ -40,6 +40,7 @@ export interface SchemaProperty {
 	password?: boolean
 	order?: string[]
 	nullable?: boolean
+	dateFormat?: string
 }
 
 export interface ModalSchemaProperty {
@@ -63,6 +64,7 @@ export interface ModalSchemaProperty {
 	showExpr?: string
 	password?: boolean
 	nullable?: boolean
+	dateFormat?: string
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -85,7 +87,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		multiselect: schema.multiselect,
 		showExpr: schema.showExpr,
 		password: schema.password,
-		nullable: schema.nullable
+		nullable: schema.nullable,
+		dateFormat: schema.dateFormat
 	}
 }
 export type Schema = {

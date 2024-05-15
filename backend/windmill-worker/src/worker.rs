@@ -100,6 +100,7 @@ use crate::{
     js_eval::{eval_fetch_timeout, transpile_ts},
     mysql_executor::do_mysql,
     pg_executor::do_postgresql,
+    php_executor::{composer_install, handle_php_job, parse_php_imports},
     python_executor::{
         create_dependencies_dir, handle_python_job, handle_python_reqs, pip_compile,
     },
@@ -203,6 +204,7 @@ pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
+pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
 
 const NUM_SECS_PING: u64 = 5;
 
@@ -273,6 +275,8 @@ lazy_static::lazy_static! {
     pub static ref NPM_PATH: String = std::env::var("NPM_PATH").unwrap_or_else(|_| "/usr/bin/npm".to_string());
     pub static ref NODE_PATH: String = std::env::var("NODE_PATH").unwrap_or_else(|_| "/usr/bin/node".to_string());
     pub static ref POWERSHELL_PATH: String = std::env::var("POWERSHELL_PATH").unwrap_or_else(|_| "/usr/bin/pwsh".to_string());
+    pub static ref PHP_PATH: String = std::env::var("PHP_PATH").unwrap_or_else(|_| "/usr/bin/php".to_string());
+    pub static ref COMPOSER_PATH: String = std::env::var("COMPOSER_PATH").unwrap_or_else(|_| "/usr/bin/composer".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -3431,6 +3435,23 @@ mount {{
             )
             .await
         }
+        Some(ScriptLang::Php) => {
+            handle_php_job(
+                requirements_o,
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                job_dir,
+                &inner_content,
+                base_internal_url,
+                worker_name,
+                envs,
+                &shared_mount,
+            )
+            .await
+        }
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
     tracing::info!(
@@ -4356,6 +4377,34 @@ async fn capture_dependency_job(
             )
             .await?;
             Ok(req.unwrap_or_else(String::new))
+        }
+        ScriptLang::Php => {
+            let reqs = if raw_deps {
+                if job_raw_code.is_empty() {
+                    return Ok("".to_string());
+                }
+                job_raw_code.to_string()
+            } else {
+                match parse_php_imports(job_raw_code)? {
+                    Some(reqs) => reqs,
+                    None => {
+                        return Ok("".to_string());
+                    }
+                }
+            };
+
+            composer_install(
+                mem_peak,
+                canceled_by,
+                job_id,
+                w_id,
+                db,
+                job_dir,
+                worker_name,
+                reqs,
+                None,
+            )
+            .await
         }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),

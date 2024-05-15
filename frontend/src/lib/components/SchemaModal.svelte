@@ -61,7 +61,8 @@
 					: undefined,
 			showExpr: schema.showExpr,
 			password: schema.password,
-			nullable: schema.nullable
+			nullable: schema.nullable,
+			dateFormat: schema.format
 		}
 	}
 
@@ -136,6 +137,7 @@
 		property.showExpr = undefined
 		property.password = undefined
 		property.nullable = false
+		property.dateFormat = undefined
 		drawer.closeDrawer()
 	}
 
@@ -223,6 +225,7 @@
 								property.currencyLocale = undefined
 								property.multiselect = undefined
 								property.password = undefined
+								property.dateFormat = undefined
 								if (argType == 'array') {
 									property.items = { type: 'string' }
 								} else {
@@ -288,6 +291,7 @@
 						bind:enum_={property.enum_}
 						bind:contentEncoding={property.contentEncoding}
 						bind:password={property.password}
+						bind:dateFormat={property.dateFormat}
 						noExtra
 					/>
 				{:else if property.selectedType == 'array'}

@@ -2478,10 +2478,10 @@ This is a paragraph.
 				},
 				outputFormat: {
 					type: 'static',
-					value: undefined,
+					value: 'yyyy-MM-dd',
 					fieldType: 'text',
 					markdownTooltip: `### Output format				
-See date-fns format for more information. By default, it is 'dd.MM.yyyy'
+See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 | Format      | Result | Description |
 | ----------- | ----------- | ----------- |
@@ -2494,7 +2494,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy'
 `,
 
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
-					placeholder: 'dd.MM.yyyy'
+					placeholder: 'yyyy-MM-dd'
 				}
 			}
 		}

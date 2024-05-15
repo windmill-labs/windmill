@@ -400,6 +400,8 @@ export function setInputCat(
 		return 'enum'
 	} else if (type == 'string' && format == 'date-time') {
 		return 'date'
+	} else if (type == 'string' && format == 'date') {
+		return 'date'
 	} else if (type == 'string' && format == 'sql') {
 		return 'sql'
 	} else if (type == 'string' && format == 'yaml') {
