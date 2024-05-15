@@ -269,7 +269,9 @@
 					/>
 					<div>
 						<Toggle options={{ right: 'Required' }} size="xs" bind:checked={property.required} />
-						<Toggle options={{ right: 'Nullable' }} size="xs" bind:checked={property.nullable} />
+						{#if property.selectedType == 'string' || property.selectedType == 'number'}
+							<Toggle options={{ right: 'Nullable' }} size="xs" bind:checked={property.nullable} />
+						{/if}
 					</div>
 				</div>
 				{#if isFlowInput}
