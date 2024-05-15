@@ -31,7 +31,7 @@
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
 
-	const rd = $page.url.searchParams.get('rd')
+	$: rd = $page.url.searchParams.get('rd')
 
 	$: if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
 		userSettings.openDrawer()
