@@ -71,31 +71,32 @@
 
 	let connectionString = ''
 	let validConnectionString = true
-	function parseConnectionString(close: (_: any) => void) {		const regex =
-			/postgresql?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
-		const match = connectionString.match(regex)
-		if (match) {
-			validConnectionString = true
-			const { user, password, host, port, dbname, sslmode } = match.groups!
-			rawCode = JSON.stringify(
-				{
-					...args,
-					user,
-					password: password || args?.password,
-					host,
-					port: (port ? Number(port) : undefined) || args?.port,
-					dbname: dbname || args?.dbname,
-					sslmode: sslmode || args?.sslmode
-				},
-				null,
-				2
-			)
-			rawCodeEditor?.setCode(rawCode)
-			close(null)
-		} else {
-			validConnectionString = false
-		}
+	function parseConnectionString(close: (_: any) => void) {
+	const regex =
+		/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
+	const match = connectionString.match(regex)
+	if (match) {
+		validConnectionString = true
+		const { user, password, host, port, dbname, sslmode } = match.groups!
+		rawCode = JSON.stringify(
+			{
+				...args,
+				user,
+				password: password || args?.password,
+				host,
+				port: (port ? Number(port) : undefined) || args?.port,
+				dbname: dbname || args?.dbname,
+				sslmode: sslmode || args?.sslmode
+			},
+			null,
+			2
+		)
+		rawCodeEditor?.setCode(rawCode)
+		close(null)
+	} else {
+		validConnectionString = false
 	}
+}
 
 	let rawCodeEditor: SimpleEditor | undefined = undefined
 </script>
