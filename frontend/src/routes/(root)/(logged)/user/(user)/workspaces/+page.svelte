@@ -116,7 +116,13 @@
 				await goto(rd ?? '/')
 			}
 		} else {
-			await goto(rd ?? '/')
+			try {
+				await goto(rd ?? '/')
+				console.log('Workspace selected, going to', rd)
+			} catch (e) {
+				console.error('Error going to', rd, e)
+				window.location.reload()
+			}
 		}
 		loading = false
 	}
