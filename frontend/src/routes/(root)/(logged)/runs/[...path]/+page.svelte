@@ -6,7 +6,8 @@
 		UserService,
 		FolderService,
 		ScriptService,
-		FlowService
+		FlowService,
+		type ConcurrencyIntervals
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
@@ -30,7 +31,10 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { Calendar, Clock } from 'lucide-svelte'
+	import { AlertTriangle, Calendar, Clock } from 'lucide-svelte'
+	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
@@ -42,6 +46,7 @@
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	let label: string | null = $page.url.searchParams.get('label')
+	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
 		'success'
@@ -85,6 +90,7 @@
 	let usernames: string[] = []
 	let folders: string[] = []
 	let completedJobs: CompletedJob[] | undefined = undefined
+	let concurrencyIntervals: ConcurrencyIntervals | undefined = undefined
 	let argError = ''
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
@@ -94,6 +100,10 @@
 	let cancelAllJobs = false
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
+	let externalJobs: Job[] | undefined
+
+	let graph: 'RunChart' | 'ConcurrencyChart' = typeOfChart($page.url.searchParams.get('graph'))
+	let graphIsRunsChart: boolean = graph ? graph === 'ConcurrencyChart' : true
 
 	let manualDatePicker: ManuelDatePicker
 
@@ -109,6 +119,8 @@
 		resultFilter ||
 		schedulePath ||
 		jobKindsCat ||
+		concurrencyKey ||
+		graph ||
 		minTs ||
 		maxTs ||
 		allWorkspaces ||
@@ -195,11 +207,22 @@
 		} else {
 			searchParams.delete('max_ts')
 		}
+		if (concurrencyKey) {
+			searchParams.set('concurrency_key', concurrencyKey)
+		} else {
+			searchParams.delete('concurrency_key')
+		}
 
 		if (label) {
 			searchParams.set('label', label)
 		} else {
 			searchParams.delete('label')
+		}
+
+		if (graph != 'RunChart') {
+			searchParams.set('graph', graph)
+		} else {
+			searchParams.delete('graph')
 		}
 
 		let newPath = path ? `/${path}` : '/'
@@ -256,6 +279,7 @@
 		user = null
 		folder = null
 		label = null
+		concurrencyKey = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -263,6 +287,7 @@
 		folder = null
 		user = e.detail
 		label = null
+		concurrencyKey = null
 	}
 
 	function filterByFolder(e: CustomEvent<string>) {
@@ -270,6 +295,7 @@
 		user = null
 		folder = e.detail
 		label = null
+		concurrencyKey = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -277,9 +303,38 @@
 		user = null
 		folder = null
 		label = e.detail
+		concurrencyKey = null
+	}
+
+	function filterByConcurrencyKey(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = e.detail
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
+
+	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
+		switch (s) {
+			case 'RunChart':
+				return 'RunChart'
+			case 'ConcurrencyChart':
+				return 'ConcurrencyChart'
+			default:
+				return 'RunChart'
+		}
+	}
+
+	const warnJobLimitMsg =
+		'The exact number of concurrent job at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
+
+	$: warnJobLimit =
+		graph === 'ConcurrencyChart' &&
+		concurrencyIntervals !== undefined &&
+		(concurrencyIntervals.running_jobs.length === 1000 ||
+			concurrencyIntervals.completed_jobs.length === 1000)
 </script>
 
 <JobLoader
@@ -304,6 +359,9 @@
 	bind:queue_count
 	{autoRefresh}
 	bind:completedJobs
+	bind:externalJobs
+	bind:concurrencyIntervals
+	{concurrencyKey}
 	{argError}
 	{resultError}
 	bind:loading
@@ -328,7 +386,11 @@
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
 		{#if selectedId}
-			<JobPreview blankLink id={selectedId} workspace={selectedWorkspace} />
+			{#if selectedId === '-'}
+				<div class="p-4">There is no information available for this job</div>
+			{:else}
+				<JobPreview blankLink id={selectedId} workspace={selectedWorkspace} />
+			{/if}
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -339,28 +401,31 @@
 	<div class="w-full h-screen">
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
-				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-					<h1
-						class={twMerge(
-							'!text-2xl font-semibold leading-6 tracking-tight',
-							$userStore?.operator ? 'pl-10' : ''
-						)}
-					>
-						Runs
-					</h1>
+				<div class="flex-col">
+					<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
+						<h1
+							class={twMerge(
+								'!text-2xl font-semibold leading-6 tracking-tight',
+								$userStore?.operator ? 'pl-10' : ''
+							)}
+						>
+							Runs
+						</h1>
 
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-					>
-						All past and schedule executions of scripts and flows, including previews. You only see
-						your own runs or runs of groups you belong to unless you are an admin.
-					</Tooltip>
+						<Tooltip
+							documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+						>
+							All past and schedule executions of scripts and flows, including previews. You only
+							see your own runs or runs of groups you belong to unless you are an admin.
+						</Tooltip>
+					</div>
 				</div>
 				<RunsFilter
 					bind:isSkipped
 					bind:user
 					bind:folder
 					bind:label
+					bind:concurrencyKey
 					bind:path
 					bind:success
 					bind:argFilter
@@ -378,17 +443,51 @@
 		</div>
 
 		<div class="p-2 w-full">
-			<RunChart
-				minTimeSet={minTs}
-				maxTimeSet={maxTs}
-				maxIsNow={maxTs == undefined}
-				jobs={completedJobs}
-				on:zoom={async (e) => {
-					minTs = e.detail.min.toISOString()
-					maxTs = e.detail.max.toISOString()
-					jobLoader?.loadJobs(minTs, maxTs, true)
-				}}
-			/>
+			<div class="relative z-10">
+				<div class="absolute right-0 -mt-6">
+					<div class="flex flex-row justify-between items-center">
+						<ToggleButtonGroup
+							bind:selected={graph}
+							on:selected={() => {
+								graphIsRunsChart = graph === 'RunChart'
+							}}
+						>
+							<ToggleButton value="RunChart" label="Duration" />
+							<ToggleButton
+								value="ConcurrencyChart"
+								label="Concurrency"
+								icon={warnJobLimit ? AlertTriangle : undefined}
+								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
+							/>
+						</ToggleButtonGroup>
+					</div>
+				</div>
+			</div>
+			{#if graph === 'RunChart'}
+				<RunChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					jobs={completedJobs}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{:else if graph === 'ConcurrencyChart'}
+				<ConcurrentJobsChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					{concurrencyIntervals}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{/if}
 		</div>
 		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 			<div class="flex gap-2 grow flex-row">
@@ -500,6 +599,8 @@
 					{#if jobs}
 						<RunsTable
 							{jobs}
+							{externalJobs}
+							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
 							bind:selectedId
 							bind:selectedWorkspace
@@ -507,6 +608,7 @@
 							on:filterByUser={filterByUser}
 							on:filterByFolder={filterByFolder}
 							on:filterByLabel={filterByLabel}
+							on:filterByConcurrencyKey={filterByConcurrencyKey}
 						/>
 					{:else}
 						<div class="gap-1 flex flex-col">
@@ -518,7 +620,11 @@
 				</Pane>
 				<Pane size={40} minSize={15} class="border-t">
 					{#if selectedId}
-						<JobPreview id={selectedId} workspace={selectedWorkspace} />
+						{#if selectedId === '-'}
+							<div class="p-4">There is no information available for this job</div>
+						{:else}
+							<JobPreview id={selectedId} workspace={selectedWorkspace} />
+						{/if}
 					{:else}
 						<div class="text-xs m-4">No job selected</div>
 					{/if}
@@ -564,17 +670,44 @@
 			</div>
 		</div>
 		<div class="p-2 w-full">
-			<RunChart
-				minTimeSet={minTs}
-				maxTimeSet={maxTs}
-				maxIsNow={maxTs == undefined}
-				jobs={completedJobs}
-				on:zoom={async (e) => {
-					minTs = e.detail.min.toISOString()
-					maxTs = e.detail.max.toISOString()
-					jobLoader?.loadJobs(minTs, maxTs, true)
-				}}
-			/>
+			<div class="relative z-10">
+				<div class="absolute right-2">
+					<ToggleButtonGroup
+						bind:selected={graph}
+						on:selected={() => {
+							graphIsRunsChart = graph == 'RunChart'
+						}}
+					>
+						<ToggleButton value="RunChart" label="Duration" />
+						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
+					</ToggleButtonGroup>
+				</div>
+			</div>
+			{#if graph === 'RunChart'}
+				<RunChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					jobs={completedJobs}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{:else if graph === 'ConcurrencyChart'}
+				<ConcurrentJobsChart
+					minTimeSet={minTs}
+					maxTimeSet={maxTs}
+					maxIsNow={maxTs == undefined}
+					{concurrencyIntervals}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobLoader?.loadJobs(minTs, maxTs, true)
+					}}
+				/>
+			{/if}
 		</div>
 		<div class="flex flex-col gap-4 md:flex-row w-full p-4">
 			<div class="flex items-center flex-row gap-2 grow">
@@ -688,6 +821,7 @@
 			<RunsTable
 				activeLabel={label}
 				{jobs}
+				{externalJobs}
 				bind:selectedId
 				bind:selectedWorkspace
 				on:select={() => {
@@ -697,6 +831,7 @@
 				on:filterByUser={filterByUser}
 				on:filterByFolder={filterByFolder}
 				on:filterByLabel={filterByLabel}
+				on:filterByConcurrencyKey={filterByConcurrencyKey}
 			/>
 		</div>
 	</div>

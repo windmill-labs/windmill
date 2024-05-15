@@ -6,7 +6,8 @@
 		ScriptService,
 		type Script,
 		type WorkflowStatus,
-		type NewScript
+		type NewScript,
+		ConcurrencyGroupsService
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -14,7 +15,8 @@
 		displayDate,
 		emptyString,
 		encodeState,
-		truncateHash
+		truncateHash,
+		truncateRev
 	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -81,6 +83,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -100,6 +103,14 @@
 	let getLogs: (() => Promise<void>) | undefined = undefined
 
 	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
+
+	let lastJobId: string | undefined = undefined
+	let concurrencyKey: string | undefined = undefined
+	$: job?.id && lastJobId !== job.id && getConcurrencyKey(job)
+	async function getConcurrencyKey(job: Job) {
+		lastJobId = job.id
+		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
+	}
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
@@ -648,6 +659,25 @@
 									<Badge>Label: {label}</Badge>
 								</div>
 							{/each}
+						{/if}
+						{#if concurrencyKey}
+							<div>
+								<Popover notClickable>
+									<svelte:fragment slot="text">
+										This jobs has concurrency limits enabled with the key
+										<a
+											href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+										>
+											{concurrencyKey}
+										</a>
+									</svelte:fragment>
+									<a
+										href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+									>
+										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
+									>
+								</Popover>
+							</div>
 						{/if}
 					</div>
 				{/if}

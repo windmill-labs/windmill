@@ -197,6 +197,7 @@ pub async fn run_server(
                         .nest("/apps", apps::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
+                        .nest("/concurrency_groups", concurrency_groups::workspaced_service())
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())

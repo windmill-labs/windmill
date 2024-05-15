@@ -9,6 +9,7 @@
 use axum::body::Body;
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
+use sqlx::Pool;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -466,6 +467,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
 ) -> error::Result<(
     String,
     Option<String>,
+    Option<String>,
     Option<i32>,
     Option<i32>,
     Option<i32>,
@@ -476,7 +478,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     Option<i32>,
 )> {
     let script = sqlx::query!(
-        "select path, tag, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
+        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -490,6 +492,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     Ok((
         script.path,
         script.tag,
+        script.concurrency_key,
         script.concurrent_limit,
         script.concurrency_time_window_s,
         script.cache_ttl,
@@ -622,7 +625,7 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     {join}
     WHERE id = $1 AND {table}.workspace_id = $2");
 }
-async fn get_job_internal(
+pub async fn get_job_internal(
     db: &DB,
     workspace_id: &str,
     job_id: Uuid,
@@ -872,7 +875,7 @@ impl RunJobQuery {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct ListQueueQuery {
     pub script_path_start: Option<String>,
     pub script_path_exact: Option<String>,
@@ -900,13 +903,7 @@ pub struct ListQueueQuery {
     pub is_not_schedule: Option<bool>,
 }
 
-fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
-    let mut sqlb = SqlBuilder::select_from("queue")
-        .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .limit(1000)
-        .clone();
-
+pub fn filter_list_queue_query(mut sqlb: SqlBuilder, lq: &ListQueueQuery, w_id: &str) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -1007,6 +1004,17 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
 
     sqlb
+
+}
+
+pub fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
+    let sqlb = SqlBuilder::select_from("queue")
+        .fields(fields)
+        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .limit(1000)
+        .clone();
+
+    filter_list_queue_query(sqlb, lq, w_id)
 }
 
 #[derive(Serialize, FromRow)]
@@ -1988,6 +1996,13 @@ impl Job {
         }
     }
 
+    pub fn is_flow(&self) -> bool {
+        matches!(
+            self.job_kind(),
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow
+        )
+    }
+
     pub fn job_kind(&self) -> &JobKind {
         match self {
             Job::QueuedJob(job) => &job.job_kind,
@@ -2002,6 +2017,50 @@ impl Job {
             Job::CompletedJob(job) => job.id,
             Job::CompletedJobWithFormattedResult(job) => job.cj.id,
         }
+    }
+
+    pub fn workspace_id(&self) -> &String {
+        match self {
+            Job::QueuedJob(job) => &job.workspace_id,
+            Job::CompletedJob(job) => &job.workspace_id,
+            Job::CompletedJobWithFormattedResult(job) => &job.cj.workspace_id,
+        }
+    }
+
+    pub fn script_path(&self) -> &str {
+        match self {
+            Job::QueuedJob(job) => job.script_path.as_ref(),
+            Job::CompletedJob(job) => job.script_path.as_ref(),
+            Job::CompletedJobWithFormattedResult(job) => job.cj.script_path.as_ref(),
+        }
+        .map(String::as_str)
+        .unwrap_or("tmp/main")
+    }
+
+    pub fn args(&self) -> Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>> {
+        match self {
+            Job::QueuedJob(job) => job.args.as_ref(),
+            Job::CompletedJob(job) => job.args.as_ref(),
+            Job::CompletedJobWithFormattedResult(job) => job.cj.args.as_ref(),
+        }
+    }
+
+    pub fn full_path_with_workspace(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.workspace_id(),
+            if self.is_flow() { "flow" } else { "script" },
+            self.script_path(),
+        )
+    }
+
+    pub async fn concurrency_key(&self, db: &Pool<Postgres>) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar!(
+            "SELECT key FROM concurrency_key WHERE job_id = $1",
+            self.id()
+        )
+        .fetch_optional(db)
+        .await
     }
 }
 
@@ -2485,6 +2544,9 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: job.raw_lock,
+                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id)
+                    .await
+                    .map_err(to_anyhow)?,
                 concurrent_limit: job.concurrent_limit,
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
@@ -2975,6 +3037,7 @@ pub async fn run_wait_result_script_by_hash(
     let (
         path,
         tag,
+        custom_concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         mut cache_ttl,
@@ -3000,6 +3063,7 @@ pub async fn run_wait_result_script_by_hash(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
+            custom_concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
             cache_ttl,
@@ -3149,6 +3213,7 @@ async fn run_preview_script(
                 path: preview.path,
                 language: preview.language.unwrap_or(ScriptLang::Deno),
                 lock: preview.lock,
+                custom_concurrency_key: None,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
                 cache_ttl: None,
@@ -3233,6 +3298,7 @@ async fn run_bundle_preview_script(
                         concurrency_time_window_s: None, // TODO(gbouv): same as above
                         cache_ttl: None,
                         dedicated_worker: preview.dedicated_worker,
+                        custom_concurrency_key: None,
                     }),
                 },
                 args,
@@ -3425,6 +3491,7 @@ async fn add_batch_jobs(
         job_kind,
         language,
         dedicated_worker,
+        _custom_concurrency_key,
         concurrent_limit,
         concurrent_time_window_s,
         timeout,
@@ -3434,6 +3501,7 @@ async fn add_batch_jobs(
                 let (
                     script_hash,
                     _tag,
+                    custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     _cache_ttl,
@@ -3449,6 +3517,7 @@ async fn add_batch_jobs(
                     JobKind::Script,
                     Some(language),
                     dedicated_worker,
+                    custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     timeout,
@@ -3510,7 +3579,17 @@ async fn add_batch_jobs(
             }
             return Ok(Json(uuids));
         }
-        "noop" => (None, None, JobKind::Noop, None, None, None, None, None),
+        "noop" => (
+            None,
+            None,
+            JobKind::Noop,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
         _ => {
             return Err(error::Error::BadRequest(format!(
                 "Invalid batch kind: {}",
@@ -3630,6 +3709,7 @@ pub async fn run_job_by_hash(
     let (
         path,
         tag,
+        custom_concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         mut cache_ttl,
@@ -3656,6 +3736,7 @@ pub async fn run_job_by_hash(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
+            custom_concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
             cache_ttl,
@@ -3814,20 +3895,7 @@ async fn get_job_update(
     }
 }
 
-fn list_completed_jobs_query(
-    w_id: &str,
-    per_page: usize,
-    offset: usize,
-    lq: &ListCompletedQuery,
-    fields: &[&str],
-) -> SqlBuilder {
-    let mut sqlb = SqlBuilder::select_from("completed_job")
-        .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .offset(offset)
-        .limit(per_page)
-        .clone();
-
+pub fn filter_list_completed_query(mut sqlb: SqlBuilder, lq: &ListCompletedQuery, w_id: &str) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -3921,6 +3989,23 @@ fn list_completed_jobs_query(
     }
 
     sqlb
+}
+
+pub fn list_completed_jobs_query(
+    w_id: &str,
+    per_page: usize,
+    offset: usize,
+    lq: &ListCompletedQuery,
+    fields: &[&str],
+) -> SqlBuilder {
+    let sqlb = SqlBuilder::select_from("completed_job")
+        .fields(fields)
+        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .offset(offset)
+        .limit(per_page)
+        .clone();
+
+    filter_list_completed_query(sqlb, lq, w_id)
 }
 #[derive(Deserialize, Clone)]
 pub struct ListCompletedQuery {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type Job, type WorkflowStatus } from '../../gen'
+	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
@@ -12,6 +12,8 @@
 	import DurationMs from '../DurationMs.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
+	import Popover from '../Popover.svelte'
+	import { truncateRev } from '$lib/utils'
 
 	export let id: string
 	export let blankLink = false
@@ -37,6 +39,14 @@
 	$: id && watchJob && watchJob(id)
 
 	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
+
+	let lastJobId: string | undefined = undefined
+	let concurrencyKey: string | undefined = undefined
+	$: job?.id && lastJobId !== job.id && getConcurrencyKey(job)
+	async function getConcurrencyKey(job: Job) {
+		lastJobId = job.id
+		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
+	}
 
 	let viewTab = 'result'
 
@@ -83,6 +93,15 @@
 				{#each job?.['labels'] as label}
 					<Badge baseClass="text-2xs">Label: {label}</Badge>
 				{/each}
+			{/if}
+			{#if concurrencyKey}
+				<Popover notClickable>
+					<svelte:fragment slot="text">
+						This jobs has concurrency limits enabled with the key
+						{concurrencyKey}
+					</svelte:fragment>
+					<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
+				</Popover>
 			{/if}
 		</div>
 		<a
