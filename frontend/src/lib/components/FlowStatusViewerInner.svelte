@@ -489,6 +489,7 @@
 							loading={job['running'] == true}
 							result={job.result}
 							logs={job.logs}
+							durationStates={localDurationStatuses}
 						/>
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
@@ -770,6 +771,7 @@
 											col
 											result={job['result']}
 											logs={job.logs ?? ''}
+											durationStates={localDurationStatuses}
 										/>
 									{:else if selectedNode == 'start'}
 										{#if job.args}
@@ -815,6 +817,7 @@
 											col
 											result={node.result}
 											logs={node.logs}
+											durationStates={localDurationStatuses}
 										/>
 									{:else}
 										<p class="p-2 text-tertiary italic"

@@ -111,12 +111,18 @@
 				workspace: $workspaceStore!
 			})
 			if (!emptyString(defaultApp.default_app_path)) {
-				goto(`/apps/get/${defaultApp.default_app_path}`)
+				await goto(`/apps/get/${defaultApp.default_app_path}`)
 			} else {
 				await goto(rd ?? '/')
 			}
 		} else {
-			await goto(rd ?? '/')
+			try {
+				await goto(rd ?? '/')
+				console.log('Workspace selected, going to', rd)
+			} catch (e) {
+				console.error('Error going to', rd, e)
+				window.location.reload()
+			}
 		}
 		loading = false
 	}

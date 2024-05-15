@@ -21,7 +21,7 @@
 
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
-	let files: File[] | undefined = undefined
+	export let files: File[] | undefined = undefined
 
 	async function onChange(fileList: FileList | null) {
 		if (!fileList || !fileList.length) {

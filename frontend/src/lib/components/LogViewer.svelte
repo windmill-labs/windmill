@@ -1,8 +1,8 @@
 <script lang="ts" context="module">
 	const s3LogPrefixes = [
-		'[windmill] Previous logs have been saved to object storage at logs/',
-		'[windmill] Previous logs have been saved to disk at logs/',
-		'[windmill] No object storage set in instance settings. Previous logs have been saved to disk at '
+		'\n[windmill] Previous logs have been saved to object storage at logs/',
+		'\n[windmill] Previous logs have been saved to disk at logs/',
+		'\n[windmill] No object storage set in instance settings. Previous logs have been saved to disk at '
 	]
 </script>
 
@@ -57,8 +57,12 @@
 		if (prefixIndex == undefined) {
 			return undefined
 		}
-		return prefixIndex && truncateContent
-			? truncateContent.substring(s3LogPrefixes[prefixIndex]?.length, truncateContent.indexOf('\n'))
+		const end = truncateContent.substring(1).indexOf('\n')
+		return prefixIndex != undefined && truncateContent
+			? truncateContent.substring(
+					s3LogPrefixes[prefixIndex]?.length,
+					end == -1 ? undefined : end + 1
+			  )
 			: undefined
 	}
 
@@ -98,8 +102,11 @@
 	$: truncatedContent && scrollToBottom()
 
 	$: html = ansi_up.ansi_to_html(
-		downloadStartUrl
-			? truncatedContent.substring(truncatedContent.indexOf('\n') + 2, truncatedContent.length)
+		downloadStartUrl && prefixIndex != undefined
+			? truncatedContent.substring(
+					truncatedContent.substring(1).indexOf('\n') + 2,
+					truncatedContent.length
+			  )
 			: truncatedContent
 	)
 	export function scrollToBottom() {
@@ -130,7 +137,10 @@
 		LOG_LIMIT += LOG_INC
 		console.log(LOG_INC, len, LOG_LIMIT)
 		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
-		LOG_LIMIT -= newC.indexOf('\n') + 1
+		let newlineIndex = newC.indexOf('\n') + 1
+		if (newlineIndex < LOG_INC / 2) {
+			LOG_LIMIT -= newlineIndex
+		}
 	}
 </script>
 
@@ -168,11 +178,9 @@
 						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
 							on:click={getStoreLogs}
 							>Show more... <Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-						><br
-						/>{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)... <button
-							on:click={() => showMoreTruncate(len)}>Show more</button
-						>
-					{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
+						/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br
+						/>{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
 	</DrawerContent>

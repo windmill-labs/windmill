@@ -2473,6 +2473,7 @@ async fn tarball_workspace(
                         "bun.ts"
                     }
                 }
+                ScriptLang::Php => "php",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))

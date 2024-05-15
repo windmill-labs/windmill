@@ -592,7 +592,7 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
         deleted,    
         is_skipped,
         result->'wm_labels' as labels,
-        CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result"
+        CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result"
     } else {
         "scheduled_for,  
         running,       
@@ -614,7 +614,7 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     };
     return format!("SELECT 
     id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, 
-    CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, 
+    CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, 
     {log_expr} as logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
     raw_lock, email, visible_to_owner, mem_peak, tag, priority, {additional_fields}
@@ -732,10 +732,18 @@ async fn get_logs_from_disk(
     return None;
 }
 
+fn content_plain(body: Body) -> Response {
+    use axum::http::header;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap()
+}
+
 async fn get_job_logs(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::Result<Body> {
+) -> error::Result<Response> {
     let record = sqlx::query!(
         "SELECT CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
         FROM completed_job 
@@ -752,13 +760,13 @@ async fn get_job_logs(
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) = get_logs_from_store(record.log_offset, &logs, &record.log_file_index).await
         {
-            return r;
+            return r.map(content_plain);
         }
         if let Some(r) = get_logs_from_disk(record.log_offset, &logs, &record.log_file_index).await
         {
-            return r;
+            return r.map(content_plain);
         }
-        Ok(Body::from(logs))
+        Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
             "SELECT CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
@@ -775,12 +783,12 @@ async fn get_job_logs(
         let logs = text.logs.unwrap_or_default();
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(r) = get_logs_from_store(text.log_offset, &logs, &text.log_file_index).await {
-            return r;
+            return r.map(content_plain);
         }
         if let Some(r) = get_logs_from_disk(text.log_offset, &logs, &text.log_file_index).await {
-            return r;
+            return r.map(content_plain);
         }
-        Ok(Body::from(logs))
+        Ok(content_plain(Body::from(logs)))
     }
 }
 
@@ -1023,7 +1031,8 @@ struct ListableQueuedJob {
 }
 
 async fn list_queue_jobs(
-    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(lq): Query<ListQueueQuery>,
 ) -> error::JsonResult<Vec<ListableQueuedJob>> {
@@ -1053,9 +1062,11 @@ async fn list_queue_jobs(
         ],
     )
     .sql()?;
+    let mut tx = user_db.begin(&authed).await?;
     let jobs = sqlx::query_as::<_, ListableQueuedJob>(&sql)
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(Json(jobs))
 }
 
@@ -3946,7 +3957,7 @@ pub struct ListCompletedQuery {
 
 async fn list_completed_jobs(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
@@ -3994,9 +4005,11 @@ async fn list_completed_jobs(
         ],
     )
     .sql()?;
+    let mut tx = user_db.begin(&authed).await?;
     let jobs = sqlx::query_as::<_, ListableCompletedJob>(&sql)
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(Json(jobs))
 }
 
@@ -4005,7 +4018,7 @@ async fn get_completed_job<'a>(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     let job_o = sqlx::query("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
-    CASE WHEN args is null or pg_column_size(args) < 2000000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 2000000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+    CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
     raw_lock, email, visible_to_owner, mem_peak, tag, priority, result->'wm_labels' as labels FROM completed_job WHERE id = $1 AND workspace_id = $2")
         .bind(id)

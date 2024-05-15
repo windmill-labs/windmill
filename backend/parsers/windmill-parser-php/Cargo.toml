@@ -1,0 +1,19 @@
+[package]
+name = "windmill-parser-php"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser_php"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+itertools.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+php-parser-rs.workspace = true
+convert_case.workspace = true
+lazy_static.workspace = true
+regex.workspace = true

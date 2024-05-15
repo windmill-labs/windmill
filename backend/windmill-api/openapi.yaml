@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.328.0
+  version: 1.330.0
   title: Windmill API
 
   contact:
@@ -8406,6 +8406,7 @@ components:
               graphql,
               nativets,
               bun,
+              php,
             ]
         kind:
           type: string
@@ -8501,6 +8502,7 @@ components:
               graphql,
               nativets,
               bun,
+              php,
             ]
         kind:
           type: string
@@ -8719,6 +8721,7 @@ components:
               graphql,
               nativets,
               bun,
+              php,
             ]
         email:
           type: string
@@ -8829,6 +8832,7 @@ components:
               graphql,
               nativets,
               bun,
+              php,
             ]
         is_skipped:
           type: boolean
@@ -9343,6 +9347,7 @@ components:
               graphql,
               nativets,
               bun,
+              php
             ]
         tag:
           type: string
@@ -10380,6 +10385,7 @@ components:
               graphql,
               nativets,
               bun,
+              php
             ]
       required:
         - raw_code

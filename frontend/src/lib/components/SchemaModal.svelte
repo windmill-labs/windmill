@@ -60,7 +60,8 @@
 					  }
 					: undefined,
 			showExpr: schema.showExpr,
-			password: schema.password
+			password: schema.password,
+			dateFormat: schema.format
 		}
 	}
 
@@ -134,6 +135,7 @@
 		property.items = undefined
 		property.showExpr = undefined
 		property.password = undefined
+		property.dateFormat = undefined
 		drawer.closeDrawer()
 	}
 
@@ -221,6 +223,7 @@
 								property.currencyLocale = undefined
 								property.multiselect = undefined
 								property.password = undefined
+								property.dateFormat = undefined
 								if (argType == 'array') {
 									property.items = { type: 'string' }
 								} else {
@@ -286,6 +289,7 @@
 						bind:enum_={property.enum_}
 						bind:contentEncoding={property.contentEncoding}
 						bind:password={property.password}
+						bind:dateFormat={property.dateFormat}
 						noExtra
 					/>
 				{:else if property.selectedType == 'array'}
