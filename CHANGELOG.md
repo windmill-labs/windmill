@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.331.0](https://github.com/windmill-labs/windmill/compare/v1.330.1...v1.331.0) (2024-05-15)
+
+
+### Features
+
+* add concurrency limit observability [#3586](https://github.com/windmill-labs/windmill/pull/3586)
+* **frontend:** Add context section ([#3745](https://github.com/windmill-labs/windmill/issues/3745)) ([0191dca](https://github.com/windmill-labs/windmill/commit/0191dca347800a1f95ce7184db0b21e4ebb6c796))
+* **frontend:** add nullable arg ([#3729](https://github.com/windmill-labs/windmill/issues/3729)) ([cadc758](https://github.com/windmill-labs/windmill/commit/cadc758fc7b8d77f6906cd71b819443fdcc8a514))
+* **frontend:** full height component ([#3676](https://github.com/windmill-labs/windmill/issues/3676)) ([6ff6a60](https://github.com/windmill-labs/windmill/commit/6ff6a603f71fdf472a1290edd72a660697cea7cb))
+
+
+### Bug Fixes
+
+* **backend:** remove email constraints from DB ([#3739](https://github.com/windmill-labs/windmill/issues/3739)) ([fa6c531](https://github.com/windmill-labs/windmill/commit/fa6c531fda9d7ec5811c7d95ee7ee4828b3bea5c))
+* **cli:** add php support for the cli ([#3735](https://github.com/windmill-labs/windmill/issues/3735)) ([4286977](https://github.com/windmill-labs/windmill/commit/428697782e7d9fd649a239a8750faba13368860c))
+* **frontend:** improve auto data table headers when array of arrays ([#3738](https://github.com/windmill-labs/windmill/issues/3738)) ([bcefc20](https://github.com/windmill-labs/windmill/commit/bcefc20d34f1d0bb3c593ee7e400880502333fda))
+* **frontend:** rename correctly delete workspace button ([#3736](https://github.com/windmill-labs/windmill/issues/3736)) ([db143c3](https://github.com/windmill-labs/windmill/commit/db143c38b1bd5072c8aa0c5f13b0c591a0b78c8a))
+* resolve typo in bun_executor.rs error message ([#3744](https://github.com/windmill-labs/windmill/issues/3744)) ([9d0f643](https://github.com/windmill-labs/windmill/commit/9d0f643dfdd53ec4710967075e9e98ebea82c488))
+
 ## [1.330.1](https://github.com/windmill-labs/windmill/compare/v1.330.0...v1.330.1) (2024-05-15)
 
 
