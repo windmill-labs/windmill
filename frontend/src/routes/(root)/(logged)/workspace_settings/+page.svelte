@@ -893,7 +893,7 @@
 							goto('/user/workspaces')
 						}}
 					>
-						General (superadmin)
+						Delete workspace (superadmin)
 					</Button>
 				{/if}
 			</div>
