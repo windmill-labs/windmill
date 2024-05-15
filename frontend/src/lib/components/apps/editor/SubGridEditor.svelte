@@ -153,7 +153,11 @@
 								on:fillHeight={() => {
 									const gridItem = findGridItem($app, dataItem.id)
 									if (gridItem) {
-										gridItem.data.fullHeight = !gridItem.data.fullHeight
+										if ($breakpoint === 'lg') {
+											gridItem.data.fullHeight = !gridItem.data.fullHeight
+										} else if ($breakpoint === 'sm') {
+											gridItem.data.fullHeightMobile = !gridItem.data.fullHeightMobile
+										}
 									}
 									$app = $app
 								}}
@@ -171,6 +175,7 @@
 				rowHeight={36}
 				cols={columnConfiguration}
 				gap={[4, 2]}
+				breakpoint={$breakpoint}
 				parentWidth={$parentWidth - 17}
 				{containerWidth}
 				{maxRow}

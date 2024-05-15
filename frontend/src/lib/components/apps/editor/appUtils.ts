@@ -364,6 +364,7 @@ export function appComponentFromType<T extends keyof typeof components>(
 			horizontalAlignment: init.horizontalAlignment,
 			verticalAlignment: init.verticalAlignment,
 			fullHeight: init.fullHeight,
+			fullHeightMobile: init.fullHeightMobile,
 			id,
 			...(extra ?? {})
 		}
@@ -442,6 +443,7 @@ export function copyComponent(
 		app,
 		(id) => {
 			item.data.fullHeight = false
+			item.data.fullHeightMobile = false
 			if (item.data.type === 'tablecomponent') {
 				return {
 					...item.data,
@@ -976,16 +978,17 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 	)
 }
 
+export const rowHeight = 36
+export const rowGapY = 2
+export const rowGapX = 4
+
 export function maxHeight(
 	grid: GridItem[],
 	windowHeight: number,
 	breakpoint: EditorBreakpoint = 'lg'
 ) {
-	const rowHeight = 36
-	const rowGap = 2
-
-	const totalRowHeight = rowHeight + rowGap
-	let maxRows = Math.floor((windowHeight - rowGap) / totalRowHeight)
+	const totalRowHeight = rowHeight + rowGapY
+	let maxRows = Math.floor((windowHeight - rowGapY) / totalRowHeight)
 
 	if (!grid.length) {
 		return maxRows

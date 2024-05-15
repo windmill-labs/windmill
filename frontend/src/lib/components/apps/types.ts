@@ -92,6 +92,7 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	// Number of subgrids
 	numberOfSubgrids?: number
 	fullHeight?: boolean
+	fullHeightMobile?: boolean
 }
 
 export type ComponentSet = {

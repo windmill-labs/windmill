@@ -219,6 +219,7 @@
 					cols={columnConfiguration}
 					gap={[4, 2]}
 					{maxRow}
+					breakpoint={$breakpoint}
 				>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div

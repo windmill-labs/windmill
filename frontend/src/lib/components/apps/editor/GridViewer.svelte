@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { EditorBreakpoint } from '../types'
+
 	import { onMount, createEventDispatcher } from 'svelte'
 
 	import type { FilledItem } from '../svelte-grid/types'
@@ -16,6 +18,7 @@
 	export let gap = [10, 10]
 	export let throttleUpdate = 100
 	export let maxRow: number
+	export let breakpoint: EditorBreakpoint
 
 	export let allIdsInPath: string[] | undefined = undefined
 	export let containerWidth: number | undefined = undefined
@@ -83,7 +86,7 @@
 				Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
 				gapX * 2}
 			{@const height =
-				(item.data['fullHeight']
+				((breakpoint === 'lg' ? item.data['fullHeight'] : item.data['fullWidthMobile'])
 					? maxRow - item[getComputedCols].y
 					: item[getComputedCols] && item[getComputedCols].h) *
 					yPerPx -

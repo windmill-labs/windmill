@@ -454,6 +454,16 @@
 					}}
 				/>
 
+				<Toggle
+					bind:checked={componentSettings.item.data.fullHeightMobile}
+					size="xs"
+					options={{
+						right: 'Mobule full height',
+						rightTooltip:
+							'When enabled, the component will take the full height of the parent container.'
+					}}
+				/>
+
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">
