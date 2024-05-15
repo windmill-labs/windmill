@@ -84,7 +84,7 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		style="{containerHeight ? `height: ${containerHeight}px;` : ''} {style ?? ''}"
+		style="{containerHeight ? `height: ${containerHeight - 2}px;` : ''} {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
 			<div

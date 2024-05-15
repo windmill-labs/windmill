@@ -1,8 +1,4 @@
 <script lang="ts">
-	import { updateComponentVisibility } from './utils/overlap'
-
-	import { writable } from 'svelte/store'
-
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
 	import { onMount, createEventDispatcher } from 'svelte'
@@ -139,7 +135,7 @@
 
 	const throttleMatrix = throttle(updateMatrix, throttleResize)
 
-	let hiddenComponents = writable({})
+	//let hiddenComponents = writable({})
 
 	const handleRepaint = ({ detail }) => {
 		if (!detail.isPointerUp) {
@@ -148,12 +144,14 @@
 			updateMatrix({ detail })
 		}
 
+		/**
 		setTimeout(() => {
 			$hiddenComponents = {
 				...$hiddenComponents,
 				[detail.id]: updateComponentVisibility(detail, sortedItems, getComputedCols)
 			}
 		}, 0)
+		*/
 	}
 
 	let moveResizes: Record<string, MoveResize> = {}
@@ -206,7 +204,7 @@
 				nativeContainer={container}
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} hidden={$hiddenComponents[item.id]} />
+					<slot dataItem={item} hidden={false} />
 				{/if}
 			</MoveResize>
 		{/if}
