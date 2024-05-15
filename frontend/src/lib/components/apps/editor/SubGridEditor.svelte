@@ -6,7 +6,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
-	import { expandGriditem, findGridItem, selectId } from './appUtils'
+	import { expandGriditem, findGridItem, maxHeight, selectId } from './appUtils'
 	import Component from './component/Component.svelte'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
@@ -66,6 +66,8 @@
 	}
 
 	let container: HTMLElement | undefined = undefined
+
+	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
 </script>
 
 <div
@@ -105,9 +107,8 @@
 					}}
 					selectedIds={$selectedComponent}
 					let:dataItem
-					rowHeight={36}
+					let:hidden
 					cols={columnConfiguration}
-					gap={[4, 2]}
 					scroller={container}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
@@ -123,6 +124,8 @@
 					>
 						<GridEditorMenu id={dataItem.id}>
 							<Component
+								{hidden}
+								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 								render={visible}
 								component={dataItem.data}
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}
@@ -146,6 +149,15 @@
 									)
 									$app = $app
 								}}
+								on:fillHeight={() => {
+									const gridItem = findGridItem($app, dataItem.id)
+									const b = $breakpoint === 'sm' ? 3 : 12
+
+									if (gridItem?.[b]) {
+										gridItem[b].fullHeight = !gridItem[b].fullHeight
+									}
+									$app = $app
+								}}
 							/>
 						</GridEditorMenu>
 					</ComponentWrapper>
@@ -156,11 +168,12 @@
 				allIdsInPath={$allIdsInPath}
 				items={$app.subgrids?.[subGridId] ?? []}
 				let:dataItem
-				rowHeight={36}
+				let:hidden
 				cols={columnConfiguration}
-				gap={[4, 2]}
+				breakpoint={$breakpoint}
 				parentWidth={$parentWidth - 17}
 				{containerWidth}
+				{maxRow}
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
@@ -168,10 +181,12 @@
 					class={classNames('h-full w-full center-center', 'top-0')}
 				>
 					<Component
+						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 						render={visible}
 						component={dataItem.data}
 						selected={Boolean($selectedComponent?.includes(dataItem.id))}
 						locked={isFixed(dataItem)}
+						{hidden}
 					/>
 				</div>
 			</GridViewer>

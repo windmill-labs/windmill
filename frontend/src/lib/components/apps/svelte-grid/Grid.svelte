@@ -5,22 +5,21 @@
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
-	import { sortGridItemsPosition } from '../editor/appUtils'
+	import { ROW_GAP_X, ROW_GAP_Y, ROW_HEIGHT, sortGridItemsPosition } from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
 
 	type T = $$Generic
 
 	export let items: FilledItem<T>[]
-	export let rowHeight: number
+	export let rowHeight: number = ROW_HEIGHT
 	export let cols: [number, number][]
-	export let gap = [10, 10]
+	export let gap = [ROW_GAP_X, ROW_GAP_Y]
 	export let throttleUpdate = 100
 	export let throttleResize = 100
 	export let selectedIds: string[] | undefined
 	export let allIdsInPath: string[] | undefined
 	export let containerWidth: number | undefined = undefined
-
 	export let scroller: HTMLElement | undefined = undefined
 	export let sensor = 20
 
@@ -136,13 +135,25 @@
 
 	const throttleMatrix = throttle(updateMatrix, throttleResize)
 
+	//let hiddenComponents = writable({})
+
 	const handleRepaint = ({ detail }) => {
 		if (!detail.isPointerUp) {
 			throttleMatrix({ detail })
 		} else {
 			updateMatrix({ detail })
 		}
+
+		/**
+		setTimeout(() => {
+			$hiddenComponents = {
+				...$hiddenComponents,
+				[detail.id]: updateComponentVisibility(detail, sortedItems, getComputedCols)
+			}
+		}, 0)
+		*/
 	}
+
 	let moveResizes: Record<string, MoveResize> = {}
 	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
 
@@ -193,7 +204,7 @@
 				nativeContainer={container}
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} />
+					<slot dataItem={item} hidden={false} />
 				{/if}
 			</MoveResize>
 		{/if}

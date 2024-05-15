@@ -11,6 +11,7 @@ import type {
 	HorizontalAlignment,
 	VerticalAlignment
 } from './types'
+import { gridColumns } from './gridUtils'
 
 export const BG_PREFIX = 'bg_'
 
@@ -26,7 +27,16 @@ export function migrateApp(app: App) {
 			x.doNotRecomputeOnInputChanged = undefined
 		}
 	})
+
+	allItems(app.grid, app.subgrids).forEach((x) => {
+		gridColumns.forEach((column: number) => {
+			if (x?.[column]?.fullHeight === undefined) {
+				x[column].fullHeight = false
+			}
+		})
+	})
 }
+
 export function allItems(
 	grid: GridItem[],
 	subgrids: Record<string, GridItem[]> | undefined

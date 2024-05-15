@@ -80,6 +80,8 @@
 	export let selected: boolean
 	export let locked: boolean = false
 	export let render: boolean
+	export let hidden: boolean
+	export let fullHeight: boolean
 
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -115,7 +117,9 @@
 		}
 	}}
 	on:mouseout|stopPropagation={mouseOut}
-	class="h-full flex flex-col w-full component {initializing ? 'overflow-hidden h-0' : ''}"
+	class="h-full flex flex-col w-full component {initializing
+		? 'overflow-hidden h-0'
+		: ''} {hidden && $mode === 'preview' ? 'hidden' : ''} "
 >
 	{#if $mode !== 'preview'}
 		<ComponentHeader
@@ -129,9 +133,11 @@
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}
+			{fullHeight}
 			connecting={$connectingInput.opened}
 			on:lock
 			on:expand
+			on:fillHeight
 			{locked}
 			{inlineEditorOpened}
 			hasInlineEditor={component.type === 'textcomponent' &&

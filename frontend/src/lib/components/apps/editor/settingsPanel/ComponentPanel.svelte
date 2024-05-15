@@ -7,7 +7,7 @@
 	import TableActions from './TableActions.svelte'
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
-	import { classNames, getModifierKey } from '$lib/utils'
+	import { classNames, getModifierKey, isMac } from '$lib/utils'
 	import { buildExtraLib } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -38,6 +38,8 @@
 	import MenuItems from './MenuItems.svelte'
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import ContextVariables from './ContextVariables.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -167,10 +169,6 @@
 			componentSettings.item.data.componentInput = appInput
 		}
 	}
-
-	function isMac() {
-		return navigator.platform.toUpperCase().indexOf('MAC') >= 0
-	}
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -292,6 +290,8 @@
 							{/if}
 						</div>
 					{/if}
+					<ContextVariables type={component.type} />
+
 					{#key $stateId}
 						{#if componentSettings.item.data.componentInput?.type === 'runnable'}
 							{#if Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length > 0}
@@ -442,6 +442,30 @@
 						Show
 					</Button>
 				</div>
+
+				{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
+					<Toggle
+						bind:checked={componentSettings.item[12].fullHeight}
+						size="xs"
+						options={{
+							right: 'Desktop full height',
+							rightTooltip:
+								'When enabled, the component will take the full height of the parent container.'
+						}}
+					/>
+				{/if}
+				{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
+					<Toggle
+						bind:checked={componentSettings.item[3].fullHeight}
+						size="xs"
+						options={{
+							right: 'Mobile full height',
+							rightTooltip:
+								'When enabled, the component will take the full height of the parent container.'
+						}}
+					/>
+				{/if}
+
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">

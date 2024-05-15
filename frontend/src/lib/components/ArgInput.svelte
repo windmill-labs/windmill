@@ -73,6 +73,7 @@
 	export let simpleTooltip: string | undefined = undefined
 	export let customErrorMessage: string | undefined = undefined
 	export let onlyMaskPassword = false
+	export let nullable: boolean = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -94,12 +95,17 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let rawValue: string | undefined = undefined
 
-	function computeDefaultValue(nvalue?: any, inputCat?: string, defaultValue?: any) {
+	function computeDefaultValue(
+		nvalue?: any,
+		inputCat?: string,
+		defaultValue?: any,
+		nnullable?: boolean
+	) {
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					value = ''
+					value = nullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
 					value = enum_?.[0]
 				} else if (inputCat == 'boolean') {
@@ -111,11 +117,15 @@
 				evalValueToRaw()
 			}
 		}
+
+		if (nnullable && type === 'string' && value === '') {
+			value = null
+		}
 	}
 
 	computeDefaultValue()
 
-	$: computeDefaultValue(value, inputCat, defaultValue)
+	$: computeDefaultValue(value, inputCat, defaultValue, nullable)
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 
@@ -158,7 +168,10 @@
 	}
 
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
-		if (required && (v == undefined || v == null || v === '')) {
+		if (nullable && emptyString(v)) {
+			error = ''
+			valid && (valid = true)
+		} else if (required && (v == undefined || v == null || v === '')) {
 			error = 'Required'
 			valid && (valid = false)
 		} else {
@@ -304,6 +317,19 @@
 								<ObjectTypeNarrowing bind:format />
 							{/if}
 						</div>
+						{#if !required && type === 'string'}
+							<div class="mt-2 border-t pt-4">
+								<Toggle
+									options={{
+										right: 'Nullable',
+										rightTooltip:
+											'If enabled, the default value will be null and not an empty string.'
+									}}
+									size="xs"
+									bind:checked={extra.nullable}
+								/>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}

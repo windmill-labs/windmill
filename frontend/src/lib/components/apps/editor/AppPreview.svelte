@@ -20,7 +20,7 @@
 	import { columnConfiguration } from '../gridUtils'
 	import { HiddenComponent } from '../components'
 	import { deepEqual } from 'fast-equals'
-	import { dfs } from './appUtils'
+	import { dfs, maxHeight } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
 	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
@@ -161,13 +161,17 @@
 			}
 		}
 	}
+
+	let appHeight: number = 0
+
+	$: maxRow = maxHeight($appStore.grid, appHeight, $breakpoint)
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative h-full">
+<div class="relative h-full" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 
@@ -201,7 +205,7 @@
 			class={twMerge(
 				'p-2 overflow-visible',
 				app.css?.['app']?.['grid']?.class ?? '',
-				'wm-app-grid  subgrid'
+				'wm-app-grid subgrid'
 			)}
 			bind:clientWidth={$parentWidth}
 		>
@@ -210,16 +214,24 @@
 					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
-					rowHeight={36}
+					let:hidden
 					cols={columnConfiguration}
-					gap={[4, 2]}
+					{maxRow}
+					breakpoint={$breakpoint}
 				>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class={'h-full w-full center-center'}
 						on:pointerdown={() => ($selectedComponent = [dataItem.id])}
 					>
-						<Component render={true} component={dataItem.data} selected={false} locked={true} />
+						<Component
+							render={true}
+							component={dataItem.data}
+							selected={false}
+							locked={true}
+							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+							{hidden}
+						/>
 					</div>
 				</GridViewer>
 			</div>
@@ -228,6 +240,7 @@
 
 	{#if isLocked}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			on:click={() => (isLocked = false)}
 			class="absolute inset-0 center-center bg-black/20 z-50 backdrop-blur-[1px] cursor-pointer"
