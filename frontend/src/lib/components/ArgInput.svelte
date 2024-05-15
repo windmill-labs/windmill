@@ -95,7 +95,12 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 	let rawValue: string | undefined = undefined
 
-	function computeDefaultValue(nvalue?: any, inputCat?: string, defaultValue?: any) {
+	function computeDefaultValue(
+		nvalue?: any,
+		inputCat?: string,
+		defaultValue?: any,
+		nnullable?: boolean
+	) {
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
 			value = defaultValue
 			if (defaultValue === undefined || defaultValue === null) {
@@ -112,11 +117,15 @@
 				evalValueToRaw()
 			}
 		}
+
+		if (nnullable && inputCat === 'string' && value === '') {
+			value = null
+		}
 	}
 
 	computeDefaultValue()
 
-	$: computeDefaultValue(value, inputCat, defaultValue)
+	$: computeDefaultValue(value, inputCat, defaultValue, nullable)
 
 	$: defaultValue != undefined && handleDefaultValueChange()
 

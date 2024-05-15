@@ -269,7 +269,7 @@
 					/>
 					<div>
 						<Toggle options={{ right: 'Required' }} size="xs" bind:checked={property.required} />
-						{#if property.selectedType == 'string' || property.selectedType == 'number'}
+						{#if property.selectedType == 'string'}
 							<Toggle options={{ right: 'Nullable' }} size="xs" bind:checked={property.nullable} />
 						{/if}
 					</div>
