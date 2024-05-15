@@ -637,7 +637,6 @@
 				groupFields={component.groupFields}
 				id={component.id}
 				customCss={component.customCss}
-				configuration={component.configuration}
 				{componentContainerHeight}
 				{render}
 			/>
