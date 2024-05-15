@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.329.0](https://github.com/windmill-labs/windmill/compare/v1.328.0...v1.329.0) (2024-05-15)
+
+
+### Features
+
+* **frontend:** Add date format ([#3675](https://github.com/windmill-labs/windmill/issues/3675)) ([86d958e](https://github.com/windmill-labs/windmill/commit/86d958e7edd5c2437112980db102765ee3e37090))
+* improve log storage + expand all logs in a flow ([6fe050b](https://github.com/windmill-labs/windmill/commit/6fe050b8c5a9a2982bcd487815bc96baa94d4648))
+
+
+### Bug Fixes
+
+* bun loader with nsjail ([b1a13be](https://github.com/windmill-labs/windmill/commit/b1a13bea206b9d8ff34bf0b551c19d3611cf01e4))
+* fix agchart rendering ([1fdbc64](https://github.com/windmill-labs/windmill/commit/1fdbc64fe53fd914933a7a63513828f07dc0c936))
+* **frontend:** Fix FileInput state when hidden ([#3730](https://github.com/windmill-labs/windmill/issues/3730)) ([da5eabd](https://github.com/windmill-labs/windmill/commit/da5eabdfbfbdfdb97b56f00884de7c830b9cde16))
+* improve display result output limit ([28cc563](https://github.com/windmill-labs/windmill/commit/28cc563df878458d49299ea4b15971cde8f85203))
+
 ## [1.328.0](https://github.com/windmill-labs/windmill/compare/v1.327.0...v1.328.0) (2024-05-13)
 
 
