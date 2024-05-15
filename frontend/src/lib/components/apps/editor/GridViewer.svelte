@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { ROW_GAP_X, ROW_GAP_Y, ROW_HEIGHT } from './appUtils'
+
+	import type { EditorBreakpoint } from '../types'
+
 	import { onMount, createEventDispatcher } from 'svelte'
 
 	import type { FilledItem } from '../svelte-grid/types'
@@ -11,10 +15,12 @@
 	type T = $$Generic
 
 	export let items: FilledItem<T>[]
-	export let rowHeight: number
+	export let rowHeight: number = ROW_HEIGHT
 	export let cols: [number, number][]
-	export let gap = [10, 10]
+	export let gap = [ROW_GAP_X, ROW_GAP_Y]
 	export let throttleUpdate = 100
+	export let maxRow: number
+	export let breakpoint: EditorBreakpoint
 
 	export let allIdsInPath: string[] | undefined = undefined
 	export let containerWidth: number | undefined = undefined
@@ -81,9 +87,15 @@
 			{@const width =
 				Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
 				gapX * 2}
-			{@const height = (item[getComputedCols] && item[getComputedCols].h) * yPerPx - gapY * 2}
+			{@const height =
+				(item?.[breakpoint === 'sm' ? 3 : 12]?.fullHeight
+					? maxRow - item[getComputedCols].y
+					: item[getComputedCols] && item[getComputedCols].h) *
+					yPerPx -
+				gapY * 2}
 			{@const top = (item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 			{@const left = (item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
+
 			<div
 				class="svlt-grid-item"
 				style="width: {width}px; height:{height}px; {onTop
@@ -91,7 +103,7 @@
 					: ''} top: {top}px; left: {left}px;"
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} item={item[getComputedCols]} />
+					<slot dataItem={item} item={item[getComputedCols]} hidden={false} />
 				{/if}
 			</div>
 		{/each}
