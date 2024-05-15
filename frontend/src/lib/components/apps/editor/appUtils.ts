@@ -421,8 +421,6 @@ export function insertNewGridItem(
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	data.fullHeight = false
-
 	const newItem = createNewGridItem(grid, id, data, columns)
 	grid.push(newItem)
 	return id
@@ -443,6 +441,7 @@ export function copyComponent(
 	const newItem = insertNewGridItem(
 		app,
 		(id) => {
+			item.data.fullHeight = false
 			if (item.data.type === 'tablecomponent') {
 				return {
 					...item.data,
