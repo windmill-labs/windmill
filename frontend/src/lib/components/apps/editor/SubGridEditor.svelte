@@ -108,9 +108,7 @@
 					selectedIds={$selectedComponent}
 					let:dataItem
 					let:hidden
-					rowHeight={36}
 					cols={columnConfiguration}
-					gap={[4, 2]}
 					scroller={container}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
@@ -172,9 +170,7 @@
 				items={$app.subgrids?.[subGridId] ?? []}
 				let:dataItem
 				let:hidden
-				rowHeight={36}
 				cols={columnConfiguration}
-				gap={[4, 2]}
 				breakpoint={$breakpoint}
 				parentWidth={$parentWidth - 17}
 				{containerWidth}

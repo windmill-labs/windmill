@@ -215,9 +215,7 @@
 					items={app.grid}
 					let:dataItem
 					let:hidden
-					rowHeight={36}
 					cols={columnConfiguration}
-					gap={[4, 2]}
 					{maxRow}
 					breakpoint={$breakpoint}
 				>

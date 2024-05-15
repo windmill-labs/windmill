@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { ROW_GAP_X, ROW_GAP_Y, ROW_HEIGHT } from './appUtils'
+
 	import type { EditorBreakpoint } from '../types'
 
 	import { onMount, createEventDispatcher } from 'svelte'
@@ -13,9 +15,9 @@
 	type T = $$Generic
 
 	export let items: FilledItem<T>[]
-	export let rowHeight: number
+	export let rowHeight: number = ROW_HEIGHT
 	export let cols: [number, number][]
-	export let gap = [10, 10]
+	export let gap = [ROW_GAP_X, ROW_GAP_Y]
 	export let throttleUpdate = 100
 	export let maxRow: number
 	export let breakpoint: EditorBreakpoint

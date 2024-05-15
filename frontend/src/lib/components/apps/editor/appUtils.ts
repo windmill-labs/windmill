@@ -978,17 +978,17 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 	)
 }
 
-export const rowHeight = 36
-export const rowGapY = 2
-export const rowGapX = 4
+export const ROW_HEIGHT = 36
+export const ROW_GAP_Y = 2
+export const ROW_GAP_X = 4
 
 export function maxHeight(
 	grid: GridItem[],
 	windowHeight: number,
 	breakpoint: EditorBreakpoint = 'lg'
 ) {
-	const totalRowHeight = rowHeight + rowGapY
-	let maxRows = Math.floor((windowHeight - rowGapY) / totalRowHeight)
+	const totalRowHeight = ROW_HEIGHT + ROW_GAP_Y
+	let maxRows = Math.floor((windowHeight - ROW_GAP_Y) / totalRowHeight)
 
 	if (!grid.length) {
 		return maxRows

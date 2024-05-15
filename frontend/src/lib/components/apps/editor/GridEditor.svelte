@@ -126,9 +126,7 @@
 				}}
 				let:dataItem
 				let:hidden
-				rowHeight={36}
 				cols={columnConfiguration}
-				gap={[4, 2]}
 			>
 				<ComponentWrapper
 					id={dataItem.id}

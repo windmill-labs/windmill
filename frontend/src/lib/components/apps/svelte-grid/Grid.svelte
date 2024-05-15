@@ -5,16 +5,16 @@
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
-	import { sortGridItemsPosition } from '../editor/appUtils'
+	import { ROW_GAP_X, ROW_GAP_Y, ROW_HEIGHT, sortGridItemsPosition } from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
 
 	type T = $$Generic
 
 	export let items: FilledItem<T>[]
-	export let rowHeight: number
+	export let rowHeight: number = ROW_HEIGHT
 	export let cols: [number, number][]
-	export let gap = [10, 10]
+	export let gap = [ROW_GAP_X, ROW_GAP_Y]
 	export let throttleUpdate = 100
 	export let throttleResize = 100
 	export let selectedIds: string[] | undefined
