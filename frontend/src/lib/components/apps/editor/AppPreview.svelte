@@ -229,7 +229,7 @@
 							component={dataItem.data}
 							selected={false}
 							locked={true}
-							fullHeight={dataItem?.[$breakpoint]?.fullHeight}
+							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 							{hidden}
 						/>
 					</div>

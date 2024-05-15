@@ -143,7 +143,7 @@
 							component={dataItem.data}
 							selected={Boolean($selectedComponent?.includes(dataItem.id))}
 							locked={isFixed(dataItem)}
-							fullHeight={dataItem?.[$breakpoint]?.fullHeight}
+							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 							on:lock={() => {
 								const gridItem = findGridItem($app, dataItem.id)
 								if (gridItem) {
@@ -159,9 +159,9 @@
 							}}
 							on:fillHeight={() => {
 								const gridItem = findGridItem($app, dataItem.id)
-
-								if (gridItem?.[$breakpoint]) {
-									gridItem[$breakpoint].fullHeight = !gridItem[$breakpoint].fullHeight
+								const b = $breakpoint === 'sm' ? 3 : 12
+								if (gridItem?.[b]) {
+									gridItem[b].fullHeight = !gridItem[b].fullHeight
 								}
 								$app = $app
 							}}

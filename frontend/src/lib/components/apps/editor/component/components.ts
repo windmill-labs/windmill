@@ -374,8 +374,6 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	panes?: number[]
 	conditions?: AppInputSpec<'boolean', boolean>[]
 	nodes?: DecisionTreeNode[]
-	fullHeight?: boolean
-	fullHeightMobile?: boolean
 }
 
 const buttonColorOptions = [...BUTTON_COLORS]
