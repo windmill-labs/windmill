@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.331.1](https://github.com/windmill-labs/windmill/compare/v1.331.0...v1.331.1) (2024-05-16)
+
+
+### Bug Fixes
+
+* **backend:** prevent immediate cancellation of the error handler when a job is forcibly cancelled ([#3751](https://github.com/windmill-labs/windmill/issues/3751)) ([f3b8e01](https://github.com/windmill-labs/windmill/commit/f3b8e01981653bf97044ceadc18a4c7ce346317e))
+* **frontend:** improve queue metrics graphs performance ([#3749](https://github.com/windmill-labs/windmill/issues/3749)) ([2da00f1](https://github.com/windmill-labs/windmill/commit/2da00f19afe93e55190767219467ae942a2cc7ff))
+
 ## [1.331.0](https://github.com/windmill-labs/windmill/compare/v1.330.1...v1.331.0) (2024-05-15)
 
 
