@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.332.0](https://github.com/windmill-labs/windmill/compare/v1.331.2...v1.332.0) (2024-05-16)
+
+
+### Features
+
+* **frontend:** Fix App Select component initial value ([#3752](https://github.com/windmill-labs/windmill/issues/3752)) ([e11a375](https://github.com/windmill-labs/windmill/commit/e11a3751c3d188522360010a03e1fbc92311f554))
+
+
+### Bug Fixes
+
+* fix args interpolation for tag and concurrency key for non string values ([2b06d9a](https://github.com/windmill-labs/windmill/commit/2b06d9ae793f9e5fddee4ca0889634429ff53416))
+
 ## [1.331.2](https://github.com/windmill-labs/windmill/compare/v1.331.1...v1.331.2) (2024-05-16)
 
 
