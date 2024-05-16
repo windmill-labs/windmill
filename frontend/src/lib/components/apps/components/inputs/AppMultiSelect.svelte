@@ -11,7 +11,7 @@
 	import MultiSelect from 'svelte-multiselect'
 	import Portal from 'svelte-portal'
 	import { createFloatingActions } from 'svelte-floating-ui'
-	import { extractCustomProperties } from '$lib/utils'
+	import { debounce, extractCustomProperties } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
@@ -106,6 +106,30 @@
 
 	let w = 0
 	let open = false
+
+	let filteredItems: string[] = []
+	let searchText: string = ''
+
+	const debouncedFilter = debounce(() => {
+		if (searchText !== undefined && items) {
+			const newFilteredItems = items.filter((item) => {
+				return item.toLowerCase().includes(searchText.toLowerCase())
+			})
+			if (JSON.stringify(newFilteredItems) !== JSON.stringify(filteredItems)) {
+				filteredItems = newFilteredItems
+				console.log(filteredItems)
+			}
+		}
+	}, 100)
+
+	$: if (searchText !== undefined && items) {
+		if (searchText.length >= 3) {
+			debouncedFilter()
+		} else if (filteredItems.length !== items.length) {
+			console.log('erset')
+			filteredItems = items
+		}
+	}
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -153,9 +177,13 @@
 				--sms-min-height={'32px'}
 				--sms-focus-border={'none'}
 				bind:selected={value}
-				options={Array.isArray(items) ? items : []}
+				options={items}
+				matchingOptions={filteredItems}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
+				liActiveOptionClass="p-1"
+				liOptionClass="p-1"
+				bind:searchText
 				on:change={(event) => {
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
@@ -187,8 +215,8 @@
 			</MultiSelect>
 			<Portal>
 				<div use:floatingContent class="z5000" hidden={!open}>
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						bind:this={portalRef}
 						class="multiselect"
