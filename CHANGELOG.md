@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.331.2](https://github.com/windmill-labs/windmill/compare/v1.331.1...v1.331.2) (2024-05-16)
+
+
+### Bug Fixes
+
+* improve support for non existing key in concurrency_key table ([9e86177](https://github.com/windmill-labs/windmill/commit/9e8617714250db74965de2842f3abd4b9260b072))
+
 ## [1.331.1](https://github.com/windmill-labs/windmill/compare/v1.331.0...v1.331.1) (2024-05-16)
 
 
