@@ -762,7 +762,13 @@ pub async fn add_completed_job<
         }
     }
     if queued_job.concurrent_limit.is_some() {
-        let concurrency_key = concurrency_key(db, queued_job).await?;
+        let concurrency_key = concurrency_key(db, queued_job).await.unwrap_or_else(|e| {
+            tracing::error!(
+                "Could not get concurrency key for job {} defaulting to default key: {e:?}",
+                queued_job.id
+            );
+            return queued_job.full_path_with_workspace();
+        });
         if let Err(e) = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
             concurrency_key,
@@ -1647,7 +1653,13 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         // Else the job is subject to concurrency limits
         let job_script_path = pulled_job.script_path.clone().unwrap();
 
-        let job_concurrency_key = concurrency_key(db, &pulled_job).await?;
+        let job_concurrency_key = concurrency_key(db, &pulled_job).await.unwrap_or_else(|e| {
+            tracing::error!(
+                "Could not get concurrency key for job {} defaulting to default key: {e:?}",
+                pulled_job.id
+            );
+            return pulled_job.full_path_with_workspace();
+        });
         tracing::debug!("Concurrency key is '{}'", job_concurrency_key);
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs
