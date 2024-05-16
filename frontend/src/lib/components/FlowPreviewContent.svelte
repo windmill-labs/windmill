@@ -10,7 +10,7 @@
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
 	import { AlertTriangle, ArrowRight, CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, sendUserToast } from '$lib/utils'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SavedInputs from './SavedInputs.svelte'
 	import { dfs } from './flows/dfs'
@@ -60,11 +60,17 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
-		lastPreviewFlow = JSON.stringify($flowStore)
-		jobProgressReset()
-		const newFlow = extractFlow(previewMode)
-		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
-		isRunning = true
+		try {
+			lastPreviewFlow = JSON.stringify($flowStore)
+			jobProgressReset()
+			const newFlow = extractFlow(previewMode)
+			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+			isRunning = true
+		} catch (e) {
+			sendUserToast('Could not run preview', true, undefined, e.toString())
+			isRunning = false
+			jobId = undefined
+		}
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
