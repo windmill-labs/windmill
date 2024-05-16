@@ -165,7 +165,9 @@
 	let queueMetricsDrawer: Drawer
 </script>
 
-<QueueMetricsDrawer bind:drawer={queueMetricsDrawer} />
+{#if $superadmin}
+	<QueueMetricsDrawer bind:drawer={queueMetricsDrawer} />
+{/if}
 
 <Drawer bind:this={importConfigDrawer} size="800px">
 	<DrawerContent
