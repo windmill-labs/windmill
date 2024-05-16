@@ -212,6 +212,22 @@ pub async fn cancel_job<'c>(
 
     let job = job.unwrap();
 
+    // get all children
+    let mut jobs = vec![id];
+    let mut jobs_to_cancel = vec![];
+    while !jobs.is_empty() {
+        let p_job = jobs.pop();
+        let new_jobs = sqlx::query_scalar!(
+            "SELECT id FROM queue WHERE parent_job = $1 AND workspace_id = $2",
+            p_job,
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        jobs.extend(new_jobs.clone());
+        jobs_to_cancel.extend(new_jobs);
+    }
+
     let (ntx, _) = cancel_single_job(
         username,
         reason.clone(),
@@ -247,20 +263,6 @@ pub async fn cancel_job<'c>(
     }
 
     // cancel children
-    let mut jobs = vec![id];
-    let mut jobs_to_cancel = vec![];
-    while !jobs.is_empty() {
-        let p_job = jobs.pop();
-        let new_jobs = sqlx::query_scalar!(
-            "SELECT id FROM queue WHERE parent_job = $1 AND workspace_id = $2",
-            p_job,
-            w_id
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        jobs.extend(new_jobs.clone());
-        jobs_to_cancel.extend(new_jobs);
-    }
     for job_id in jobs_to_cancel {
         let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
 
@@ -2007,7 +2009,11 @@ async fn concurrency_key(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
 ) -> windmill_common::error::Result<String> {
-    not_found_if_none(custom_concurrency_key(db, queued_job.id).await?, "ConcurrencyKey", queued_job.id.to_string())
+    not_found_if_none(
+        custom_concurrency_key(db, queued_job.id).await?,
+        "ConcurrencyKey",
+        queued_job.id.to_string(),
+    )
 }
 
 fn interpolate_args<T: Serialize>(
@@ -2038,20 +2044,22 @@ fn interpolate_args<T: Serialize>(
     }
 }
 
-fn fullpath_with_workspace(workspace_id: &str, script_path: Option<&String>, job_kind: &JobKind) -> String {
-    let path = script_path
-        .map(String::as_str)
-        .unwrap_or("tmp/main");
+fn fullpath_with_workspace(
+    workspace_id: &str,
+    script_path: Option<&String>,
+    job_kind: &JobKind,
+) -> String {
+    let path = script_path.map(String::as_str).unwrap_or("tmp/main");
     let is_flow = matches!(
         job_kind,
         &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow
     );
     format!(
-            "{}/{}/{}",
-            workspace_id,
-            if is_flow { "flow" } else { "script" },
-            path,
-        )
+        "{}/{}/{}",
+        workspace_id,
+        if is_flow { "flow" } else { "script" },
+        path,
+    )
 }
 
 #[derive(FromRow)]
@@ -3449,7 +3457,11 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
     if concurrent_limit.is_some() {
         let concurrency_key = custom_concurrency_key
             .map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args))
-            .unwrap_or(fullpath_with_workspace(workspace_id, script_path.as_ref(), &job_kind));
+            .unwrap_or(fullpath_with_workspace(
+                workspace_id,
+                script_path.as_ref(),
+                &job_kind,
+            ));
         sqlx::query!(
             "INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
             concurrency_key,

@@ -1157,9 +1157,14 @@ pub async fn handle_child(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
         Ok(Ok(status)) => process_status(status),
-        Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
-            "job process killed because {kill_reason:#?}"
-        ))),
+        Ok(Err(kill_reason)) => match kill_reason {
+            KillReason::AlreadyCompleted => {
+                Err(Error::AlreadyCompleted("Job already completed".to_string()))
+            }
+            _ => Err(Error::ExecutionErr(format!(
+                "job process killed because {kill_reason:#?}"
+            ))),
+        },
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
     }
 }
