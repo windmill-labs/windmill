@@ -2046,9 +2046,10 @@ fn interpolate_args<T: Serialize>(
             let arg_name = cap.get(1).unwrap().as_str();
             let arg_value = value
                 .get(arg_name)
-                .and_then(|x| x.as_str())
+                .map(|x| serde_json::to_string(x).unwrap_or_default())
                 .unwrap_or_default();
-            interpolated = interpolated.replace(format!("$args[{}]", arg_name).as_str(), arg_value);
+            interpolated =
+                interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
         interpolated
     } else {
