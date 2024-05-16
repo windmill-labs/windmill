@@ -415,7 +415,7 @@ jobs:
 
   tag_latest:
     runs-on: ubicloud
-    needs: [run_integration_test]
+    needs: [run_integration_test, build]
     steps:
       - uses: actions/checkout@v3
         with:
@@ -433,7 +433,7 @@ jobs:
 
   tag_latest_ee:
     runs-on: ubicloud
-    needs: [run_integration_test]
+    needs: [run_integration_test, build_ee]
     steps:
       - uses: actions/checkout@v3
         with:
