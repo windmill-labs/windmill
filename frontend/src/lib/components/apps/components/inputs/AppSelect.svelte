@@ -71,7 +71,12 @@
 		result: undefined as string | undefined
 	})
 
-	let value: string | undefined = noDefault ? undefined : outputs?.result.peak()
+	// The library expects double quotes around the value
+	let value: string | undefined = noDefault
+		? undefined
+		: outputs?.result.peak()
+		? JSON.stringify(outputs?.result.peak())
+		: undefined
 
 	$: resolvedConfig.items && handleItems()
 
