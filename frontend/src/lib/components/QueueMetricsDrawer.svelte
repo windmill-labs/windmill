@@ -21,7 +21,6 @@
 	import { superadmin } from '$lib/stores'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { AlertCircle, Triangle } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
 	export let drawer: Drawer
 
