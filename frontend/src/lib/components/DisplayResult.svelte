@@ -38,6 +38,10 @@
 	export let noControls: boolean = false
 	export let drawerOpen = false
 
+	const IMG_MAX_SIZE = 10000000
+	const TABLE_MAX_SIZE = 5000000
+	const DISPLAY_MAX_SIZE = 100000
+
 	let resultKind:
 		| 'json'
 		| 'table-col'
@@ -69,7 +73,7 @@
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
 	}
 
-	function isObjectOfArrays(result: any[], keys: string[]): boolean {
+	function isObjectOfArrays(result: any, keys: string[]): boolean {
 		return (
 			!Array.isArray(result) && keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
 		)
@@ -111,7 +115,7 @@
 					keys.length == 1
 				) {
 					// Check if the image is too large (10mb)
-					largeObject = roughSizeOfObject(result) > 10000000
+					largeObject = roughSizeOfObject(result) > IMG_MAX_SIZE
 
 					return keys[0] as
 						| 'png'
@@ -125,9 +129,8 @@
 				}
 
 				if (Array.isArray(result)) {
-					largeObject = roughSizeOfObject(result) > 5000000
-
-					if (largeObject) {
+					largeObject = roughSizeOfObject(result) > TABLE_MAX_SIZE
+					if (largeObject || result.length === 0) {
 						return 'json'
 					} else if (result.every((elt) => inferResultKind(elt) === 's3object')) {
 						largeObject = result.length > 100
@@ -137,18 +140,22 @@
 						return 's3object-list'
 					} else if (isArrayOfArrays(result)) {
 						return 'table-row'
-					} else if (isObjectOfArrays(result, keys)) {
-						return 'table-col'
 					} else if (isArrayOfObjects(result)) {
 						return 'table-row-object'
 					} else {
 						return 'json'
 					}
+				} else if (isObjectOfArrays(result, keys)) {
+					largeObject = roughSizeOfObject(result) > TABLE_MAX_SIZE
+					if (largeObject) {
+						return 'json'
+					}
+					return 'table-col'
 				}
 
 				let length = roughSizeOfObject(result)
 				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = length > 100000
+				largeObject = length > DISPLAY_MAX_SIZE
 
 				if (largeObject) {
 					return 'json'
