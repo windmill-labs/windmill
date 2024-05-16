@@ -75,7 +75,7 @@
 	let value: string | undefined = noDefault
 		? undefined
 		: outputs?.result.peak()
-		? `"${outputs?.result.peak()}"`
+		? JSON.stringify(outputs?.result.peak())
 		: undefined
 
 	$: resolvedConfig.items && handleItems()
