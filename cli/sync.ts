@@ -107,13 +107,13 @@ async function addCodebaseDigestIfRelevant(
   if (!isTs) {
     return content;
   }
-  log.info(`isScript: ${isScript}, isTs: ${isTs}; ${path}`);
   if (isTs) {
     const c = findCodebase(path, codebases);
     if (c) {
       const parsed: any = yamlParse(content);
       if (parsed && typeof parsed == "object") {
         parsed["codebase"] = c.digest;
+        parsed["lock"] = undefined;
         return yamlStringify(parsed, yamlOptions);
       } else {
         throw Error(
