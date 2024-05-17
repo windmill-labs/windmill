@@ -75,7 +75,8 @@
 
 	function isTableCol(result: any, keys: string[]): boolean {
 		return (
-			return (!Array.isArray(result) && keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b, true))
+			!Array.isArray(result) &&
+			keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b, true)
 		)
 	}
 
