@@ -110,7 +110,6 @@
 
 	let is_render_all = false
 	function inferResultKind(result: any) {
-		console.log('inferResultKind')
 		if (result == 'WINDMILL_TOO_BIG') {
 			largeObject = true
 			return 'json'
