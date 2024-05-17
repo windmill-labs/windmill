@@ -13,47 +13,61 @@
 		Title,
 		Tooltip
 	} from 'chart.js'
-	import type { ConcurrencyIntervals } from '$lib/gen'
+	import type { CompletedJob, ExtendedJobs } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 
-	export let concurrencyIntervals: ConcurrencyIntervals | undefined = undefined
+	export let extendedJobs: ExtendedJobs | undefined = undefined
 	export let maxIsNow: boolean = false
 	export let minTimeSet: string | undefined = undefined
 	export let maxTimeSet: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
-	function calculateTimeSeries(concurrencyIntervals: ConcurrencyIntervals): AggregatedInterval[] {
+	function calculateTimeSeries(extendedJobs: ExtendedJobs): AggregatedInterval[] {
 		const timeline = new Map<number, { count: number; id_started: string[]; id_ended: string[] }>()
-		concurrencyIntervals.completed_jobs?.forEach(({ job_id, started_at, ended_at }) => {
-			if (started_at != undefined && ended_at != undefined) {
-				const startTime = new Date(started_at).getTime()
-				const endTime = new Date(ended_at).getTime()
 
-				if (!timeline.has(startTime))
+		extendedJobs.jobs.forEach((j) => {
+			if (j.started_at != undefined) {
+				const startTime = new Date(j.started_at).getTime()
+				if (!timeline.has(startTime)) {
 					timeline.set(startTime, { count: 0, id_started: [], id_ended: [] })
-				if (!timeline.has(endTime))
-					timeline.set(endTime, { count: 0, id_started: [], id_ended: [] })
-
+				}
 				const s = timeline.get(startTime)!
-				const e = timeline.get(endTime)!
-
 				s.count += 1
-				s.id_started.push(job_id ?? 'unknown')
-				e.count -= 1
-				e.id_ended.push(job_id ?? 'unknown')
+				s.id_started.push(j.id)
+				if (j.type === 'CompletedJob') {
+					const jc = j as CompletedJob;
+					const endTime = startTime + (jc.duration_ms / 1000.0)
+					if (!timeline.has(endTime)) {
+						timeline.set(endTime, { count: 0, id_started: [], id_ended: [] })
+					}
+					const e = timeline.get(endTime)!
+					e.count -= 1
+					e.id_ended.push(j.id)
+				}
 			}
 		})
 
-		concurrencyIntervals.running_jobs?.forEach(({ job_id, started_at }) => {
-			if (started_at != undefined) {
-				const startTime = new Date(started_at).getTime()
-				if (!timeline.has(startTime))
+		extendedJobs.obscured_jobs.forEach((j) => {
+			if (j.started_at != undefined) {
+				const startTime = new Date(j.started_at).getTime()
+				if (!timeline.has(startTime)) {
 					timeline.set(startTime, { count: 0, id_started: [], id_ended: [] })
+				}
 				const s = timeline.get(startTime)!
 				s.count += 1
-				s.id_started.push(job_id ?? 'unknown')
+				s.id_started.push('unknoww')
+				if (j.duration_ms != undefined) {
+					const jc = j as CompletedJob;
+					const endTime = startTime + (jc.duration_ms / 1000.0)
+					if (!timeline.has(endTime)) {
+						timeline.set(endTime, { count: 0, id_started: [], id_ended: [] })
+					}
+					const e = timeline.get(endTime)!
+					e.count -= 1
+					e.id_ended.push('unknown')
+				}
 			}
 		})
 
@@ -90,7 +104,7 @@
 	type AggregatedInterval = { time: Date; count: number; msg?: string }
 
 	let intervals: AggregatedInterval[] | undefined = undefined
-	$: intervals = concurrencyIntervals ? calculateTimeSeries(concurrencyIntervals) : undefined
+	$: intervals = extendedJobs ? calculateTimeSeries(extendedJobs) : undefined
 
 	ChartJS.register(
 		Title,

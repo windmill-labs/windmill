@@ -8005,12 +8005,13 @@ paths:
             application/json:
               schema:
                 type: string
-  /w/{workspace}/concurrency_groups/intervals:
+  /w/{workspace}/concurrency_groups/list_jobs:
     get:
       summary: Get intervals of job runtime concurrency
-      operationId: getConcurrencyIntervals
+      operationId: listExtendedJobs
       tags:
         - concurrencyGroups
+        - job
       parameters:
         - name: concurrency_key
           in: query
@@ -8078,7 +8079,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ConcurrencyIntervals"
+                $ref: "#/components/schemas/ExtendedJobs"
 
 components:
   securitySchemes:
@@ -10492,39 +10493,25 @@ components:
         - concurrency_key
         - total_running
 
-    ConcurrencyIntervals:
+    ExtendedJobs:
       type: object
       properties:
-        concurrency_key:
-          type: string
-        running_jobs:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+        obscured_jobs:
           type: array
           items:
             type: object
             properties:
-              job_id:
-                type: string
-              concurrency_key:
+              typ:
                 type: string
               started_at:
                 type: string
                 format: date-time
-        completed_jobs:
-          type: array
-          items:
-            type: object
-            properties:
-              job_id:
-                type: string
-              concurrency_key:
-                type: string
-              started_at:
-                type: string
-                format: date-time
-              ended_at:
-                type: string
-                format: date-time
+              duration_ms:
+                type: number
       required:
-        - concurrency_key
-        - running_jobs
-        - completed_jobs
+        - jobs
+        - obscured_jobs
