@@ -306,7 +306,7 @@
 									if(index === -1) {
 										e.api.deselectAll();
 										outputs?.selectedRow?.set({})
-										outputs?.selectedRowIndex.set(0)
+										outputs?.selectedRowIndex.set(-1)
 									}
 									e.api.getRowNode(index.toString())?.setSelected(true)
 								}
