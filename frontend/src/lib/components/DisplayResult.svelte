@@ -38,6 +38,10 @@
 	export let noControls: boolean = false
 	export let drawerOpen = false
 
+	const IMG_MAX_SIZE = 10000000
+	const TABLE_MAX_SIZE = 5000000
+	const DISPLAY_MAX_SIZE = 100000
+
 	let resultKind:
 		| 'json'
 		| 'table-col'
@@ -65,17 +69,45 @@
 	let enableHtml = false
 	let s3FileDisplayRawMode = false
 
-	function isArrayOfArrays(result: any): boolean {
+	function isTableRow(result: any): boolean {
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
 	}
 
-	function isObjectOfArrays(result: any[], keys: string[]): boolean {
+	function isTableCol(result: any, keys: string[]): boolean {
 		return (
-			!Array.isArray(result) && keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)
+			!Array.isArray(result) &&
+			keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b, true)
+		)
+	}
+
+	function isTableRowObject(json) {
+		// check array of objects (with possible a first row of headers)
+		return (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			(json.every(
+				(item) =>
+					item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
+			) ||
+				(Array.isArray(json[0]) &&
+					json[0].every((item) => typeof item === 'string') &&
+					json
+						.slice(1)
+						.every(
+							(item) =>
+								item &&
+								typeof item === 'object' &&
+								Object.keys(item).length > 0 &&
+								!Array.isArray(item)
+						)))
 		)
 	}
 
 	let largeObject: boolean | undefined = undefined
+
+	function checkIfS3(result: any, keys: string[]) {
+		return keys.length === 1 && keys.includes('s3') && typeof result.s3 === 'string'
+	}
 
 	let is_render_all = false
 	function inferResultKind(result: any) {
@@ -97,71 +129,52 @@
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
 				// Check if the result is an image
-				if (
-					[
-						'png',
-						'svg',
-						'jpeg',
-						'html',
-						'gif',
-						'table-row',
-						'table-col',
-						'table-row-object'
-					].includes(keys[0]) &&
-					keys.length == 1
-				) {
+				if (['png', 'svg', 'jpeg', 'html', 'gif'].includes(keys[0]) && keys.length == 1) {
 					// Check if the image is too large (10mb)
-					largeObject = roughSizeOfObject(result) > 10000000
+					largeObject = roughSizeOfObject(result) > IMG_MAX_SIZE
 
-					return keys[0] as
-						| 'png'
-						| 'svg'
-						| 'jpeg'
-						| 'html'
-						| 'gif'
-						| 'table-row'
-						| 'table-col'
-						| 'table-row-object'
+					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html' | 'gif'
+				}
+
+				const tableLargeObject = roughSizeOfObject(result) > TABLE_MAX_SIZE
+				// Otherwise, check if the result is too large (10kb) for json
+				largeObject = tableLargeObject || roughSizeOfObject(result) > DISPLAY_MAX_SIZE
+
+				if (tableLargeObject) {
+					return 'json'
 				}
 
 				if (Array.isArray(result)) {
-					largeObject = roughSizeOfObject(result) > 5000000
-
-					if (largeObject) {
+					if (result.length === 0) {
 						return 'json'
-					} else if (result.every((elt) => inferResultKind(elt) === 's3object')) {
+					} else if (
+						result.every((elt) => typeof elt === 'object' && checkIfS3(elt, Object.keys(elt)))
+					) {
 						largeObject = result.length > 100
 						if (largeObject) {
 							return 'json'
 						}
 						return 's3object-list'
-					} else if (isArrayOfArrays(result)) {
+					} else if (isTableRow(result)) {
 						return 'table-row'
-					} else if (isObjectOfArrays(result, keys)) {
-						return 'table-col'
-					} else if (isArrayOfObjects(result)) {
+					} else if (isTableRowObject(result)) {
 						return 'table-row-object'
 					} else {
 						return 'json'
 					}
+				} else if (
+					keys.length === 1 &&
+					['table-row', 'table-row-object', 'table-col'].includes(keys[0])
+				) {
+					return keys[0] as 'table-row' | 'table-row-object' | 'table-col'
 				}
-
-				let length = roughSizeOfObject(result)
-				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = length > 100000
 
 				if (largeObject) {
 					return 'json'
 				}
 
 				if (keys.length != 0) {
-					if (keys.length == 1 && keys[0] == 'table-row') {
-						return 'table-row'
-					} else if (keys.length == 1 && keys[0] == 'table-col') {
-						return 'table-col'
-					} else if (keys.length == 1 && keys[0] == 'table-row-object') {
-						return 'table-row-object'
-					} else if (keys.length == 1 && keys[0] == 'html') {
+					if (keys.length == 1 && keys[0] == 'html') {
 						return 'html'
 					} else if (keys.length == 1 && keys[0] == 'map') {
 						return 'map'
@@ -196,10 +209,12 @@
 						keys.includes('approvalPage')
 					) {
 						return 'approval'
-					} else if (keys.length === 1 && keys.includes('s3') && typeof result.s3 === 'string') {
+					} else if (checkIfS3(result, keys)) {
 						return 's3object'
 					} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
 						return 'markdown'
+					} else if (isTableCol(result, keys)) {
+						return 'table-col'
 					}
 				}
 			} catch (err) {}
@@ -223,29 +238,6 @@
 		} else {
 			return obj.content
 		}
-	}
-
-	function isArrayOfObjects(json) {
-		// check array of objects (with possible a first row of headers)
-		return (
-			Array.isArray(json) &&
-			json.length > 0 &&
-			(json.every(
-				(item) =>
-					item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-			) ||
-				(Array.isArray(json[0]) &&
-					json[0].every((item) => typeof item === 'string') &&
-					json
-						.slice(1)
-						.every(
-							(item) =>
-								item &&
-								typeof item === 'object' &&
-								Object.keys(item).length > 0 &&
-								!Array.isArray(item)
-						)))
-		)
 	}
 
 	function handleArrayOfObjectsHeaders(json: any) {
