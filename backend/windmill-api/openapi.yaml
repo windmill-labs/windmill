@@ -8956,6 +8956,16 @@ components:
         - visible_to_owner
         - tag
 
+    ObscuredJob:
+      type: object
+      properties:
+        typ:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: number
     Job:
       oneOf:
         - allOf:
@@ -10503,15 +10513,7 @@ components:
         obscured_jobs:
           type: array
           items:
-            type: object
-            properties:
-              typ:
-                type: string
-              started_at:
-                type: string
-                format: date-time
-              duration_ms:
-                type: number
+            $ref : "#/components/schemas/ObscuredJob"
       required:
         - jobs
         - obscured_jobs
