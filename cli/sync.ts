@@ -266,7 +266,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
           const r = [{ path: path, content: content }];
           m.value.content = "!inline " + path;
           const lock = m.value.lock;
-          if (lock) {
+          if (lock && lock != "") {
             const lockPath = basePath + "lock";
             m.value.lock = "!inline " + lockPath;
             r.push({ path: lockPath, content: lock });
@@ -312,7 +312,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
                 content: content,
               });
             }
-            if (o["lock"]) {
+            if (o["lock"] && o["lock"] != "") {
               const lock = o["lock"];
               o["lock"] = "!inline " + basePath + "lock";
               r.push({
@@ -403,8 +403,14 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
 
           if (kind == "script") {
             const parsed = JSON.parse(content);
-            if (parsed["lock"]) {
+            if (
+              parsed["lock"] &&
+              parsed["lock"] != "" &&
+              parsed["codebase"] == undefined
+            ) {
               parsed["lock"] = "!inline " + removeSuffix(p, ".json") + ".lock";
+            } else {
+              parsed["lock"] = undefined;
             }
             return useYaml
               ? yamlStringify(parsed, yamlOptions)
@@ -421,7 +427,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       const content = await f.async("text");
       const parsed = JSON.parse(content);
       const lock = parsed["lock"];
-      if (lock) {
+      if (lock && lock != "") {
         r.push({
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
@@ -867,40 +873,45 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       const target = path.join(Deno.cwd(), change.path);
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
       if (change.name === "edited") {
-        try {
-          const currentLocal = await Deno.readTextFile(target);
-          if (currentLocal !== change.before && currentLocal !== change.after) {
-            log.info(
-              colors.red(
-                `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
-              )
-            );
-            if (opts.failConflicts) {
-              conflicts.push({
-                local: currentLocal,
-                change,
-                path: change.path,
-              });
-              continue;
-            } else if (opts.yes) {
+        if (opts.stateful) {
+          try {
+            const currentLocal = await Deno.readTextFile(target);
+            if (
+              currentLocal !== change.before &&
+              currentLocal !== change.after
+            ) {
               log.info(
                 colors.red(
-                  `Override local version with remote since --yes was passed and no --fail-conflicts.`
+                  `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
                 )
               );
-            } else {
-              showConflict(change.path, currentLocal, change.after);
-              if (
-                await Confirm.prompt(
-                  "Preserve local (push to change remote and avoid seeing this again)?"
-                )
-              ) {
+              if (opts.failConflicts) {
+                conflicts.push({
+                  local: currentLocal,
+                  change,
+                  path: change.path,
+                });
                 continue;
+              } else if (opts.yes) {
+                log.info(
+                  colors.red(
+                    `Override local version with remote since --yes was passed and no --fail-conflicts.`
+                  )
+                );
+              } else {
+                showConflict(change.path, currentLocal, change.after);
+                if (
+                  await Confirm.prompt(
+                    "Preserve local (push to change remote and avoid seeing this again)?"
+                  )
+                ) {
+                  continue;
+                }
               }
             }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
         }
         if (!change.path.endsWith(".json") && !change.path.endsWith(".yaml")) {
           log.info(`Editing script content of ${change.path}`);
@@ -1083,7 +1094,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
     log.info(colors.gray(`Applying changes to files ...`));
 
     const alreadySynced: string[] = [];
-    const globalDeps = await findGlobalDeps(codebases);
+    const globalDeps = await findGlobalDeps();
 
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
