@@ -1518,7 +1518,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 if suspend.user_groups_required.is_some() {
                     match suspend.user_groups_required.unwrap() {
                         InputTransform::Static { value } => {
-                            user_groups_required = serde_json::from_value::<Vec<String>>(value)
+                            user_groups_required = serde_json::from_str::<Vec<String>>(value.get())
                                 .expect("Unable to deserialize group names");
                         }
                         InputTransform::Javascript { expr } => {
@@ -1740,7 +1740,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         )
                     }
                 };
-                match json_value {
+                match json_value.and_then(|x| serde_json::from_str::<serde_json::Value>(x.get())) {
                     Ok(serde_json::Value::Number(n)) => {
                         if !n.is_u64() {
                             return Err(Error::ExecutionErr(format!(
@@ -1750,8 +1750,11 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                         n.as_u64().map(|x| from_now(Duration::from_secs(x)))
                     }
-                    _ => Err(Error::ExecutionErr(format!(
-                        "Expected a number value, found: {json_value:?}"
+                    Ok(x @ _) => Err(Error::ExecutionErr(format!(
+                        "Expected an integer, found: {x:?}"
+                    )))?,
+                    Err(e) => Err(Error::ExecutionErr(format!(
+                        "Expected a number value, had error instead: {e:?}",
                     )))?,
                 }
             } else {
@@ -2100,7 +2103,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             tx2,
             &flow_job.workspace_id,
             payload_tag.payload,
-            ok.unwrap_or_else(|| serde_json::from_str("{}").unwrap()),
+            windmill_queue::PushArgs {
+                args: ok.unwrap_or_else(|| serde_json::from_str("{}").unwrap()),
+                extra: HashMap::new(),
+            },
             &flow_job.created_by,
             &flow_job.email,
             flow_job.permissioned_as.to_owned(),

@@ -3668,12 +3668,12 @@ async fn trigger_python_dependents_to_recompute_dependencies<
             PushIsolationLevel::IsolatedRoot(db.clone(), rsmq.clone());
         let r = get_latest_deployed_hash_for_path(db, w_id, s.as_str()).await;
         if let Ok(r) = r {
-            let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+            let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
             if let Some(ref dm) = deployment_message {
-                args.insert("deployment_message".to_string(), json!(dm));
+                args.insert("deployment_message".to_string(), to_raw_value(&dm));
             }
             if let Some(ref p_path) = parent_path {
-                args.insert("common_dependency_path".to_string(), json!(p_path));
+                args.insert("common_dependency_path".to_string(), to_raw_value(&p_path));
             }
 
             let (job_uuid, new_tx) = windmill_queue::push(
@@ -3686,7 +3686,7 @@ async fn trigger_python_dependents_to_recompute_dependencies<
                     language: r.6,
                     dedicated_worker: r.7,
                 },
-                args,
+                windmill_queue::PushArgs { args, extra: HashMap::new() },
                 &created_by,
                 email,
                 permissioned_as.to_string(),

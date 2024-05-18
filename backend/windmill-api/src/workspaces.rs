@@ -41,7 +41,7 @@ use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::schedule::Schedule;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::build_crypt;
-use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
@@ -58,7 +58,7 @@ use crate::oauth2_ee::InstanceEvent;
 use crate::variables::{decrypt, encrypt};
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::Value;
 use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
@@ -476,15 +476,15 @@ async fn run_slack_message_test_job(
     Path(w_id): Path<String>,
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
-    let mut fake_result = Map::new();
-    fake_result.insert("error".to_string(), json!(req.test_msg));
-    fake_result.insert("success_result".to_string(), json!(req.test_msg));
+    let mut fake_result = HashMap::new();
+    fake_result.insert("error".to_string(), to_raw_value(&req.test_msg));
+    fake_result.insert("success_result".to_string(), to_raw_value(&req.test_msg));
 
-    let mut extra_args = Map::new();
-    extra_args.insert("channel".to_string(), json!(req.channel));
+    let mut extra_args = HashMap::new();
+    extra_args.insert("channel".to_string(), to_raw_value(&req.channel));
     extra_args.insert(
         "slack".to_string(),
-        json!(format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}")),
+        to_raw_value(&format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}")),
     );
 
     let uuid = windmill_queue::push_error_handler(
@@ -499,7 +499,7 @@ async fn run_slack_message_test_job(
         sqlx::types::Json(&fake_result),
         None,
         Some(Utc::now()),
-        Some(json!(extra_args)),
+        Some(sqlx::types::Json(to_raw_value(&extra_args))),
         authed.email.as_str(),
         false,
         false,
@@ -2588,14 +2588,13 @@ async fn tarball_workspace(
     }
 
     {
-        let apps = sqlx::query_as!(
-            AppWithLastVersion,
+        let apps = sqlx::query_as::<_, AppWithLastVersion>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy,
             app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by from app, app_version 
             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
-            &w_id
         )
+        .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?;
 
@@ -2608,12 +2607,11 @@ async fn tarball_workspace(
     }
 
     if include_schedules.unwrap_or(false) {
-        let schedules = sqlx::query_as!(
-            Schedule,
+        let schedules = sqlx::query_as::<_, Schedule>(
             "SELECT * FROM schedule
             WHERE workspace_id = $1",
-            &w_id
         )
+        .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?;
 

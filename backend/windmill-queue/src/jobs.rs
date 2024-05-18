@@ -982,7 +982,11 @@ pub async fn add_completed_job<
                             .unwrap_or_else(|| ScriptLang::Deno),
                         priority: queued_job.priority,
                     },
-                    queued_job.args.clone(),
+                    queued_job
+                        .args
+                        .as_ref()
+                        .map(|x| PushArgs { args: x.0.clone(), extra: HashMap::new() })
+                        .unwrap_or_else(PushArgs::empty),
                     &queued_job.created_by,
                     &queued_job.email,
                     queued_job.permissioned_as.clone(),
@@ -1063,7 +1067,7 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel<
     error_message: String,
 ) -> () {
     let w_id = &queued_job.workspace_id;
-    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
+    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
         "SELECT error_handler, error_handler_extra_args FROM workspace_settings WHERE workspace_id = $1",
     ).bind(&w_id)
     .fetch_optional(db)
@@ -1122,7 +1126,7 @@ pub async fn send_error_to_workspace_handler<
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>, bool)>(
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
         "SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel FROM workspace_settings WHERE workspace_id = $1",
     ).bind(&w_id)
     .fetch_optional(db)
@@ -1256,10 +1260,10 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, FromRow)]
 struct CompletedJobSubset {
     success: bool,
-    result: Option<serde_json::Value>,
+    result: Option<sqlx::types::Json<Box<RawValue>>>,
     started_at: chrono::DateTime<chrono::Utc>,
 }
 async fn apply_schedule_handlers<
@@ -1285,15 +1289,15 @@ async fn apply_schedule_handlers<
             let times = schedule.on_failure_times.unwrap_or(1).max(1);
             let exact = schedule.on_failure_exact.unwrap_or(false);
             if times > 1 || exact {
-                let past_jobs = sqlx::query_as!(
-                    CompletedJobSubset,
+                let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
                     "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT $5",
-                    &schedule.workspace_id,
-                    &schedule.path,
-                    script_path,
-                    job_id,
-                    if exact { times } else { times - 1 } as i64,
-                ).fetch_all(db).await?;
+                )
+                .bind(&schedule.workspace_id)
+                .bind(&schedule.path)
+                .bind(script_path)
+                .bind(job_id)
+                .bind(if exact { times } else { times - 1 } as i64,)
+                .fetch_all(db).await?;
 
                 let match_times = if exact {
                     past_jobs.len() == times as usize
@@ -1334,15 +1338,15 @@ async fn apply_schedule_handlers<
         if let Some(on_recovery_path) = schedule.on_recovery.clone() {
             let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
-            let past_jobs = sqlx::query_as!(
-                CompletedJobSubset,
+            let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
                 "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT $5",
-                &schedule.workspace_id,
-                &schedule.path,
-                script_path,
-                job_id,
-                times as i64,
-            ).fetch_all(db).await?;
+            )
+            .bind(&schedule.workspace_id)
+            .bind(&schedule.path)
+            .bind(script_path)
+            .bind(job_id)
+            .bind(times as i64)
+            .fetch_all(db).await?;
 
             if past_jobs.len() < times as usize {
                 return Ok(());
@@ -1399,7 +1403,7 @@ pub async fn push_error_handler<
     result: Json<&'a T>,
     failed_times: Option<i32>,
     started_at: Option<DateTime<Utc>>,
-    extra_args: Option<serde_json::Value>,
+    extra_args: Option<Json<Box<RawValue>>>,
     email: &str,
     is_schedule_error_handler: bool,
     is_global_error_handler: bool,
@@ -1428,10 +1432,8 @@ pub async fn push_error_handler<
     }
 
     if let Some(args_v) = extra_args {
-        if let serde_json::Value::Object(args_m) = args_v {
-            for (k, v) in args_m {
-                extra.insert(k, to_raw_value(&v));
-            }
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -1457,7 +1459,7 @@ pub async fn push_error_handler<
         tx,
         handler_w_id,
         payload,
-        PushArgs { extra, args: Json(&result) },
+        PushArgs { extra, args: result },
         if is_global_error_handler {
             "global"
         } else if is_schedule_error_handler {
@@ -1496,16 +1498,10 @@ pub async fn push_error_handler<
     return Ok(uuid);
 }
 
-fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> serde_json::Value {
-    let result =
-        serde_json::from_str(&serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()))
-            .unwrap_or_else(|_| json!({}));
-    let result = if result.is_object() || result.is_null() {
-        result
-    } else {
-        json!({ "error": result })
-    };
-    result
+fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> HashMap<String, Box<RawValue>> {
+    let as_str = serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string());
+    serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
+        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into())
 }
 
 // #[derive(Serialize)]
@@ -1534,33 +1530,33 @@ async fn handle_recovered_schedule<
     successful_job_result: Json<&'a T>,
     successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
-    extra_args: Option<serde_json::Value>,
+    extra_args: Option<Json<Box<RawValue>>>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
-    let mut args = error_job
-        .result
-        .unwrap_or(json!({}))
-        .as_object()
-        .unwrap()
-        .clone();
-    args.insert("error_started_at".to_string(), json!(error_job.started_at));
-    args.insert("schedule_path".to_string(), json!(schedule_path));
-    args.insert("path".to_string(), json!(script_path));
-    args.insert("is_flow".to_string(), json!(is_flow));
-    args.insert(
-        "success_result".to_string(),
-        serde_json::from_str(&serde_json::to_string(&successful_job_result).unwrap())
-            .unwrap_or_else(|_| json!("{}")),
+    let mut extra = HashMap::new();
+    extra.insert(
+        "error_started_at".to_string(),
+        to_raw_value(&error_job.started_at),
     );
-    args.insert("success_times".to_string(), json!(successful_times));
-    args.insert(
+    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    extra.insert("path".to_string(), to_raw_value(&script_path));
+    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
+    extra.insert(
+        "success_result".to_string(),
+        serde_json::from_str::<Box<RawValue>>(
+            &serde_json::to_string(&successful_job_result).unwrap(),
+        )
+        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap()),
+    );
+    extra.insert("success_times".to_string(), to_raw_value(&successful_times));
+    extra.insert(
         "success_started_at".to_string(),
-        json!(successful_job_started_at),
+        to_raw_value(&successful_job_started_at),
     );
     if let Some(args_v) = extra_args {
-        if let serde_json::Value::Object(args_m) = args_v {
-            args.extend(args_m);
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -1574,15 +1570,21 @@ async fn handle_recovered_schedule<
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        args.insert("slack".to_string(), json!(slack_resource));
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
+
+    let args = error_job
+        .result
+        .and_then(|x| serde_json::from_str::<HashMap<String, Box<RawValue>>>(x.0.get()).ok())
+        .unwrap_or_else(HashMap::new);
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
         tx,
         w_id,
         payload,
-        args,
+        PushArgs { extra: extra, args: args },
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
         SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
         ERROR_HANDLER_USER_GROUP.to_string(),
@@ -2028,25 +2030,18 @@ async fn concurrency_key(
     )
 }
 
-fn interpolate_args<T: Serialize>(
-    x: String,
-    args: &T,
-    workspace_id: &str,
-    parsed_args: &mut Option<serde_json::Value>,
-) -> String {
+fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
-    if parsed_args.is_none() {
-        *parsed_args = Some(serde_json::to_value(args).unwrap_or_default());
-    }
-    let value = parsed_args.as_ref().unwrap();
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = value
+            let arg_value = args
+                .args
                 .get(arg_name)
-                .map(|x| serde_json::to_string(x).unwrap_or_default())
+                .or(args.extra.get(arg_name))
+                .map(|x| x.get())
                 .unwrap_or_default();
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
@@ -2493,11 +2488,11 @@ macro_rules! fetch_scalar_isolated {
 use sqlx::types::JsonRawValue;
 
 #[derive(Serialize, Debug)]
-pub struct PushArgs<T> {
+pub struct PushArgs {
     #[serde(flatten)]
     pub extra: HashMap<String, Box<RawValue>>,
     #[serde(flatten)]
-    pub args: Json<T>,
+    pub args: HashMap<String, Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -2554,7 +2549,7 @@ impl DecodeQueries {
     }
 }
 
-impl<T> PushArgs<T> {
+impl PushArgs {
     pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
         self.extra.insert(k.into(), v.into());
     }
@@ -2567,7 +2562,7 @@ pub struct RequestQuery {
 }
 
 #[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for PushArgs<HashMap<String, Box<RawValue>>>
+impl<S> FromRequest<S, axum::body::Body> for PushArgs
 where
     S: Send + Sync,
 {
@@ -2611,12 +2606,12 @@ where
                     .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
                 let mut hm = HashMap::new();
                 hm.insert("body".to_string(), args);
-                Ok(PushArgs { extra, args: Json(hm) })
+                Ok(PushArgs { extra, args: hm })
             } else {
                 let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
                     .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
                     .unwrap_or_else(HashMap::new);
-                Ok(PushArgs { extra, args: Json(hm) })
+                Ok(PushArgs { extra, args: hm })
             }
         } else if content_type
             .unwrap()
@@ -2642,7 +2637,7 @@ where
                 .map(|(k, v)| (k, to_raw_value(&v)))
                 .collect::<HashMap<_, _>>();
 
-            return Ok(PushArgs { extra, args: Json(payload) });
+            return Ok(PushArgs { extra, args: payload });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
@@ -2680,9 +2675,9 @@ pub fn build_extra(
     args
 }
 
-impl PushArgs<HashMap<String, Box<RawValue>>> {
+impl PushArgs {
     pub fn empty() -> Self {
-        PushArgs { extra: HashMap::new(), args: Json(HashMap::new()) }
+        PushArgs { extra: HashMap::new(), args: HashMap::new() }
     }
 }
 
@@ -2690,9 +2685,9 @@ pub fn empty_result() -> Box<RawValue> {
     return JsonRawValue::from_string("{}".to_string()).unwrap();
 }
 
-impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs<HashMap<String, Box<JsonRawValue>>> {
+impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs {
     fn from(value: HashMap<String, Box<JsonRawValue>>) -> Self {
-        PushArgs { extra: HashMap::new(), args: Json(value) }
+        PushArgs { extra: HashMap::new(), args: value }
     }
 }
 
@@ -2707,12 +2702,12 @@ lazy_static::lazy_static! {
 }
 
 // #[instrument(level = "trace", skip_all)]
-pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection + Send + 'c>(
+pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
     mut tx: PushIsolationLevel<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: T,
+    args: PushArgs,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -3376,8 +3371,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 
     let per_workspace: bool = DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed);
 
-    let mut parsed_args: Option<serde_json::Value> = None;
-
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(
             "{}:{}{}",
@@ -3400,8 +3393,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             tag = None;
         }
 
-        let interpolated_tag =
-            tag.map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args));
+        let interpolated_tag = tag.map(|x| interpolate_args(x, &args, workspace_id));
 
         let default = || {
             let ntag = if job_kind == JobKind::Flow
@@ -3469,7 +3461,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 
     if concurrent_limit.is_some() {
         let concurrency_key = custom_concurrency_key
-            .map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args))
+            .map(|x| interpolate_args(x, &args, workspace_id))
             .unwrap_or(fullpath_with_workspace(
                 workspace_id,
                 script_path.as_ref(),
@@ -3505,7 +3497,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         script_path.clone(),
         raw_code,
         raw_lock,
-        Json(args) as Json<T>,
+        Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
         raw_flow.map(|f| serde_json::json!(f)),

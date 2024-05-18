@@ -260,7 +260,7 @@ impl FlowModule {
 pub enum InputTransform {
     Static {
         #[serde(default = "default_null")]
-        value: serde_json::Value,
+        value: Box<serde_json::value::RawValue>,
     },
     Javascript {
         #[serde(default = "default_empty_string")]

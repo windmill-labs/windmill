@@ -327,7 +327,7 @@ pub enum JobPayload {
     SingleScriptFlow {
         path: String,
         hash: ScriptHash,
-        args: HashMap<String, serde_json::Value>,
+        args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Retry, // for now only used to retry the script, so retry is necessarily present
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
