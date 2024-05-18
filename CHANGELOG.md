@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.332.1](https://github.com/windmill-labs/windmill/compare/v1.332.0...v1.332.1) (2024-05-18)
+
+
+### Bug Fixes
+
+* **cli:** improve handling of schema for script bundles ([32bf061](https://github.com/windmill-labs/windmill/commit/32bf061627f087e1ec4e88a3e03be0ca1b7fa9f7))
+* **frontend:** improve json display for large table objects ([#3765](https://github.com/windmill-labs/windmill/issues/3765)) ([f0b3527](https://github.com/windmill-labs/windmill/commit/f0b3527e53e077f9c9ab4c9c6373f35cee77e566))
+
 ## [1.332.0](https://github.com/windmill-labs/windmill/compare/v1.331.2...v1.332.0) (2024-05-16)
 
 
