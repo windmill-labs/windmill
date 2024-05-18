@@ -58,7 +58,7 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
+				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: true }
 			})
 		}
 		if (openAiKey != '') {
@@ -148,7 +148,6 @@
 
 	let auto_invite = false
 	let operatorOnly = false
-	let autoAdd = false
 </script>
 
 <CenteredModal title="New Workspace">
@@ -216,15 +215,6 @@
 		<div class="text-xs mb-1 leading-6 pt-2">
 			Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
 		</div>
-		<ToggleButtonGroup
-			selected={autoAdd ? 'add' : 'invite'}
-			on:selected={(e) => {
-				autoAdd = e.detail == 'add'
-			}}
-		>
-			<ToggleButton value="invite" size="xs" label="Auto-invite" />
-			<ToggleButton value="add" size="xs" label="Auto-add" />
-		</ToggleButtonGroup>
 
 		<div class="text-xs mb-1 leading-6 pt-2"
 			>Role <Tooltip>Role of the auto-invited users</Tooltip></div
