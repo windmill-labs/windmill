@@ -25,12 +25,12 @@ use axum::{
 
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
+use windmill_common::worker::to_raw_value;
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -71,7 +71,7 @@ pub fn global_service() -> Router {
 #[derive(Serialize, FromRow)]
 pub struct SearchFlow {
     path: String,
-    value: serde_json::Value,
+    value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
 }
 async fn list_search_flows(
     authed: ApiAuthed,
@@ -85,12 +85,11 @@ async fn list_search_flows(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
-    let rows = sqlx::query_as!(
-        SearchFlow,
+    let rows = sqlx::query_as::<_, SearchFlow>(
         "SELECT path, value from flow WHERE workspace_id = $1 LIMIT $2",
-        &w_id,
-        n
     )
+    .bind(&w_id)
+    .bind(n)
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
@@ -363,9 +362,9 @@ async fn create_flow(
     )
     .await?;
 
-    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = nf.deployment_message {
-        args.insert("deployment_message".to_string(), json!(dm));
+        args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
 
     let tx = PushIsolationLevel::Transaction(tx);
@@ -377,7 +376,7 @@ async fn create_flow(
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
         },
-        args,
+        args.into(),
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -515,22 +514,19 @@ async fn update_flow(
         }
     }
 
-    let mut schedulables: Vec<Schedule> = sqlx::query_as!(
-        Schedule,
-            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
-            nf.path,
-            flow_path,
-            w_id,
-        )
+    let mut schedulables: Vec<Schedule> = sqlx::query_as::<_, Schedule>(
+            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *")
+            .bind(&nf.path)
+            .bind(&flow_path)
+            .bind(&w_id)
         .fetch_all(&mut tx)
         .await?;
 
-    let schedule = sqlx::query_as!(Schedule,
-        "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
-        nf.path,
-        flow_path,
-        w_id,
-    )
+    let schedule = sqlx::query_as::<_, Schedule>(
+        "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *")
+        .bind(&nf.path)
+        .bind(&flow_path)
+        .bind(&w_id)
     .fetch_optional(&mut tx)
     .await?;
 
@@ -582,11 +578,11 @@ async fn update_flow(
 
     let tx = PushIsolationLevel::Transaction(tx);
 
-    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = nf.deployment_message {
-        args.insert("deployment_message".to_string(), json!(dm));
+        args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
-    args.insert("parent_path".to_string(), json!(flow_path));
+    args.insert("parent_path".to_string(), to_raw_value(&flow_path));
 
     let (dependency_job_uuid, mut new_tx) = push(
         &db,
@@ -596,7 +592,7 @@ async fn update_flow(
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
         },
-        args,
+        windmill_queue::PushArgs { args, extra: HashMap::new() },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -663,10 +659,10 @@ pub struct FlowWDraft {
     pub summary: String,
     pub description: String,
     pub schema: Option<Schema>,
-    pub value: serde_json::Value,
+    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<serde_json::Value>,
+    pub draft: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -881,16 +877,18 @@ mod tests {
             modules: vec![
                 FlowModule {
                     id: "a".to_string(),
-                    value: FlowModuleValue::Script {
+                    value: windmill_common::worker::to_raw_value(&FlowModuleValue::Script {
                         path: "test".to_string(),
                         input_transforms: [(
                             "test".to_string(),
-                            InputTransform::Static { value: serde_json::json!("test2") },
+                            InputTransform::Static {
+                                value: windmill_common::worker::to_raw_value(&"test2".to_string()),
+                            },
                         )]
                         .into(),
                         hash: None,
                         tag_override: None,
-                    },
+                    }),
                     stop_after_if: None,
                     summary: None,
                     suspend: Default::default(),
@@ -905,7 +903,7 @@ mod tests {
                 },
                 FlowModule {
                     id: "b".to_string(),
-                    value: FlowModuleValue::RawScript {
+                    value: windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
                         input_transforms: HashMap::new(),
                         content: "test".to_string(),
                         language: scripts::ScriptLang::Deno,
@@ -915,7 +913,7 @@ mod tests {
                         custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
-                    },
+                    }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
                         skip_if_stopped: false,
@@ -933,13 +931,15 @@ mod tests {
                 },
                 FlowModule {
                     id: "c".to_string(),
-                    value: FlowModuleValue::ForloopFlow {
-                        iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
+                    value: windmill_common::worker::to_raw_value(&FlowModuleValue::ForloopFlow {
+                        iterator: InputTransform::Static {
+                            value: windmill_common::worker::to_raw_value(&[1, 2, 3]),
+                        },
                         modules: vec![],
                         skip_failures: true,
                         parallel: false,
                         parallelism: None,
-                    },
+                    }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
                         skip_if_stopped: false,
@@ -963,7 +963,8 @@ mod tests {
                     input_transforms: HashMap::new(),
                     hash: None,
                     tag_override: None,
-                },
+                }
+                .into(),
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
                     skip_if_stopped: false,

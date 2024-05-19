@@ -39,6 +39,7 @@ use windmill_common::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
     variables::build_crypt,
+    worker::to_raw_value,
     HUB_BASE_URL,
 };
 
@@ -94,37 +95,37 @@ pub struct ListableApp {
 pub struct AppVersion {
     pub id: i64,
     pub app_id: Uuid,
-    pub value: serde_json::Value,
+    pub value: sqlx::types::Json<Box<RawValue>>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersion {
     pub id: i64,
     pub path: String,
     pub summary: String,
     pub policy: serde_json::Value,
     pub versions: Vec<i64>,
-    pub value: serde_json::Value,
+    pub value: sqlx::types::Json<Box<RawValue>>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: serde_json::Value,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersionAndDraft {
     pub id: i64,
     pub path: String,
     pub summary: String,
     pub policy: serde_json::Value,
     pub versions: Vec<i64>,
-    pub value: serde_json::Value,
+    pub value: sqlx::types::Json<Box<RawValue>>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<serde_json::Value>,
+    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
 }
@@ -178,7 +179,7 @@ pub struct Policy {
 pub struct CreateApp {
     pub path: String,
     pub summary: String,
-    pub value: serde_json::Value,
+    pub value: sqlx::types::Json<Box<RawValue>>,
     pub policy: Policy,
     pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
@@ -188,7 +189,7 @@ pub struct CreateApp {
 pub struct EditApp {
     pub path: Option<String>,
     pub summary: Option<String>,
-    pub value: Option<serde_json::Value>,
+    pub value: Option<sqlx::types::Json<Box<RawValue>>>,
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
 }
@@ -196,7 +197,7 @@ pub struct EditApp {
 #[derive(Serialize, FromRow)]
 pub struct SearchApp {
     path: String,
-    value: serde_json::Value,
+    value: sqlx::types::Json<Box<RawValue>>,
 }
 async fn list_search_apps(
     authed: ApiAuthed,
@@ -210,12 +211,11 @@ async fn list_search_apps(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
-    let rows = sqlx::query_as!(
-        SearchApp,
+    let rows = sqlx::query_as::<_, SearchApp>(
         "SELECT path, app_version.value from app LEFT JOIN app_version ON app_version.id = versions[array_upper(versions, 1)]  WHERE workspace_id = $1 LIMIT $2",
-        &w_id,
-        n
     )
+    .bind(&w_id)
+    .bind(n)
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
@@ -293,15 +293,14 @@ async fn get_app(
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let app_o = sqlx::query_as!(
-        AppWithLastVersion,
+    let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
-        path.to_owned(),
-        &w_id
     )
+    .bind(path.to_owned())
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -318,21 +317,20 @@ async fn get_app_w_draft(
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let app_o = sqlx::query_as!(
-        AppWithLastVersionAndDraft,
+    let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
         r#"SELECT app.id, app.path, app.summary, app.versions, app.policy,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by,
-        app.draft_only, draft.value as "draft?"
+        app.draft_only, draft.value as "draft"
         from app
         INNER JOIN app_version ON
         app_version.id = app.versions[array_upper(app.versions, 1)]
         LEFT JOIN draft ON 
         app.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'app' 
         WHERE app.path = $1 AND app.workspace_id = $2"#,
-        path.to_owned(),
-        &w_id
     )
+    .bind(path.to_owned())
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -406,15 +404,14 @@ async fn get_app_by_id(
 ) -> JsonResult<AppWithLastVersion> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let app_o = sqlx::query_as!(
-        AppWithLastVersion,
+    let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
-        id,
-        &w_id
     )
+    .bind(&id)
+    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -438,15 +435,13 @@ async fn get_public_app_by_secret(
 
     let id: i64 = bytes.parse().map_err(to_anyhow)?;
 
-    let app_o = sqlx::query_as!(
-        AppWithLastVersion,
+    let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
-        WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
-        id,
-        &w_id
-    )
+        WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
+        .bind(&id)
+        .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -599,9 +594,9 @@ async fn create_app(
     )
     .await?;
 
-    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = app.deployment_message {
-        args.insert("deployment_message".to_string(), json!(dm));
+        args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
 
     let tx = PushIsolationLevel::Transaction(tx);
@@ -610,7 +605,7 @@ async fn create_app(
         tx,
         &w_id,
         JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
-        args,
+        PushArgs { args, extra: HashMap::new() },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -889,18 +884,18 @@ async fn update_app(
 
     let tx: PushIsolationLevel<'_, rsmq_async::MultiplexedRsmq> =
         PushIsolationLevel::Transaction(tx);
-    let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = ns.deployment_message {
-        args.insert("deployment_message".to_string(), json!(dm));
+        args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
-    args.insert("parent_path".to_string(), json!(path));
+    args.insert("parent_path".to_string(), to_raw_value(&path));
 
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
         &w_id,
         JobPayload::AppDependencies { path: npath.clone(), version: v_id },
-        args,
+        PushArgs { args, extra: HashMap::new() },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -1160,8 +1155,7 @@ fn build_args(
     component: &str,
     path: String,
     args: HashMap<String, Box<RawValue>>,
-) -> Result<PushArgs<HashMap<String, Box<RawValue>>>> {
-
+) -> Result<PushArgs> {
     let key = format!("{}:{}", component, &path);
     let (static_inputs, one_of_inputs) = match policy {
         Policy { triggerables_v2: Some(t), .. } => {
@@ -1276,5 +1270,5 @@ fn build_args(
     for (k, v) in static_inputs {
         extra.insert(k.to_string(), v.to_owned());
     }
-    Ok(PushArgs { extra, args: sqlx::types::Json(safe_args) })
+    Ok(PushArgs { extra, args: safe_args })
 }
