@@ -1743,13 +1743,16 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 };
                 match json_value.and_then(|x| serde_json::from_str::<serde_json::Value>(x.get())) {
                     Ok(serde_json::Value::Number(n)) => {
-                        if !n.is_u64() {
+                        if n.is_f64() {
+                            n.as_f64()
+                                .map(|x: f64| from_now(Duration::from_millis((x * 1000.0) as u64)))
+                        } else if n.is_u64() {
+                            n.as_u64().map(|x: u64| from_now(Duration::from_secs(x)))
+                        } else {
                             return Err(Error::ExecutionErr(format!(
                                 "Expected an integer, found: {n}"
                             )));
                         }
-
-                        n.as_u64().map(|x| from_now(Duration::from_secs(x)))
                     }
                     Ok(x @ _) => Err(Error::ExecutionErr(format!(
                         "Expected an integer, found: {x:?}"
