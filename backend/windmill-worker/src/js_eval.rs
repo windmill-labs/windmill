@@ -399,7 +399,7 @@ async function variable(path) {{
     return await Deno.core.ops.op_variable(path);
 }}
 async function resource(path) {{
-    return await Deno.core.ops.op_resource(path);
+    return JSON.parse(await Deno.core.ops.op_resource(path));
 }}
         "#,
         );
@@ -518,14 +518,17 @@ async fn op_get_id(
 }
 
 #[op2(async)]
-#[serde]
+#[string]
 async fn op_resource(
     op_state: Rc<RefCell<OpState>>,
     #[string] path: String,
-) -> Result<serde_json::Value, anyhow::Error> {
+) -> Result<Option<String>, anyhow::Error> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        client.get_resource_value_interpolated(&path, None).await
+        client
+            .get_resource_value_interpolated::<Option<Box<RawValue>>>(&path, None)
+            .await
+            .map(|x| x.map(|x| x.get().to_string()))
     } else {
         anyhow::bail!("No client found in op state");
     }

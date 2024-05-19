@@ -153,38 +153,36 @@ async fn create_schedule(
     )
     .await?;
 
-    let schedule = sqlx::query_as!(
-        Schedule,
+    let schedule = sqlx::query_as::<_, Schedule>(
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
             is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, \
             on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, \
             ws_error_handler_muted, retry, summary, no_flow_overlap, tag \
         ) VALUES ( \
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22 \
-        ) RETURNING *",
-        w_id,
-        ns.path,
-        ns.schedule,
-        ns.timezone,
-        &authed.username,
-        ns.script_path,
-        ns.is_flow,
-        ns.args,
-        ns.enabled.unwrap_or(false),
-        &authed.email,
-        ns.on_failure,
-        ns.on_failure_times,
-        ns.on_failure_exact,
-        ns.on_failure_extra_args,
-        ns.on_recovery,
-        ns.on_recovery_times,
-        ns.on_recovery_extra_args,
-        ns.ws_error_handler_muted.unwrap_or(false),
-        ns.retry,
-        ns.summary,
-        ns.no_flow_overlap.unwrap_or(false),
-        ns.tag,
-    )
+        ) RETURNING *")
+        .bind(&w_id)
+        .bind(&ns.path)
+        .bind(&ns.schedule)
+        .bind(&ns.timezone)
+        .bind(&authed.username)
+        .bind(&ns.script_path)
+        .bind(&ns.is_flow)
+        .bind(&ns.args)
+        .bind(&ns.enabled.unwrap_or(false))
+        .bind(&authed.email)
+        .bind(&ns.on_failure)
+        .bind(&ns.on_failure_times)
+        .bind(&ns.on_failure_exact)
+        .bind(&ns.on_failure_extra_args)
+        .bind(&ns.on_recovery)
+        .bind(&ns.on_recovery_times)
+        .bind(&ns.on_recovery_extra_args)
+        .bind(&ns.ws_error_handler_muted.unwrap_or(false))
+        .bind(&ns.retry)
+        .bind(&ns.summary)
+        .bind(&ns.no_flow_overlap.unwrap_or(false))
+        .bind(&ns.tag)
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e}")))?;
@@ -245,31 +243,29 @@ async fn edit_schedule(
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
 
     clear_schedule(tx.transaction_mut(), path, &w_id).await?;
-    let schedule = sqlx::query_as!(
-        Schedule,
+    let schedule = sqlx::query_as::<_, Schedule>(
         "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, \
             on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, \
             on_recovery_extra_args = $10, ws_error_handler_muted = $11, retry = $12, summary = $13, \
             no_flow_overlap = $14, tag = $15
-        WHERE path = $16 AND workspace_id = $17 RETURNING *",
-        es.schedule,
-        es.timezone,
-        es.args,
-        es.on_failure,
-        es.on_failure_times,
-        es.on_failure_exact,
-        es.on_failure_extra_args,
-        es.on_recovery,
-        es.on_recovery_times,
-        es.on_recovery_extra_args,
-        es.ws_error_handler_muted.unwrap_or(false),
-        es.retry,
-        es.summary,
-        es.no_flow_overlap.unwrap_or(false),
-        es.tag,
-        path,
-        w_id,
-    )
+        WHERE path = $16 AND workspace_id = $17 RETURNING *")
+        .bind(&es.schedule)
+        .bind(&es.timezone)
+        .bind(&es.args)
+        .bind(&es.on_failure)
+        .bind(&es.on_failure_times)
+        .bind(&es.on_failure_exact)
+        .bind(&es.on_failure_extra_args)
+        .bind(&es.on_recovery)
+        .bind(&es.on_recovery_times)
+        .bind(&es.on_recovery_extra_args)
+        .bind(&es.ws_error_handler_muted.unwrap_or(false))
+        .bind(&es.retry)
+        .bind(&es.summary)
+        .bind(&es.no_flow_overlap.unwrap_or(false))
+        .bind(&es.tag)
+        .bind(&path)
+        .bind(&w_id)
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e}")))?;
@@ -473,14 +469,12 @@ pub async fn set_enabled(
     let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
         (rsmq.clone(), user_db.begin(&authed).await?).into();
     let path = path.to_path();
-    let schedule_o = sqlx::query_as!(
-        Schedule,
-        "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *",
-        &payload.enabled,
-        authed.email,
-        path,
-        w_id
-    )
+    let schedule_o = sqlx::query_as::<_, Schedule>(
+        "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *")
+        .bind(&payload.enabled)
+        .bind(&authed.email)
+        .bind(&path)
+        .bind(&w_id)
     .fetch_optional(&mut tx)
     .await?;
 
