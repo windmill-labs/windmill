@@ -115,34 +115,6 @@ async fn windmill_main() -> anyhow::Result<()> {
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     tracing::info!("jemalloc enabled");
 
-    tracing::info!(
-        "Windmill {:?}",
-        serde_json::from_str::<windmill_common::flows::FlowValue>(
-            r#"
-            {
-                    "modules": [
-                        {
-                            "id": "a",
-                            "value": {
-                                "content": "// import * as wmill from \"windmill-client\"\n\nexport async function main(x: string) {\n  return x\n}\n",
-                                "input_transforms": {
-                                    "x": {
-                                        "type": "static",
-                                        "value": ""
-                                    }
-                                },
-                                "language": "bun",
-                                "tag": "",
-                                "type": "rawscript"
-                            }
-                        }
-                    ]
-                }
-            
-    "#
-        )
-    );
-
     #[cfg(feature = "flamegraph")]
     let _guard = windmill_common::tracing_init::setup_flamegraph();
 

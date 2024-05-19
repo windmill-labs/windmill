@@ -341,6 +341,7 @@ pub enum InputTransform {
 pub struct Branch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(default = "default_empty_string")]
     pub expr: String,
     pub modules: Vec<FlowModule>,
     #[serde(default = "default_true")]

@@ -1929,7 +1929,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             Ok(_) => Ok(flow_job_args),
             Err(e) => {
                 return Err(error::Error::InternalErr(format!(
-                    "module was not conertible to acceptable value {e:?}"
+                    "module was not convertible to acceptable value {e:?}"
                 )))
             }
         }
