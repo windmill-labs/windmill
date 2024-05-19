@@ -762,13 +762,18 @@ pub async fn add_completed_job<
         }
     }
     if queued_job.concurrent_limit.is_some() {
-        let concurrency_key = concurrency_key(db, queued_job).await.unwrap_or_else(|e| {
-            tracing::error!(
-                "Could not get concurrency key for job {} defaulting to default key: {e:?}",
-                queued_job.id
-            );
-            return queued_job.full_path_with_workspace();
-        });
+        let concurrency_key = match concurrency_key(db, queued_job).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "Could not get concurrency key for job {} defaulting to default key: {e:?}",
+                    queued_job.id
+                );
+                legacy_concurrency_key(db, queued_job)
+                    .await
+                    .unwrap_or_else(|| queued_job.full_path_with_workspace())
+            }
+        };
         if let Err(e) = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
             concurrency_key,
@@ -2017,6 +2022,42 @@ pub async fn custom_concurrency_key(
     sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", job_id)
         .fetch_optional(db) // this should no longer be fetch optional
         .await
+}
+
+async fn legacy_concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> Option<String> {
+    let r = if queued_job.is_flow() {
+        sqlx::query_scalar!(
+            "SELECT value->>'concurrency_key' FROM flow WHERE path = $1 AND workspace_id = $2",
+            queued_job.script_path,
+            queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await
+    } else {
+        sqlx::query_scalar!(
+            "SELECT concurrency_key FROM script WHERE hash = $1 AND workspace_id = $2",
+            queued_job.script_hash.unwrap_or(ScriptHash(0)).0,
+            queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await
+    }
+    .ok()
+    .flatten()
+    .flatten();
+
+    r.map(|x| {
+        interpolate_args(
+            x,
+            &queued_job
+                .args
+                .clone()
+                .map(|x| x.0)
+                .unwrap_or_default()
+                .into(),
+            &queued_job.workspace_id,
+        )
+    })
 }
 
 async fn concurrency_key(
