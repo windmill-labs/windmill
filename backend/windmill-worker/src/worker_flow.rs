@@ -1256,7 +1256,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 #[derive(Serialize, Debug)]
 pub struct Iter {
     index: i32,
-    value: serde_json::Value,
+    value: Box<RawValue>,
 }
 
 #[derive(Serialize)]
@@ -2390,14 +2390,14 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 #[derive(Debug)]
 struct ForloopNextIteration {
     index: usize,
-    itered: Vec<serde_json::Value>,
+    itered: Vec<Box<RawValue>>,
     flow_jobs: Vec<Uuid>,
     new_args: Iter,
     while_loop: bool,
 }
 
 enum ForLoopStatus {
-    ParallelIteration { itered: Vec<serde_json::Value> },
+    ParallelIteration { itered: Vec<Box<RawValue>> },
     NextIteration(ForloopNextIteration),
     EmptyIterator,
 }
@@ -2568,7 +2568,10 @@ async fn compute_next_flow_transform(
                     index: next_loop_idx,
                     itered: vec![],
                     flow_jobs: flow_jobs.clone(),
-                    new_args: Iter { index: next_loop_idx as i32, value: json!(next_loop_idx) },
+                    new_args: Iter {
+                        index: next_loop_idx as i32,
+                        value: windmill_common::worker::to_raw_value(&next_loop_idx),
+                    },
                     while_loop: true,
                 },
                 modules,
@@ -3003,7 +3006,7 @@ async fn next_forloop_status(
                     .await?
                 }
             };
-            let itered = serde_json::from_str::<Vec<serde_json::Value>>(itered_raw.get()).map_err(
+            let itered = serde_json::from_str::<Vec<Box<RawValue>>>(itered_raw.get()).map_err(
                 |not_array| {
                     Error::ExecutionErr(format!(
                         "Expected an array value in the iterator expression, found: {not_array}"
@@ -3061,7 +3064,7 @@ async fn next_forloop_status(
                         .await?
                     }
                 };
-                serde_json::from_str::<Vec<serde_json::Value>>(itered_raw.get()).map_err(
+                serde_json::from_str::<Vec<Box<RawValue>>>(itered_raw.get()).map_err(
                     |not_array| {
                         Error::ExecutionErr(format!("Expected an array value, found: {not_array}"))
                     },

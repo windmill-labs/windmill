@@ -242,7 +242,7 @@ async fn list_saved_inputs(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateInput {
     name: String,
-    args: serde_json::Value,
+    args: Box<serde_json::value::RawValue>,
 }
 
 async fn create_input(
@@ -264,7 +264,7 @@ async fn create_input(
     .bind(&r.runnable_id)
     .bind(&r.runnable_type)
     .bind(&input.name)
-    .bind(&input.args)
+    .bind(sqlx::types::Json(&input.args))
     .bind(&authed.username)
     .execute(&mut *tx)
     .await?;
