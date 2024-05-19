@@ -16,9 +16,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{
-    more_serde::{
-        default_empty_string, default_false, default_id, default_null, default_true, is_default,
-    },
+    more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
 };
 
@@ -376,7 +374,6 @@ pub enum FlowModuleValue {
         modules: Vec<FlowModule>,
         #[serde(default = "default_true")]
         skip_failures: bool,
-        #[serde(default = "default_false")]
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         parallelism: Option<u16>,

@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::flows::FlowValue;
-use crate::more_serde::default_false;
 
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
@@ -154,10 +153,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
-        #[serde(default = "default_false")]
         parallel: bool,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
-        #[serde(default = "default_false")]
         while_loop: bool,
     },
     Success {
