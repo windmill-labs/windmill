@@ -243,7 +243,8 @@ pub async fn update_flow_status_after_job_completion_internal<
                 .await?
                 .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
             let module = get_module(&flow_job, module_index);
-            if module.is_some_and(|x| matches!(x.value, FlowModuleValue::Flow { .. })) {
+
+            if module.is_some_and(|x| x.is_flow()) {
                 (false, false, false)
             } else {
                 (true, se, false)
@@ -1896,10 +1897,12 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             Ok(HashMap::new())
         }
     } else {
-        match &module.value {
-            FlowModuleValue::Script { input_transforms, .. }
-            | FlowModuleValue::RawScript { input_transforms, .. }
-            | FlowModuleValue::Flow { input_transforms, .. } => {
+        match &module.get_value() {
+            Ok(
+                FlowModuleValue::Script { input_transforms, .. }
+                | FlowModuleValue::RawScript { input_transforms, .. }
+                | FlowModuleValue::Flow { input_transforms, .. },
+            ) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
                 transform_context = Some(ctx);
                 let by_id = transform_context.as_ref().unwrap();
@@ -1915,7 +1918,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 )
                 .await
             }
-            FlowModuleValue::Identity => serde_json::from_str(
+            Ok(FlowModuleValue::Identity) => serde_json::from_str(
                 &serde_json::to_string(&PreviousResult {
                     previous_result: Some(&arc_last_job_result),
                 })
@@ -1923,7 +1926,12 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             )
             .map_err(|e| error::Error::InternalErr(format!("identity: {e}"))),
 
-            _ => Ok(flow_job_args),
+            Ok(_) => Ok(flow_job_args),
+            Err(e) => {
+                return Err(error::Error::InternalErr(format!(
+                    "module was not conertible to acceptable value {e:?}"
+                )))
+            }
         }
     };
     tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow job args computed");
@@ -2088,10 +2096,14 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             Ok(v) => (Some(v), None),
             Err(e) => (None, Some(e)),
         };
-        let root_job = if matches!(
-            module.value,
-            FlowModuleValue::Flow { .. } | FlowModuleValue::ForloopFlow { parallel: true, .. }
-        ) {
+
+        let value_with_parallel = module.get_value_with_parallel()?;
+
+        let root_job = if {
+            value_with_parallel.type_ == "flow"
+                || (value_with_parallel.type_ == "forloopflow"
+                    && value_with_parallel.parallel.is_some_and(|x| x))
+        } {
             None
         } else {
             flow_job.root_job.or_else(|| Some(flow_job.id))
@@ -2132,17 +2144,19 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if let FlowModuleValue::ForloopFlow { parallelism: Some(p), .. } = &module.value {
-            if i as u16 >= *p {
-                sqlx::query!(
-                    "UPDATE queue
+        if value_with_parallel.type_ == "forloopflow" {
+            if let Some(p) = value_with_parallel.parallelism {
+                if i as u16 >= p {
+                    sqlx::query!(
+                        "UPDATE queue
                     SET suspend = $1, suspend_until = now() + interval '14 day', running = true
                     WHERE id = $2",
-                    (i as u16 - p + 1) as i32,
-                    uuid,
-                )
-                .execute(&mut inner_tx)
-                .await?;
+                        (i as u16 - p + 1) as i32,
+                        uuid,
+                    )
+                    .execute(&mut inner_tx)
+                    .await?;
+                }
             }
         }
 
@@ -2488,7 +2502,7 @@ async fn compute_next_flow_transform(
     let delete_after_use = module.delete_after_use.unwrap_or(false);
 
     tracing::debug!(id = %flow_job.id, "computing next flow transform for {:?}", &module.value);
-    match &module.value {
+    match &module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
             let payload = flow_to_payload(path, &delete_after_use);
@@ -2606,15 +2620,11 @@ async fn compute_next_flow_transform(
                 }
                 ForLoopStatus::ParallelIteration { itered, .. } => {
                     let inner_path = Some(format!("{}/loop-parrallel", flow_job.script_path(),));
+                    let value = &modules[0].get_value()?;
                     let continue_payload = if is_simple {
-                        let payload = payload_from_simple_module(
-                            &modules[0].value,
-                            db,
-                            flow_job,
-                            module,
-                            inner_path,
-                        )
-                        .await?;
+                        let payload =
+                            payload_from_simple_module(value, db, flow_job, module, inner_path)
+                                .await?;
                         ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
                     } else {
                         let payload = {
@@ -2651,7 +2661,7 @@ async fn compute_next_flow_transform(
                                 itered,
                             }),
                             simple_input_transforms: if is_simple {
-                                match &modules[0].value {
+                                match value {
                                     FlowModuleValue::Script { input_transforms, .. }
                                     | FlowModuleValue::RawScript { input_transforms, .. }
                                     | FlowModuleValue::Flow { input_transforms, .. } => {
@@ -2888,14 +2898,14 @@ async fn next_loop_iteration(
     add_virtual_items_if_necessary(&mut modules);
     let inner_path = Some(format!("{}/loop-{}", flow_job.script_path(), ns.index));
     if is_simple {
-        let payload =
-            payload_from_simple_module(&modules[0].value, db, flow_job, module, inner_path).await?;
+        let value = &modules[0].get_value()?;
+        let payload = payload_from_simple_module(value, db, flow_job, module, inner_path).await?;
         Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(payload),
             NextStatus::NextLoopIteration {
                 next: ns,
                 simple_input_transforms: if is_simple {
-                    match &modules[0].value {
+                    match value {
                         FlowModuleValue::Script { input_transforms, .. }
                         | FlowModuleValue::RawScript { input_transforms, .. }
                         | FlowModuleValue::Flow { input_transforms, .. } => {
@@ -2938,7 +2948,7 @@ async fn next_loop_iteration(
 
 fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
     let is_simple = modules.len() == 1
-        && modules[0].value.is_simple()
+        && modules[0].is_simple()
         && modules[0].sleep.is_none()
         && modules[0].suspend.is_none()
         && modules[0].cache_ttl.is_none()

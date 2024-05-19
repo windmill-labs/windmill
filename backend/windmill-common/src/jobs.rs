@@ -137,9 +137,11 @@ impl QueuedJob {
     }
 
     pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowValue>((**v).get()).ok())
+        self.raw_flow.as_ref().and_then(|v| {
+            let str = (**v).get();
+            // tracing::error!("raw_flow: {}", str);
+            return serde_json::from_str::<FlowValue>(str).ok();
+        })
     }
 
     pub fn parse_flow_status(&self) -> Option<FlowStatus> {

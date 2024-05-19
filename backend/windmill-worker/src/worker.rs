@@ -1847,75 +1847,40 @@ async fn spawn_dedicated_workers_for_flow(
     let mut workers = vec![];
     let mut script_path_to_worker: HashMap<String, Sender<Arc<QueuedJob>>> = HashMap::new();
     for module in modules.iter() {
-        match &module.value {
-            FlowModuleValue::Script { path, hash, .. } => {
-                let key = format!(
-                    "{}:{}",
-                    path,
-                    hash.clone()
-                        .map(|x| x.to_string())
-                        .unwrap_or_else(|| "".to_string())
-                );
-                if let Some(sender) = script_path_to_worker.get(&key) {
-                    workers.push((module.id.clone(), sender.clone(), None));
-                } else {
-                    if let Some(dedi_w) = spawn_dedicated_worker(
-                        SpawnWorker::Script { path: path.to_string(), hash: hash.clone() },
-                        w_id,
-                        killpill_tx.clone(),
-                        killpill_rx,
-                        db,
-                        worker_dir,
-                        base_internal_url,
-                        worker_name,
-                        job_completed_tx,
-                        Some(module.id.clone()),
-                    )
-                    .await
-                    {
-                        script_path_to_worker.insert(key, dedi_w.1.clone());
-                        workers.push(dedi_w);
+        let value = module.get_value();
+        if let Ok(value) = value {
+            match &value {
+                FlowModuleValue::Script { path, hash, .. } => {
+                    let key = format!(
+                        "{}:{}",
+                        path,
+                        hash.clone()
+                            .map(|x| x.to_string())
+                            .unwrap_or_else(|| "".to_string())
+                    );
+                    if let Some(sender) = script_path_to_worker.get(&key) {
+                        workers.push((module.id.clone(), sender.clone(), None));
+                    } else {
+                        if let Some(dedi_w) = spawn_dedicated_worker(
+                            SpawnWorker::Script { path: path.to_string(), hash: hash.clone() },
+                            w_id,
+                            killpill_tx.clone(),
+                            killpill_rx,
+                            db,
+                            worker_dir,
+                            base_internal_url,
+                            worker_name,
+                            job_completed_tx,
+                            Some(module.id.clone()),
+                        )
+                        .await
+                        {
+                            script_path_to_worker.insert(key, dedi_w.1.clone());
+                            workers.push(dedi_w);
+                        }
                     }
                 }
-            }
-            FlowModuleValue::ForloopFlow { modules, .. } => {
-                let w = spawn_dedicated_workers_for_flow(
-                    &modules,
-                    path,
-                    w_id,
-                    killpill_tx.clone(),
-                    killpill_rx,
-                    db,
-                    worker_dir,
-                    base_internal_url,
-                    worker_name,
-                    job_completed_tx,
-                )
-                .await;
-                workers.extend(w);
-            }
-            FlowModuleValue::WhileloopFlow { modules, .. } => {
-                let w = spawn_dedicated_workers_for_flow(
-                    &modules,
-                    path,
-                    w_id,
-                    killpill_tx.clone(),
-                    killpill_rx,
-                    db,
-                    worker_dir,
-                    base_internal_url,
-                    worker_name,
-                    job_completed_tx,
-                )
-                .await;
-                workers.extend(w);
-            }
-            FlowModuleValue::BranchOne { branches, default } => {
-                for modules in branches
-                    .iter()
-                    .map(|x| &x.modules)
-                    .chain(std::iter::once(default))
-                {
+                FlowModuleValue::ForloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
                         path,
@@ -1931,11 +1896,9 @@ async fn spawn_dedicated_workers_for_flow(
                     .await;
                     workers.extend(w);
                 }
-            }
-            FlowModuleValue::BranchAll { branches, .. } => {
-                for branch in branches {
+                FlowModuleValue::WhileloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
-                        &branch.modules,
+                        &modules,
                         path,
                         w_id,
                         killpill_tx.clone(),
@@ -1949,32 +1912,74 @@ async fn spawn_dedicated_workers_for_flow(
                     .await;
                     workers.extend(w);
                 }
-            }
-            FlowModuleValue::RawScript { content, lock, path: spath, language, .. } => {
-                if let Some(dedi_w) = spawn_dedicated_worker(
-                    SpawnWorker::RawScript {
-                        path: spath.clone().unwrap_or(path.to_string()),
-                        content: content.to_string(),
-                        lock: lock.clone(),
-                        lang: language.clone(),
-                    },
-                    w_id,
-                    killpill_tx.clone(),
-                    killpill_rx,
-                    db,
-                    worker_dir,
-                    base_internal_url,
-                    worker_name,
-                    job_completed_tx,
-                    Some(module.id.clone()),
-                )
-                .await
-                {
-                    workers.push(dedi_w);
+                FlowModuleValue::BranchOne { branches, default } => {
+                    for modules in branches
+                        .iter()
+                        .map(|x| &x.modules)
+                        .chain(std::iter::once(default))
+                    {
+                        let w = spawn_dedicated_workers_for_flow(
+                            &modules,
+                            path,
+                            w_id,
+                            killpill_tx.clone(),
+                            killpill_rx,
+                            db,
+                            worker_dir,
+                            base_internal_url,
+                            worker_name,
+                            job_completed_tx,
+                        )
+                        .await;
+                        workers.extend(w);
+                    }
                 }
+                FlowModuleValue::BranchAll { branches, .. } => {
+                    for branch in branches {
+                        let w = spawn_dedicated_workers_for_flow(
+                            &branch.modules,
+                            path,
+                            w_id,
+                            killpill_tx.clone(),
+                            killpill_rx,
+                            db,
+                            worker_dir,
+                            base_internal_url,
+                            worker_name,
+                            job_completed_tx,
+                        )
+                        .await;
+                        workers.extend(w);
+                    }
+                }
+                FlowModuleValue::RawScript { content, lock, path: spath, language, .. } => {
+                    if let Some(dedi_w) = spawn_dedicated_worker(
+                        SpawnWorker::RawScript {
+                            path: spath.clone().unwrap_or(path.to_string()),
+                            content: content.to_string(),
+                            lock: lock.clone(),
+                            lang: language.clone(),
+                        },
+                        w_id,
+                        killpill_tx.clone(),
+                        killpill_rx,
+                        db,
+                        worker_dir,
+                        base_internal_url,
+                        worker_name,
+                        job_completed_tx,
+                        Some(module.id.clone()),
+                    )
+                    .await
+                    {
+                        workers.push(dedi_w);
+                    }
+                }
+                FlowModuleValue::Flow { .. } => (),
+                FlowModuleValue::Identity => (),
             }
-            FlowModuleValue::Flow { .. } => (),
-            FlowModuleValue::Identity => (),
+        } else {
+            tracing::error!("failed to get value for module: {:?}", module);
         }
     }
     workers
@@ -3856,9 +3861,9 @@ async fn lock_modules(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-        } = e.value.clone()
+        } = e.get_value()?
         else {
-            match e.value {
+            match e.get_value()? {
                 FlowModuleValue::ForloopFlow {
                     iterator,
                     modules,
@@ -3886,6 +3891,7 @@ async fn lock_modules(
                         parallel,
                         parallelism,
                     }
+                    .into()
                 }
                 FlowModuleValue::BranchAll { branches, parallel } => {
                     let mut nbranches = vec![];
@@ -3906,7 +3912,7 @@ async fn lock_modules(
                         .await?;
                         nbranches.push(b)
                     }
-                    e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }
+                    e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
                 }
                 FlowModuleValue::BranchOne { branches, default } => {
                     let mut nbranches = vec![];
@@ -3941,7 +3947,7 @@ async fn lock_modules(
                         token,
                     )
                     .await?;
-                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default };
+                    e.value = FlowModuleValue::BranchOne { branches: nbranches, default }.into();
                 }
                 _ => (),
             };
@@ -3971,7 +3977,7 @@ async fn lock_modules(
         .await;
         match new_lock {
             Ok(new_lock) => {
-                e.value = FlowModuleValue::RawScript {
+                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
                     lock: Some(new_lock),
                     path,
                     input_transforms,
@@ -3981,7 +3987,7 @@ async fn lock_modules(
                     custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
-                };
+                });
                 new_flow_modules.push(e);
                 continue;
             }
@@ -3993,7 +3999,7 @@ async fn lock_modules(
                     error = ?error,
                     "Failed to generate flow lock for raw script"
                 );
-                e.value = FlowModuleValue::RawScript {
+                e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
                     lock: None,
                     path,
                     input_transforms,
@@ -4003,7 +4009,7 @@ async fn lock_modules(
                     custom_concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
-                };
+                });
                 new_flow_modules.push(e);
                 continue;
             }

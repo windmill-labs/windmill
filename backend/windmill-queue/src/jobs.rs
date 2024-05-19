@@ -3139,12 +3139,14 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             let flow_value = FlowValue {
                 modules: vec![FlowModule {
                     id: "a".to_string(),
-                    value: windmill_common::flows::FlowModuleValue::Script {
-                        input_transforms: input_transforms,
-                        path: path.clone(),
-                        hash: Some(hash),
-                        tag_override: tag_override,
-                    },
+                    value: windmill_common::worker::to_raw_value(
+                        &windmill_common::flows::FlowModuleValue::Script {
+                            input_transforms: input_transforms,
+                            path: path.clone(),
+                            hash: Some(hash),
+                            tag_override: tag_override,
+                        },
+                    ),
                     stop_after_if: None,
                     summary: None,
                     suspend: None,
@@ -3661,8 +3663,8 @@ async fn restarted_flows_resolution(
                         module.id()
                     )))?;
 
-                match module_definition.value.clone() {
-                    FlowModuleValue::BranchAll { branches, parallel, .. } => {
+                match module_definition.get_value() {
+                    Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
                         if parallel {
                             return Err(Error::InternalErr(format!(
                                 "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
@@ -3694,7 +3696,7 @@ async fn restarted_flows_resolution(
                             while_loop: false,
                         });
                     }
-                    FlowModuleValue::ForloopFlow { parallel, .. } => {
+                    Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
                         if parallel {
                             return Err(Error::InternalErr(format!(
                                 "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",

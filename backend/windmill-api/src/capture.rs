@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 use hyper::StatusCode;
-use sqlx::types::{Json, JsonRawValue};
+use sqlx::types::Json;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},

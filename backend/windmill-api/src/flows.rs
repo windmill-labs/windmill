@@ -877,16 +877,18 @@ mod tests {
             modules: vec![
                 FlowModule {
                     id: "a".to_string(),
-                    value: FlowModuleValue::Script {
+                    value: windmill_common::worker::to_raw_value(&FlowModuleValue::Script {
                         path: "test".to_string(),
                         input_transforms: [(
                             "test".to_string(),
-                            InputTransform::Static { value: serde_json::json!("test2") },
+                            InputTransform::Static {
+                                value: windmill_common::worker::to_raw_value(&"test2".to_string()),
+                            },
                         )]
                         .into(),
                         hash: None,
                         tag_override: None,
-                    },
+                    }),
                     stop_after_if: None,
                     summary: None,
                     suspend: Default::default(),
@@ -901,7 +903,7 @@ mod tests {
                 },
                 FlowModule {
                     id: "b".to_string(),
-                    value: FlowModuleValue::RawScript {
+                    value: windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
                         input_transforms: HashMap::new(),
                         content: "test".to_string(),
                         language: scripts::ScriptLang::Deno,
@@ -911,7 +913,7 @@ mod tests {
                         custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
-                    },
+                    }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
                         skip_if_stopped: false,
@@ -929,13 +931,15 @@ mod tests {
                 },
                 FlowModule {
                     id: "c".to_string(),
-                    value: FlowModuleValue::ForloopFlow {
-                        iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
+                    value: windmill_common::worker::to_raw_value(&FlowModuleValue::ForloopFlow {
+                        iterator: InputTransform::Static {
+                            value: windmill_common::worker::to_raw_value(&[1, 2, 3]),
+                        },
                         modules: vec![],
                         skip_failures: true,
                         parallel: false,
                         parallelism: None,
-                    },
+                    }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
                         skip_if_stopped: false,
@@ -959,7 +963,8 @@ mod tests {
                     input_transforms: HashMap::new(),
                     hash: None,
                     tag_override: None,
-                },
+                }
+                .into(),
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
                     skip_if_stopped: false,

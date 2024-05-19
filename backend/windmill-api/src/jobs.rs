@@ -3308,7 +3308,7 @@ async fn run_bundle_preview_script(
                         custom_concurrency_key: None,
                     }),
                 },
-                args,
+                args.into(),
                 authed.display_username(),
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
