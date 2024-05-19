@@ -321,7 +321,7 @@ async fn get_app_w_draft(
         r#"SELECT app.id, app.path, app.summary, app.versions, app.policy,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by,
-        app.draft_only, draft.value as "draft?"
+        app.draft_only, draft.value as "draft"
         from app
         INNER JOIN app_version ON
         app_version.id = app.versions[array_upper(app.versions, 1)]
