@@ -277,7 +277,7 @@ impl FlowModule {
 
     pub fn is_simple(&self) -> bool {
         self.get_type()
-            .is_ok_and(|x| x == "flow" || x == "script" || x == "rawscript" || x == "identity")
+            .is_ok_and(|x| x == "flow" || x == "script" || x == "rawscript")
     }
 
     pub fn get_type(&self) -> anyhow::Result<String> {
