@@ -2957,7 +2957,6 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].cache_ttl.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
         && flow.failure_module.is_none();
-    tracing::error!("is_simple_modules: {is_simple}, {}", modules[0].is_simple());
     is_simple
 }
 
