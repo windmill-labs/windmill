@@ -2622,61 +2622,66 @@ async fn compute_next_flow_transform(
                     .await
                 }
                 ForLoopStatus::ParallelIteration { itered, .. } => {
-                    let inner_path = Some(format!("{}/loop-parrallel", flow_job.script_path(),));
-                    let value = &modules[0].get_value()?;
-                    let continue_payload = if is_simple {
-                        let payload =
-                            payload_from_simple_module(value, db, flow_job, module, inner_path)
-                                .await?;
-                        ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
+                    if modules.is_empty() {
+                        return Ok(NextFlowTransform::EmptyInnerFlows);
                     } else {
-                        let payload = {
-                            JobPayloadWithTag {
-                                payload: JobPayload::RawFlow {
-                                    value: FlowValue {
-                                        modules: (*modules).clone(),
-                                        failure_module: flow.failure_module.clone(),
-                                        same_worker: flow.same_worker,
-                                        concurrent_limit: None,
-                                        concurrency_time_window_s: None,
-                                        skip_expr: None,
-                                        cache_ttl: None,
-                                        priority: None,
-                                        early_return: None,
-                                        concurrency_key: None,
+                        let inner_path =
+                            Some(format!("{}/loop-parrallel", flow_job.script_path(),));
+                        let value = &modules[0].get_value()?;
+                        let continue_payload = if is_simple {
+                            let payload =
+                                payload_from_simple_module(value, db, flow_job, module, inner_path)
+                                    .await?;
+                            ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
+                        } else {
+                            let payload = {
+                                JobPayloadWithTag {
+                                    payload: JobPayload::RawFlow {
+                                        value: FlowValue {
+                                            modules: (*modules).clone(),
+                                            failure_module: flow.failure_module.clone(),
+                                            same_worker: flow.same_worker,
+                                            concurrent_limit: None,
+                                            concurrency_time_window_s: None,
+                                            skip_expr: None,
+                                            cache_ttl: None,
+                                            priority: None,
+                                            early_return: None,
+                                            concurrency_key: None,
+                                        },
+                                        path: Some(format!("{}/forloop", flow_job.script_path())),
+                                        restarted_from: None,
                                     },
-                                    path: Some(format!("{}/forloop", flow_job.script_path())),
-                                    restarted_from: None,
-                                },
-                                tag: None,
-                                delete_after_use: delete_after_use,
-                                timeout: None,
-                            }
-                        };
-                        ContinuePayload::ForloopJobs { n: itered.len(), payload }
-                    };
-                    Ok(NextFlowTransform::Continue(
-                        continue_payload,
-                        NextStatus::AllFlowJobs {
-                            branchall: None,
-                            iterator: Some(windmill_common::flow_status::Iterator {
-                                index: 0,
-                                itered,
-                            }),
-                            simple_input_transforms: if is_simple {
-                                match value {
-                                    FlowModuleValue::Script { input_transforms, .. }
-                                    | FlowModuleValue::RawScript { input_transforms, .. }
-                                    | FlowModuleValue::Flow { input_transforms, .. } => {
-                                        Some(input_transforms.clone())
-                                    }
-                                    _ => None,
+                                    tag: None,
+                                    delete_after_use: delete_after_use,
+                                    timeout: None,
                                 }
-                            } else {
-                                None
+                            };
+                            ContinuePayload::ForloopJobs { n: itered.len(), payload }
+                        };
+                        Ok(NextFlowTransform::Continue(
+                            continue_payload,
+                            NextStatus::AllFlowJobs {
+                                branchall: None,
+                                iterator: Some(windmill_common::flow_status::Iterator {
+                                    index: 0,
+                                    itered,
+                                }),
+                                simple_input_transforms: if is_simple {
+                                    match value {
+                                        FlowModuleValue::Script { input_transforms, .. }
+                                        | FlowModuleValue::RawScript { input_transforms, .. }
+                                        | FlowModuleValue::Flow { input_transforms, .. } => {
+                                            Some(input_transforms.clone())
+                                        }
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                },
                             },
-                        },
-                    ))
+                        ))
+                    }
                 }
             }
         }
