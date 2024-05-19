@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.333.0](https://github.com/windmill-labs/windmill/compare/v1.332.1...v1.333.0) (2024-05-19)
+
+
+### Features
+
+* reduce memory usage ([#3768](https://github.com/windmill-labs/windmill/issues/3768)) ([7a1808e](https://github.com/windmill-labs/windmill/commit/7a1808e951a2f359902138d1bb964cf52986665d))
+
 ## [1.332.1](https://github.com/windmill-labs/windmill/compare/v1.332.0...v1.332.1) (2024-05-18)
 
 
