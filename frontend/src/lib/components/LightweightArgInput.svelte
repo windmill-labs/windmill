@@ -449,7 +449,7 @@
 									<Password bind:password={value} />
 								{:else}
 									<textarea
-										rows="1"
+										rows={extra?.['rows'] || 1}
 										bind:this={el}
 										on:focus={(e) => {
 											dispatch('focus')
