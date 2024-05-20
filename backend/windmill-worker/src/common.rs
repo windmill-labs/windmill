@@ -683,12 +683,6 @@ async fn compact_logs(
         .unwrap_or(to_keep_in_db);
     let stored_in_storage_to_newline = stored_in_storage_len + extra_to_newline;
 
-    tracing::error!(
-        "nlog_len: {nlogs_len}, modulo: {to_keep_in_db}, stored_in_storage_len: {stored_in_storage_len}, extra_to_newline: {extra_to_newline}, extra_split: {extra_split}, {}",
-        nlogs
-        .chars()
-        .skip(stored_in_storage_len).collect::<String>());
-
     let (append_to_storage, stored_in_db) = if extra_split {
         if stored_in_storage_to_newline == nlogs.len() {
             (nlogs.as_ref(), "".to_string())

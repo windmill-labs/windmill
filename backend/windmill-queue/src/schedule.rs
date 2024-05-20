@@ -66,10 +66,12 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         return Ok(tx);
     }
 
-    let mut args: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
 
     if let Some(args_v) = &schedule.args {
-        if let serde_json::Value::Object(args_m) = args_v {
+        if let Ok(args_m) =
+            serde_json::from_str::<HashMap<String, Box<serde_json::value::RawValue>>>(args_v.get())
+        {
             args = args_m.clone()
         } else {
             return Err(error::Error::ExecutionErr(
@@ -121,7 +123,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                         err.to_string(),
                     ))
                 })?;
-            let mut static_args = HashMap::<String, serde_json::Value>::new();
+            let mut static_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
             for (arg_name, arg_value) in args.clone() {
                 static_args.insert(arg_name, arg_value);
             }
@@ -186,7 +188,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         tx,
         &schedule.workspace_id,
         payload,
-        args,
+        crate::PushArgs { args, extra: HashMap::new() },
         &schedule_to_user(&schedule.path),
         &schedule.email,
         username_to_permissioned_as(&schedule.edited_by),
@@ -213,12 +215,11 @@ pub async fn get_schedule_opt<'c>(
     w_id: &str,
     path: &str,
 ) -> Result<Option<Schedule>> {
-    let schedule_opt = sqlx::query_as!(
-        Schedule,
+    let schedule_opt = sqlx::query_as::<_, Schedule>(
         "SELECT * FROM schedule WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
     )
+    .bind(path)
+    .bind(w_id)
     .fetch_optional(&mut **db)
     .await?;
     Ok(schedule_opt)

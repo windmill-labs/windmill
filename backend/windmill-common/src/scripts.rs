@@ -18,7 +18,6 @@ use crate::{
 };
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
-use serde_json::to_string_pretty;
 
 use crate::utils::StripPath;
 
@@ -227,13 +226,11 @@ pub struct ScriptHistoryUpdate {
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
 #[sqlx(transparent)]
 #[serde(transparent)]
-pub struct Schema(pub serde_json::Value);
+pub struct Schema(pub sqlx::types::Json<Box<serde_json::value::RawValue>>);
 
 impl Hash for Schema {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Ok(s) = to_string_pretty(&self.0) {
-            s.hash(state);
-        }
+        self.0.get().hash(state);
     }
 }
 
@@ -413,6 +410,6 @@ pub struct HubScript {
     pub content: String,
     pub lockfile: Option<String>,
     pub language: ScriptLang,
-    pub schema: serde_json::Value,
+    pub schema: Box<serde_json::value::RawValue>,
     pub summary: Option<String>,
 }

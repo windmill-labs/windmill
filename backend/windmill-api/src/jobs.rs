@@ -903,7 +903,11 @@ pub struct ListQueueQuery {
     pub is_not_schedule: Option<bool>,
 }
 
-pub fn filter_list_queue_query(mut sqlb: SqlBuilder, lq: &ListQueueQuery, w_id: &str) -> SqlBuilder {
+pub fn filter_list_queue_query(
+    mut sqlb: SqlBuilder,
+    lq: &ListQueueQuery,
+    w_id: &str,
+) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -1004,7 +1008,6 @@ pub fn filter_list_queue_query(mut sqlb: SqlBuilder, lq: &ListQueueQuery, w_id: 
     }
 
     sqlb
-
 }
 
 pub fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -2054,7 +2057,10 @@ impl Job {
         )
     }
 
-    pub async fn concurrency_key(&self, db: &Pool<Postgres>) -> Result<Option<String>, sqlx::Error> {
+    pub async fn concurrency_key(
+        &self,
+        db: &Pool<Postgres>,
+    ) -> Result<Option<String>, sqlx::Error> {
         sqlx::query_scalar!(
             "SELECT key FROM concurrency_key WHERE job_id = $1",
             self.id()
@@ -2202,7 +2208,7 @@ struct Preview {
     content: Option<String>,
     kind: Option<PreviewKind>,
     path: Option<String>,
-    args: Option<Box<JsonRawValue>>,
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
     language: Option<ScriptLang>,
     tag: Option<String>,
     dedicated_worker: Option<bool>,
@@ -2218,7 +2224,7 @@ pub struct WorkflowTask {
 struct PreviewFlow {
     value: FlowValue,
     path: Option<String>,
-    args: Option<Box<JsonRawValue>>,
+    args: Option<HashMap<String, Box<JsonRawValue>>>,
     tag: Option<String>,
     restarted_from: Option<RestartedFrom>,
 }
@@ -2331,7 +2337,7 @@ pub async fn run_flow_by_path(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -2432,7 +2438,8 @@ pub async fn restart_flow(
 
     let push_args = completed_job
         .args
-        .map(|json| PushArgs { args: json.clone(), extra: json.0 });
+        .map(|json| PushArgs { args: json.0, extra: HashMap::new() })
+        .unwrap_or_else(PushArgs::empty);
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
@@ -2476,7 +2483,7 @@ pub async fn run_script_by_path(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -2563,7 +2570,7 @@ pub async fn run_workflow_as_code(
     let mut extra = HashMap::new();
     extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
 
-    let args = PushArgs { args: sqlx::types::Json(task.args), extra };
+    let args = PushArgs { args: task.args.unwrap_or_else(HashMap::new), extra };
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
@@ -2854,7 +2861,7 @@ pub async fn run_wait_result_job_by_path_get(
     });
 
     let inner_args: HashMap<String, Box<RawValue>> = HashMap::new();
-    let args = PushArgs { extra: payload_args, args: sqlx::types::Json(inner_args) };
+    let args = PushArgs { extra: payload_args, args: inner_args };
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -2932,7 +2939,7 @@ pub async fn run_wait_result_flow_by_path_get(
         payload_args.insert(k.to_string(), v.clone());
     });
 
-    let args = PushArgs { extra: payload_args, args: sqlx::types::Json(HashMap::new()) };
+    let args = PushArgs { extra: payload_args, args: HashMap::new() };
 
     run_wait_result_flow_by_path_internal(
         db, run_query, flow_path, authed, rsmq, user_db, args, w_id,
@@ -2947,7 +2954,7 @@ pub async fn run_wait_result_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -2973,7 +2980,7 @@ async fn run_wait_result_script_by_path_internal(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
     w_id: String,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -3026,7 +3033,7 @@ pub async fn run_wait_result_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3106,7 +3113,7 @@ pub async fn run_wait_result_flow_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3124,7 +3131,7 @@ async fn run_wait_result_flow_by_path_internal(
     authed: ApiAuthed,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
     w_id: String,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
@@ -3220,7 +3227,7 @@ async fn run_preview_script(
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
-        preview.args.unwrap_or_default(),
+        preview.args.unwrap_or_default().into(),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3301,7 +3308,7 @@ async fn run_bundle_preview_script(
                         custom_concurrency_key: None,
                     }),
                 },
-                args,
+                args.into(),
                 authed.display_username(),
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
@@ -3421,10 +3428,7 @@ pub async fn run_dependencies_job(
             "raw_deps".to_string(),
             JsonRawValue::from_string("true".to_string()).unwrap(),
         );
-        (
-            PushArgs { extra: hm, args: sqlx::types::Json(HashMap::new()) },
-            deps,
-        )
+        (PushArgs { extra: hm, args: HashMap::new() }, deps)
     } else {
         (
             PushArgs::empty(),
@@ -3668,7 +3672,7 @@ async fn run_preview_flow_job(
             path: raw_flow.path,
             restarted_from: raw_flow.restarted_from,
         },
-        raw_flow.args.unwrap_or_default(),
+        raw_flow.args.unwrap_or_default().into(),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3700,7 +3704,7 @@ pub async fn run_job_by_hash(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs<HashMap<String, Box<JsonRawValue>>>,
+    args: PushArgs,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3781,7 +3785,7 @@ pub struct JobUpdate {
     pub new_logs: Option<String>,
     pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
-    pub flow_status: Option<serde_json::Value>,
+    pub flow_status: Option<Box<serde_json::value::RawValue>>,
 }
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
@@ -3834,22 +3838,30 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     )));
 }
 
+#[derive(Deserialize, sqlx::FromRow)]
+pub struct JobUpdateRow {
+    pub running: bool,
+    pub logs: Option<String>,
+    pub mem_peak: Option<i32>,
+    pub flow_status: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+    pub log_offset: Option<i32>,
+}
 async fn get_job_update(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
-    let record = sqlx::query!(
+    let record = sqlx::query_as::<_, JobUpdateRow>(
         "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) as logs, mem_peak, 
         CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
         job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset
         FROM queue
         LEFT JOIN job_logs ON job_logs.job_id =  queue.id 
         WHERE queue.workspace_id = $2 AND queue.id = $3",
-        log_offset,
-        &w_id,
-        &job_id
     )
+    .bind(log_offset)
+    .bind(&w_id)
+    .bind(&job_id)
     .fetch_optional(&db)
     .await?;
 
@@ -3864,20 +3876,22 @@ async fn get_job_update(
             completed: None,
             new_logs: record.logs,
             mem_peak: record.mem_peak,
-            flow_status: record.flow_status,
+            flow_status: record
+                .flow_status
+                .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
         }))
     } else {
-        let record = sqlx::query!(
-            "SELECT substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0))  as logs, mem_peak, 
+        let record = sqlx::query_as::<_, JobUpdateRow>(
+            "SELECT false as running, substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0))  as logs, mem_peak, 
             CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
             job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset
             FROM completed_job 
             LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
             WHERE completed_job.workspace_id = $2 AND id = $3",
-            log_offset,
-            &w_id,
-            &job_id
         )
+        .bind(log_offset)
+        .bind(&w_id)
+        .bind(&job_id)
         .fetch_optional(&db)
         .await?;
         if let Some(record) = record {
@@ -3887,7 +3901,9 @@ async fn get_job_update(
                 log_offset: record.log_offset,
                 new_logs: record.logs,
                 mem_peak: record.mem_peak,
-                flow_status: record.flow_status,
+                flow_status: record
+                    .flow_status
+                    .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
             }))
         } else {
             Err(error::Error::NotFound(format!("Job not found: {}", job_id)))
@@ -3895,7 +3911,11 @@ async fn get_job_update(
     }
 }
 
-pub fn filter_list_completed_query(mut sqlb: SqlBuilder, lq: &ListCompletedQuery, w_id: &str) -> SqlBuilder {
+pub fn filter_list_completed_query(
+    mut sqlb: SqlBuilder,
+    lq: &ListCompletedQuery,
+    w_id: &str,
+) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
