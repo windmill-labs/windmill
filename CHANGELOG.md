@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.333.2](https://github.com/windmill-labs/windmill/compare/v1.333.1...v1.333.2) (2024-05-20)
+
+
+### Bug Fixes
+
+* **frontend:** fix AgGrid pagination refresh ([#3773](https://github.com/windmill-labs/windmill/issues/3773)) ([ccc2699](https://github.com/windmill-labs/windmill/commit/ccc2699d4ef18a765c3f9e968b4cd5ea1f600fa1))
+
 ## [1.333.1](https://github.com/windmill-labs/windmill/compare/v1.333.0...v1.333.1) (2024-05-20)
 
 
