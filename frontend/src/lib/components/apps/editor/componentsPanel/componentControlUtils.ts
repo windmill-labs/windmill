@@ -115,6 +115,7 @@ export function getComponentControl(type: keyof typeof components): Array<Compon
 		case 'checkboxcomponent':
 		case 'rangecomponent':
 		case 'multiselectcomponent':
+		case 'multiselectcomponentv2':
 		case 'selectcomponent':
 		case 'slidercomponent':
 		case 'dateslidercomponent':

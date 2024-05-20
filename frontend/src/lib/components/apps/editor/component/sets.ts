@@ -50,7 +50,7 @@ const inputs: ComponentSet = {
 		'checkboxcomponent',
 		'selectcomponent',
 		'resourceselectcomponent',
-		'multiselectcomponent',
+		'multiselectcomponentv2',
 		'selecttabcomponent',
 		'selectstepcomponent'
 	]

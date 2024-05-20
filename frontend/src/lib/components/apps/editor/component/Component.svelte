@@ -45,6 +45,7 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
+	import AppMultiSelectV2 from '../../components/inputs/AppMultiSelectV2.svelte'
 	import AppModal from '../../components/layout/AppModal.svelte'
 	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
 	import AppStepper from '../../components/layout/AppStepper.svelte'
@@ -440,6 +441,14 @@
 			/>
 		{:else if component.type === 'multiselectcomponent'}
 			<AppMultiSelect
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
+				{render}
+			/>
+		{:else if component.type === 'multiselectcomponentv2'}
+			<AppMultiSelectV2
 				id={component.id}
 				configuration={component.configuration}
 				customCss={component.customCss}
