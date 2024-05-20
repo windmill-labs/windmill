@@ -103,11 +103,7 @@
 			moveOptionsToPortal()
 		})
 	}
-
 	let w = 0
-	let open = false
-
-	let searchText: string = ''
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -157,7 +153,6 @@
 				options={items}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
-				bind:searchText
 				on:change={(event) => {
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
@@ -167,10 +162,6 @@
 				}}
 				on:open={() => {
 					$selectedComponent = [id]
-					open = true
-				}}
-				on:close={() => {
-					open = false
 				}}
 				let:option
 			>
