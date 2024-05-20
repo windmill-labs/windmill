@@ -199,7 +199,7 @@ async fn list_paths(
 pub async fn get_hub_flow_by_id(
     Path(id): Path<i32>,
     Extension(db): Extension<DB>,
-) -> JsonResult<serde_json::Value> {
+) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
         &format!("{}/flows/{}/json", *HUB_BASE_URL.read().await, id),
