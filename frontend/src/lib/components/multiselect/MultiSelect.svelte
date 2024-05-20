@@ -101,7 +101,7 @@
 	let window_width: number
 
 	// options matching the current search text
-	$: matchingOptions = options.filter(
+	$: matchingOptions = options?.filter(
 		(opt) =>
 			filterFunc(opt, searchText) &&
 			// remove already selected options from dropdown list unless duplicate selections are allowed
@@ -113,7 +113,7 @@
 		throw `Run time error, activeIndex=${activeIndex} is out of bounds, matchingOptions.length=${matchingOptions.length}`
 	}
 	// update activeOption when activeIndex changes
-	$: activeOption = matchingOptions[activeIndex ?? -1] ?? null
+	$: activeOption = matchingOptions?.[activeIndex ?? -1] ?? null
 
 	// add an option to selected list
 	function add(option: T, event: Event) {
@@ -370,6 +370,7 @@
 			currentTarget: EventTarget & HTMLInputElement
 		}
 	) {
+		// @ts-ignore
 		if (!highlightMatches || typeof CSS == `undefined` || !CSS.highlights) return // abort if CSS highlight API not supported
 
 		// clear previous ranges from HighlightRegistry
@@ -506,7 +507,7 @@
 						class="remove"
 					>
 						<slot name="remove-icon">
-							<X />
+							<X size={16} />
 						</slot>
 					</button>
 				{/if}
@@ -560,19 +561,19 @@
 				on:keydown={if_enter_or_space(remove_all)}
 			>
 				<slot name="remove-icon">
-					<X />
+					<X size={16} />
 				</slot>
 			</button>
 		{/if}
 	{/if}
 	<!-- only render options dropdown if options or searchText is not empty (needed to avoid briefly flashing empty dropdown) -->
 	{#if (searchText && noMatchingOptionsMsg) || options?.length > 0}
-		<div class="options bg-surface">
+		<div class="options bg-surface shadow-md rounded-component">
 			<VirtualList
 				width="100%"
-				height={Math.min(42 * matchingOptions.length, 420)}
+				height={Math.min(32 * matchingOptions.length, 320)}
 				itemCount={matchingOptions.length}
-				itemSize={42}
+				itemSize={32}
 			>
 				<div slot="item" let:index let:style {style}>
 					{@const option = matchingOptions[index]}
@@ -591,7 +592,7 @@
 							if (!disabled) add(option, event)
 						}}
 						title={disabled ? disabledTitle : (is_selected(label) && selectedTitle) || title}
-						class={twMerge(selectedTitle ? 'bg-blue-100 dark:bg-blue-900' : '', 'p-0.5')}
+						class={twMerge('hover:bg-blue-100 hover:dark:bg-gray-900 cursor-pointer  !px-2 py-1')}
 						on:mouseover={() => {
 							if (!disabled) activeIndex = index
 						}}
@@ -615,6 +616,7 @@
 						</slot>
 					</div>
 				</div>
+				<div slot="footer" class="h-0" />
 			</VirtualList>
 			{#if searchText}
 				{@const text_input_is_duplicate = selected.map(get_label).includes(searchText)}
