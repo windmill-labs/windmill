@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.333.1](https://github.com/windmill-labs/windmill/compare/v1.333.0...v1.333.1) (2024-05-20)
+
+
+### Bug Fixes
+
+* **backend:** improve memory usage by making schema RawValue instead of serde_json::Value ([f1bb7cf](https://github.com/windmill-labs/windmill/commit/f1bb7cfcbdbfee7488f59256522be18f8d2eb0a3))
+
 ## [1.333.0](https://github.com/windmill-labs/windmill/compare/v1.332.1...v1.333.0) (2024-05-19)
 
 
