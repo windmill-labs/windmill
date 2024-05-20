@@ -53,7 +53,7 @@
 	function preFillFiles() {
 		const data = outputs?.result?.peak()
 
-		if (data && Array.isArray(data)) {
+		if (data && Array.isArray(data) && data.length > 0) {
 			files = data.map((file: { name: any }) => new File([], file?.name))
 		}
 	}
