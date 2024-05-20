@@ -14,7 +14,8 @@
 	export let customCss: ComponentCustomCSS<'fileinputcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl, mode } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let acceptedFileTypes: string[] | undefined = undefined
 	let allowMultiple: boolean | undefined = undefined
@@ -48,6 +49,16 @@
 	}
 
 	let files: File[] | undefined = undefined
+
+	function preFillFiles() {
+		const data = outputs?.result?.peak()
+
+		if (data && Array.isArray(data)) {
+			files = data.map((file: { name: any }) => new File([], file?.name))
+		}
+	}
+
+	$: outputs.result && files === undefined && $mode === 'dnd' && preFillFiles()
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
