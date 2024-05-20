@@ -26,7 +26,7 @@ pub struct Flow {
     pub path: String,
     pub summary: String,
     pub description: String,
-    pub value: serde_json::Value,
+    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
     pub edited_by: String,
     pub edited_at: chrono::DateTime<chrono::Utc>,
     pub archived: bool,
