@@ -10,12 +10,11 @@
 	// @ts-ignore
 	import Portal from 'svelte-portal'
 	import { createFloatingActions } from 'svelte-floating-ui'
-	import { debounce, extractCustomProperties } from '$lib/utils'
+	import { extractCustomProperties } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
-	import { Trie } from '$lib/components/multiselect/utils'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -108,35 +107,7 @@
 	let w = 0
 	let open = false
 
-	let filteredItems: string[] = []
 	let searchText: string = ''
-
-	const trie = new Trie()
-	let inserted: boolean = false
-	$: if (items && !inserted) {
-		items.forEach((item) => trie.insert(item.toLowerCase()))
-		inserted = true
-	}
-
-	// Assuming debounce function is defined elsewhere, for example:
-	// const debounce = (func: Function, wait: number) => { /* debounce implementation */ };
-
-	const debouncedFilter = debounce(() => {
-		if (searchText !== undefined && items) {
-			const newFilteredItems = trie.search(searchText.toLowerCase())
-			if (JSON.stringify(newFilteredItems) !== JSON.stringify(filteredItems)) {
-				filteredItems = newFilteredItems
-			}
-		}
-	}, 100)
-
-	$: if (searchText !== undefined && items) {
-		if (searchText.length >= 3) {
-			debouncedFilter()
-		} else if (filteredItems.length !== items.length) {
-			filteredItems = items
-		}
-	}
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -184,7 +155,6 @@
 				--sms-focus-border={'none'}
 				bind:selected={value}
 				options={items}
-				matchingOptions={filteredItems}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
 				bind:searchText
