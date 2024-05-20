@@ -105,12 +105,12 @@ pub struct AppWithLastVersion {
     pub id: i64,
     pub path: String,
     pub summary: String,
-    pub policy: serde_json::Value,
+    pub policy: sqlx::types::Json<Box<RawValue>>,
     pub versions: Vec<i64>,
     pub value: sqlx::types::Json<Box<RawValue>>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub extra_perms: serde_json::Value,
+    pub extra_perms: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -118,7 +118,7 @@ pub struct AppWithLastVersionAndDraft {
     pub id: i64,
     pub path: String,
     pub summary: String,
-    pub policy: serde_json::Value,
+    pub policy: sqlx::types::Json<Box<RawValue>>,
     pub versions: Vec<i64>,
     pub value: sqlx::types::Json<Box<RawValue>>,
     pub created_by: String,
@@ -437,7 +437,7 @@ async fn get_public_app_by_secret(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        app.extra_perms, app_version.value, 
+        null as extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
@@ -448,7 +448,7 @@ async fn get_public_app_by_secret(
 
     let app = not_found_if_none(app_o, "App", id.to_string())?;
 
-    let policy = serde_json::from_value::<Policy>(app.policy.clone()).map_err(to_anyhow)?;
+    let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
     if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
         return Err(Error::NotAuthorized(
@@ -650,7 +650,7 @@ async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
 pub async fn get_hub_app_by_id(
     Path(id): Path<i32>,
     Extension(db): Extension<DB>,
-) -> JsonResult<serde_json::Value> {
+) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
         &format!("{}/apps/{}/json", *HUB_BASE_URL.read().await, id),

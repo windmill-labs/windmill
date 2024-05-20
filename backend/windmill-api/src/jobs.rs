@@ -3785,7 +3785,7 @@ pub struct JobUpdate {
     pub new_logs: Option<String>,
     pub log_offset: Option<i32>,
     pub mem_peak: Option<i32>,
-    pub flow_status: Option<serde_json::Value>,
+    pub flow_status: Option<Box<serde_json::value::RawValue>>,
 }
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
@@ -3838,22 +3838,30 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     )));
 }
 
+#[derive(Deserialize, sqlx::FromRow)]
+pub struct JobUpdateRow {
+    pub running: bool,
+    pub logs: Option<String>,
+    pub mem_peak: Option<i32>,
+    pub flow_status: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+    pub log_offset: Option<i32>,
+}
 async fn get_job_update(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
-    let record = sqlx::query!(
+    let record = sqlx::query_as::<_, JobUpdateRow>(
         "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) as logs, mem_peak, 
         CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
         job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset
         FROM queue
         LEFT JOIN job_logs ON job_logs.job_id =  queue.id 
         WHERE queue.workspace_id = $2 AND queue.id = $3",
-        log_offset,
-        &w_id,
-        &job_id
     )
+    .bind(log_offset)
+    .bind(&w_id)
+    .bind(&job_id)
     .fetch_optional(&db)
     .await?;
 
@@ -3868,20 +3876,22 @@ async fn get_job_update(
             completed: None,
             new_logs: record.logs,
             mem_peak: record.mem_peak,
-            flow_status: record.flow_status,
+            flow_status: record
+                .flow_status
+                .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
         }))
     } else {
-        let record = sqlx::query!(
-            "SELECT substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0))  as logs, mem_peak, 
+        let record = sqlx::query_as::<_, JobUpdateRow>(
+            "SELECT false as running, substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0))  as logs, mem_peak, 
             CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
             job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset
             FROM completed_job 
             LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
             WHERE completed_job.workspace_id = $2 AND id = $3",
-            log_offset,
-            &w_id,
-            &job_id
         )
+        .bind(log_offset)
+        .bind(&w_id)
+        .bind(&job_id)
         .fetch_optional(&db)
         .await?;
         if let Some(record) = record {
@@ -3891,7 +3901,9 @@ async fn get_job_update(
                 log_offset: record.log_offset,
                 new_logs: record.logs,
                 mem_peak: record.mem_peak,
-                flow_status: record.flow_status,
+                flow_status: record
+                    .flow_status
+                    .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
             }))
         } else {
             Err(error::Error::NotFound(format!("Job not found: {}", job_id)))
