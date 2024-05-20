@@ -507,7 +507,7 @@
 						class="remove"
 					>
 						<slot name="remove-icon">
-							<X size={16} />
+							<X size={20} class="text-primary p-0.5" />
 						</slot>
 					</button>
 				{/if}
@@ -561,7 +561,10 @@
 				on:keydown={if_enter_or_space(remove_all)}
 			>
 				<slot name="remove-icon">
-					<X size={16} />
+					<X
+						size={24}
+						class="text-secondary p-1 rounded-full bg-surface hover:bg-surface-secondary"
+					/>
 				</slot>
 			</button>
 		{/if}
@@ -783,7 +786,6 @@
 		background: var(--sms-options-bg, white);
 		max-height: var(--sms-options-max-height, 50vh);
 		overscroll-behavior: var(--sms-options-overscroll, none);
-		box-shadow: var(--sms-options-shadow, 0 0 14pt -8pt black);
 		border: var(--sms-options-border);
 		border-width: var(--sms-options-border-width);
 		border-radius: var(--sms-options-border-radius, 1ex);

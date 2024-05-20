@@ -58,3 +58,54 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 
 	return observer // return for testing
 }
+
+export class TrieNode {
+	children: { [key: string]: TrieNode }
+	isEndOfWord: boolean
+
+	constructor() {
+		this.children = {}
+		this.isEndOfWord = false
+	}
+}
+
+export class Trie {
+	root: TrieNode
+
+	constructor() {
+		this.root = new TrieNode()
+	}
+
+	insert(word: string): void {
+		let node = this.root
+		for (let char of word) {
+			if (!node.children[char]) {
+				node.children[char] = new TrieNode()
+			}
+			node = node.children[char]
+		}
+		node.isEndOfWord = true
+	}
+
+	search(prefix: string): string[] {
+		let node = this.root
+		for (let char of prefix) {
+			if (!node.children[char]) {
+				return []
+			}
+			node = node.children[char]
+		}
+		return this._collectAllWords(node, prefix)
+	}
+
+	private _collectAllWords(node: TrieNode, prefix: string): string[] {
+		let results: string[] = []
+		if (node.isEndOfWord) {
+			results.push(prefix)
+		}
+		for (let char in node.children) {
+			results = results.concat(this._collectAllWords(node.children[char], prefix + char))
+		}
+		return results
+	}
+}

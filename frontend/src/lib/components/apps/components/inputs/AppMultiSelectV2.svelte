@@ -15,6 +15,7 @@
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import { Trie } from '$lib/components/multiselect/utils'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -110,11 +111,19 @@
 	let filteredItems: string[] = []
 	let searchText: string = ''
 
+	const trie = new Trie()
+	let inserted: boolean = false
+	$: if (items && !inserted) {
+		items.forEach((item) => trie.insert(item.toLowerCase()))
+		inserted = true
+	}
+
+	// Assuming debounce function is defined elsewhere, for example:
+	// const debounce = (func: Function, wait: number) => { /* debounce implementation */ };
+
 	const debouncedFilter = debounce(() => {
 		if (searchText !== undefined && items) {
-			const newFilteredItems = items.filter((item) => {
-				return item.toLowerCase().includes(searchText.toLowerCase())
-			})
+			const newFilteredItems = trie.search(searchText.toLowerCase())
 			if (JSON.stringify(newFilteredItems) !== JSON.stringify(filteredItems)) {
 				filteredItems = newFilteredItems
 			}
