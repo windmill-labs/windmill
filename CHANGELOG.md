@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.333.3](https://github.com/windmill-labs/windmill/compare/v1.333.2...v1.333.3) (2024-05-20)
+
+
+### Bug Fixes
+
+* **cli:** make bun the default language in absence of wmill defaultTs ([8399086](https://github.com/windmill-labs/windmill/commit/83990869bc5edb98f633944410242de19dbe5d01))
+
 ## [1.333.2](https://github.com/windmill-labs/windmill/compare/v1.333.1...v1.333.2) (2024-05-20)
 
 
