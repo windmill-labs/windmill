@@ -33,6 +33,9 @@ use windmill_common::{
 };
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+use monitor::monitor_mem;
+
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use tikv_jemallocator::Jemalloc;
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -52,13 +55,13 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, load_require_preexisting_user, load_tag_per_workspace_enabled,
-    monitor_db, monitor_pool, reload_base_url_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting, reload_server_config,
-    reload_worker_config,
+    initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
+    load_tag_per_workspace_enabled, monitor_db, monitor_pool, reload_base_url_setting,
+    reload_bunfig_install_scopes_setting, reload_critical_error_channels_setting,
+    reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
+    reload_job_default_timeout_setting, reload_license_key, reload_npm_config_registry_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
+    reload_server_config, reload_worker_config,
 };
 
 #[cfg(feature = "parquet")]
@@ -321,6 +324,9 @@ Windmill Community Edition {GIT_VERSION}
 
         monitor_pool(&db).await;
 
+        #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+        monitor_mem().await;
+
         let addr = SocketAddr::from((server_bind_address, port));
 
         let rsmq2 = rsmq.clone();
@@ -481,8 +487,8 @@ Windmill Community Edition {GIT_VERSION}
                                                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
                                                     load_require_preexisting_user(&db).await;
                                                 },
-                                                EXPOSE_METRICS_SETTING | EXPOSE_DEBUG_METRICS_SETTING => {
-                                                    if n.payload() != EXPOSE_DEBUG_METRICS_SETTING || worker_mode {
+                                                EXPOSE_METRICS_SETTING  => {
+                                                    if worker_mode {
                                                         tracing::info!("Metrics setting changed, restarting");
                                                         // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
                                                         let rd_delay = rand::thread_rng().gen_range(0..4);
@@ -490,6 +496,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         if let Err(e) = tx.send(()) {
                                                             tracing::error!(error = %e, "Could not send killpill to server");
                                                         }
+                                                    }
+                                                },
+                                                EXPOSE_DEBUG_METRICS_SETTING => {
+                                                    if let Err(e) = load_metrics_debug_enabled(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload debug metrics setting");
                                                     }
                                                 },
                                                 REQUEST_SIZE_LIMIT_SETTING => {
