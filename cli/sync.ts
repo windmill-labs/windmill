@@ -190,7 +190,11 @@ export const yamlOptions = {
   skipInvalid: true,
 };
 
-function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
+function ZipFSElement(
+  zip: JSZip,
+  useYaml: boolean,
+  defaultTs: "bun" | "deno"
+): DynFSElement {
   async function _internal_file(
     p: string,
     f: JSZip.JSZipObject
@@ -214,7 +218,8 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
     const seen_names = new Set<string>();
     function assignPath(
       summary: string | undefined,
-      language: RawScript["language"]
+      language: RawScript["language"],
+      defaultTs: "bun" | "deno"
     ): [string, string] {
       let name;
 
@@ -236,7 +241,9 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
 
       let ext;
       if (language == "python3") ext = "py";
-      else if (language == "deno") ext = "ts";
+      else if (language == defaultTs) ext = "ts";
+      else if (language == "bun") ext = "bun.ts";
+      else if (language == "deno") ext = "deno.ts";
       else if (language == "go") ext = "go";
       else if (language == "bash") ext = "sh";
       else if (language == "powershell") ext = "ps1";
@@ -246,7 +253,6 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
       else if (language == "snowflake") ext = "sf.sql";
       else if (language == "mssql") ext = "ms.sql";
       else if (language == "graphql") ext = "gql";
-      else if (language == "bun") ext = "bun.ts";
       else if (language == "nativets") ext = "native.ts";
       else if (language == "frontend") ext = "frontend.js";
       else if (language == "php") ext = "php";
@@ -260,7 +266,11 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
     ): InlineScript[] {
       return modules.flatMap((m) => {
         if (m.value.type == "rawscript") {
-          const [basePath, ext] = assignPath(m.summary, m.value.language);
+          const [basePath, ext] = assignPath(
+            m.summary,
+            m.value.language,
+            defaultTs
+          );
           const path = basePath + ext;
           const content = m.value.content;
           const r = [{ path: path, content: content }];
@@ -302,7 +312,7 @@ function ZipFSElement(zip: JSZip, useYaml: boolean): DynFSElement {
           if (k == "inlineScript" && typeof v == "object") {
             const o: Record<string, any> = v as any;
             const name = rec["name"];
-            const [basePath, ext] = assignPath(name, o["language"]);
+            const [basePath, ext] = assignPath(name, o["language"], defaultTs);
             const r = [];
             if (o["content"]) {
               const content = o["content"];
@@ -838,7 +848,8 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeSettings,
       opts.defaultTs
     ))!,
-    !opts.json
+    !opts.json,
+    opts.defaultTs ?? "bun"
   );
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases)
@@ -1058,7 +1069,8 @@ async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeSettings,
       opts.defaultTs
     ))!,
-    !opts.json
+    !opts.json,
+    opts.defaultTs ?? "bun"
   );
 
   const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases);

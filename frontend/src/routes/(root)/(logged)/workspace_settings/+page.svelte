@@ -134,7 +134,7 @@
 			| 'error_handler') ?? 'users'
 	let usingOpenaiClientCredentialsOauth = false
 
-	const latestGitSyncHubScript = `hub/8854/sync-script-to-git-repo-windmill`
+	const latestGitSyncHubScript = `hub/8855/sync-script-to-git-repo-windmill`
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
 	// 		{
