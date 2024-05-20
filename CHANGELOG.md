@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.333.0](https://github.com/windmill-labs/windmill/compare/v1.332.1...v1.333.0) (2024-05-19)
+
+
+### Features
+
+* reduce memory usage ([#3768](https://github.com/windmill-labs/windmill/issues/3768)) ([7a1808e](https://github.com/windmill-labs/windmill/commit/7a1808e951a2f359902138d1bb964cf52986665d))
+
+## [1.332.1](https://github.com/windmill-labs/windmill/compare/v1.332.0...v1.332.1) (2024-05-18)
+
+
+### Bug Fixes
+
+* **cli:** improve handling of schema for script bundles ([32bf061](https://github.com/windmill-labs/windmill/commit/32bf061627f087e1ec4e88a3e03be0ca1b7fa9f7))
+* **frontend:** improve json display for large table objects ([#3765](https://github.com/windmill-labs/windmill/issues/3765)) ([f0b3527](https://github.com/windmill-labs/windmill/commit/f0b3527e53e077f9c9ab4c9c6373f35cee77e566))
+
+## [1.332.0](https://github.com/windmill-labs/windmill/compare/v1.331.2...v1.332.0) (2024-05-16)
+
+
+### Features
+
+* **frontend:** Fix App Select component initial value ([#3752](https://github.com/windmill-labs/windmill/issues/3752)) ([e11a375](https://github.com/windmill-labs/windmill/commit/e11a3751c3d188522360010a03e1fbc92311f554))
+
+
+### Bug Fixes
+
+* fix args interpolation for tag and concurrency key for non string values ([2b06d9a](https://github.com/windmill-labs/windmill/commit/2b06d9ae793f9e5fddee4ca0889634429ff53416))
+
+## [1.331.2](https://github.com/windmill-labs/windmill/compare/v1.331.1...v1.331.2) (2024-05-16)
+
+
+### Bug Fixes
+
+* improve support for non existing key in concurrency_key table ([9e86177](https://github.com/windmill-labs/windmill/commit/9e8617714250db74965de2842f3abd4b9260b072))
+
+## [1.331.1](https://github.com/windmill-labs/windmill/compare/v1.331.0...v1.331.1) (2024-05-16)
+
+
+### Bug Fixes
+
+* **backend:** prevent immediate cancellation of the error handler when a job is forcibly cancelled ([#3751](https://github.com/windmill-labs/windmill/issues/3751)) ([f3b8e01](https://github.com/windmill-labs/windmill/commit/f3b8e01981653bf97044ceadc18a4c7ce346317e))
+* **frontend:** improve queue metrics graphs performance ([#3749](https://github.com/windmill-labs/windmill/issues/3749)) ([2da00f1](https://github.com/windmill-labs/windmill/commit/2da00f19afe93e55190767219467ae942a2cc7ff))
+
 ## [1.331.0](https://github.com/windmill-labs/windmill/compare/v1.330.1...v1.331.0) (2024-05-15)
 
 

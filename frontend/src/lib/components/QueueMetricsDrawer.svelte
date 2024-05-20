@@ -18,9 +18,14 @@
 		type Point
 	} from 'chart.js'
 	import { WorkerService } from '$lib/gen'
-	import { onDestroy } from 'svelte'
 	import { superadmin } from '$lib/stores'
+	import Skeleton from './common/skeleton/Skeleton.svelte'
+	import DarkModeObserver from './DarkModeObserver.svelte'
+	import Alert from './common/alert/Alert.svelte'
 	export let drawer: Drawer
+
+	let isOpen: boolean = false
+	let loading: boolean = true
 
 	const colorTuples = [
 		['#7EB26D', 'rgba(126, 178, 109, 0.2)'],
@@ -74,10 +79,10 @@
 			created_at: string
 			value: number
 		}[],
-		zero: number = 0
+		zero = 0
 	) {
-		let last = -1
-		const newElements: typeof data = []
+		// fill holes with 0
+		const sorted: typeof data = []
 		for (const el of [
 			...data,
 			{
@@ -85,29 +90,44 @@
 				value: zero
 			}
 		]) {
+			const last =
+				sorted.length > 0 ? new Date(sorted[sorted.length - 1].created_at).getTime() : undefined
 			const currentTs = new Date(el.created_at).getTime()
-			if (last > -1 && currentTs - last > 1000 * 60 * 2) {
+			if (last && currentTs - last > 1000 * 60 * 2) {
 				const numElements = Math.floor((currentTs - last) / (1000 * 30))
 				for (let i = 1; i < numElements; i++) {
-					newElements.push({
+					sorted.push({
 						created_at: new Date(last + i * (1000 * 30)).toISOString(),
 						value: zero
 					})
 				}
 			}
-			last = currentTs
+			sorted.push(el)
 		}
 
-		return [...data, ...newElements].sort(
-			(a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-		)
+		// remove high frequency data points for similar values
+		const light: typeof sorted = []
+		for (const el of sorted) {
+			const last = light.length > 0 ? light[light.length - 1] : undefined
+			if (
+				!last ||
+				Math.abs((el.value - last.value) / last.value) > 0.1 ||
+				new Date(el.created_at).getTime() - new Date(last.created_at).getTime() > 1000 * 60 * 15
+			) {
+				light.push(el)
+			}
+		}
+
+		return light
 	}
 
 	async function loadMetrics() {
+		loading = true
 		let metrics = await WorkerService.getQueueMetrics()
 
 		if (metrics.length == 0) {
 			noMetrics = true
+			loading = false
 			return
 		}
 
@@ -140,36 +160,39 @@
 						label: m.id.slice(12),
 						borderColor: color,
 						backgroundColor: bgColor,
-						data: fillData(m.values, 1).map((v) => ({ x: v.created_at as any, y: v.value }))
+						data: fillData(m.values, 1).map((v) => ({
+							x: v.created_at as any,
+							y: v.value
+						}))
 					}
 				})
 		}
 
 		minDate = new Date(Math.min(...countData.datasets.map((d) => new Date(d.data[0].x).getTime())))
+
+		loading = false
 	}
 
-	let interval: NodeJS.Timeout | undefined = undefined
-
-	$: if ($superadmin) {
+	$: if ($superadmin && isOpen) {
 		loadMetrics()
-		if (interval) {
-			clearInterval(interval)
-		}
-		interval = setInterval(loadMetrics, 35000)
 	} else {
-		if (interval) {
-			clearInterval(interval)
-		}
+		countData = undefined
+		delayData = undefined
 	}
 
-	onDestroy(() => {
-		clearInterval(interval)
-	})
+	let darkMode = false
+
+	$: ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
+	$: ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
 </script>
 
-<Drawer bind:this={drawer}>
+<DarkModeObserver bind:darkMode />
+
+<Drawer bind:this={drawer} bind:open={isOpen}>
 	<DrawerContent title="Queue Metrics" on:close={drawer.closeDrawer}>
-		{#if noMetrics}
+		{#if loading}
+			<Skeleton layout={[[20]]} />
+		{:else if noMetrics}
 			<p class="text-secondary">No jobs delayed by more than 3 seconds in the last 14 days</p>
 		{:else}
 			<div class="flex flex-col gap-4">
@@ -177,6 +200,7 @@
 					<Line
 						data={countData}
 						options={{
+							animation: false,
 							plugins: {
 								title: {
 									display: true,
@@ -203,6 +227,7 @@
 					<Line
 						data={delayData}
 						options={{
+							animation: false,
 							plugins: {
 								title: {
 									display: true,
@@ -243,6 +268,10 @@
 						}}
 					/>
 				{/if}
+				<Alert title="Info">
+					Only tags for jobs that have been delayed by more than 3 seconds in the last 14 days are
+					included in the graph.
+				</Alert>
 			</div>
 		{/if}
 	</DrawerContent>

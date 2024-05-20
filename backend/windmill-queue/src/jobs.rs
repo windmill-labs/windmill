@@ -212,6 +212,22 @@ pub async fn cancel_job<'c>(
 
     let job = job.unwrap();
 
+    // get all children
+    let mut jobs = vec![id];
+    let mut jobs_to_cancel = vec![];
+    while !jobs.is_empty() {
+        let p_job = jobs.pop();
+        let new_jobs = sqlx::query_scalar!(
+            "SELECT id FROM queue WHERE parent_job = $1 AND workspace_id = $2",
+            p_job,
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        jobs.extend(new_jobs.clone());
+        jobs_to_cancel.extend(new_jobs);
+    }
+
     let (ntx, _) = cancel_single_job(
         username,
         reason.clone(),
@@ -247,20 +263,6 @@ pub async fn cancel_job<'c>(
     }
 
     // cancel children
-    let mut jobs = vec![id];
-    let mut jobs_to_cancel = vec![];
-    while !jobs.is_empty() {
-        let p_job = jobs.pop();
-        let new_jobs = sqlx::query_scalar!(
-            "SELECT id FROM queue WHERE parent_job = $1 AND workspace_id = $2",
-            p_job,
-            w_id
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        jobs.extend(new_jobs.clone());
-        jobs_to_cancel.extend(new_jobs);
-    }
     for job_id in jobs_to_cancel {
         let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
 
@@ -760,7 +762,18 @@ pub async fn add_completed_job<
         }
     }
     if queued_job.concurrent_limit.is_some() {
-        let concurrency_key = concurrency_key(db, queued_job).await?;
+        let concurrency_key = match concurrency_key(db, queued_job).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "Could not get concurrency key for job {} defaulting to default key: {e:?}",
+                    queued_job.id
+                );
+                legacy_concurrency_key(db, queued_job)
+                    .await
+                    .unwrap_or_else(|| queued_job.full_path_with_workspace())
+            }
+        };
         if let Err(e) = sqlx::query_scalar!(
             "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
             concurrency_key,
@@ -974,7 +987,11 @@ pub async fn add_completed_job<
                             .unwrap_or_else(|| ScriptLang::Deno),
                         priority: queued_job.priority,
                     },
-                    queued_job.args.clone(),
+                    queued_job
+                        .args
+                        .as_ref()
+                        .map(|x| PushArgs { args: x.0.clone(), extra: HashMap::new() })
+                        .unwrap_or_else(PushArgs::empty),
                     &queued_job.created_by,
                     &queued_job.email,
                     queued_job.permissioned_as.clone(),
@@ -1055,7 +1072,7 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel<
     error_message: String,
 ) -> () {
     let w_id = &queued_job.workspace_id;
-    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>)>(
+    let (error_handler, error_handler_extra_args) = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
         "SELECT error_handler, error_handler_extra_args FROM workspace_settings WHERE workspace_id = $1",
     ).bind(&w_id)
     .fetch_optional(db)
@@ -1114,7 +1131,7 @@ pub async fn send_error_to_workspace_handler<
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = sqlx::query_as::<_, (Option<String>, Option<serde_json::Value>, bool)>(
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
         "SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel FROM workspace_settings WHERE workspace_id = $1",
     ).bind(&w_id)
     .fetch_optional(db)
@@ -1248,10 +1265,10 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, FromRow)]
 struct CompletedJobSubset {
     success: bool,
-    result: Option<serde_json::Value>,
+    result: Option<sqlx::types::Json<Box<RawValue>>>,
     started_at: chrono::DateTime<chrono::Utc>,
 }
 async fn apply_schedule_handlers<
@@ -1277,15 +1294,15 @@ async fn apply_schedule_handlers<
             let times = schedule.on_failure_times.unwrap_or(1).max(1);
             let exact = schedule.on_failure_exact.unwrap_or(false);
             if times > 1 || exact {
-                let past_jobs = sqlx::query_as!(
-                    CompletedJobSubset,
+                let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
                     "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT $5",
-                    &schedule.workspace_id,
-                    &schedule.path,
-                    script_path,
-                    job_id,
-                    if exact { times } else { times - 1 } as i64,
-                ).fetch_all(db).await?;
+                )
+                .bind(&schedule.workspace_id)
+                .bind(&schedule.path)
+                .bind(script_path)
+                .bind(job_id)
+                .bind(if exact { times } else { times - 1 } as i64,)
+                .fetch_all(db).await?;
 
                 let match_times = if exact {
                     past_jobs.len() == times as usize
@@ -1326,15 +1343,15 @@ async fn apply_schedule_handlers<
         if let Some(on_recovery_path) = schedule.on_recovery.clone() {
             let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
-            let past_jobs = sqlx::query_as!(
-                CompletedJobSubset,
+            let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
                 "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT $5",
-                &schedule.workspace_id,
-                &schedule.path,
-                script_path,
-                job_id,
-                times as i64,
-            ).fetch_all(db).await?;
+            )
+            .bind(&schedule.workspace_id)
+            .bind(&schedule.path)
+            .bind(script_path)
+            .bind(job_id)
+            .bind(times as i64)
+            .fetch_all(db).await?;
 
             if past_jobs.len() < times as usize {
                 return Ok(());
@@ -1391,7 +1408,7 @@ pub async fn push_error_handler<
     result: Json<&'a T>,
     failed_times: Option<i32>,
     started_at: Option<DateTime<Utc>>,
-    extra_args: Option<serde_json::Value>,
+    extra_args: Option<Json<Box<RawValue>>>,
     email: &str,
     is_schedule_error_handler: bool,
     is_global_error_handler: bool,
@@ -1420,10 +1437,8 @@ pub async fn push_error_handler<
     }
 
     if let Some(args_v) = extra_args {
-        if let serde_json::Value::Object(args_m) = args_v {
-            for (k, v) in args_m {
-                extra.insert(k, to_raw_value(&v));
-            }
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -1449,7 +1464,7 @@ pub async fn push_error_handler<
         tx,
         handler_w_id,
         payload,
-        PushArgs { extra, args: Json(&result) },
+        PushArgs { extra, args: result },
         if is_global_error_handler {
             "global"
         } else if is_schedule_error_handler {
@@ -1488,16 +1503,10 @@ pub async fn push_error_handler<
     return Ok(uuid);
 }
 
-fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> serde_json::Value {
-    let result =
-        serde_json::from_str(&serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()))
-            .unwrap_or_else(|_| json!({}));
-    let result = if result.is_object() || result.is_null() {
-        result
-    } else {
-        json!({ "error": result })
-    };
-    result
+fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> HashMap<String, Box<RawValue>> {
+    let as_str = serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string());
+    serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
+        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into())
 }
 
 // #[derive(Serialize)]
@@ -1526,33 +1535,33 @@ async fn handle_recovered_schedule<
     successful_job_result: Json<&'a T>,
     successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
-    extra_args: Option<serde_json::Value>,
+    extra_args: Option<Json<Box<RawValue>>>,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
-    let mut args = error_job
-        .result
-        .unwrap_or(json!({}))
-        .as_object()
-        .unwrap()
-        .clone();
-    args.insert("error_started_at".to_string(), json!(error_job.started_at));
-    args.insert("schedule_path".to_string(), json!(schedule_path));
-    args.insert("path".to_string(), json!(script_path));
-    args.insert("is_flow".to_string(), json!(is_flow));
-    args.insert(
-        "success_result".to_string(),
-        serde_json::from_str(&serde_json::to_string(&successful_job_result).unwrap())
-            .unwrap_or_else(|_| json!("{}")),
+    let mut extra = HashMap::new();
+    extra.insert(
+        "error_started_at".to_string(),
+        to_raw_value(&error_job.started_at),
     );
-    args.insert("success_times".to_string(), json!(successful_times));
-    args.insert(
+    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    extra.insert("path".to_string(), to_raw_value(&script_path));
+    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
+    extra.insert(
+        "success_result".to_string(),
+        serde_json::from_str::<Box<RawValue>>(
+            &serde_json::to_string(&successful_job_result).unwrap(),
+        )
+        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap()),
+    );
+    extra.insert("success_times".to_string(), to_raw_value(&successful_times));
+    extra.insert(
         "success_started_at".to_string(),
-        json!(successful_job_started_at),
+        to_raw_value(&successful_job_started_at),
     );
     if let Some(args_v) = extra_args {
-        if let serde_json::Value::Object(args_m) = args_v {
-            args.extend(args_m);
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -1566,15 +1575,21 @@ async fn handle_recovered_schedule<
     {
         // default slack error handler being used -> we need to inject the slack token
         let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        args.insert("slack".to_string(), json!(slack_resource));
+        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
+
+    let args = error_job
+        .result
+        .and_then(|x| serde_json::from_str::<HashMap<String, Box<RawValue>>>(x.0.get()).ok())
+        .unwrap_or_else(HashMap::new);
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
         tx,
         w_id,
         payload,
-        args,
+        PushArgs { extra: extra, args: args },
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
         SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
         ERROR_HANDLER_USER_GROUP.to_string(),
@@ -1645,7 +1660,13 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         // Else the job is subject to concurrency limits
         let job_script_path = pulled_job.script_path.clone().unwrap();
 
-        let job_concurrency_key = concurrency_key(db, &pulled_job).await?;
+        let job_concurrency_key = concurrency_key(db, &pulled_job).await.unwrap_or_else(|e| {
+            tracing::error!(
+                "Could not get concurrency key for job {} defaulting to default key: {e:?}",
+                pulled_job.id
+            );
+            return pulled_job.full_path_with_workspace();
+        });
         tracing::debug!("Concurrency key is '{}'", job_concurrency_key);
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs
@@ -2003,34 +2024,68 @@ pub async fn custom_concurrency_key(
         .await
 }
 
+async fn legacy_concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> Option<String> {
+    let r = if queued_job.is_flow() {
+        sqlx::query_scalar!(
+            "SELECT value->>'concurrency_key' FROM flow WHERE path = $1 AND workspace_id = $2",
+            queued_job.script_path,
+            queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await
+    } else {
+        sqlx::query_scalar!(
+            "SELECT concurrency_key FROM script WHERE hash = $1 AND workspace_id = $2",
+            queued_job.script_hash.unwrap_or(ScriptHash(0)).0,
+            queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await
+    }
+    .ok()
+    .flatten()
+    .flatten();
+
+    r.map(|x| {
+        interpolate_args(
+            x,
+            &queued_job
+                .args
+                .clone()
+                .map(|x| x.0)
+                .unwrap_or_default()
+                .into(),
+            &queued_job.workspace_id,
+        )
+    })
+}
+
 async fn concurrency_key(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
 ) -> windmill_common::error::Result<String> {
-    not_found_if_none(custom_concurrency_key(db, queued_job.id).await?, "ConcurrencyKey", queued_job.id.to_string())
+    not_found_if_none(
+        custom_concurrency_key(db, queued_job.id).await?,
+        "ConcurrencyKey",
+        queued_job.id.to_string(),
+    )
 }
 
-fn interpolate_args<T: Serialize>(
-    x: String,
-    args: &T,
-    workspace_id: &str,
-    parsed_args: &mut Option<serde_json::Value>,
-) -> String {
+fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
-    if parsed_args.is_none() {
-        *parsed_args = Some(serde_json::to_value(args).unwrap_or_default());
-    }
-    let value = parsed_args.as_ref().unwrap();
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = value
+            let arg_value = args
+                .args
                 .get(arg_name)
-                .and_then(|x| x.as_str())
+                .or(args.extra.get(arg_name))
+                .map(|x| x.get())
                 .unwrap_or_default();
-            interpolated = interpolated.replace(format!("$args[{}]", arg_name).as_str(), arg_value);
+            interpolated =
+                interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
         interpolated
     } else {
@@ -2038,20 +2093,22 @@ fn interpolate_args<T: Serialize>(
     }
 }
 
-fn fullpath_with_workspace(workspace_id: &str, script_path: Option<&String>, job_kind: &JobKind) -> String {
-    let path = script_path
-        .map(String::as_str)
-        .unwrap_or("tmp/main");
+fn fullpath_with_workspace(
+    workspace_id: &str,
+    script_path: Option<&String>,
+    job_kind: &JobKind,
+) -> String {
+    let path = script_path.map(String::as_str).unwrap_or("tmp/main");
     let is_flow = matches!(
         job_kind,
         &JobKind::Flow | &JobKind::FlowPreview | &JobKind::SingleScriptFlow
     );
     format!(
-            "{}/{}/{}",
-            workspace_id,
-            if is_flow { "flow" } else { "script" },
-            path,
-        )
+        "{}/{}/{}",
+        workspace_id,
+        if is_flow { "flow" } else { "script" },
+        path,
+    )
 }
 
 #[derive(FromRow)]
@@ -2472,11 +2529,11 @@ macro_rules! fetch_scalar_isolated {
 use sqlx::types::JsonRawValue;
 
 #[derive(Serialize, Debug)]
-pub struct PushArgs<T> {
+pub struct PushArgs {
     #[serde(flatten)]
     pub extra: HashMap<String, Box<RawValue>>,
     #[serde(flatten)]
-    pub args: Json<T>,
+    pub args: HashMap<String, Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -2533,7 +2590,7 @@ impl DecodeQueries {
     }
 }
 
-impl<T> PushArgs<T> {
+impl PushArgs {
     pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
         self.extra.insert(k.into(), v.into());
     }
@@ -2546,7 +2603,7 @@ pub struct RequestQuery {
 }
 
 #[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for PushArgs<HashMap<String, Box<RawValue>>>
+impl<S> FromRequest<S, axum::body::Body> for PushArgs
 where
     S: Send + Sync,
 {
@@ -2590,12 +2647,12 @@ where
                     .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
                 let mut hm = HashMap::new();
                 hm.insert("body".to_string(), args);
-                Ok(PushArgs { extra, args: Json(hm) })
+                Ok(PushArgs { extra, args: hm })
             } else {
                 let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
                     .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
                     .unwrap_or_else(HashMap::new);
-                Ok(PushArgs { extra, args: Json(hm) })
+                Ok(PushArgs { extra, args: hm })
             }
         } else if content_type
             .unwrap()
@@ -2621,7 +2678,7 @@ where
                 .map(|(k, v)| (k, to_raw_value(&v)))
                 .collect::<HashMap<_, _>>();
 
-            return Ok(PushArgs { extra, args: Json(payload) });
+            return Ok(PushArgs { extra, args: payload });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
@@ -2659,9 +2716,9 @@ pub fn build_extra(
     args
 }
 
-impl PushArgs<HashMap<String, Box<RawValue>>> {
+impl PushArgs {
     pub fn empty() -> Self {
-        PushArgs { extra: HashMap::new(), args: Json(HashMap::new()) }
+        PushArgs { extra: HashMap::new(), args: HashMap::new() }
     }
 }
 
@@ -2669,9 +2726,9 @@ pub fn empty_result() -> Box<RawValue> {
     return JsonRawValue::from_string("{}".to_string()).unwrap();
 }
 
-impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs<HashMap<String, Box<JsonRawValue>>> {
+impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs {
     fn from(value: HashMap<String, Box<JsonRawValue>>) -> Self {
-        PushArgs { extra: HashMap::new(), args: Json(value) }
+        PushArgs { extra: HashMap::new(), args: value }
     }
 }
 
@@ -2686,12 +2743,12 @@ lazy_static::lazy_static! {
 }
 
 // #[instrument(level = "trace", skip_all)]
-pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection + Send + 'c>(
+pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
     mut tx: PushIsolationLevel<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: T,
+    args: PushArgs,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -3123,12 +3180,14 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             let flow_value = FlowValue {
                 modules: vec![FlowModule {
                     id: "a".to_string(),
-                    value: windmill_common::flows::FlowModuleValue::Script {
-                        input_transforms: input_transforms,
-                        path: path.clone(),
-                        hash: Some(hash),
-                        tag_override: tag_override,
-                    },
+                    value: windmill_common::worker::to_raw_value(
+                        &windmill_common::flows::FlowModuleValue::Script {
+                            input_transforms: input_transforms,
+                            path: path.clone(),
+                            hash: Some(hash),
+                            tag_override: tag_override,
+                        },
+                    ),
                     stop_after_if: None,
                     summary: None,
                     suspend: None,
@@ -3355,8 +3414,6 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 
     let per_workspace: bool = DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed);
 
-    let mut parsed_args: Option<serde_json::Value> = None;
-
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(
             "{}:{}{}",
@@ -3379,8 +3436,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
             tag = None;
         }
 
-        let interpolated_tag =
-            tag.map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args));
+        let interpolated_tag = tag.map(|x| interpolate_args(x, &args, workspace_id));
 
         let default = || {
             let ntag = if job_kind == JobKind::Flow
@@ -3448,8 +3504,12 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
 
     if concurrent_limit.is_some() {
         let concurrency_key = custom_concurrency_key
-            .map(|x| interpolate_args(x, &args, workspace_id, &mut parsed_args))
-            .unwrap_or(fullpath_with_workspace(workspace_id, script_path.as_ref(), &job_kind));
+            .map(|x| interpolate_args(x, &args, workspace_id))
+            .unwrap_or(fullpath_with_workspace(
+                workspace_id,
+                script_path.as_ref(),
+                &job_kind,
+            ));
         sqlx::query!(
             "INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
             concurrency_key,
@@ -3480,7 +3540,7 @@ pub async fn push<'c, T: Serialize + Send + Sync, R: rsmq_async::RsmqConnection 
         script_path.clone(),
         raw_code,
         raw_lock,
-        Json(args) as Json<T>,
+        Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
         raw_flow.map(|f| serde_json::json!(f)),
@@ -3644,8 +3704,8 @@ async fn restarted_flows_resolution(
                         module.id()
                     )))?;
 
-                match module_definition.value.clone() {
-                    FlowModuleValue::BranchAll { branches, parallel, .. } => {
+                match module_definition.get_value() {
+                    Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
                         if parallel {
                             return Err(Error::InternalErr(format!(
                                 "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
@@ -3677,7 +3737,7 @@ async fn restarted_flows_resolution(
                             while_loop: false,
                         });
                     }
-                    FlowModuleValue::ForloopFlow { parallel, .. } => {
+                    Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
                         if parallel {
                             return Err(Error::InternalErr(format!(
                                 "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",

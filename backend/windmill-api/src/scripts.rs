@@ -25,6 +25,7 @@ use axum::{
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
@@ -51,6 +52,7 @@ use windmill_common::{
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
+    worker::to_raw_value,
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -70,7 +72,7 @@ pub struct ScriptWDraft {
     pub kind: ScriptKind,
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<serde_json::Value>,
+    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     pub schema: Option<Schema>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
@@ -622,22 +624,19 @@ async fn create_script_internal<'c>(
         .execute(&mut tx)
         .await?;
 
-        let mut schedulables = sqlx::query_as!(
-        Schedule,
-            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
-            ns.path,
-            p_path,
-            w_id,
-        )
+        let mut schedulables = sqlx::query_as::<_, Schedule>(
+            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS false RETURNING *")
+            .bind(&ns.path)
+            .bind(&p_path)
+            .bind(&w_id)
         .fetch_all(&mut tx)
         .await?;
 
-        let schedule = sqlx::query_as!(Schedule,
-            "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
-            ns.path,
-            p_path,
-            w_id,
-        )
+        let schedule = sqlx::query_as::<_, Schedule>(
+            "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *")
+            .bind(&ns.path)
+            .bind(&p_path)
+            .bind(&w_id)
         .fetch_optional(&mut tx)
         .await?;
 
@@ -716,12 +715,12 @@ async fn create_script_internal<'c>(
             ns.tag
         };
 
-        let mut args: HashMap<String, serde_json::Value> = HashMap::new();
+        let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
         if let Some(dm) = ns.deployment_message {
-            args.insert("deployment_message".to_string(), json!(dm));
+            args.insert("deployment_message".to_string(), to_raw_value(&dm));
         }
         if let Some(ref p_path) = p_path_opt {
-            args.insert("parent_path".to_string(), json!(p_path));
+            args.insert("parent_path".to_string(), to_raw_value(&p_path));
         }
 
         let tx = PushIsolationLevel::Transaction(tx);
@@ -735,7 +734,7 @@ async fn create_script_internal<'c>(
                 path: ns.path,
                 dedicated_worker: ns.dedicated_worker,
             },
-            args,
+            args.into(),
             &authed.username,
             &authed.email,
             permissioned_as,

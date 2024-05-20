@@ -32,6 +32,13 @@ use windmill_common::{
     DB, METRICS_ENABLED,
 };
 
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[cfg(feature = "enterprise")]
 use windmill_common::METRICS_ADDR;
 
@@ -104,6 +111,9 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     #[cfg(not(feature = "flamegraph"))]
     windmill_common::tracing_init::initialize_tracing();
+
+    #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+    tracing::info!("jemalloc enabled");
 
     #[cfg(feature = "flamegraph")]
     let _guard = windmill_common::tracing_init::setup_flamegraph();

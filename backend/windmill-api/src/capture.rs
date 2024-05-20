@@ -6,15 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
-
 use axum::{
     extract::{Extension, Path},
     routing::{get, post, put},
     Router,
 };
 use hyper::StatusCode;
-use serde_json::value::RawValue;
 use sqlx::types::Json;
 use windmill_common::{
     db::UserDB,
@@ -89,7 +86,7 @@ pub async fn new_payload(
 pub async fn update_payload(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    args: PushArgs<HashMap<String, Box<RawValue>>>,
+    args: PushArgs,
 ) -> Result<StatusCode> {
     let mut tx = db.begin().await?;
 
@@ -102,7 +99,7 @@ pub async fn update_payload(
         ",
         &w_id,
         &path.to_path(),
-        Json(args) as Json<PushArgs<HashMap<String, Box<RawValue>>>>,
+        Json(args) as Json<PushArgs>,
     )
     .execute(&mut *tx)
     .await?;
@@ -112,27 +109,31 @@ pub async fn update_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(sqlx::FromRow)]
+struct Payload {
+    payload: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+}
 pub async fn get_payload(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<serde_json::Value> {
+) -> JsonResult<Box<serde_json::value::RawValue>> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let payload = sqlx::query_scalar!(
+    let payload = sqlx::query_as::<_, Payload>(
         "
        SELECT payload
          FROM capture
         WHERE workspace_id = $1
           AND path = $2
         ",
-        &w_id,
-        &path.to_path(),
     )
+    .bind(&w_id)
+    .bind(&path.to_path())
     .fetch_optional(&mut *tx)
     .await?;
 
     tx.commit().await?;
 
-    not_found_if_none(payload, "capture", path.to_path()).map(axum::Json)
+    not_found_if_none(payload.map(|x| x.payload.0), "capture", path.to_path()).map(axum::Json)
 }

@@ -23,7 +23,7 @@ pub struct Schedule {
     pub enabled: bool,
     pub script_path: String,
     pub is_flow: bool,
-    pub args: Option<serde_json::Value>,
+    pub args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     pub extra_perms: serde_json::Value,
     pub email: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,13 +35,13 @@ pub struct Schedule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_failure_exact: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_failure_extra_args: Option<serde_json::Value>,
+    pub on_failure_extra_args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_recovery: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_recovery_times: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_recovery_extra_args: Option<serde_json::Value>,
+    pub on_recovery_extra_args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
 
     pub ws_error_handler_muted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
