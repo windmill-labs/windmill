@@ -70,7 +70,7 @@ let command: any = new Command()
       "wmill.yaml",
       yamlStringify({
         defaultTs: "bun",
-        includes: [],
+        includes: ["**"],
         excludes: [],
         codebases: [],
       })

@@ -36,13 +36,13 @@ export async function readConfigFile(): Promise<SyncOptions> {
     ) as SyncOptions;
     if (conf?.defaultTs == undefined) {
       log.warning(
-        "No defaultTs defined in your wmill.yaml, using deno as default typescript language. Use 'wmill init' to bootstrap it."
+        "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
       );
     }
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
     log.warning(
-      "No wmill.yaml found, using deno as default typescript language. Use 'wmill init' to bootstrap it."
+      "No wmill.yaml found. Use 'wmill init' to bootstrap it. Using 'bun' as default typescript runtime."
     );
     return {};
   }

@@ -392,13 +392,13 @@ export function filePathExtensionFromContentType(
   } else if (language === "nativets") {
     return ".fetch.ts";
   } else if (language === "bun") {
-    if (defaultTs == undefined || defaultTs == "deno") {
+    if (defaultTs == "deno") {
       return ".bun.ts";
     } else {
       return ".ts";
     }
   } else if (language === "deno") {
-    if (defaultTs == "bun") {
+    if (defaultTs == undefined || defaultTs == "bun") {
       return ".deno.ts";
     } else {
       return ".ts";
