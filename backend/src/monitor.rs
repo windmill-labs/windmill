@@ -243,7 +243,8 @@ fn set_prof_active(new_value: bool) -> Result<(), MallctlError> {
     Ok(())
 }
 
-fn bytes_to_mb(bytes: u64) -> f64 {
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+pub fn bytes_to_mb(bytes: u64) -> f64 {
     const BYTES_PER_MB: f64 = 1_048_576.0;
     bytes as f64 / BYTES_PER_MB
 }
