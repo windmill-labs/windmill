@@ -185,8 +185,6 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 RUN windmill cache
 
-ENV _RJEM_MALLOC_CONF=prof:true,prof_active:false,lg_prof_interval:30,lg_prof_sample:21,prof_prefix:/tmp/jeprof
-
 EXPOSE 8000
 
 CMD ["windmill"]
