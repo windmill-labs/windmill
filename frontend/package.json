@@ -119,7 +119,6 @@
 		"monaco-languageclient": "~7.0.1",
 		"ol": "^7.4.0",
 		"openai": "^4.3.0",
-		"patch-package": "^8.0.0",
 		"pdfjs-dist": "^3.8.162",
 		"quill": "^1.3.7",
 		"svelte-carousel": "^1.0.25",

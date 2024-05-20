@@ -117,7 +117,6 @@
 			})
 			if (JSON.stringify(newFilteredItems) !== JSON.stringify(filteredItems)) {
 				filteredItems = newFilteredItems
-				console.log(filteredItems)
 			}
 		}
 	}, 100)
@@ -126,7 +125,6 @@
 		if (searchText.length >= 3) {
 			debouncedFilter()
 		} else if (filteredItems.length !== items.length) {
-			console.log('erset')
 			filteredItems = items
 		}
 	}
