@@ -37,8 +37,8 @@
 				s.count += 1
 				s.id_started.push(j.id)
 				if (j.type === 'CompletedJob') {
-					const jc = j as CompletedJob;
-					const endTime = startTime + (jc.duration_ms / 1000.0)
+					const jc = j as CompletedJob
+					const endTime = startTime + jc.duration_ms
 					if (!timeline.has(endTime)) {
 						timeline.set(endTime, { count: 0, id_started: [], id_ended: [] })
 					}
@@ -59,8 +59,8 @@
 				s.count += 1
 				s.id_started.push('unknoww')
 				if (j.duration_ms != undefined) {
-					const jc = j as CompletedJob;
-					const endTime = startTime + (jc.duration_ms / 1000.0)
+					const jc = j as CompletedJob
+					const endTime = startTime + jc.duration_ms
 					if (!timeline.has(endTime)) {
 						timeline.set(endTime, { count: 0, id_started: [], id_ended: [] })
 					}
