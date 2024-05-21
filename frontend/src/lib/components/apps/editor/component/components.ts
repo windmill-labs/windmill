@@ -177,6 +177,7 @@ export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
 		onSelect?: string[]
 	}
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
+export type MultiSelectComponentV2 = BaseComponent<'multiselectcomponentv2'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'> &
 	RecomputeOthersSource & {
 		onToggle?: string[]
@@ -317,6 +318,7 @@ export type TypedComponent =
 	| DateTimeInputComponent
 	| AggridInfiniteComponent
 	| AggridInfiniteComponentEe
+	| MultiSelectComponentV2
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -2038,6 +2040,58 @@ This is a paragraph.
 		}
 	},
 	multiselectcomponent: {
+		name: 'Multi Select',
+		icon: List,
+		documentationLink: `${documentationBaseUrl}/multiselect`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			multiselect: {
+				style: '',
+				tooltip:
+					'See https://multiselect.janosh.dev/#with-css-variables for the available variables'
+			}
+		},
+		initialData: {
+			componentInput: undefined,
+			verticalAlignment: 'center',
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: ['Foo', 'Bar']
+				} as StaticAppInput,
+				defaultItems: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: []
+				} as StaticAppInput,
+				placeholder: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Select items'
+				},
+				create: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+
+					tooltip: 'Allows user to manually add new value',
+					customTitle: 'User creatable'
+				},
+				allowOverflow: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true,
+
+					tooltip:
+						'If too many items, the box overflow its container instead of having an internal scroll'
+				}
+			}
+		}
+	},
+	multiselectcomponentv2: {
 		name: 'Multi Select',
 		icon: List,
 		documentationLink: `${documentationBaseUrl}/multiselect`,

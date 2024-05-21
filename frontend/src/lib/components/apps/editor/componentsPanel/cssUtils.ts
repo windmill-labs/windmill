@@ -603,7 +603,7 @@ export const customisationByComponent: Customisation[] = [
 	},
 
 	{
-		components: ['multiselectcomponent'],
+		components: ['multiselectcomponent', 'multiselectcomponentv2'],
 		selectors: [
 			{
 				selector: '.multiselect',
