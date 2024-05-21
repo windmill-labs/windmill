@@ -575,10 +575,9 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let instance_name = rd_string(8);
-        if mode != Mode::Agent {
+        if mode == Mode::Server || mode == Mode::Standalone {
             schedule_stats(
                 instance_name,
-                mode.clone(),
                 &db,
                 &HTTP_CLIENT,
                 cfg!(feature = "enterprise"),

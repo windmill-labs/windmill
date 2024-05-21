@@ -251,7 +251,6 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     require_super_admin(&db, &authed.email).await?;
     windmill_common::stats_ee::send_stats(
         &"manual".to_string(),
-        &windmill_common::utils::Mode::Server,
         &HTTP_CLIENT,
         &db,
         cfg!(feature = "enterprise"),
