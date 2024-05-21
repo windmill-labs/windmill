@@ -182,7 +182,7 @@
 			<div>
 				{#if displayHeader}
 					<FieldHeader
-						prettify
+						prettify={emptyString(title)}
 						label={title && !emptyString(title) ? title : label}
 						{required}
 						{type}
@@ -233,7 +233,7 @@
 										? ''
 										: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'
 								)}
-								placeholder={defaultValue ?? ''}
+								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
 								min={extra['min']}
 								max={extra['max']}
@@ -432,7 +432,7 @@
 							class={valid
 								? ''
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
-							placeholder={defaultValue ?? ''}
+							placeholder={placeholder ?? defaultValue ?? ''}
 							bind:value
 						/>
 					{:else if inputCat == 'currency'}
@@ -441,7 +441,7 @@
 							class={valid
 								? ''
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
-							placeholder={defaultValue ?? ''}
+							placeholder={placeholder ?? defaultValue ?? ''}
 							bind:value
 						/>
 					{:else if inputCat == 'string'}
@@ -460,7 +460,7 @@
 										class="col-span-10 {valid && error == ''
 											? ''
 											: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}"
-										placeholder={defaultValue ?? ''}
+										placeholder={placeholder ?? defaultValue ?? ''}
 										bind:value
 										on:pointerdown|stopPropagation={(e) => {
 											dispatch('inputClicked', e)

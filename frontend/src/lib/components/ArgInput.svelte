@@ -282,20 +282,6 @@
 					</svelte:fragment>
 					<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
 				</Label>
-				<Label label="Placeholder" class="w-full">
-					<svelte:fragment slot="header">
-						<Tooltip light>
-							Will be displayed in the input field when it's empty. If not set, the default value
-							will be used.
-						</Tooltip>
-					</svelte:fragment>
-					<input
-						class="mb-1"
-						bind:value={placeholder}
-						on:keydown={onKeyDown}
-						placeholder="Field placeholder"
-					/>
-				</Label>
 			</div>
 
 			{#if type == 'array'}
