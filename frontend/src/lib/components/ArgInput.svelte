@@ -275,26 +275,28 @@
 					placeholder="Field description"
 				/>
 			</Label>
-			<Label label="Custom Title">
-				<svelte:fragment slot="header">
-					<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
-				</svelte:fragment>
-				<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
-			</Label>
-			<Label label="Placeholder">
-				<svelte:fragment slot="header">
-					<Tooltip light>
-						Will be displayed in the input field when it's empty. If not set, the default value will
-						be used.
-					</Tooltip>
-				</svelte:fragment>
-				<input
-					class="mb-1"
-					bind:value={placeholder}
-					on:keydown={onKeyDown}
-					placeholder="Field placeholder"
-				/>
-			</Label>
+			<div class="flex flex-row gap-2 w-full">
+				<Label label="Custom Title" class="w-full">
+					<svelte:fragment slot="header">
+						<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
+					</svelte:fragment>
+					<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
+				</Label>
+				<Label label="Placeholder" class="w-full">
+					<svelte:fragment slot="header">
+						<Tooltip light>
+							Will be displayed in the input field when it's empty. If not set, the default value
+							will be used.
+						</Tooltip>
+					</svelte:fragment>
+					<input
+						class="mb-1"
+						bind:value={placeholder}
+						on:keydown={onKeyDown}
+						placeholder="Field placeholder"
+					/>
+				</Label>
+			</div>
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
