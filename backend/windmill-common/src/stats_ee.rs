@@ -27,7 +27,6 @@ pub async fn send_stats(
     _instance_name: &String,
     _http_client: &reqwest::Client,
     _db: &DB,
-    _is_enterprise: bool,
 ) -> Result<()> {
     // stats details are closed source
     Ok(())
