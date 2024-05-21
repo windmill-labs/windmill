@@ -851,3 +851,49 @@ export function getLocalSetting(name: string) {
 		return undefined
 	}
 }
+
+export function computeKind(
+	enum_: string[] | undefined,
+	contentEncoding: 'base64' | 'binary' | undefined,
+	pattern: string | undefined,
+	format: string | undefined
+): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' {
+	if (enum_ != undefined) {
+		return 'enum'
+	}
+	if (contentEncoding == 'base64') {
+		return 'base64'
+	}
+	if (pattern != undefined) {
+		return 'pattern'
+	}
+	if (format != undefined && format != '') {
+		if (format?.startsWith('resource')) {
+			return 'resource'
+		}
+		return 'format'
+	}
+	return 'none'
+}
+
+// Used to check whether a placeholder should be displayed in the input field, based on the schema
+export function shouldDisplayPlaceholder(
+	type: string | undefined,
+	format: string | undefined,
+	enum_: string[] | undefined,
+	contentEncoding: 'base64' | 'binary' | undefined,
+	pattern: string | undefined
+): boolean {
+	if (type === 'string') {
+		const kind = computeKind(enum_, contentEncoding, pattern, format)
+
+		if (kind === 'format' && format) {
+			const whiteList = ['email', 'hostname', 'ipv4', 'uri', 'uuid']
+			return whiteList.includes(format)
+		}
+
+		return kind === 'none' || kind === 'pattern'
+	}
+
+	return type === 'number' || type === 'integer' || type === undefined
+}

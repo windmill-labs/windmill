@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { setInputCat as computeInputCat, emptyString, shouldDisplayPlaceholder } from '$lib/utils'
 	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
@@ -218,51 +218,6 @@
 
 	function changePosition(i: number, up: boolean) {
 		dispatch('changePosition', { i, up })
-	}
-
-	function computeKind(
-		enum_: string[] | undefined,
-		contentEncoding: 'base64' | 'binary' | undefined,
-		pattern: string | undefined,
-		format: string | undefined
-	): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' {
-		if (enum_ != undefined) {
-			return 'enum'
-		}
-		if (contentEncoding == 'base64') {
-			return 'base64'
-		}
-		if (pattern != undefined) {
-			return 'pattern'
-		}
-		if (format != undefined && format != '') {
-			if (format?.startsWith('resource')) {
-				return 'resource'
-			}
-			return 'format'
-		}
-		return 'none'
-	}
-
-	function shouldDisplayPlaceholder(
-		type: string | undefined,
-		format: string | undefined,
-		enum_: string[] | undefined,
-		contentEncoding: 'base64' | 'binary' | undefined,
-		pattern: string | undefined
-	): boolean {
-		if (type == 'string') {
-			const kind = computeKind(enum_, contentEncoding, pattern, format)
-
-			if (kind === 'format') {
-				const whiteList = ['email', 'hostname', 'ipv4', 'uri', 'uuid']
-				return format ? whiteList.includes(format) : true
-			}
-
-			return kind === 'none' || kind === 'pattern'
-		}
-
-		return type == 'number' || type == 'integer' || type == undefined
 	}
 </script>
 

@@ -91,6 +91,7 @@
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Label from './Label.svelte'
+	import { shouldDisplayPlaceholder } from '$lib/utils'
 
 	export let error = ''
 	export let editing = false
@@ -163,43 +164,13 @@
 		return []
 	}
 
-	function computeKind(
-		property: ModalSchemaProperty
-	): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' {
-		if (property.enum_ != undefined) {
-			return 'enum'
-		}
-		if (property.contentEncoding == 'base64') {
-			return 'base64'
-		}
-		if (property.pattern != undefined) {
-			return 'pattern'
-		}
-		if (property.format != undefined && property.format != '') {
-			if (property.format?.startsWith('resource')) {
-				return 'resource'
-			}
-			return 'format'
-		}
-		return 'none'
-	}
-
-	function shouldDisplayPlaceholder(property: ModalSchemaProperty): boolean {
-		if (property.selectedType == 'string') {
-			const kind = computeKind(property)
-
-			if (kind === 'format') {
-				const whiteList = ['email', 'hostname', 'ipv4', 'uri', 'uuid']
-				return property.format ? whiteList.includes(property.format) : true
-			}
-
-			return kind === 'none' || kind === 'pattern'
-		}
-
-		return (
-			property.selectedType == 'number' ||
-			property.selectedType == 'integer' ||
-			property.selectedType == undefined
+	function shouldDisplayPlaceholderForProperty(property: ModalSchemaProperty): boolean {
+		return shouldDisplayPlaceholder(
+			property.selectedType,
+			property.format,
+			property.enum_,
+			property.contentEncoding,
+			property.pattern
 		)
 	}
 </script>
@@ -393,7 +364,7 @@
 						</svelte:fragment>
 					</Tabs>
 				{/if}
-				{#if property && shouldDisplayPlaceholder(property)}
+				{#if property && shouldDisplayPlaceholderForProperty(property)}
 					<Label label="Placeholder" class="pt-2">
 						<textarea
 							placeholder="Enter a placeholder"
