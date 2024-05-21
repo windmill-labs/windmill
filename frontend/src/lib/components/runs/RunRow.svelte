@@ -34,12 +34,13 @@
 	let scheduleEditor: ScheduleEditor
 
 	$: isExternal = job && job.id === '-'
+
+	let triggeredByWidth: number = 0
 </script>
 
 <Portal>
 	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 </Portal>
-
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
@@ -211,7 +212,7 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="w-3/12 flex justify-start">
+	<div class="w-3/12 flex justify-start" bind:clientWidth={triggeredByWidth}>
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
 				<Calendar size={14} />
@@ -221,7 +222,12 @@
 					btnClasses="font-normal"
 					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 				>
-					{job.schedule_path}
+					<div
+						class="truncate text-ellipsis text-left"
+						style="max-width: {triggeredByWidth - 48}px"
+					>
+						{job.schedule_path}
+					</div>
 				</Button>
 			</div>
 		{:else}
