@@ -1,6 +1,7 @@
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{
-    filter_list_completed_query, filter_list_queue_query, ListCompletedQuery, ListQueueQuery,
+    filter_list_completed_query, filter_list_queue_query, Job, ListCompletedQuery, ListQueueQuery,
+    UnifiedJob,
 };
 use crate::users::check_scopes;
 use axum::extract::Path;
@@ -13,12 +14,10 @@ use axum::Router;
 use serde::Serialize;
 use sql_builder::bind::Bind;
 use sql_builder::SqlBuilder;
-use sqlx::postgres::PgRow;
-use sqlx::{FromRow, Row};
 use uuid::Uuid;
 use windmill_common::db::UserDB;
 use windmill_common::error::Error::{InternalErr, PermissionDenied};
-use windmill_common::error::JsonResult;
+use windmill_common::error::{self, JsonResult};
 use windmill_common::utils::require_admin;
 
 pub fn global_service() -> Router {
@@ -29,7 +28,7 @@ pub fn global_service() -> Router {
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/intervals", get(get_concurrent_intervals))
+    Router::new().route("/list_jobs", get(get_concurrent_intervals))
 }
 
 #[derive(Serialize)]
@@ -107,58 +106,30 @@ async fn prune_concurrency_group(
 }
 
 #[derive(Serialize)]
-struct ConcurrencyIntervals {
-    concurrency_key: Option<String>,
-    running_jobs: Vec<RunningJobDuration>,
-    completed_jobs: Vec<CompletedJobDuration>,
+struct ExtendedJobs {
+    jobs: Vec<Job>,
+    obscured_jobs: Vec<ObscuredJob>,
+    omitted_obscured_jobs: bool,
 }
 
 #[derive(Serialize)]
-struct CompletedJobDuration {
-    job_id: Option<Uuid>,
-    concurrency_key: Option<String>,
-    started_at: chrono::DateTime<chrono::Utc>,
-    ended_at: chrono::DateTime<chrono::Utc>,
-}
-
-impl<'r> FromRow<'r, PgRow> for CompletedJobDuration {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let duration_ms: i64 = row.try_get("duration_ms")?;
-        let started_at = row.try_get("started_at")?;
-        let ended_at: chrono::DateTime<chrono::Utc> =
-            started_at + std::time::Duration::from_millis(duration_ms.try_into().unwrap());
-        Ok(Self {
-            job_id: row.try_get("id")?,
-            concurrency_key: row.try_get("key")?,
-            started_at,
-            ended_at,
-        })
-    }
-}
-
-#[derive(Serialize, FromRow)]
-struct RunningJobDuration {
-    #[sqlx(rename = "id")]
-    job_id: Option<Uuid>,
-    #[sqlx(rename = "key")]
-    concurrency_key: Option<String>,
+struct ObscuredJob {
+    typ: String,
     started_at: Option<chrono::DateTime<chrono::Utc>>,
+    duration_ms: Option<i64>,
 }
-
 #[derive(Deserialize)]
-struct ConcurrentIntervalsParams {
+struct ExtendedJobsParams {
     concurrency_key: Option<String>,
     row_limit: Option<i64>,
 }
 
 fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
-    match concurrency_key {
-        Some(key) => sqlb
-            .join("concurrency_key")
+    if let Some(key) = concurrency_key {
+        sqlb.join("concurrency_key")
             .on_eq("id", "job_id")
-            .and_where_eq("key", "?".bind(key)),
-        None => sqlb.left().join("concurrency_key").on_eq("id", "job_id"),
-    };
+            .and_where_eq("key", "?".bind(key));
+    }
 
     sqlb
 }
@@ -168,100 +139,118 @@ async fn get_concurrent_intervals(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Query(iq): Query<ConcurrentIntervalsParams>,
+    Query(iq): Query<ExtendedJobsParams>,
     Query(lq): Query<ListCompletedQuery>,
-) -> JsonResult<ConcurrencyIntervals> {
+) -> JsonResult<ExtendedJobs> {
     check_scopes(&authed, || format!("listjobs"))?;
+
+    if lq.success.is_some() && lq.running.is_some_and(|x| x) {
+        return Err(error::Error::BadRequest(
+            "cannot specify both success and running".to_string(),
+        ));
+    }
+
+    const QJ_FIELDS: &[&str] = &[
+        "'QueuedJob' as typ",
+        "id",
+        "workspace_id",
+        "parent_job",
+        "created_by",
+        "created_at",
+        "started_at",
+        "scheduled_for",
+        "running",
+        "script_hash",
+        "script_path",
+        "null as args",
+        "null as duration_ms",
+        "null as success",
+        "false as deleted",
+        "canceled",
+        "canceled_by",
+        "job_kind",
+        "schedule_path",
+        "permissioned_as",
+        "is_flow_step",
+        "language",
+        "false as is_skipped",
+        "email",
+        "visible_to_owner",
+        "suspend",
+        "mem_peak",
+        "tag",
+        "concurrent_limit",
+        "concurrency_time_window_s",
+        "priority",
+        "null as labels",
+    ];
+    const CJ_FIELDS: &[&str] = &[
+        "'CompletedJob' as typ",
+        "id",
+        "workspace_id",
+        "parent_job",
+        "created_by",
+        "created_at",
+        "started_at",
+        "null as scheduled_for",
+        "null as running",
+        "script_hash",
+        "script_path",
+        "null as args",
+        "duration_ms",
+        "success",
+        "deleted",
+        "canceled",
+        "canceled_by",
+        "job_kind",
+        "schedule_path",
+        "permissioned_as",
+        "is_flow_step",
+        "language",
+        "is_skipped",
+        "email",
+        "visible_to_owner",
+        "null as suspend",
+        "mem_peak",
+        "tag",
+        "null as concurrent_limit",
+        "null as concurrency_time_window_s",
+        "priority",
+        "result->'wm_labels' as labels",
+    ];
 
     let row_limit = iq.row_limit.unwrap_or(1000);
     let concurrency_key = iq.concurrency_key;
 
-    let lq_copy = lq.clone();
-
-    let lqq = ListQueueQuery {
-        script_path_start: lq_copy.script_path_start,
-        script_path_exact: lq_copy.script_path_exact,
-        script_hash: lq_copy.script_hash,
-        created_by: lq_copy.created_by,
-        started_before: lq_copy.started_before,
-        started_after: lq_copy.started_after,
-        created_before: lq_copy.created_before,
-        created_after: lq_copy.created_after,
-        created_or_started_before: lq_copy.created_or_started_before,
-        created_or_started_after: lq_copy.created_or_started_after,
-        running: lq_copy.running,
-        parent_job: lq_copy.parent_job,
-        order_desc: Some(true),
-        job_kinds: lq_copy.job_kinds,
-        suspended: lq_copy.suspended,
-        args: lq_copy.args,
-        tag: lq_copy.tag,
-        schedule_path: lq_copy.schedule_path,
-        scheduled_for_before_now: lq_copy.scheduled_for_before_now,
-        all_workspaces: lq_copy.all_workspaces,
-        is_flow_step: lq_copy.is_flow_step,
-        has_null_parent: lq_copy.has_null_parent,
-        is_not_schedule: lq_copy.is_not_schedule,
-    };
+    let lq = ListCompletedQuery { order_desc: Some(true), ..lq };
+    let lqc = lq.clone();
+    let lqq: ListQueueQuery = lqc.into();
     let mut sqlb_q = SqlBuilder::select_from("queue")
-        .fields(&["id", "key", "started_at"])
+        .fields(QJ_FIELDS)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
     let mut sqlb_c = SqlBuilder::select_from("completed_job")
-        .fields(&["id", "key", "started_at", "duration_ms"])
+        .fields(CJ_FIELDS)
+        .order_by("started_at", lq.order_desc.unwrap_or(true))
+        .limit(row_limit)
+        .clone();
+    let mut sqlb_q_user = SqlBuilder::select_from("queue")
+        .fields(&["id"])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .limit(row_limit)
+        .clone();
+    let mut sqlb_c_user = SqlBuilder::select_from("completed_job")
+        .fields(&["id"])
+        .order_by("started_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
 
     sqlb_q = join_concurrency_key(concurrency_key.as_ref(), sqlb_q);
     sqlb_c = join_concurrency_key(concurrency_key.as_ref(), sqlb_c);
+    sqlb_q_user = join_concurrency_key(concurrency_key.as_ref(), sqlb_q_user);
+    sqlb_c_user = join_concurrency_key(concurrency_key.as_ref(), sqlb_c_user);
 
-    sqlb_q.and_where_is_not_null("started_at");
-
-    // When we have a concurrency key defined, fetch jobs from other workspaces
-    // as obscured unless we're in the admins workspace. This is to show the
-    // potential concurrency races without showing jobs that don't belong to
-    // the workspace.
-    let sqlb_all_workspaces: Option<(SqlBuilder, SqlBuilder)> =
-        if concurrency_key.is_some() && w_id != "admins" {
-            Some((
-                filter_list_queue_query(
-                    sqlb_q.clone(),
-                    &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
-                    "admins",
-                ),
-                filter_list_completed_query(
-                    sqlb_c.clone(),
-                    &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
-                    "admins",
-                ),
-            ))
-        } else {
-            None
-        };
-
-    sqlb_q = filter_list_queue_query(sqlb_q, &lqq, w_id.as_str());
-    sqlb_c = filter_list_completed_query(sqlb_c, &lq, w_id.as_str());
-
-    let sql_q = sqlb_q.query()?;
-    let sql_c = sqlb_c.query()?;
-
-    let mut tx = user_db.begin(&authed).await?;
-    let running_jobs_user: Vec<RunningJobDuration> = if lq.success.is_none() {
-        sqlx::query_as(&sql_q).fetch_all(&mut *tx).await?
-    } else {
-        vec![]
-    };
-    let completed_jobs_user: Vec<CompletedJobDuration> = if lq.running.is_none() {
-        sqlx::query_as(&sql_c).fetch_all(&mut *tx).await?
-    } else {
-        vec![]
-    };
-    tx.commit().await?;
-
-    // To avoid infering information through filtering, don't return obscured
-    // jobs if the filters are too specific
     let should_fetch_obscured_jobs = match lq {
         ListCompletedQuery {
             script_path_start: None,
@@ -291,69 +280,134 @@ async fn get_concurrent_intervals(
             job_kinds: _,
             is_flow_step: _,
             all_workspaces: _,
-        } => true,
+        } => concurrency_key.is_some(),
         _ => false,
     };
 
-    // This second transaction using the raw db lets us get info for jobs that
-    // the user has no access to. Before returning that, we will hide the ids
-    if should_fetch_obscured_jobs && concurrency_key.is_some() {
-        let (sql_q, sql_c) = if let Some(sqlb) = sqlb_all_workspaces {
-            (sqlb.0.query()?, sqlb.1.query()?)
+    // When we have a concurrency key defined, fetch jobs from other workspaces
+    // as obscured unless we're in the admins workspace. This is to show the
+    // potential concurrency races without showing jobs that don't belong to
+    // the workspace.
+    // To avoid infering information through filtering, don't return obscured
+    // jobs if the filters are too specific
+    if should_fetch_obscured_jobs {
+        let (sqlb_q, sqlb_c) = if w_id != "admin" {
+            // By default get obscured jobs from all workspaces, unless in
+            // admin workspace where admins can select to get all or not
+            (
+                filter_list_queue_query(
+                    sqlb_q,
+                    &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
+                    "admins",
+                ),
+                filter_list_completed_query(
+                    sqlb_c,
+                    &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
+                    "admins",
+                ),
+            )
         } else {
-            (sql_q, sql_c)
+            (
+                filter_list_queue_query(sqlb_q, &lqq, w_id.as_str()),
+                filter_list_completed_query(sqlb_c, &lq, w_id.as_str()),
+            )
         };
 
-        let running_jobs_db: Vec<RunningJobDuration> = if lq.success.is_none() {
+        sqlb_q_user = filter_list_queue_query(sqlb_q_user, &lqq, w_id.as_str());
+        sqlb_c_user = filter_list_completed_query(sqlb_c_user, &lq, w_id.as_str());
+
+        let sql_q_user = sqlb_q_user.query()?;
+        let sql_c_user = sqlb_c_user.query()?;
+        let sql_q = sqlb_q.query()?;
+        let sql_c = sqlb_c.query()?;
+
+        // This first transaction uses the user_db to know which uuids are
+        // accessible to the user.
+        let mut tx = user_db.begin(&authed).await?;
+        let running_jobs_user: Vec<Uuid> = if lq.success.is_none() {
+            sqlx::query_scalar(&sql_q_user).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        let completed_jobs_user: Vec<Uuid> = if lq.running.is_none() {
+            sqlx::query_scalar(&sql_c_user).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        tx.commit().await?;
+
+        // This second transaction uses the db, so it will fetch information
+        // potentially forbidden to the user. It must be obscured before
+        // returning it
+        let running_jobs_db: Vec<UnifiedJob> = if lq.success.is_none() {
             sqlx::query_as(&sql_q).fetch_all(&db).await?
         } else {
             vec![]
         };
-        let completed_jobs_db: Vec<CompletedJobDuration> = if lq.running.is_none() {
+        let completed_jobs_db: Vec<UnifiedJob> = if lq.running.is_none() {
             sqlx::query_as(&sql_c).fetch_all(&db).await?
         } else {
             vec![]
         };
 
-        let running_jobs = running_jobs_db
-            .into_iter()
-            .map(|r| {
-                if running_jobs_user
+        let obscured_jobs = running_jobs_db
+            .iter()
+            .filter(|j| !running_jobs_user.iter().any(|id| j.id == *id))
+            .chain(
+                completed_jobs_db
                     .iter()
-                    .any(|u| u.job_id.unwrap() == r.job_id.unwrap())
-                {
-                    RunningJobDuration { ..r }
-                } else {
-                    RunningJobDuration { job_id: None, ..r }
-                }
+                    .filter(|j| !completed_jobs_user.iter().any(|id| j.id == *id)),
+            )
+            .map(|j| ObscuredJob {
+                typ: j.typ.clone(),
+                started_at: j.started_at,
+                duration_ms: j.duration_ms,
             })
             .collect();
-        let completed_jobs = completed_jobs_db
+        let jobs = running_jobs_db
             .into_iter()
-            .map(|r| {
-                if completed_jobs_user
-                    .iter()
-                    .any(|u| u.job_id.unwrap() == r.job_id.unwrap())
-                {
-                    CompletedJobDuration { ..r }
-                } else {
-                    CompletedJobDuration { job_id: None, ..r }
-                }
-            })
+            .filter(|j| running_jobs_user.iter().any(|id| j.id == *id))
+            .chain(
+                completed_jobs_db
+                    .into_iter()
+                    .filter(|j| completed_jobs_user.iter().any(|id| j.id == *id)),
+            )
+            .map(From::from)
+            .collect();
+        Ok(Json(ExtendedJobs {
+            jobs,
+            obscured_jobs,
+            omitted_obscured_jobs: !should_fetch_obscured_jobs,
+        }))
+    } else {
+        let sql_q = sqlb_q.query()?;
+        let sql_c = sqlb_c.query()?;
+
+        let mut tx = user_db.begin(&authed).await?;
+        let running_jobs: Vec<UnifiedJob> = if lq.success.is_none() {
+            sqlx::query_as(&sql_q).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        let completed_jobs: Vec<UnifiedJob> = if lq.running.is_none() {
+            sqlx::query_as(&sql_c).fetch_all(&mut *tx).await?
+        } else {
+            vec![]
+        };
+        tx.commit().await?;
+
+        let jobs = running_jobs
+            .into_iter()
+            .chain(completed_jobs.into_iter())
+            .map(From::from)
             .collect();
 
-        return Ok(Json(ConcurrencyIntervals {
-            concurrency_key,
-            running_jobs,
-            completed_jobs,
-        }));
+        Ok(Json(ExtendedJobs {
+            jobs,
+            obscured_jobs: vec![],
+            omitted_obscured_jobs: !should_fetch_obscured_jobs,
+        }))
     }
-
-    Ok(Json(ConcurrencyIntervals {
-        concurrency_key,
-        running_jobs: running_jobs_user,
-        completed_jobs: completed_jobs_user,
-    }))
 }
 
 async fn get_concurrency_key(

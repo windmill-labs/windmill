@@ -171,7 +171,7 @@
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative h-full" bind:clientHeight={appHeight}>
+<div class="relative min-h-screen h-full" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.333.5](https://github.com/windmill-labs/windmill/compare/v1.333.4...v1.333.5) (2024-05-21)
+
+
+### Bug Fixes
+
+* drop the linux file cache regularly to avoid triggering OOM killer ([0268dd1](https://github.com/windmill-labs/windmill/commit/0268dd1206ac3e84eec571a6ff53f921f05ed6c4))
+* **frontend:** Fix full height component for public apps ([#3777](https://github.com/windmill-labs/windmill/issues/3777)) ([edf3015](https://github.com/windmill-labs/windmill/commit/edf3015cc4944340e52b5d65a2c72f421b97b548))
+* **frontend:** Fix selected value when the default value of a select component is null ([#3778](https://github.com/windmill-labs/windmill/issues/3778)) ([31c4777](https://github.com/windmill-labs/windmill/commit/31c47774cd64279100a5d23a076af0519cf6ee89))
+* improve concurrency key migration ([b56fbdf](https://github.com/windmill-labs/windmill/commit/b56fbdf898792c68c535ca491b79c501993173a4))
+* lighten watermark on public apps for ee ([da3b043](https://github.com/windmill-labs/windmill/commit/da3b0434e92f1ce95e3e7ede07d4bce0460de9af))
+
+## [1.333.4](https://github.com/windmill-labs/windmill/compare/v1.333.3...v1.333.4) (2024-05-20)
+
+
+### Bug Fixes
+
+* **cli:** make bun the default language in absence of wmill defaultTs 2 ([b2958be](https://github.com/windmill-labs/windmill/commit/b2958be7c10d932ae4076e0cde49fff37d5e9f41))
+
+## [1.333.3](https://github.com/windmill-labs/windmill/compare/v1.333.2...v1.333.3) (2024-05-20)
+
+
+### Bug Fixes
+
+* **cli:** make bun the default language in absence of wmill defaultTs ([8399086](https://github.com/windmill-labs/windmill/commit/83990869bc5edb98f633944410242de19dbe5d01))
+
 ## [1.333.2](https://github.com/windmill-labs/windmill/compare/v1.333.1...v1.333.2) (2024-05-20)
 
 
