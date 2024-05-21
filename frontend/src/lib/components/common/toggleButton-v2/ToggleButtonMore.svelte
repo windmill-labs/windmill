@@ -34,19 +34,24 @@
 	disappearTimeout={0}
 >
 	<div {id} class="flex">
-		<Tab
-			{disabled}
-			class={twMerge(
-				' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
-				small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1',
-				light ? 'font-medium' : '',
-				isAnOptionSelected($selected)
-					? 'bg-surface shadow-md'
-					: 'bg-surface-secondary hover:bg-surface-hover',
-				$$props.class
-			)}
-		>
+		{#if isAnOptionSelected($selected)}
+			<Tab
+				{disabled}
+				class={twMerge(
+					' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
+					small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1',
+					light ? 'font-medium' : '',
+					isAnOptionSelected($selected)
+						? 'bg-surface shadow-md'
+						: 'bg-surface-secondary hover:bg-surface-hover',
+					$$props.class
+				)}
+			>
+				{togglableItems.find((i) => i.value === $selected)?.label}
+			</Tab>
+		{/if}
+		<div class="flex items-center">
 			<DropdownV2 {items} />
-		</Tab>
+		</div>
 	</div>
 </Popover>
