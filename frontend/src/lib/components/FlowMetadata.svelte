@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
 	import JobStatus from '$lib/components/JobStatus.svelte'
-	import { displayDate } from '$lib/utils'
+	import { displayDate, truncateRev } from '$lib/utils'
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -15,42 +15,42 @@
 </script>
 
 <div
-	class="rounded-md p-3 bg-surface-secondary shadow-sm sm:text-sm md:text-base"
+	class="rounded-md p-3 bg-surface-secondary shadow-sm sm:text-sm md:text-base overflow-x-auto"
 	style="min-height: 150px;"
 >
 	<JobStatus {job} />
 	<div class="flex flex-row gap-2 items-center">
-		<Clock size={SMALL_ICON_SIZE} class="text-secondary" />
-		<span class="text-2xs text-secondary">
+		<Clock size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
+		<span class="text-2xs text-secondary whitespace-nowrap">
 			{#if job['success'] != undefined}
 				Received job: {displayDate(job.created_at ?? '')}
 			{:else}
 				Received job <TimeAgo date={job.created_at ?? ''} />
 			{/if}
-			<Tooltip>{job?.created_at}</Tooltip>
+			<Tooltip small>{job?.created_at}</Tooltip>
 		</span>
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
-		<div class="flex flex-row gap-2 items-center">
-			<Clock size={SMALL_ICON_SIZE} class="text-secondary" />
-			<span>
+		<div class="flex flex-row gap-2 items-center text-sm">
+			<Clock size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
+			<span class="whitespace-nowrap">
 				Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
-				<Tooltip>{job?.started_at}</Tooltip>
+				<Tooltip small>{job?.started_at}</Tooltip>
 			</span>
 		</div>
 	{/if}
 	{#if job && job['mem_peak']}
-		<div class="flex flex-row gap-2 items-center">
-			<MemoryStick size={SMALL_ICON_SIZE} class="text-secondary" />
+		<div class="flex flex-row gap-2 items-center text-sm">
+			<MemoryStick size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 			<span> Mem peak: {(job['mem_peak'] / 1024).toPrecision(5)}MB</span>
 		</div>
 	{/if}
 	<div>
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<div class="flex flex-row gap-2 items-center">
-					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
-					<span>
+				<div class="flex flex-row gap-2 items-center text-sm">
+					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
+					<span class="whitespace-nowrap">
 						Step of flow
 						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
 							{job.parent_job}
@@ -58,26 +58,27 @@
 					</span>
 				</div>
 			{:else}
-				<div class="flex flex-row gap-2 items-center">
-					<Bot size={SMALL_ICON_SIZE} class="text-secondary" />
-					<span>
+				<div class="flex flex-row gap-2 items-center text-sm">
+					<Bot size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
+					<span class="whitespace-nowrap">
 						Triggered by parent
 						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}> {job.parent_job}</a>
 					</span>
 				</div>
 			{/if}
 		{:else if job && job.schedule_path}
-			<div class="flex flex-row gap-2 items-center">
-				<Calendar size={SMALL_ICON_SIZE} class="text-secondary" />
-				<span>
-					Triggered by the schedule:
-					<button
-						class="break-words text-sm text-blue-600 font-normal"
+			<div class="flex flex-row gap-2 w-full items-center text-sm">
+				<Calendar size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
+				<span class="whitespace-nowrap">
+					Schedule:
+					<a
+						href="#"
+						class="break-words text-blue-600 font-normal"
 						on:click={() =>
 							scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 					>
-						{job.schedule_path}
-					</button>
+						{truncateRev(job.schedule_path, 40)}
+					</a>
 				</span>
 			</div>
 		{/if}
@@ -86,9 +87,9 @@
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-			<div class="flex flex-row gap-2 items-center ml-0.5">
+			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
-					<Code2 size={SMALL_ICON_SIZE} class="text-secondary" />
+					<Code2 size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 				{:else}
 					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary" />
 				{/if}
@@ -98,18 +99,23 @@
 			</div>
 		{/if}
 
-		<div class="flex flex-row gap-2 items-center text-sm">
-			<User size={SMALL_ICON_SIZE} class="text-secondary" />
+		<div class="flex items-center gap-2 text-sm">
+			<User size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 
 			<span>
-				By {job.created_by}
+				By {truncateRev(
+					job.created_by ?? 'unknown',
+					40
+				)}{#if (job?.created_by?.length ?? 0) > 40}<Tooltip small
+						><div class="break-all">{job.created_by}</div></Tooltip
+					>{/if}
 				{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
 					but permissioned as {job.permissioned_as}
 				{/if}
 			</span>
 		</div>
 	</div>
-	<div class="text-secondary text-2xs pt-2">
+	<div class="text-secondary text-2xs pt-2 whitespace-nowrap">
 		run id:
 		<a href={`/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
 	</div>
