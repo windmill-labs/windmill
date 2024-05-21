@@ -161,9 +161,11 @@
 	>
 		{#if showExternalJobs && externalJobs.length > 0}
 			<div class="w-1/12 text-2xs">
-				{jobs && jobCountString(jobs.length + externalJobs.length)}<Tooltip
-					>{externalJobs.length} jobs obscured</Tooltip
-				>
+				<div class="flex flex-row">
+					{jobs && jobCountString(jobs.length + externalJobs.length)}<Tooltip
+						>{externalJobs.length} jobs obscured</Tooltip
+					>
+				</div>
 			</div>
 		{:else}
 			<div class="w-1/12 text-2xs">{jobs && jobCountString(jobs.length)}</div>
