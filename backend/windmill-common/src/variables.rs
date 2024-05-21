@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use chrono::format;
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
