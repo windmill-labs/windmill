@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.334.0](https://github.com/windmill-labs/windmill/compare/v1.333.5...v1.334.0) (2024-05-21)
+
+
+### Features
+
+* **frontend:** Added support for title and placeholder for ArgInputs ([#3779](https://github.com/windmill-labs/windmill/issues/3779)) ([59c0aba](https://github.com/windmill-labs/windmill/commit/59c0abae3df7397f32b65360b6740ca71a91444b))
+* **frontend:** Improve multiselect perf ([#3770](https://github.com/windmill-labs/windmill/issues/3770)) ([36df838](https://github.com/windmill-labs/windmill/commit/36df8389cd5d75c4332e0f0a1da61433dac88195))
+
+
+### Bug Fixes
+
+* add allow http toggle to object store settings ([4631c3f](https://github.com/windmill-labs/windmill/commit/4631c3fd08341858b97a1a9673664e7220bbef63))
+* **frontend:** Fix path overflow on the Runs page ([#3781](https://github.com/windmill-labs/windmill/issues/3781)) ([518d8b9](https://github.com/windmill-labs/windmill/commit/518d8b916b41ba35d623deeb27c6f6f82e171060))
+
 ## [1.333.5](https://github.com/windmill-labs/windmill/compare/v1.333.4...v1.333.5) (2024-05-21)
 
 
