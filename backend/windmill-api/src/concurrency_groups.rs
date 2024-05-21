@@ -150,75 +150,6 @@ async fn get_concurrent_intervals(
         ));
     }
 
-    const QJ_FIELDS: &[&str] = &[
-        "'QueuedJob' as typ",
-        "id",
-        "workspace_id",
-        "parent_job",
-        "created_by",
-        "created_at",
-        "started_at",
-        "scheduled_for",
-        "running",
-        "script_hash",
-        "script_path",
-        "null as args",
-        "null as duration_ms",
-        "null as success",
-        "false as deleted",
-        "canceled",
-        "canceled_by",
-        "job_kind",
-        "schedule_path",
-        "permissioned_as",
-        "is_flow_step",
-        "language",
-        "false as is_skipped",
-        "email",
-        "visible_to_owner",
-        "suspend",
-        "mem_peak",
-        "tag",
-        "concurrent_limit",
-        "concurrency_time_window_s",
-        "priority",
-        "null as labels",
-    ];
-    const CJ_FIELDS: &[&str] = &[
-        "'CompletedJob' as typ",
-        "id",
-        "workspace_id",
-        "parent_job",
-        "created_by",
-        "created_at",
-        "started_at",
-        "null as scheduled_for",
-        "null as running",
-        "script_hash",
-        "script_path",
-        "null as args",
-        "duration_ms",
-        "success",
-        "deleted",
-        "canceled",
-        "canceled_by",
-        "job_kind",
-        "schedule_path",
-        "permissioned_as",
-        "is_flow_step",
-        "language",
-        "is_skipped",
-        "email",
-        "visible_to_owner",
-        "null as suspend",
-        "mem_peak",
-        "tag",
-        "null as concurrent_limit",
-        "null as concurrency_time_window_s",
-        "priority",
-        "result->'wm_labels' as labels",
-    ];
-
     let row_limit = iq.row_limit.unwrap_or(1000);
     let concurrency_key = iq.concurrency_key;
 
@@ -226,12 +157,12 @@ async fn get_concurrent_intervals(
     let lqc = lq.clone();
     let lqq: ListQueueQuery = lqc.into();
     let mut sqlb_q = SqlBuilder::select_from("queue")
-        .fields(QJ_FIELDS)
+        .fields(UnifiedJob::queued_job_fields())
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
     let mut sqlb_c = SqlBuilder::select_from("completed_job")
-        .fields(CJ_FIELDS)
+        .fields(UnifiedJob::completed_job_fields())
         .order_by("started_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
