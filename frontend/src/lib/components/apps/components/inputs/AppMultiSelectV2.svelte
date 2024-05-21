@@ -104,6 +104,7 @@
 		})
 	}
 	let w = 0
+	let open: boolean = false
 </script>
 
 {#each Object.keys(components['multiselectcomponent'].initialData.configuration) as key (key)}
@@ -162,6 +163,10 @@
 				}}
 				on:open={() => {
 					$selectedComponent = [id]
+					open = true
+				}}
+				on:close={() => {
+					open = false
 				}}
 				let:option
 			>
