@@ -941,10 +941,13 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 						if (
 							c.type === 'resourceselectcomponent' ||
 							c.type === 'selectcomponent' ||
-							c.type === 'multiselectcomponent'
+							c.type === 'multiselectcomponent' ||
+							c.type === 'multiselectcomponentv2'
 						) {
 							if (
-								(c.type === 'selectcomponent' || c.type === 'multiselectcomponent') &&
+								(c.type === 'selectcomponent' ||
+									c.type === 'multiselectcomponent' ||
+									c.type === 'multiselectcomponentv2') &&
 								c.configuration?.create?.type === 'static' &&
 								c.configuration?.create?.value === true
 							) {
@@ -953,7 +956,7 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 							if (c.configuration?.items?.type === 'static') {
 								const items = c.configuration.items.value
 								if (items && Array.isArray(items)) {
-									if (c.type === 'multiselectcomponent') {
+									if (c.type === 'multiselectcomponent' || c.type === 'multiselectcomponentv2') {
 										return [k, items]
 									} else {
 										const options = items

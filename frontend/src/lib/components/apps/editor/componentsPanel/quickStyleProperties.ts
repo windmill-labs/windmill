@@ -733,6 +733,9 @@ export const quickStyleProperties: Record<
 	multiselectcomponent: {
 		input: inputDefaultProps
 	},
+	multiselectcomponentv2: {
+		input: inputDefaultProps
+	},
 	numberinputcomponent: {
 		input: inputDefaultProps
 	},
