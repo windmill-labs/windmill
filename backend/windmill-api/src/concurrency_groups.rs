@@ -222,33 +222,9 @@ async fn get_concurrent_intervals(
     let row_limit = iq.row_limit.unwrap_or(1000);
     let concurrency_key = iq.concurrency_key;
 
-    let lq = ListCompletedQuery {order_desc: Some(true), ..lq};
+    let lq = ListCompletedQuery { order_desc: Some(true), ..lq };
     let lqc = lq.clone();
-    let lqq = ListQueueQuery {
-        script_path_start: lqc.script_path_start,
-        script_path_exact: lqc.script_path_exact,
-        script_hash: lqc.script_hash,
-        created_by: lqc.created_by,
-        started_before: lqc.started_before,
-        started_after: lqc.started_after,
-        created_before: lqc.created_before,
-        created_after: lqc.created_after,
-        created_or_started_before: lqc.created_or_started_before,
-        created_or_started_after: lqc.created_or_started_after,
-        running: lqc.running,
-        parent_job: lqc.parent_job,
-        order_desc: lqc.order_desc,
-        job_kinds: lqc.job_kinds,
-        suspended: lqc.suspended,
-        args: lqc.args,
-        tag: lqc.tag,
-        schedule_path: lqc.schedule_path,
-        scheduled_for_before_now: lqc.scheduled_for_before_now,
-        all_workspaces: lqc.all_workspaces,
-        is_flow_step: lqc.is_flow_step,
-        has_null_parent: lqc.has_null_parent,
-        is_not_schedule: lqc.is_not_schedule,
-    };
+    let lqq: ListQueueQuery = lqc.into();
     let mut sqlb_q = SqlBuilder::select_from("queue")
         .fields(QJ_FIELDS)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -382,7 +358,11 @@ async fn get_concurrent_intervals(
                     .iter()
                     .filter(|j| !completed_jobs_user.iter().any(|id| j.id == *id)),
             )
-            .map(|j| ObscuredJob { typ: j.typ.clone(), started_at: j.started_at, duration_ms: j.duration_ms })
+            .map(|j| ObscuredJob {
+                typ: j.typ.clone(),
+                started_at: j.started_at,
+                duration_ms: j.duration_ms,
+            })
             .collect();
         let jobs = running_jobs_db
             .into_iter()
@@ -394,7 +374,11 @@ async fn get_concurrent_intervals(
             )
             .map(From::from)
             .collect();
-        Ok(Json(ExtendedJobs { jobs, obscured_jobs, omitted_obscured_jobs: !should_fetch_obscured_jobs }))
+        Ok(Json(ExtendedJobs {
+            jobs,
+            obscured_jobs,
+            omitted_obscured_jobs: !should_fetch_obscured_jobs,
+        }))
     } else {
         let sql_q = sqlb_q.query()?;
         let sql_c = sqlb_c.query()?;
@@ -418,7 +402,11 @@ async fn get_concurrent_intervals(
             .map(From::from)
             .collect();
 
-        Ok(Json(ExtendedJobs { jobs, obscured_jobs: vec![], omitted_obscured_jobs: !should_fetch_obscured_jobs }))
+        Ok(Json(ExtendedJobs {
+            jobs,
+            obscured_jobs: vec![],
+            omitted_obscured_jobs: !should_fetch_obscured_jobs,
+        }))
     }
 }
 

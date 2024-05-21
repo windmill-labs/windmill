@@ -903,7 +903,41 @@ pub struct ListQueueQuery {
     pub is_not_schedule: Option<bool>,
 }
 
-pub fn filter_list_queue_query(mut sqlb: SqlBuilder, lq: &ListQueueQuery, w_id: &str) -> SqlBuilder {
+impl From<ListCompletedQuery> for ListQueueQuery {
+    fn from(lcq: ListCompletedQuery) -> Self {
+        Self {
+            script_path_start: lcq.script_path_start,
+            script_path_exact: lcq.script_path_exact,
+            script_hash: lcq.script_hash,
+            created_by: lcq.created_by,
+            started_before: lcq.started_before,
+            started_after: lcq.started_after,
+            created_before: lcq.created_before,
+            created_after: lcq.created_after,
+            created_or_started_before: lcq.created_or_started_before,
+            created_or_started_after: lcq.created_or_started_after,
+            running: lcq.running,
+            parent_job: lcq.parent_job,
+            order_desc: lcq.order_desc,
+            job_kinds: lcq.job_kinds,
+            suspended: lcq.suspended,
+            args: lcq.args,
+            tag: lcq.tag,
+            schedule_path: lcq.schedule_path,
+            scheduled_for_before_now: lcq.scheduled_for_before_now,
+            all_workspaces: lcq.all_workspaces,
+            is_flow_step: lcq.is_flow_step,
+            has_null_parent: lcq.has_null_parent,
+            is_not_schedule: lcq.is_not_schedule,
+        }
+    }
+}
+
+pub fn filter_list_queue_query(
+    mut sqlb: SqlBuilder,
+    lq: &ListQueueQuery,
+    w_id: &str,
+) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -1004,7 +1038,6 @@ pub fn filter_list_queue_query(mut sqlb: SqlBuilder, lq: &ListQueueQuery, w_id: 
     }
 
     sqlb
-
 }
 
 pub fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -1255,31 +1288,7 @@ async fn list_jobs(
     let sql = if lq.success.is_none() && lq.label.is_none() {
         let sqlq = list_queue_jobs_query(
             &w_id,
-            &ListQueueQuery {
-                script_path_start: lq.script_path_start,
-                script_path_exact: lq.script_path_exact,
-                script_hash: lq.script_hash,
-                created_by: lq.created_by,
-                started_before: lq.started_before,
-                started_after: lq.started_after,
-                created_before: lq.created_before,
-                created_after: lq.created_after,
-                created_or_started_before: lq.created_or_started_before,
-                created_or_started_after: lq.created_or_started_after,
-                running: lq.running,
-                parent_job: lq.parent_job,
-                order_desc: Some(true),
-                job_kinds: lq.job_kinds,
-                suspended: lq.suspended,
-                args: lq.args,
-                tag: lq.tag,
-                schedule_path: lq.schedule_path,
-                scheduled_for_before_now: lq.scheduled_for_before_now,
-                all_workspaces: lq.all_workspaces,
-                is_flow_step: lq.is_flow_step,
-                has_null_parent: lq.has_null_parent,
-                is_not_schedule: lq.is_not_schedule,
-            },
+            &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             &[
                 "'QueuedJob' as typ",
                 "id",
@@ -2054,7 +2063,10 @@ impl Job {
         )
     }
 
-    pub async fn concurrency_key(&self, db: &Pool<Postgres>) -> Result<Option<String>, sqlx::Error> {
+    pub async fn concurrency_key(
+        &self,
+        db: &Pool<Postgres>,
+    ) -> Result<Option<String>, sqlx::Error> {
         sqlx::query_scalar!(
             "SELECT key FROM concurrency_key WHERE job_id = $1",
             self.id()
@@ -3895,7 +3907,11 @@ async fn get_job_update(
     }
 }
 
-pub fn filter_list_completed_query(mut sqlb: SqlBuilder, lq: &ListCompletedQuery, w_id: &str) -> SqlBuilder {
+pub fn filter_list_completed_query(
+    mut sqlb: SqlBuilder,
+    lq: &ListCompletedQuery,
+    w_id: &str,
+) -> SqlBuilder {
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
