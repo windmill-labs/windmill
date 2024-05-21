@@ -4,7 +4,7 @@
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
-	import { Badge, Skeleton, Tab, Tabs } from '../common'
+	import { Badge, Button, Skeleton, Tab, Tabs } from '../common'
 	import HighlightCode from '../HighlightCode.svelte'
 	import { forLater } from '$lib/forLater'
 	import FlowProgressBar from '../flows/FlowProgressBar.svelte'
@@ -14,6 +14,8 @@
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Popover from '../Popover.svelte'
 	import { truncateRev } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
+	import { ListFilter } from 'lucide-svelte'
 
 	export let id: string
 	export let blankLink = false
@@ -53,6 +55,7 @@
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
+	const dispatch = createEventDispatcher()
 </script>
 
 <TestJobLoader
@@ -97,10 +100,20 @@
 			{#if concurrencyKey}
 				<Popover notClickable>
 					<svelte:fragment slot="text">
-						This jobs has concurrency limits enabled with the key
-						{concurrencyKey}
+						This jobs has concurrency limits enabled with the key:
+						<Button
+							class="inline-text"
+							size="xs2"
+							color="light"
+							on:click={() => {
+								dispatch('filterByConcurrencyKey', concurrencyKey)
+							}}
+						>
+							{concurrencyKey}
+							<ListFilter class="inline-block" size={10} />
+						</Button>
 					</svelte:fragment>
-					<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
+					<Badge large>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
 				</Popover>
 			{/if}
 		</div>
