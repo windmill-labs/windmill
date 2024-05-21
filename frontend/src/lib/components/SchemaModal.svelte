@@ -197,18 +197,12 @@
 				<textarea placeholder="Enter a description" rows="3" bind:value={property.description} />
 			</label>
 			<label class="block">
-				<div class="mb-1 font-semibold text-secondary">
-					Placeholder
-					<Required required={false} />
-				</div>
-				<textarea placeholder="Enter a placeholder" rows="3" bind:value={property.placeholder} />
+				<div class="mb-1 font-semibold text-secondary"> Placeholder </div>
+				<textarea placeholder="Enter a placeholder" rows="1" bind:value={property.placeholder} />
 			</label>
 			<label class="block">
-				<div class="mb-1 font-semibold text-secondary">
-					Custom Label
-					<Required required={false} />
-				</div>
-				<textarea placeholder="Enter a custom label" rows="3" bind:value={property.customLabel} />
+				<div class="mb-1 font-semibold text-secondary"> Custom Label </div>
+				<textarea placeholder="Enter a custom label" rows="1" bind:value={property.customLabel} />
 			</label>
 			<div>
 				<div class="mb-1 font-semibold text-secondary">Type<Required required={true} /></div>

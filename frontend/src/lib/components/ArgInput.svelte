@@ -235,7 +235,7 @@
 		{#if displayHeader}
 			<FieldHeader
 				prettify={prettifyHeader}
-				label={customLabel ?? label}
+				label={customLabel && !emptyString(customLabel) ? customLabel : label}
 				{disabled}
 				{required}
 				{type}

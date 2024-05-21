@@ -183,7 +183,7 @@
 				{#if displayHeader}
 					<FieldHeader
 						prettify
-						label={customLabel ?? label}
+						label={customLabel && !emptyString(customLabel) ? customLabel : label}
 						{required}
 						{type}
 						{contentEncoding}
