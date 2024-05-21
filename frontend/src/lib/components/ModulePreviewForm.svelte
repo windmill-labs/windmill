@@ -96,7 +96,7 @@
 							itemsType={schema.properties[argName].items}
 							extra={schema.properties[argName]}
 							nullable={schema.properties[argName].nullable}
-							customLabel={schema.properties[argName].customLabel}
+							title={schema.properties[argName].title}
 							placeholder={schema.properties[argName].placeholder}
 						/>
 					{/if}

@@ -407,7 +407,7 @@
 					bind:pickForField
 					showSchemaExplorer
 					nullable={schema.properties[argName].nullable}
-					bind:customLabel={schema.properties[argName].customLabel}
+					bind:title={schema.properties[argName].title}
 					bind:placeholder={schema.properties[argName].placeholder}
 				/>
 			{:else if arg.expr != undefined}

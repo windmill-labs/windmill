@@ -41,7 +41,7 @@ export interface SchemaProperty {
 	order?: string[]
 	nullable?: boolean
 	dateFormat?: string
-	customLabel?: string
+	title?: string
 	placeholder?: string
 }
 
@@ -67,7 +67,7 @@ export interface ModalSchemaProperty {
 	password?: boolean
 	nullable?: boolean
 	dateFormat?: string
-	customLabel?: string
+	title?: string
 	placeholder?: string
 }
 
@@ -93,7 +93,7 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		password: schema.password,
 		nullable: schema.nullable,
 		dateFormat: schema.dateFormat,
-		customLabel: schema.customLabel,
+		title: schema.title,
 		placeholder: schema.placeholder
 	}
 }

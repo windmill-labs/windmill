@@ -63,7 +63,7 @@
 			password: schema.password,
 			nullable: schema.nullable,
 			dateFormat: schema.format,
-			customLabel: schema.customLabel,
+			title: schema.title,
 			placeholder: schema.placeholder
 		}
 	}
@@ -140,7 +140,7 @@
 		property.password = undefined
 		property.nullable = false
 		property.dateFormat = undefined
-		property.customLabel = undefined
+		property.title = undefined
 		property.placeholder = undefined
 		drawer.closeDrawer()
 	}
@@ -201,8 +201,8 @@
 				<textarea placeholder="Enter a placeholder" rows="1" bind:value={property.placeholder} />
 			</label>
 			<label class="block">
-				<div class="mb-1 font-semibold text-secondary"> Custom Label </div>
-				<textarea placeholder="Enter a custom label" rows="1" bind:value={property.customLabel} />
+				<div class="mb-1 font-semibold text-secondary"> Custom Title </div>
+				<textarea placeholder="Enter a custom title" rows="1" bind:value={property.title} />
 			</label>
 			<div>
 				<div class="mb-1 font-semibold text-secondary">Type<Required required={true} /></div>
@@ -278,7 +278,7 @@
 						extra={property}
 						disabled={property.password}
 						nullable={property.nullable}
-						customLabel={property.customLabel}
+						title={property.title}
 						placeholder={property.placeholder}
 					/>
 					<div>

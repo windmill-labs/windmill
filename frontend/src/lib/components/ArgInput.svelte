@@ -30,6 +30,8 @@
 	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
+	import Label from './Label.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -74,7 +76,7 @@
 	export let customErrorMessage: string | undefined = undefined
 	export let onlyMaskPassword = false
 	export let nullable: boolean = false
-	export let customLabel: string | undefined = undefined
+	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
@@ -235,7 +237,7 @@
 		{#if displayHeader}
 			<FieldHeader
 				prettify={prettifyHeader}
-				label={customLabel && !emptyString(customLabel) ? customLabel : label}
+				label={title && !emptyString(title) ? title : label}
 				{disabled}
 				{required}
 				{type}
@@ -263,7 +265,7 @@
 			{/if}
 		{/if}
 		{#if editableSchema}
-			<label class="text-secondary">
+			<Label label="Description">
 				<textarea
 					class="mb-1"
 					use:autosize
@@ -272,7 +274,27 @@
 					on:keydown={onKeyDown}
 					placeholder="Field description"
 				/>
-			</label>
+			</Label>
+			<Label label="Custom Title">
+				<svelte:fragment slot="header">
+					<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
+				</svelte:fragment>
+				<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
+			</Label>
+			<Label label="Placeholder">
+				<svelte:fragment slot="header">
+					<Tooltip light>
+						Will be displayed in the input field when it's empty. If not set, the default value will
+						be used.
+					</Tooltip>
+				</svelte:fragment>
+				<input
+					class="mb-1"
+					bind:value={placeholder}
+					on:keydown={onKeyDown}
+					placeholder="Field placeholder"
+				/>
+			</Label>
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />

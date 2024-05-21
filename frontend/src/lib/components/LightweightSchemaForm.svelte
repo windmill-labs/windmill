@@ -86,7 +86,7 @@
 				nestedRequired={schema.properties[argName].required}
 				itemsType={schema.properties[argName].items}
 				extra={schema.properties[argName]}
-				customLabel={schema.properties[argName].customLabel}
+				title={schema.properties[argName].title}
 				placeholder={schema.properties[argName].placeholder}
 				on:inputClicked
 				{displayType}

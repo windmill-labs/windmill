@@ -159,7 +159,7 @@
 								simpleTooltip={schemaFieldTooltip[argName]}
 								{onlyMaskPassword}
 								nullable={schema.properties[argName].nullable}
-								customLabel={schema.properties[argName].customLabel}
+								title={schema.properties[argName].title}
 								placeholder={schema.properties[argName].placeholder}
 							>
 								<svelte:fragment slot="actions">
