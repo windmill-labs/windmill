@@ -221,6 +221,7 @@ async fn get_concurrent_intervals(
     let row_limit = iq.row_limit.unwrap_or(1000);
     let concurrency_key = iq.concurrency_key;
 
+    let lq = ListCompletedQuery {order_desc: Some(true), ..lq};
     let lqc = lq.clone();
     let lqq = ListQueueQuery {
         script_path_start: lqc.script_path_start,
@@ -235,7 +236,7 @@ async fn get_concurrent_intervals(
         created_or_started_after: lqc.created_or_started_after,
         running: lqc.running,
         parent_job: lqc.parent_job,
-        order_desc: Some(true),
+        order_desc: lqc.order_desc,
         job_kinds: lqc.job_kinds,
         suspended: lqc.suspended,
         args: lqc.args,

@@ -5,7 +5,8 @@
 		type Job,
 		type CompletedJob,
 		type ExtendedJobs,
-		ConcurrencyGroupsService
+		ConcurrencyGroupsService,
+		type ObscuredJob
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
@@ -191,13 +192,36 @@
 		loading = true
 		try {
 			if (concurrencyKey == null || concurrencyKey === '') {
-				jobs = await fetchJobs(maxTs, minTs)
-				extendedJobs = { jobs: jobs, obscured_jobs: [] } as ExtendedJobs
+				let newJobs = await fetchJobs(maxTs, undefined)
+				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
+
+				// Filter on minTs here and not in the backend
+				// to get enough data for the concurrency graph
+				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
 			} else {
 				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
-				jobs = extendedJobs.jobs
-				externalJobs = computeExternalJobs()
+				const newJobs = extendedJobs.jobs
+				const newExternalJobs = extendedJobs.obscured_jobs
+
+				// Filter on minTs here and not in the backend
+				// to get enough data for the concurrency graph
+				if (minTs != undefined) {
+					const minDate = new Date(minTs)
+					jobs = newJobs.filter((x) =>
+						x.started_at
+							? new Date(x.started_at) > minDate
+							: x.created_at
+							? new Date(x.created_at) > minDate
+							: false
+					)
+					externalJobs = computeExternalJobs(
+						newExternalJobs.filter((x) => x.started_at && new Date(x.started_at) > minDate)
+					)
+				} else {
+					jobs = newJobs
+					externalJobs = computeExternalJobs(newExternalJobs)
+				}
 			}
 			computeCompletedJobs()
 		} catch (err) {
@@ -263,19 +287,24 @@
 					if (concurrencyKey == null || concurrencyKey === '') {
 						newJobs = await fetchJobs(maxTs, minTs ?? ts)
 					} else {
+						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
-						newJobs = extendedJobs.jobs
-						externalJobs = computeExternalJobs()
+						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
+
+						// Filter on minTs here and not in the backend
+						// to get enough data for the concurrency graph
+						newJobs = sortMinDate(minTs ?? ts, extendedJobs.jobs)
 					}
 					if (newJobs && newJobs.length > 0 && jobs) {
-						const oldJobs = jobs?.map((x) => x.id)
-						jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
-						newJobs
-							.filter((x) => oldJobs.includes(x.id))
-							.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
+						jobs = updateWithNewJobs(jobs, newJobs)
 						jobs = jobs
 						if (concurrencyKey == null || concurrencyKey === '') {
-							extendedJobs = { jobs: jobs, obscured_jobs: [] } as ExtendedJobs
+							if (!extendedJobs) {
+								extendedJobs = { jobs: jobs, obscured_jobs: [] } as ExtendedJobs
+							} else {
+								extendedJobs.jobs = updateWithNewJobs(extendedJobs.jobs, newJobs)
+								extendedJobs = extendedJobs
+							}
 							externalJobs = []
 						}
 						computeCompletedJobs()
@@ -283,6 +312,30 @@
 					loading = false
 				}
 			}
+		}
+	}
+
+	function updateWithNewJobs(jobs: Job[], newJobs: Job[]) {
+		const oldJobs = jobs?.map((x) => x.id)
+		let ret = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
+		newJobs
+			.filter((x) => oldJobs.includes(x.id))
+			.forEach((x) => (ret![ret?.findIndex((y) => y.id == x.id)!] = x))
+		return ret
+	}
+
+	function sortMinDate(minTs: string | undefined, jobs: Job[]) {
+		if (minTs != undefined) {
+			const minDate = new Date(minTs)
+			return jobs.filter((x) =>
+				x.started_at
+					? new Date(x.started_at) > minDate
+					: x.created_at
+					? new Date(x.created_at) > minDate
+					: false
+			)
+		} else {
+			return jobs
 		}
 	}
 
@@ -299,8 +352,8 @@
 		}
 	}
 
-	function computeExternalJobs() {
-		return extendedJobs?.obscured_jobs.map(
+	function computeExternalJobs(obscuredJobs: ObscuredJob[]) {
+		return obscuredJobs.map(
 			(x) =>
 				({
 					type: x.typ,
