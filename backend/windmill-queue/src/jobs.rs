@@ -1660,13 +1660,18 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         // Else the job is subject to concurrency limits
         let job_script_path = pulled_job.script_path.clone().unwrap();
 
-        let job_concurrency_key = concurrency_key(db, &pulled_job).await.unwrap_or_else(|e| {
-            tracing::error!(
-                "Could not get concurrency key for job {} defaulting to default key: {e:?}",
-                pulled_job.id
-            );
-            return pulled_job.full_path_with_workspace();
-        });
+        let job_concurrency_key = match concurrency_key(db, &pulled_job).await {
+            Ok(key) => key,
+            Err(e) => {
+                tracing::error!(
+                    "Could not get concurrency key for job {} defaulting to default key: {e:?}",
+                    pulled_job.id
+                );
+                legacy_concurrency_key(db, &pulled_job)
+                    .await
+                    .unwrap_or_else(|| pulled_job.full_path_with_workspace())
+            }
+        };
         tracing::debug!("Concurrency key is '{}'", job_concurrency_key);
         let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
         // setting concurrency_time_window to 0 will count only the currently running jobs

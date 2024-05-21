@@ -7,7 +7,7 @@
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
-	export let externalJobs: Job[] | undefined = undefined
+	export let externalJobs: Job[] = []
 	export let showExternalJobs: boolean = false
 	export let selectedId: string | undefined = undefined
 	export let selectedWorkspace: string | undefined = undefined
@@ -67,12 +67,11 @@
 		return sortedLogs
 	}
 
-	$: groupedJobs =
-		jobs && externalJobs
-			? showExternalJobs
-				? groupJobsByDay([...jobs, ...externalJobs])
-				: groupJobsByDay(jobs)
-			: undefined
+	$: groupedJobs = jobs
+		? showExternalJobs
+			? groupJobsByDay([...jobs, ...externalJobs])
+			: groupJobsByDay(jobs)
+		: undefined
 
 	type FlatJobs =
 		| {
@@ -160,7 +159,7 @@
 		class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4"
 		bind:clientHeight={header}
 	>
-		{#if showExternalJobs && externalJobs}
+		{#if showExternalJobs && externalJobs.length > 0}
 			<div class="w-1/12 text-2xs">
 				{jobs && jobCountString(jobs.length + externalJobs.length)}<Tooltip
 					>{externalJobs.length} jobs obscured</Tooltip
