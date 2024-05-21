@@ -388,8 +388,6 @@
 													View job
 												</a>
 												(workspace {current_job_workspace_id})
-											{:else}
-												None
 											{/if}
 										</Cell>
 										<Cell>
