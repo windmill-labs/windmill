@@ -4,8 +4,9 @@
 		JobService,
 		type Job,
 		type CompletedJob,
-		type ConcurrencyIntervals,
-		ConcurrencyGroupsService
+		type ExtendedJobs,
+		ConcurrencyGroupsService,
+		type ObscuredJob
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
@@ -34,7 +35,7 @@
 	export let completedJobs: CompletedJob[] | undefined = undefined
 	export let externalJobs: Job[] | undefined = undefined
 	export let concurrencyKey: string | null
-	export let concurrencyIntervals: ConcurrencyIntervals | undefined = undefined
+	export let extendedJobs: ExtendedJobs | undefined = undefined
 	export let argError = ''
 	export let resultError = ''
 	export let loading: boolean = false
@@ -45,7 +46,6 @@
 
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
-	let concurrencyKeyMap: Map<string, string> = new Map<string, string>()
 
 	$: jobKinds = computeJobKinds(jobKindsCat)
 	$: ($workspaceStore && loadJobsIntern(true)) ||
@@ -134,12 +134,12 @@
 		})
 	}
 
-	async function fetchConcurrencyIntervals(
+	async function fetchExtendedJobs(
 		concurrencyKey: string | null,
 		startedBefore: string | undefined,
 		startedAfter: string | undefined
-	): Promise<ConcurrencyIntervals> {
-		return ConcurrencyGroupsService.getConcurrencyIntervals({
+	): Promise<ExtendedJobs> {
+		return ConcurrencyGroupsService.listExtendedJobs({
 			rowLimit: 1000,
 			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
 			workspace: $workspaceStore!,
@@ -179,7 +179,7 @@
 			jobs = undefined
 			completedJobs = undefined
 			externalJobs = undefined
-			concurrencyIntervals = undefined
+			extendedJobs = undefined
 			intervalId && clearInterval(intervalId)
 			intervalId = setInterval(syncer, refreshRate)
 		}
@@ -191,11 +191,38 @@
 		}
 		loading = true
 		try {
-			concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, undefined)
-			updateConcurrencyKeyMap()
-			computeExternalJobs(minTs)
-			let j = await fetchJobs(maxTs, minTs)
-			jobs = await filterJobsByConcurrencyKey(j, minTs)
+			if (concurrencyKey == null || concurrencyKey === '') {
+				let newJobs = await fetchJobs(maxTs, undefined)
+				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
+
+				// Filter on minTs here and not in the backend
+				// to get enough data for the concurrency graph
+				jobs = sortMinDate(minTs, newJobs)
+				externalJobs = []
+			} else {
+				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
+				const newJobs = extendedJobs.jobs
+				const newExternalJobs = extendedJobs.obscured_jobs
+
+				// Filter on minTs here and not in the backend
+				// to get enough data for the concurrency graph
+				if (minTs != undefined) {
+					const minDate = new Date(minTs)
+					jobs = newJobs.filter((x) =>
+						x.started_at
+							? new Date(x.started_at) > minDate
+							: x.created_at
+							? new Date(x.created_at) > minDate
+							: false
+					)
+					externalJobs = computeExternalJobs(
+						newExternalJobs.filter((x) => x.started_at && new Date(x.started_at) > minDate)
+					)
+				} else {
+					jobs = newJobs
+					externalJobs = computeExternalJobs(newExternalJobs)
+				}
+			}
 			computeCompletedJobs()
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
@@ -256,18 +283,30 @@
 					}
 
 					loading = true
-					concurrencyIntervals = await fetchConcurrencyIntervals(concurrencyKey, maxTs, undefined)
-					updateConcurrencyKeyMap()
-					computeExternalJobs(minTs)
-					let newJobs = await fetchJobs(maxTs, minTs ?? ts)
-					newJobs = (await filterJobsByConcurrencyKey(newJobs, minTs)) ?? []
+					let newJobs: Job[]
+					if (concurrencyKey == null || concurrencyKey === '') {
+						newJobs = await fetchJobs(maxTs, minTs ?? ts)
+					} else {
+						// Obscured jobs have no ids, so we have to do the full request
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
+						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
+
+						// Filter on minTs here and not in the backend
+						// to get enough data for the concurrency graph
+						newJobs = sortMinDate(minTs ?? ts, extendedJobs.jobs)
+					}
 					if (newJobs && newJobs.length > 0 && jobs) {
-						const oldJobs = jobs?.map((x) => x.id)
-						jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
-						newJobs
-							.filter((x) => oldJobs.includes(x.id))
-							.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
+						jobs = updateWithNewJobs(jobs, newJobs)
 						jobs = jobs
+						if (concurrencyKey == null || concurrencyKey === '') {
+							if (!extendedJobs) {
+								extendedJobs = { jobs: jobs, obscured_jobs: [] } as ExtendedJobs
+							} else {
+								extendedJobs.jobs = updateWithNewJobs(extendedJobs.jobs, newJobs)
+								extendedJobs = extendedJobs
+							}
+							externalJobs = []
+						}
 						computeCompletedJobs()
 					}
 					loading = false
@@ -276,18 +315,33 @@
 		}
 	}
 
+	function updateWithNewJobs(jobs: Job[], newJobs: Job[]) {
+		const oldJobs = jobs?.map((x) => x.id)
+		let ret = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
+		newJobs
+			.filter((x) => oldJobs.includes(x.id))
+			.forEach((x) => (ret![ret?.findIndex((y) => y.id == x.id)!] = x))
+		return ret
+	}
+
+	function sortMinDate(minTs: string | undefined, jobs: Job[]) {
+		if (minTs != undefined) {
+			const minDate = new Date(minTs)
+			return jobs.filter((x) =>
+				x.started_at
+					? new Date(x.started_at) > minDate
+					: x.created_at
+					? new Date(x.created_at) > minDate
+					: false
+			)
+		} else {
+			return jobs
+		}
+	}
+
 	function computeCompletedJobs() {
 		completedJobs =
 			jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
-	}
-
-	async function filterJobsByConcurrencyKey(jobs: Job[] | undefined, minTs: string | undefined) {
-		if (concurrencyKey == null || concurrencyKey === '' || jobs == undefined || jobs.length === 0)
-			return jobs
-
-		let minDate = minTs ? new Date(minTs) : undefined
-
-		return jobs.filter((x) => concurrencyKeyMap.get(x.id) === concurrencyKey && (!minDate || (x.started_at && minDate < new Date(x.started_at))))
 	}
 
 	function onVisibilityChange() {
@@ -298,70 +352,29 @@
 		}
 	}
 
-	function updateConcurrencyKeyMap() {
-		for (const vec of [concurrencyIntervals?.running_jobs, concurrencyIntervals?.completed_jobs]) {
-			if (vec == undefined) continue
-			for (const interval of vec) {
-				if (
-					interval.job_id &&
-					interval.concurrency_key &&
-					concurrencyKeyMap.get(interval.job_id) == undefined
-				) {
-					concurrencyKeyMap.set(interval.job_id, interval.concurrency_key)
-				}
-			}
-		}
-	}
-
-	function computeExternalJobs(minTs: string | undefined) {
-		let minDate = minTs ? new Date(minTs) : undefined
-		let externalQueued = concurrencyIntervals?.running_jobs
-			.filter((x) => !x.job_id && (!minDate || (x.started_at && minDate < new Date(x.started_at))))
-			.map(
-				(x) =>
-					({
-						id: '-',
-						type: 'QueuedJob',
-						started_at: x.started_at,
-						running: x.started_at != undefined,
-						script_path: '-'
-					} as Job)
-			)
-		let externalCompleted = concurrencyIntervals?.completed_jobs
-			.filter((x) => !x.job_id && (!minDate || (x.started_at && minDate < new Date(x.started_at))))
-			.map(
-				(x) =>
-					({
-						type: 'CompletedJob',
-						started_at: x.started_at,
-						running: x.started_at != undefined,
-						id: '-',
-						script_path: '-',
-						created_by: '-',
-						created_at: '-',
-						success: false,
-						canceled: false,
-						is_flow_step: false,
-						is_skipped: false,
-						visible_to_owner: false,
-						email: '-',
-						permissioned_as: '-',
-						tag: '-',
-						job_kind: 'flow',
-						duration_ms:
-							x.ended_at && x.started_at
-								? new Date(x.ended_at).getTime() - new Date(x.started_at).getTime()
-								: 0
-					} as Job)
-			)
-		let ret: Job[] = []
-		if (externalQueued) {
-			ret = ret.concat(externalQueued)
-		}
-		if (externalCompleted) {
-			ret = ret.concat(externalCompleted)
-		}
-		externalJobs = ret
+	function computeExternalJobs(obscuredJobs: ObscuredJob[]) {
+		return obscuredJobs.map(
+			(x) =>
+				({
+					type: x.typ,
+					started_at: x.started_at,
+					running: x.started_at != undefined,
+					id: '-',
+					script_path: '-',
+					created_by: '-',
+					created_at: '-',
+					success: false,
+					canceled: false,
+					is_flow_step: false,
+					is_skipped: false,
+					visible_to_owner: false,
+					email: '-',
+					permissioned_as: '-',
+					tag: '-',
+					job_kind: 'script',
+					duration_ms: x.duration_ms
+				} as Job)
+		)
 	}
 
 	onMount(() => {
