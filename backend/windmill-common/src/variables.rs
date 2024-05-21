@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use chrono::format;
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -161,7 +162,7 @@ pub async fn get_reserved_variables(
             )
         } else if let Some(script_path) = path.clone() {
             let script_path = if script_path.ends_with("/") {
-                "noname".to_string()
+                format!("{script_path}state")
             } else {
                 script_path
             };
