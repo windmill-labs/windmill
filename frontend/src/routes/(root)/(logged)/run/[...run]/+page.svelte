@@ -312,7 +312,7 @@
 
 <TestJobLoader
 	lazyLogs
-	on:done={() => (viewTab = 'result')}
+	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
 	bind:this={testJobLoader}
 	bind:getLogs
 	bind:isLoading={testIsLoading}

@@ -7,13 +7,14 @@
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
-	import { userStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
 	import { setContext } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
 	import { writable } from 'svelte/store'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import { isCloudHosted } from '$lib/cloud'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
@@ -43,7 +44,11 @@
 	{@html github}
 </svelte:head>
 
-<div class="z-50 text-xs fixed bottom-1 right-2">
+<div
+	class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
+		? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
+		: ''}"
+>
 	<a href="https://windmill.dev" class="whitespace-nowrap text-tertiary inline-flex items-center"
 		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 	>

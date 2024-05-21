@@ -201,10 +201,81 @@ pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
 pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
     let metrics_enabled = load_value_from_global_settings(db, EXPOSE_DEBUG_METRICS_SETTING).await;
     match metrics_enabled {
-        Ok(Some(serde_json::Value::Bool(t))) => METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed),
+        Ok(Some(serde_json::Value::Bool(t))) => {
+            METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed);
+            //_RJEM_MALLOC_CONF=prof:true,prof_active:false,lg_prof_interval:30,lg_prof_sample:21,prof_prefix:/tmp/jeprof
+            #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+            if std::env::var("_RJEM_MALLOC_CONF").is_ok() {
+                if let Err(e) = set_prof_active(t) {
+                    tracing::error!("Error setting jemalloc prof_active: {e:?}");
+                }
+            }
+        },
         _ => (),
     };
     Ok(())
+}
+
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+#[derive(Debug, Clone)]
+pub struct MallctlError { pub code: i32 }
+
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+fn set_prof_active(new_value: bool) -> Result<(), MallctlError> {
+    let option_name = std::ffi::CString::new("prof.active").unwrap();
+
+    tracing::info!("Setting jemalloc prof_active to {}", new_value);
+    let result = unsafe {
+
+        tikv_jemalloc_sys::mallctl(
+            option_name.as_ptr(), // const char *name
+            std::ptr::null_mut(), // void *oldp
+            std::ptr::null_mut(), // size_t *oldlenp
+            &new_value as *const _ as *mut _, // void *newp
+            std::mem::size_of_val(&new_value) // size_t newlen
+        )
+    };
+
+    if result != 0 {
+        return Err(MallctlError { code: result });
+    }
+
+    Ok(())
+}
+
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+pub fn bytes_to_mb(bytes: u64) -> f64 {
+    const BYTES_PER_MB: f64 = 1_048_576.0;
+    bytes as f64 / BYTES_PER_MB
+}
+
+
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+pub async fn monitor_mem() {
+
+    use std::time::Duration;
+    use tikv_jemalloc_ctl::{stats, epoch};
+
+    tokio::spawn(async move {
+
+        // Obtain a MIB for the `epoch`, `stats.allocated`, and
+        // `atats.resident` keys:
+        let e = epoch::mib().unwrap();
+        let allocated = stats::allocated::mib().unwrap();
+        let resident = stats::resident::mib().unwrap();
+        
+        loop {
+            // Many statistics are cached and only updated 
+            // when the epoch is advanced:
+            e.advance().unwrap();
+            
+            // Read statistics using MIB key:
+            let allocated = allocated.read().unwrap();
+            let resident = resident.read().unwrap();
+            tracing::info!("{} mb allocated/{} mb resident", bytes_to_mb(allocated as u64), bytes_to_mb(resident as u64));
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
 }
 
 pub async fn load_keep_job_dir(db: &DB) {

@@ -24,8 +24,9 @@ import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps } from "./script.ts";
-import { yamlOptions } from "./sync.ts";
+import { findCodebase, yamlOptions } from "./sync.ts";
 import { generateHash } from "./utils.ts";
+import { SyncCodebase } from "./codebase.ts";
 
 export async function generateAllMetadata() {}
 
@@ -77,7 +78,8 @@ export async function generateMetadataInternal(
   },
   dryRun: boolean,
   noStaleMessage: boolean,
-  globalDeps: GlobalDeps
+  globalDeps: GlobalDeps,
+  codebases: SyncCodebase[]
 ): Promise<string | undefined> {
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
@@ -100,7 +102,8 @@ export async function generateMetadataInternal(
   const metadataWithType = await parseMetadataFile(
     remotePath,
     undefined,
-    globalDeps
+    globalDeps,
+    codebases
   );
 
   // read script content
@@ -138,7 +141,9 @@ export async function generateMetadataInternal(
     );
   }
 
-  if (!opts.schemaOnly) {
+  const c = findCodebase(scriptPath, codebases);
+
+  if (!opts.schemaOnly && !c) {
     await updateScriptLock(
       workspace,
       scriptContent,
@@ -163,7 +168,7 @@ export async function generateMetadataInternal(
   return `${remotePath} (${language})`;
 }
 
-async function updateScriptSchema(
+export async function updateScriptSchema(
   scriptContent: string,
   language: ScriptLanguage,
   metadataContent: Record<string, any>,
@@ -355,8 +360,8 @@ function sortObject(obj: any): any {
     );
 }
 
-function argSigToJsonSchemaType(
-  typ:
+export function argSigToJsonSchemaType(
+  t:
     | string
     | { resource: string | null }
     | {
@@ -371,55 +376,55 @@ function argSigToJsonSchemaType(
   oldS: SchemaProperty
 ): void {
   const newS: SchemaProperty = { type: "" };
-  if (typ === "int") {
+  if (t === "int") {
     newS.type = "integer";
-  } else if (typ === "float") {
+  } else if (t === "float") {
     newS.type = "number";
-  } else if (typ === "bool") {
+  } else if (t === "bool") {
     newS.type = "boolean";
-  } else if (typ === "email") {
+  } else if (t === "email") {
     newS.type = "string";
     newS.format = "email";
-  } else if (typ === "sql") {
+  } else if (t === "sql") {
     newS.type = "string";
     newS.format = "sql";
-  } else if (typ === "yaml") {
+  } else if (t === "yaml") {
     newS.type = "string";
     newS.format = "yaml";
-  } else if (typ === "bytes") {
+  } else if (t === "bytes") {
     newS.type = "string";
     newS.contentEncoding = "base64";
-  } else if (typ === "datetime") {
+  } else if (t === "datetime") {
     newS.type = "string";
     newS.format = "date-time";
-  } else if (typeof typ !== "string" && `object` in typ) {
+  } else if (typeof t !== "string" && `object` in t) {
     newS.type = "object";
-    if (typ.object) {
-      const properties: Record<string, SchemaProperty> = {};
-      for (const prop of typ.object) {
-        properties[prop.key] = { type: undefined };
+    if (t.object) {
+      const properties: Record<string, any> = {};
+      for (const prop of t.object) {
+        properties[prop.key] = {};
         argSigToJsonSchemaType(prop.typ, properties[prop.key]);
       }
       newS.properties = properties;
     }
-  } else if (typeof typ !== "string" && `str` in typ) {
+  } else if (typeof t !== "string" && `str` in t) {
     newS.type = "string";
-    if (typ.str) {
-      newS.enum = typ.str;
+    if (t.str) {
+      newS.enum = t.str;
     }
-  } else if (typeof typ !== "string" && `resource` in typ) {
+  } else if (typeof t !== "string" && `resource` in t) {
     newS.type = "object";
-    newS.format = `resource-${typ.resource}`;
-  } else if (typeof typ !== "string" && `list` in typ) {
+    newS.format = `resource-${t.resource}`;
+  } else if (typeof t !== "string" && `list` in t) {
     newS.type = "array";
-    if (typ.list === "int" || typ.list === "float") {
+    if (t.list === "int" || t.list === "float") {
       newS.items = { type: "number" };
-    } else if (typ.list === "bytes") {
+    } else if (t.list === "bytes") {
       newS.items = { type: "string", contentEncoding: "base64" };
-    } else if (typ.list == "string") {
+    } else if (t.list == "string") {
       newS.items = { type: "string" };
-    } else if (typ.list && typeof typ.list == "object" && "str" in typ.list) {
-      newS.items = { type: "string", enum: typ.list.str };
+    } else if (t.list && typeof t.list == "object" && "str" in t.list) {
+      newS.items = { type: "string", enum: t.list.str };
     } else {
       newS.items = { type: "object" };
     }
@@ -430,17 +435,27 @@ function argSigToJsonSchemaType(
   if (oldS.type != newS.type) {
     for (const prop of Object.getOwnPropertyNames(newS)) {
       if (prop != "description") {
-        // @ts-ignore: fix
         delete oldS[prop];
       }
     }
-  } else if (oldS.format == "date-time" && newS.format != "date-time") {
-    delete oldS.format;
+  } else if (
+    (oldS.format == "date" || oldS.format === "date-time") &&
+    newS.format == "string"
+  ) {
+    newS.format = oldS.format;
+  } else if (newS.format == "date-time" && oldS.format == "date") {
+    newS.format = "date";
   } else if (oldS.items?.type != newS.items?.type) {
     delete oldS.items;
   }
 
   Object.assign(oldS, newS);
+
+  // if (sameItems && savedItems != undefined && savedItems.enum != undefined) {
+  // 	sendUserToast(JSON.stringify(savedItems))
+  // 	oldS.items = savedItems
+  // }
+
   if (oldS.format?.startsWith("resource-") && newS.type != "object") {
     oldS.format = undefined;
   }
@@ -474,7 +489,8 @@ export async function parseMetadataFile(
         schemaOnly?: boolean;
       })
     | undefined,
-  globalDeps: GlobalDeps
+  globalDeps: GlobalDeps,
+  codebases: SyncCodebase[]
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
@@ -522,7 +538,8 @@ export async function parseMetadataFile(
             generateMetadataIfMissing,
             false,
             false,
-            globalDeps
+            globalDeps,
+            codebases
           );
           scriptInitialMetadata = yamlParse(
             await Deno.readTextFile(metadataFilePath)

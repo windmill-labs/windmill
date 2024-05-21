@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.333.4](https://github.com/windmill-labs/windmill/compare/v1.333.3...v1.333.4) (2024-05-20)
+
+
+### Bug Fixes
+
+* **cli:** make bun the default language in absence of wmill defaultTs 2 ([b2958be](https://github.com/windmill-labs/windmill/commit/b2958be7c10d932ae4076e0cde49fff37d5e9f41))
+
+## [1.333.3](https://github.com/windmill-labs/windmill/compare/v1.333.2...v1.333.3) (2024-05-20)
+
+
+### Bug Fixes
+
+* **cli:** make bun the default language in absence of wmill defaultTs ([8399086](https://github.com/windmill-labs/windmill/commit/83990869bc5edb98f633944410242de19dbe5d01))
+
+## [1.333.2](https://github.com/windmill-labs/windmill/compare/v1.333.1...v1.333.2) (2024-05-20)
+
+
+### Bug Fixes
+
+* **frontend:** fix AgGrid pagination refresh ([#3773](https://github.com/windmill-labs/windmill/issues/3773)) ([ccc2699](https://github.com/windmill-labs/windmill/commit/ccc2699d4ef18a765c3f9e968b4cd5ea1f600fa1))
+
+## [1.333.1](https://github.com/windmill-labs/windmill/compare/v1.333.0...v1.333.1) (2024-05-20)
+
+
+### Bug Fixes
+
+* **backend:** improve memory usage by making schema RawValue instead of serde_json::Value ([f1bb7cf](https://github.com/windmill-labs/windmill/commit/f1bb7cfcbdbfee7488f59256522be18f8d2eb0a3))
+
+## [1.333.0](https://github.com/windmill-labs/windmill/compare/v1.332.1...v1.333.0) (2024-05-19)
+
+
+### Features
+
+* reduce memory usage ([#3768](https://github.com/windmill-labs/windmill/issues/3768)) ([7a1808e](https://github.com/windmill-labs/windmill/commit/7a1808e951a2f359902138d1bb964cf52986665d))
+
+## [1.332.1](https://github.com/windmill-labs/windmill/compare/v1.332.0...v1.332.1) (2024-05-18)
+
+
+### Bug Fixes
+
+* **cli:** improve handling of schema for script bundles ([32bf061](https://github.com/windmill-labs/windmill/commit/32bf061627f087e1ec4e88a3e03be0ca1b7fa9f7))
+* **frontend:** improve json display for large table objects ([#3765](https://github.com/windmill-labs/windmill/issues/3765)) ([f0b3527](https://github.com/windmill-labs/windmill/commit/f0b3527e53e077f9c9ab4c9c6373f35cee77e566))
+
 ## [1.332.0](https://github.com/windmill-labs/windmill/compare/v1.331.2...v1.332.0) (2024-05-16)
 
 

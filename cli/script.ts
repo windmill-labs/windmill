@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions } from "./types.ts";
+import { GlobalOptions, showDiff } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
@@ -21,7 +21,11 @@ import {
 } from "./bootstrap/script_bootstrap.ts";
 
 import { Workspace } from "./workspace.ts";
-import { generateMetadataInternal, parseMetadataFile } from "./metadata.ts";
+import {
+  generateMetadataInternal,
+  parseMetadataFile,
+  updateScriptSchema,
+} from "./metadata.ts";
 import {
   ScriptLanguage,
   inferContentTypeFromFilePath,
@@ -74,7 +78,7 @@ async function push(opts: PushOptions, filePath: string) {
   await requireLogin(opts);
   const codebases = await listSyncCodebases(opts as SyncOptions);
 
-  const globalDeps = await findGlobalDeps(codebases);
+  const globalDeps = await findGlobalDeps();
   await handleFile(
     filePath,
     workspace,
@@ -169,7 +173,8 @@ export async function handleFile(
               schemaOnly: codebase ? true : undefined,
             }
           : undefined,
-        globalDeps
+        globalDeps,
+        codebases
       )
     )?.payload;
 
@@ -186,6 +191,22 @@ export async function handleFile(
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
     const content = await Deno.readTextFile(path);
+
+    if (codebase) {
+      const typedBefore = JSON.parse(JSON.stringify(typed.schema));
+      await updateScriptSchema(content, language, typed, path);
+      if (typedBefore != typed.schema) {
+        log.info(`Updated metadata for bundle ${path}`);
+        showDiff(
+          yamlStringify(typedBefore, yamlOptions),
+          yamlStringify(typed.schema, yamlOptions)
+        );
+        await Deno.writeTextFile(
+          remotePath + ".script.yaml",
+          yamlStringify(typed as Record<string, any>, yamlOptions)
+        );
+      }
+    }
 
     const requestBodyCommon = {
       content,
@@ -371,13 +392,13 @@ export function filePathExtensionFromContentType(
   } else if (language === "nativets") {
     return ".fetch.ts";
   } else if (language === "bun") {
-    if (defaultTs == undefined || defaultTs == "deno") {
+    if (defaultTs == "deno") {
       return ".bun.ts";
     } else {
       return ".ts";
     }
   } else if (language === "deno") {
-    if (defaultTs == "bun") {
+    if (defaultTs == undefined || defaultTs == "bun") {
       return ".deno.ts";
     } else {
       return ".ts";
@@ -662,12 +683,16 @@ async function bootstrap(
     yamlOptions
   );
 
-  Deno.writeTextFile(scriptCodeFileFullPath, scriptInitialCode, {
+  await Deno.writeTextFile(scriptCodeFileFullPath, scriptInitialCode, {
     createNew: true,
   });
-  Deno.writeTextFile(scriptMetadataFileFullPath, scriptInitialMetadataYaml, {
-    createNew: true,
-  });
+  await Deno.writeTextFile(
+    scriptMetadataFileFullPath,
+    scriptInitialMetadataYaml,
+    {
+      createNew: true,
+    }
+  );
 }
 
 export type GlobalDeps = {
@@ -675,13 +700,11 @@ export type GlobalDeps = {
   reqs: Record<string, string>;
   composers: Record<string, string>;
 };
-export async function findGlobalDeps(
-  codebases: SyncCodebase[]
-): Promise<GlobalDeps> {
+export async function findGlobalDeps(): Promise<GlobalDeps> {
   const pkgs: { [key: string]: string } = {};
   const reqs: { [key: string]: string } = {};
   const composers: { [key: string]: string } = {};
-  const els = await FSFSElement(Deno.cwd(), codebases);
+  const els = await FSFSElement(Deno.cwd(), []);
   for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
     p = "/" + p;
     return (
@@ -725,7 +748,7 @@ async function generateMetadata(
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
 
-  const globalDeps = await findGlobalDeps(codebases);
+  const globalDeps = await findGlobalDeps();
   if (scriptPath) {
     // read script metadata file
     await generateMetadataInternal(
@@ -734,7 +757,8 @@ async function generateMetadata(
       opts,
       false,
       false,
-      globalDeps
+      globalDeps,
+      codebases
     );
   } else {
     const ignore = await ignoreF(opts);
@@ -760,7 +784,8 @@ async function generateMetadata(
         opts,
         true,
         true,
-        globalDeps
+        globalDeps,
+        codebases
       );
       if (candidate) {
         hasAny = true;
@@ -788,7 +813,8 @@ async function generateMetadata(
         opts,
         false,
         true,
-        globalDeps
+        globalDeps,
+        codebases
       );
     }
   }

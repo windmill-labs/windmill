@@ -47,7 +47,7 @@ pub struct InputRow {
     pub runnable_id: String,
     pub runnable_type: RunnableType,
     pub name: String,
-    pub args: Value,
+    pub args: sqlx::types::Json<Box<serde_json::value::RawValue>>,
     pub created_at: DateTime<Utc>,
     pub created_by: String,
     pub is_public: bool,
@@ -95,12 +95,12 @@ pub struct RunnableParams {
     pub runnable_type: RunnableType,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Input {
     id: Uuid,
     name: String,
     created_at: chrono::DateTime<chrono::Utc>,
-    args: serde_json::Value,
+    args: sqlx::types::Json<Box<serde_json::value::RawValue>>,
     created_by: String,
     is_public: bool,
     success: bool,
@@ -110,7 +110,7 @@ pub struct Input {
 pub struct CompletedJobMini {
     id: Uuid,
     created_at: chrono::DateTime<chrono::Utc>,
-    args: Option<serde_json::Value>,
+    args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     created_by: String,
     success: bool,
 }
@@ -161,7 +161,9 @@ async fn get_input_history(
                 row.created_by
             ),
             created_at: row.created_at,
-            args: row.args.unwrap_or(serde_json::json!({})),
+            args: row.args.unwrap_or(sqlx::types::Json(
+                serde_json::value::RawValue::from_string("null".to_string()).unwrap(),
+            )),
             created_by: row.created_by,
             is_public: true,
             success: row.success,
@@ -240,7 +242,7 @@ async fn list_saved_inputs(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateInput {
     name: String,
-    args: serde_json::Value,
+    args: Box<serde_json::value::RawValue>,
 }
 
 async fn create_input(
@@ -262,7 +264,7 @@ async fn create_input(
     .bind(&r.runnable_id)
     .bind(&r.runnable_type)
     .bind(&input.name)
-    .bind(&input.args)
+    .bind(sqlx::types::Json(&input.args))
     .bind(&authed.username)
     .execute(&mut *tx)
     .await?;

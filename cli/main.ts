@@ -33,7 +33,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.332.0";
+export const VERSION = "v1.333.4";
 
 let command: any = new Command()
   .name("wmill")
@@ -70,7 +70,7 @@ let command: any = new Command()
       "wmill.yaml",
       yamlStringify({
         defaultTs: "bun",
-        includes: [],
+        includes: ["**"],
         excludes: [],
         codebases: [],
       })

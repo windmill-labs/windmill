@@ -41,7 +41,7 @@ export async function downloadZip(
       }&include_users=${includeUsers ?? false}&include_groups=${
         includeGroups ?? false
       }&include_settings=${includeSettings ?? false}&default_ts=${
-        defaultTs ?? "deno"
+        defaultTs ?? "bun"
       }`,
     {
       headers: requestHeaders,

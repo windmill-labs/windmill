@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.332.0"
+version = "1.333.4"
 authors.workspace = true
 edition.workspace = true
 
@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.332.0"
+version = "1.333.4"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -51,7 +51,7 @@ prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud"]
-jemalloc = ["dep:tikv-jemallocator"]
+jemalloc = ["dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 
 [dependencies]
 anyhow.workspace = true
@@ -84,7 +84,9 @@ deno_core.workspace = true
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { optional = true, version = "0.5" }
+tikv-jemallocator = { optional = true, version = "0.5", features = ["profiling"] }
+tikv-jemalloc-sys  = { optional = true, version = "^0.5", features = ["profiling"] }
+tikv-jemalloc-ctl = { optional = true, version = "^0.5" }
 
 [dev-dependencies]
 serde_json.workspace = true
