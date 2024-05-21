@@ -5,7 +5,7 @@
 	import { defaultScripts, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
-	import { decodeState, emptySchema } from '$lib/utils'
+	import { decodeState, emptySchema, emptyString } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
@@ -57,7 +57,9 @@
 				workspace: $workspaceStore!,
 				path: templatePath
 			})
-			script.summary = `Copy of ${template.summary}`
+
+			// Only copy the summary if it's not empty
+			script.summary = !emptyString(template.summary) ? `Copy of ${template.summary}` : ''
 			script.description = template.description
 			script.content = template.content
 			script.schema = template.schema

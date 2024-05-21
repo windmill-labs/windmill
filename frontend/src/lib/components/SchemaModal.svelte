@@ -62,7 +62,9 @@
 			showExpr: schema.showExpr,
 			password: schema.password,
 			nullable: schema.nullable,
-			dateFormat: schema.format
+			dateFormat: schema.format,
+			title: schema.title,
+			placeholder: schema.placeholder
 		}
 	}
 
@@ -88,6 +90,8 @@
 	import LightweightSchemaForm from './LightweightSchemaForm.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import Label from './Label.svelte'
+	import { shouldDisplayPlaceholder } from '$lib/utils'
 
 	export let error = ''
 	export let editing = false
@@ -138,6 +142,8 @@
 		property.password = undefined
 		property.nullable = false
 		property.dateFormat = undefined
+		property.title = undefined
+		property.placeholder = undefined
 		drawer.closeDrawer()
 	}
 
@@ -156,6 +162,16 @@
 		}
 
 		return []
+	}
+
+	function shouldDisplayPlaceholderForProperty(property: ModalSchemaProperty): boolean {
+		return shouldDisplayPlaceholder(
+			property.selectedType,
+			property.format,
+			property.enum_,
+			property.contentEncoding,
+			property.pattern
+		)
 	}
 </script>
 
@@ -191,6 +207,11 @@
 					<Required required={false} />
 				</div>
 				<textarea placeholder="Enter a description" rows="3" bind:value={property.description} />
+			</label>
+
+			<label class="block">
+				<div class="mb-1 font-semibold text-secondary"> Custom Title </div>
+				<textarea placeholder="Enter a custom title" rows="1" bind:value={property.title} />
 			</label>
 			<div>
 				<div class="mb-1 font-semibold text-secondary">Type<Required required={true} /></div>
@@ -266,6 +287,8 @@
 						extra={property}
 						disabled={property.password}
 						nullable={property.nullable}
+						title={property.title}
+						placeholder={property.placeholder}
 					/>
 					<div>
 						<Toggle
@@ -341,6 +364,16 @@
 						</svelte:fragment>
 					</Tabs>
 				{/if}
+				{#if property && shouldDisplayPlaceholderForProperty(property)}
+					<Label label="Placeholder" class="pt-2">
+						<textarea
+							placeholder="Enter a placeholder"
+							rows="1"
+							bind:value={property.placeholder}
+						/>
+					</Label>
+				{/if}
+
 				<div class="pt-2">
 					<Toggle
 						options={{ right: 'Show this field only when conditions are met' }}
