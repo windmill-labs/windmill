@@ -65,7 +65,7 @@
 	{#key app}
 		<div
 			class={twMerge(
-				'min-h-screen h-screen w-full',
+				'min-h-screen h-full w-full',
 				app?.value?.['css']?.['app']?.['viewer']?.class,
 				'wm-app-viewer'
 			)}
