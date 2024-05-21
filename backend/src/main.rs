@@ -576,13 +576,7 @@ Windmill Community Edition {GIT_VERSION}
 
         let instance_name = rd_string(8);
         if mode == Mode::Server || mode == Mode::Standalone {
-            schedule_stats(
-                instance_name,
-                &db,
-                &HTTP_CLIENT,
-                cfg!(feature = "enterprise"),
-            )
-            .await;
+            schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
         }
 
         futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
