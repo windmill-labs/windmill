@@ -236,7 +236,7 @@
 			return 'pattern'
 		}
 		if (format != undefined && format != '') {
-			if (format.startsWith('resource')) {
+			if (format?.startsWith('resource')) {
 				return 'resource'
 			}
 			return 'format'

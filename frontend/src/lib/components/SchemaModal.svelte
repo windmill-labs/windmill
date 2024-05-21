@@ -176,7 +176,7 @@
 			return 'pattern'
 		}
 		if (property.format != undefined && property.format != '') {
-			if (property.format.startsWith('resource')) {
+			if (property.format?.startsWith('resource')) {
 				return 'resource'
 			}
 			return 'format'
@@ -393,7 +393,7 @@
 						</svelte:fragment>
 					</Tabs>
 				{/if}
-				{#if shouldDisplayPlaceholder(property)}
+				{#if property && shouldDisplayPlaceholder(property)}
 					<Label label="Placeholder" class="pt-2">
 						<textarea
 							placeholder="Enter a placeholder"
