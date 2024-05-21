@@ -622,7 +622,7 @@
 						{#if selectedId === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
-							<JobPreview id={selectedId} workspace={selectedWorkspace} />
+							<JobPreview on:filterByConcurrencyKey={filterByConcurrencyKey} id={selectedId} workspace={selectedWorkspace} />
 						{/if}
 					{:else}
 						<div class="text-xs m-4">No job selected</div>
