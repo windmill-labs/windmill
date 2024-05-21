@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT distinct owner FROM workspace WHERE owner NOT LIKE '%@windmill.dev'",
+  "query": "SELECT email FROM password WHERE super_admin IS true AND email NOT LIKE '%@windmill.dev' LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "owner",
+        "name": "email",
         "type_info": "Varchar"
       }
     ],
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "fb4ad606101e6fe10be7bb903f3d00631907346e8d99970c719136b76b7f4d2e"
+  "hash": "71ad5448cba8da6677edd02e090cc158e09af72dd31585ed2ddc1cc06cbfd189"
 }
