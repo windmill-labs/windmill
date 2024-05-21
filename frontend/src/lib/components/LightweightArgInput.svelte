@@ -51,6 +51,8 @@
 	export let hideResourceInput: boolean = false
 	export let resourceInputUnsupported: boolean = false
 	export let render = true
+	export let customLabel: string | undefined = undefined
+	export let placeholder: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -181,7 +183,7 @@
 				{#if displayHeader}
 					<FieldHeader
 						prettify
-						{label}
+						label={customLabel ?? label}
 						{required}
 						{type}
 						{contentEncoding}

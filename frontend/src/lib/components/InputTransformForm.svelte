@@ -407,6 +407,8 @@
 					bind:pickForField
 					showSchemaExplorer
 					nullable={schema.properties[argName].nullable}
+					bind:customLabel={schema.properties[argName].customLabel}
+					bind:placeholder={schema.properties[argName].placeholder}
 				/>
 			{:else if arg.expr != undefined}
 				<div class="border mt-2">

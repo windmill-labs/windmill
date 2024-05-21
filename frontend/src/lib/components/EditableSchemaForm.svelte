@@ -152,6 +152,8 @@
 							bind:extra={schema.properties[argName]}
 							simpleTooltip={schemaFieldTooltip[argName]}
 							nullable={schema.properties[argName].nullable}
+							bind:customLabel={schema.properties[argName].customLabel}
+							bind:placeholder={schema.properties[argName].placeholder}
 						/>
 					{/if}
 				{/if}

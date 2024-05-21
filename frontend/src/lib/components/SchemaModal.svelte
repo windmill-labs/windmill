@@ -62,7 +62,9 @@
 			showExpr: schema.showExpr,
 			password: schema.password,
 			nullable: schema.nullable,
-			dateFormat: schema.format
+			dateFormat: schema.format,
+			customLabel: schema.customLabel,
+			placeholder: schema.placeholder
 		}
 	}
 
@@ -138,6 +140,8 @@
 		property.password = undefined
 		property.nullable = false
 		property.dateFormat = undefined
+		property.customLabel = undefined
+		property.placeholder = undefined
 		drawer.closeDrawer()
 	}
 
@@ -191,6 +195,20 @@
 					<Required required={false} />
 				</div>
 				<textarea placeholder="Enter a description" rows="3" bind:value={property.description} />
+			</label>
+			<label class="block">
+				<div class="mb-1 font-semibold text-secondary">
+					Placeholder
+					<Required required={false} />
+				</div>
+				<textarea placeholder="Enter a placeholder" rows="3" bind:value={property.placeholder} />
+			</label>
+			<label class="block">
+				<div class="mb-1 font-semibold text-secondary">
+					Custom Label
+					<Required required={false} />
+				</div>
+				<textarea placeholder="Enter a custom label" rows="3" bind:value={property.customLabel} />
 			</label>
 			<div>
 				<div class="mb-1 font-semibold text-secondary">Type<Required required={true} /></div>
@@ -266,6 +284,8 @@
 						extra={property}
 						disabled={property.password}
 						nullable={property.nullable}
+						customLabel={property.customLabel}
+						placeholder={property.placeholder}
 					/>
 					<div>
 						<Toggle

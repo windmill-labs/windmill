@@ -74,6 +74,8 @@
 	export let customErrorMessage: string | undefined = undefined
 	export let onlyMaskPassword = false
 	export let nullable: boolean = false
+	export let customLabel: string | undefined = undefined
+	export let placeholder: string | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -233,7 +235,7 @@
 		{#if displayHeader}
 			<FieldHeader
 				prettify={prettifyHeader}
-				{label}
+				label={customLabel ?? label}
 				{disabled}
 				{required}
 				{type}
@@ -241,6 +243,7 @@
 				{format}
 				{simpleTooltip}
 			/>
+
 			{#if editableSchema}
 				<span class="mx-8" />
 				{#if editableSchema.i > 0}
@@ -381,7 +384,7 @@
 							class={valid
 								? ''
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-							placeholder={defaultValue ?? ''}
+							placeholder={placeholder ?? defaultValue ?? ''}
 							bind:value
 							min={extra['min']}
 							max={extra['max']}
@@ -680,7 +683,7 @@
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
-					placeholder={defaultValue ?? ''}
+					placeholder={placeholder ?? defaultValue ?? ''}
 					bind:value
 				/>
 			{:else if inputCat == 'string'}
@@ -688,7 +691,11 @@
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
 							{#if onlyMaskPassword}
-								<Password {disabled} bind:password={value} placeholder={defaultValue ?? ''} />
+								<Password
+									{disabled}
+									bind:password={value}
+									placeholder={placeholder ?? defaultValue ?? ''}
+								/>
 							{:else}
 								<PasswordArgInput {disabled} bind:value />
 							{/if}
@@ -713,7 +720,7 @@
 											? ''
 											: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
 									)}
-									placeholder={defaultValue ?? ''}
+									placeholder={placeholder ?? defaultValue ?? ''}
 									bind:value
 								/>
 							{/key}

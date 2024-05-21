@@ -159,6 +159,8 @@
 								simpleTooltip={schemaFieldTooltip[argName]}
 								{onlyMaskPassword}
 								nullable={schema.properties[argName].nullable}
+								customLabel={schema.properties[argName].customLabel}
+								placeholder={schema.properties[argName].placeholder}
 							>
 								<svelte:fragment slot="actions">
 									{#if linkedSecretCandidates?.includes(argName)}
