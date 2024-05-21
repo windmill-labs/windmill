@@ -109,6 +109,7 @@ async fn prune_concurrency_group(
 struct ExtendedJobs {
     jobs: Vec<Job>,
     obscured_jobs: Vec<ObscuredJob>,
+    omitted_obscured_jobs: bool,
 }
 
 #[derive(Serialize)]
@@ -393,7 +394,7 @@ async fn get_concurrent_intervals(
             )
             .map(From::from)
             .collect();
-        Ok(Json(ExtendedJobs { jobs, obscured_jobs }))
+        Ok(Json(ExtendedJobs { jobs, obscured_jobs, omitted_obscured_jobs: !should_fetch_obscured_jobs }))
     } else {
         let sql_q = sqlb_q.query()?;
         let sql_c = sqlb_c.query()?;
@@ -417,7 +418,7 @@ async fn get_concurrent_intervals(
             .map(From::from)
             .collect();
 
-        Ok(Json(ExtendedJobs { jobs, obscured_jobs: vec![] }))
+        Ok(Json(ExtendedJobs { jobs, obscured_jobs: vec![], omitted_obscured_jobs: !should_fetch_obscured_jobs }))
     }
 }
 

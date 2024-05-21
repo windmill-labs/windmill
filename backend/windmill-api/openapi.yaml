@@ -10514,6 +10514,9 @@ components:
           type: array
           items:
             $ref : "#/components/schemas/ObscuredJob"
+        omitted_obscured_jobs:
+          description: "Obscured jobs omitted for security because of too specific filtering"
+          type: boolean
       required:
         - jobs
         - obscured_jobs
