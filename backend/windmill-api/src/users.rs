@@ -40,7 +40,7 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::users::truncate_token;
@@ -72,6 +72,7 @@ pub fn workspaced_service() -> Router {
         .route("/whois/:username", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
+        .route("/email_from_username/:username", get(email_from_username))
 }
 
 pub fn global_service() -> Router {
@@ -118,6 +119,16 @@ pub fn make_unauthed_service() -> Router {
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     if label.as_ref().is_some_and(|x| x.starts_with("webhook-")) {
         label
+    } else if label
+        .as_ref()
+        .is_some_and(|x| x.starts_with("ephemeral-script-end-user-"))
+    {
+        Some(
+            label
+                .unwrap()
+                .trim_start_matches("ephemeral-script-end-user-")
+                .to_string(),
+        )
     } else {
         None
     }
@@ -919,9 +930,10 @@ async fn logout(
         .fetch_optional(&mut *tx)
         .await?;
     if let Some(email) = email {
+        let email = email.unwrap_or("noemail".to_string());
         audit_log(
             &mut *tx,
-            &email.unwrap_or("noemail".to_string()),
+            &AuditAuthor { email: email.clone(), username: email, username_override: None },
             "users.logout",
             ActionKind::Delete,
             "global",
@@ -1275,7 +1287,7 @@ async fn whois(
 // }
 
 async fn decline_invite(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(nu): Json<DeclineInvite>,
 ) -> Result<(StatusCode, String)> {
@@ -1284,18 +1296,18 @@ async fn decline_invite(
     let is_admin = sqlx::query_scalar!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin",
         nu.workspace_id,
-        email,
+        authed.email,
     )
     .fetch_optional(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &email,
+        &authed,
         "users.decline_invite",
         ActionKind::Delete,
         &nu.workspace_id,
-        Some(&email),
+        Some(&authed.email),
         None,
     )
     .await?;
@@ -1306,11 +1318,14 @@ async fn decline_invite(
             StatusCode::OK,
             format!(
                 "user {} declined invite to workspace {}",
-                &email, nu.workspace_id
+                &authed.email, nu.workspace_id
             ),
         ))
     } else {
-        Err(Error::NotFound(format!("invite for {email} not found")))
+        Err(Error::NotFound(format!(
+            "invite for {} not found",
+            authed.email
+        )))
     }
 }
 
@@ -1319,7 +1334,7 @@ lazy_static! {
 }
 
 async fn accept_invite(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -1330,7 +1345,7 @@ async fn accept_invite(
     let r = sqlx::query!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator",
         nu.workspace_id,
-        email,
+        authed.email,
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -1339,7 +1354,7 @@ async fn accept_invite(
         let already_in_workspace = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
             &nu.workspace_id,
-            &email,
+            &authed.email,
         )
         .fetch_one(&mut *tx)
         .await?
@@ -1351,14 +1366,14 @@ async fn accept_invite(
                 StatusCode::CREATED,
                 format!(
                     "user {} accepted invite to workspace {}",
-                    &email, nu.workspace_id
+                    &authed.email, nu.workspace_id
                 ),
             ));
         }
         let username;
-        (tx, username) = add_user_to_workspace(
+        (tx, username) = join_workspace(
             &nu.workspace_id,
-            &email,
+            &authed,
             nu.username,
             r.is_admin,
             r.operator,
@@ -1368,29 +1383,29 @@ async fn accept_invite(
 
         audit_log(
             &mut *tx,
-            &username,
+            &ApiAuthed { username: username.clone(), ..authed.clone() },
             "users.accept_invite",
             ActionKind::Create,
             &nu.workspace_id,
-            Some(&email),
+            Some(&authed.email),
             None,
         )
         .await?;
         tx.commit().await?;
 
         handle_deployment_metadata(
-            &email,
+            &authed.email,
             &username,
             &db,
             &nu.workspace_id,
-            windmill_git_sync::DeployedObject::User { email: email.clone() },
-            Some(format!("User '{}' accepted invite", &email)),
+            windmill_git_sync::DeployedObject::User { email: authed.email.clone() },
+            Some(format!("User '{}' accepted invite", &authed.email)),
             rsmq,
             true,
         )
         .await?;
         webhook.send_instance_event(InstanceEvent::UserJoinedWorkspace {
-            email: email.clone(),
+            email: authed.email.clone(),
             workspace: nu.workspace_id.clone(),
             username: username,
         });
@@ -1398,17 +1413,20 @@ async fn accept_invite(
             StatusCode::CREATED,
             format!(
                 "user {} accepted invite to workspace {}",
-                &email, nu.workspace_id
+                &authed.email, nu.workspace_id
             ),
         ))
     } else {
-        Err(Error::NotFound(format!("invite for {email} not found")))
+        Err(Error::NotFound(format!(
+            "invite for {} not found",
+            authed.email
+        )))
     }
 }
 
-async fn add_user_to_workspace<'c>(
+async fn join_workspace<'c>(
     w_id: &str,
-    email: &str,
+    authed: &ApiAuthed,
     username: Option<String>,
     is_admin: bool,
     operator: bool,
@@ -1430,7 +1448,7 @@ async fn add_user_to_workspace<'c>(
                 "username is not allowed when username creation is automated".to_string(),
             ));
         }
-        get_instance_username_or_create_pending(&mut tx, &email).await?
+        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
     } else {
         let username = username.ok_or(Error::BadRequest("username is required".to_string()))?;
         let already_exists_username = sqlx::query_scalar!(
@@ -1460,7 +1478,7 @@ async fn add_user_to_workspace<'c>(
     let already_exists_email = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
         &w_id,
-        username,
+        authed.email,
     )
     .fetch_one(&mut *tx)
     .await?
@@ -1469,7 +1487,7 @@ async fn add_user_to_workspace<'c>(
     if already_exists_email {
         return Err(Error::BadRequest(format!(
             "user with email {} already exists in workspace {}",
-            email, w_id
+            authed.email, w_id
         )));
     }
 
@@ -1478,7 +1496,7 @@ async fn add_user_to_workspace<'c>(
             (workspace_id, email, username, is_admin, operator)
             VALUES ($1, $2, $3, $4, $5)",
         &w_id,
-        email,
+        authed.email,
         username,
         is_admin,
         operator
@@ -1496,33 +1514,30 @@ async fn add_user_to_workspace<'c>(
     .await?;
     audit_log(
         &mut *tx,
-        &username,
+        &AuditAuthor { username: username.clone(), ..authed.into() },
         "users.add_to_workspace",
         ActionKind::Create,
         &w_id,
-        Some(email),
+        Some(&authed.email),
         None,
     )
     .await?;
     Ok((tx, username))
 }
 
-async fn leave_instance(
-    Extension(db): Extension<DB>,
-    ApiAuthed { email, username, .. }: ApiAuthed,
-) -> Result<String> {
+async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     let mut tx = db.begin().await?;
-    sqlx::query!("DELETE FROM password WHERE email = $1", &email)
+    sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
         .await?;
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "workspaces.leave",
         ActionKind::Delete,
         "global",
-        Some(&email),
+        Some(&authed.email),
         None,
     )
     .await?;
@@ -1553,7 +1568,7 @@ async fn get_workspace_user(
 }
 
 async fn update_workspace_user(
-    ApiAuthed { username, email, is_admin, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_update)): Path<(String, String)>,
@@ -1561,7 +1576,7 @@ async fn update_workspace_user(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     if let Some(a) = eu.is_admin {
         sqlx::query_scalar!(
@@ -1598,7 +1613,7 @@ async fn update_workspace_user(
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "users.update",
         ActionKind::Update,
         &w_id,
@@ -1618,8 +1633,8 @@ async fn update_workspace_user(
     tx.commit().await?;
 
     handle_deployment_metadata(
-        &email,
-        &username,
+        &authed.email,
+        &authed.username,
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::User { email: user_email.clone() },
@@ -1633,12 +1648,12 @@ async fn update_workspace_user(
 }
 
 async fn update_user(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Path(email_to_update): Path<String>,
     Extension(db): Extension<DB>,
     Json(eu): Json<EditUser>,
 ) -> Result<String> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
     if let Some(sa) = eu.is_super_admin {
@@ -1653,7 +1668,7 @@ async fn update_user(
 
     audit_log(
         &mut *tx,
-        &email,
+        &authed,
         "users.update",
         ActionKind::Update,
         "global",
@@ -1666,11 +1681,11 @@ async fn update_user(
 }
 
 async fn delete_user(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Path(email_to_delete): Path<String>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
@@ -1702,7 +1717,7 @@ async fn delete_user(
     }
     audit_log(
         &mut *tx,
-        &email,
+        &authed,
         "users.delete",
         ActionKind::Delete,
         "global",
@@ -1720,14 +1735,14 @@ lazy_static::lazy_static! {
 }
 
 async fn create_user(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
     nu.email = nu.email.to_lowercase();
@@ -1787,7 +1802,7 @@ async fn create_user(
 
     audit_log(
         &mut *tx,
-        &email,
+        &authed,
         "users.add_global",
         ActionKind::Create,
         "global",
@@ -1795,19 +1810,20 @@ async fn create_user(
         None,
     )
     .await?;
-    tx = add_to_demo_if_exists(tx, &email).await?;
+    tx = add_to_demo_if_exists(tx, &nu.email).await?;
 
     tx.commit().await?;
 
-    invite_user_to_all_auto_invite_worspaces(&db, &nu.email, rsmq).await?;
+    invite_user_to_all_auto_invite_worspaces(&db, &nu.email, rsmq, &authed).await?;
     send_email_if_possible(
         "Invited to Windmill",
         &format!(
-            "You have been granted access to Windmill by {email}.
+            "You have been granted access to Windmill by {}.
 
 Log in and change your password: {}/user/login?email={}&password={}&rd=%2F%23user-settings
 
 You can then join or create a workspace. Happy building!",
+            authed.email,
             BASE_URL.read().await.clone(),
             &nu.email,
             &nu.password
@@ -1837,14 +1853,14 @@ pub async fn send_email_if_possible_intern(subject: &str, content: &str, to: Str
 }
 
 async fn delete_workspace_user(
-    ApiAuthed { username, email, is_admin, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let email_to_delete_o = sqlx::query_scalar!(
         "SELECT email FROM usr where username = $1 AND workspace_id = $2",
@@ -1856,17 +1872,17 @@ async fn delete_workspace_user(
 
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
-    let username = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 AND workspace_id = $2 RETURNING username",
+    sqlx::query_scalar!(
+        "DELETE FROM usr WHERE email = $1 AND workspace_id = $2",
         email_to_delete,
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
-        &username,
+        &username_to_delete,
         &w_id
     )
     .execute(&mut *tx)
@@ -1874,7 +1890,7 @@ async fn delete_workspace_user(
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "users.delete",
         ActionKind::Delete,
         &w_id,
@@ -1885,8 +1901,8 @@ async fn delete_workspace_user(
     tx.commit().await?;
 
     handle_deployment_metadata(
-        &email,
-        &username,
+        &authed.email,
+        &authed.username,
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::User { email: email_to_delete.clone() },
@@ -1905,14 +1921,14 @@ async fn delete_workspace_user(
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    ApiAuthed { username, email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Json(EditPassword { password }): Json<EditPassword>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
     let custom_type = sqlx::query_scalar!(
         "SELECT login_type::TEXT FROM password WHERE email = $1",
-        &email
+        &authed.email
     )
     .fetch_one(&mut *tx)
     .await
@@ -1921,31 +1937,32 @@ async fn set_password(
 
     if custom_type != "password".to_string() {
         return Err(Error::BadRequest(format!(
-            "login type for {email} is of type {custom_type}. Cannot set password."
+            "login type for {} is of type {custom_type}. Cannot set password.",
+            authed.email
         )));
     }
 
     sqlx::query!(
         "UPDATE password SET password_hash = $1 WHERE email = $2",
         &hash_password(argon2, password)?,
-        &email,
+        &authed.email,
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "users.setpassword",
         ActionKind::Update,
         "global",
-        Some(&email),
+        Some(&authed.email),
         None,
     )
     .await?;
     tx.commit().await?;
 
-    Ok(format!("password of {} updated", email))
+    Ok(format!("password of {} updated", authed.email))
 }
 
 pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
@@ -2204,23 +2221,25 @@ pub async fn create_session_token<'c>(
 
 async fn create_token(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     let token = rd_string(30);
     let mut tx = db.begin().await?;
 
-    let is_super_admin =
-        sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-            .fetch_optional(&mut *tx)
-            .await?
-            .unwrap_or(false);
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        authed.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .unwrap_or(false);
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin, scopes)
             VALUES ($1, $2, $3, $4, $5, $6)",
         token,
-        email,
+        authed.email,
         new_token.label,
         new_token.expiration,
         is_super_admin,
@@ -2231,14 +2250,14 @@ async fn create_token(
 
     audit_log(
         &mut *tx,
-        &email,
+        &authed,
         "users.token.create",
         ActionKind::Create,
         &"global",
         Some(&token[0..10]),
         None,
     )
-    .instrument(tracing::info_span!("token", email = &email))
+    .instrument(tracing::info_span!("token", email = &authed.email))
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
@@ -2246,11 +2265,11 @@ async fn create_token(
 
 async fn impersonate(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     let token = rd_string(30);
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed.email).await?;
 
     if new_token.impersonate_email.is_none() {
         return Err(Error::BadRequest(
@@ -2284,7 +2303,7 @@ async fn impersonate(
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "users.impersonate",
         ActionKind::Delete,
         &"global",
@@ -2333,7 +2352,7 @@ async fn list_tokens(
 
 async fn delete_token(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Path(token_prefix): Path<String>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -2344,14 +2363,14 @@ async fn delete_token(
                  AND token LIKE concat($2::text, '%')
            RETURNING concat(substring(token for 10), '*****')",
     )
-    .bind(&email)
+    .bind(&authed.email)
     .bind(&token_prefix)
     .fetch_all(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &email,
+        &authed,
         "users.token.delete",
         ActionKind::Delete,
         &"global",
@@ -2372,20 +2391,20 @@ async fn delete_token(
 async fn leave_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { username, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
-        username
+        authed.username
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &username,
+        &authed,
         "users.leave_workspace",
         ActionKind::Delete,
         &w_id,
@@ -2573,18 +2592,35 @@ async fn get_instance_username_info(
     }))
 }
 
+async fn email_from_username(
+    Path((w_id, username)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+) -> Result<String> {
+    let email = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        &username,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let email = not_found_if_none(email, "user", username)?;
+
+    Ok(email)
+}
+
 #[derive(Deserialize)]
 struct RenameUser {
     new_username: String,
 }
 
 async fn rename_user(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Path(user_email): Path<String>,
     Extension(db): Extension<DB>,
     Json(ru): Json<RenameUser>,
 ) -> Result<String> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed.email).await?;
 
     let mut tx = db.begin().await?;
 
@@ -2641,7 +2677,7 @@ async fn rename_user(
 
     audit_log(
         &mut *tx,
-        &email,
+        &authed,
         "users.rename",
         ActionKind::Update,
         "global",

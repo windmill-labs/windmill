@@ -15,6 +15,7 @@ use sqlx::{
     pool::PoolConnection,
     PgConnection, Pool, Postgres,
 };
+use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
 use windmill_common::{
     db::{Authable, Authed},
     error::Error,
@@ -246,9 +247,31 @@ impl From<ApiAuthed> for Authed {
     }
 }
 
+impl From<&ApiAuthed> for AuditAuthor {
+    fn from(value: &ApiAuthed) -> Self {
+        Self {
+            email: value.email.clone(),
+            username: value.username.clone(),
+            username_override: value.username_override.clone(),
+        }
+    }
+}
+
 impl ApiAuthed {
     pub fn display_username(&self) -> &str {
         self.username_override.as_ref().unwrap_or(&self.username)
+    }
+}
+
+impl AuditAuthorable for ApiAuthed {
+    fn username(&self) -> &str {
+        self.username.as_str()
+    }
+    fn email(&self) -> &str {
+        self.email.as_str()
+    }
+    fn username_override(&self) -> Option<&str> {
+        self.username_override.as_deref()
     }
 }
 

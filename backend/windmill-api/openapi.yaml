@@ -2025,6 +2025,27 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/users/email_from_username/{username}:
+    get:
+      summary: get email from username
+      operationId: emailFromUsername
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: email
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/tokens/create:
     post:
       summary: create token
