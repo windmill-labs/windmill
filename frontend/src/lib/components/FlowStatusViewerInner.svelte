@@ -204,11 +204,12 @@
 				console.error(e)
 			}
 		}
-		if (job?.type !== 'CompletedJob' && errorCount < 4) {
+		if (job?.type !== 'CompletedJob' && errorCount < 4 && !destroyed) {
 			timeout = setTimeout(() => loadJobInProgress(), reducedPolling ? 5000 : 1000)
 		}
 	}
 
+	let destroyed = false
 	async function updateJobId() {
 		if (jobId !== job?.id) {
 			$localModuleStates = {}
@@ -244,6 +245,7 @@
 	$: isListJob = flowJobIds != undefined && Array.isArray(flowJobIds?.flowJobs)
 
 	onDestroy(() => {
+		destroyed = true
 		timeout && clearTimeout(timeout)
 	})
 

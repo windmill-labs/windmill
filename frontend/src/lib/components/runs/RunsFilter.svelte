@@ -333,21 +333,21 @@
 				<ToggleButton value={undefined} label="All" />
 				<ToggleButton
 					value={'running'}
-					label="Running"
+					tooltip="Running"
 					class="whitespace-nowrap"
 					icon={PlayCircle}
 					iconProps={{ color: success === 'running' ? 'blue' : 'gray' }}
 				/>
 				<ToggleButton
 					value={'success'}
-					label="Success"
+					tooltip="Success"
 					class="whitespace-nowrap"
 					icon={CheckCircle2}
 					iconProps={{ color: success === 'success' ? 'green' : 'gray' }}
 				/>
 				<ToggleButton
 					value={'failure'}
-					label="Failure"
+					tooltip="Failure"
 					class="whitespace-nowrap"
 					icon={AlertCircle}
 					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}

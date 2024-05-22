@@ -96,6 +96,7 @@ pub async fn test_s3_bucket(
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
+    use futures::StreamExt;
     use windmill_common::ee::{get_license_plan, LicensePlan};
 
     if matches!(get_license_plan().await, LicensePlan::Pro) {
@@ -107,6 +108,15 @@ pub async fn test_s3_bucket(
     require_super_admin(&db, &authed.email).await?;
     let client = build_object_store_from_settings(test_s3_bucket).await?;
 
+    let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
+    let first_file = list
+        .next()
+        .await
+        .ok_or_else(|| {
+            error::Error::InternalErr("Failed to list files in blob storage".to_string())
+        })?
+        .map_err(|e| anyhow::anyhow!("error listing bucket: {e}"))?;
+    tracing::info!("Listed files: {:?}", first_file);
     let path = object_store::path::Path::from(format!(
         "/test-s3-bucket-{uuid}",
         uuid = uuid::Uuid::new_v4()
@@ -115,7 +125,7 @@ pub async fn test_s3_bucket(
     client
         .put(&path, Bytes::from_static(b"hello"))
         .await
-        .map_err(to_anyhow)?;
+        .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e}"))?;
     let content = client
         .get(&path)
         .await

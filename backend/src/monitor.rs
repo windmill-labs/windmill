@@ -193,9 +193,12 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => {
             METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed);
+            //_RJEM_MALLOC_CONF=prof:true,prof_active:false,lg_prof_interval:30,lg_prof_sample:21,prof_prefix:/tmp/jeprof
             #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
-            if let Err(e) = set_prof_active(t) {
-                tracing::error!("Error setting jemalloc prof_active: {e:?}");
+            if std::env::var("_RJEM_MALLOC_CONF").is_ok() {
+                if let Err(e) = set_prof_active(t) {
+                    tracing::error!("Error setting jemalloc prof_active: {e:?}");
+                }
             }
         },
         _ => (),
@@ -213,7 +216,7 @@ fn set_prof_active(new_value: bool) -> Result<(), MallctlError> {
 
     tracing::info!("Setting jemalloc prof_active to {}", new_value);
     let result = unsafe {
-        
+
         tikv_jemalloc_sys::mallctl(
             option_name.as_ptr(), // const char *name
             std::ptr::null_mut(), // void *oldp
@@ -230,7 +233,8 @@ fn set_prof_active(new_value: bool) -> Result<(), MallctlError> {
     Ok(())
 }
 
-fn bytes_to_mb(bytes: u64) -> f64 {
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+pub fn bytes_to_mb(bytes: u64) -> f64 {
     const BYTES_PER_MB: f64 = 1_048_576.0;
     bytes as f64 / BYTES_PER_MB
 }

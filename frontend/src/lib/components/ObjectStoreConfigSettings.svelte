@@ -13,6 +13,7 @@
 		access_key: string
 		secret_key: string
 		endpoint: string
+		allow_http?: boolean
 	}
 
 	type AzureConfig = {
@@ -28,13 +29,18 @@
 
 	export let bucket_config: S3Config | AzureConfig | undefined = undefined
 
+	$: bucket_config?.type == 'S3' &&
+		bucket_config.allow_http == undefined &&
+		(bucket_config.allow_http = true)
 	let loading = false
 
 	async function testConnection() {
 		loading = true
 		try {
 			if (bucket_config) {
-				await SettingService.testObjectStorageConfig({ requestBody: bucket_config })
+				await SettingService.testObjectStorageConfig({
+					requestBody: bucket_config
+				})
 				sendUserToast('Connection successful', false)
 			}
 		} catch (e) {
@@ -151,6 +157,12 @@
 			>
 			<input type="text" bind:value={bucket_config.endpoint} />
 		</label>
+		<div class="block pb-2">
+			<span class="text-tertiary text-2xs">Disable if using https only policy</span>
+			<div>
+				<Toggle bind:checked={bucket_config.allow_http} options={{ right: 'allow http' }} />
+			</div>
+		</div>
 	{:else if bucket_config.type === 'Azure'}
 		<label class="block pb-2">
 			<span class="text-primary font-semibold text-sm">Account Name</span>

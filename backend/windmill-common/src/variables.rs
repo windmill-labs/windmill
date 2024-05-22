@@ -161,7 +161,7 @@ pub async fn get_reserved_variables(
             )
         } else if let Some(script_path) = path.clone() {
             let script_path = if script_path.ends_with("/") {
-                "noname".to_string()
+                format!("{script_path}state")
             } else {
                 script_path
             };

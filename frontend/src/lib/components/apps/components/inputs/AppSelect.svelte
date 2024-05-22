@@ -104,7 +104,7 @@
 		} else if (listItems.length > 0 && resolvedConfig?.preselectFirst) {
 			rawValue = resolvedConfig.items[0].value
 		}
-		if (rawValue !== undefined) {
+		if (rawValue !== undefined && rawValue !== null) {
 			value = JSON.stringify(rawValue)
 			outputs?.result.set(rawValue)
 		}

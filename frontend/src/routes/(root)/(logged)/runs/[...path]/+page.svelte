@@ -7,7 +7,7 @@
 		FolderService,
 		ScriptService,
 		FlowService,
-		type ConcurrencyIntervals
+		type ExtendedJobs
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
@@ -90,7 +90,7 @@
 	let usernames: string[] = []
 	let folders: string[] = []
 	let completedJobs: CompletedJob[] | undefined = undefined
-	let concurrencyIntervals: ConcurrencyIntervals | undefined = undefined
+	let extendedJobs: ExtendedJobs | undefined = undefined
 	let argError = ''
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
@@ -100,10 +100,10 @@
 	let cancelAllJobs = false
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
-	let externalJobs: Job[] | undefined
+	let externalJobs: Job[] | undefined = undefined
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = typeOfChart($page.url.searchParams.get('graph'))
-	let graphIsRunsChart: boolean = graph ? graph === 'ConcurrencyChart' : true
+	let graphIsRunsChart: boolean = graph === 'RunChart'
 
 	let manualDatePicker: ManuelDatePicker
 
@@ -332,9 +332,8 @@
 
 	$: warnJobLimit =
 		graph === 'ConcurrencyChart' &&
-		concurrencyIntervals !== undefined &&
-		(concurrencyIntervals.running_jobs.length === 1000 ||
-			concurrencyIntervals.completed_jobs.length === 1000)
+		extendedJobs !== undefined &&
+		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
 </script>
 
 <JobLoader
@@ -360,7 +359,7 @@
 	{autoRefresh}
 	bind:completedJobs
 	bind:externalJobs
-	bind:concurrencyIntervals
+	bind:extendedJobs
 	{concurrencyKey}
 	{argError}
 	{resultError}
@@ -480,7 +479,7 @@
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
-					{concurrencyIntervals}
+					{extendedJobs}
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
@@ -599,7 +598,7 @@
 					{#if jobs}
 						<RunsTable
 							{jobs}
-							{externalJobs}
+							externalJobs={externalJobs ?? []}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
 							bind:selectedId
@@ -623,7 +622,11 @@
 						{#if selectedId === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
-							<JobPreview id={selectedId} workspace={selectedWorkspace} />
+							<JobPreview
+								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								id={selectedId}
+								workspace={selectedWorkspace}
+							/>
 						{/if}
 					{:else}
 						<div class="text-xs m-4">No job selected</div>
@@ -700,7 +703,7 @@
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
-					{concurrencyIntervals}
+					{extendedJobs}
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
@@ -821,7 +824,8 @@
 			<RunsTable
 				activeLabel={label}
 				{jobs}
-				{externalJobs}
+				externalJobs={externalJobs ?? []}
+				showExternalJobs={!graphIsRunsChart}
 				bind:selectedId
 				bind:selectedWorkspace
 				on:select={() => {

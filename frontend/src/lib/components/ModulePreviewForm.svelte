@@ -96,6 +96,8 @@
 							itemsType={schema.properties[argName].items}
 							extra={schema.properties[argName]}
 							nullable={schema.properties[argName].nullable}
+							title={schema.properties[argName].title}
+							placeholder={schema.properties[argName].placeholder}
 						/>
 					{/if}
 					<div class="pt-6 mt-0.5">

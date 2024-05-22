@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
@@ -21,7 +22,13 @@
 	export let noExtra = false
 	export let dateFormat: string | undefined
 
-	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
+	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind(
+		enum_,
+		contentEncoding,
+		pattern,
+		format
+	)
+
 	let patternStr: string = pattern ?? ''
 	let resource: string | undefined
 
@@ -64,24 +71,6 @@
 		}
 	}
 
-	function computeKind(): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' {
-		if (enum_ != undefined) {
-			return 'enum'
-		}
-		if (contentEncoding == 'base64') {
-			return 'base64'
-		}
-		if (pattern != undefined) {
-			return 'pattern'
-		}
-		if (format != undefined && format != '') {
-			if (format.startsWith('resource')) {
-				return 'resource'
-			}
-			return 'format'
-		}
-		return 'none'
-	}
 	const presetOptions = [
 		{ label: 'ISO Format', format: 'yyyy-MM-dd' },
 		{ label: 'US Format', format: 'MM/dd/yyyy' },

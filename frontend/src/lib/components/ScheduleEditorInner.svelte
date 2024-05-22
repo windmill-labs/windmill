@@ -77,6 +77,7 @@
 		args = {}
 		runnable = undefined
 		is_flow = nis_flow
+		schedule = '0 0 12 * *'
 		let defaultErrorHandlerMaybe = undefined
 		let defaultRecoveryHandlerMaybe = undefined
 		if ($workspaceStore) {
@@ -489,7 +490,7 @@
 							readonly
 							value={path}
 							size={path?.length || 50}
-							class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+							class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
 							on:focus={({ currentTarget }) => {
 								currentTarget.select()
 							}}

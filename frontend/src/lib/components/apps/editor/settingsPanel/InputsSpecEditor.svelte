@@ -52,7 +52,9 @@
 			...componentInput,
 			type: 'evalv2',
 			expr: expr,
-			connections: [{ componentId: connection.componentId, id: connection.path.split('.')[0].split('[')[0] }]
+			connections: [
+				{ componentId: connection.componentId, id: connection.path.split('.')[0].split('[')[0] }
+			]
 		}
 		evalV2editor?.setCode(expr)
 		$app = $app

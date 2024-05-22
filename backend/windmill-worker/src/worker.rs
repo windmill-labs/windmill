@@ -219,6 +219,8 @@ pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
 const VACUUM_PERIOD: u32 = 50000;
 
+const DROP_CACHE_PERIOD: u32 = 1000;
+
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
 
 #[cfg(feature = "prometheus")]
@@ -588,6 +590,30 @@ impl JobCompletedSender {
         #[cfg(feature = "prometheus")]
         timer.map(|x| x.stop_and_record());
         r
+    }
+}
+
+// on linux, we drop caches every DROP_CACHE_PERIOD to avoid OOM killer believing we are using too much memory just because we create lots of files when executing jobs
+#[cfg(any(target_os = "linux"))]
+pub async fn drop_cache() {
+    tracing::debug!("Dropping linux file caches");
+    // Run the sync command
+    if let Err(e) = tokio::process::Command::new("sync").status().await {
+        tracing::error!("Failed to run sync command: {}", e);
+        return;
+    }
+
+    // Open /proc/sys/vm/drop_caches for writing asynchronously
+    match tokio::fs::File::create("/proc/sys/vm/drop_caches").await {
+        Ok(mut file) => {
+            // Write '3' to the file to drop caches
+            if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, b"3").await {
+                tracing::error!("Failed to write to /proc/sys/vm/drop_caches: {}", e);
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to open /proc/sys/vm/drop_caches: {}", e);
+        }
     }
 }
 
@@ -1423,6 +1449,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 })
                 .instrument(current_span),
             );
+            jobs_executed += 1;
+        }
+
+        #[cfg(any(target_os = "linux"))]
+        if (jobs_executed as u32 + 1) % DROP_CACHE_PERIOD == 0 {
+            drop_cache().await;
             jobs_executed += 1;
         }
 

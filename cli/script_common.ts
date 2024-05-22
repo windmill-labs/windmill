@@ -27,7 +27,7 @@ export function inferContentTypeFromFilePath(
   } else if (contentPath.endsWith("deno.ts")) {
     return "deno";
   } else if (contentPath.endsWith(".ts")) {
-    return defaultTs ?? "deno";
+    return defaultTs ?? "bun";
   } else if (contentPath.endsWith(".go")) {
     return "go";
   } else if (contentPath.endsWith(".my.sql")) {

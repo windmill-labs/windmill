@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { setInputCat as computeInputCat, emptyString, shouldDisplayPlaceholder } from '$lib/utils'
 	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
@@ -30,6 +30,8 @@
 	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
+	import Label from './Label.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -74,6 +76,8 @@
 	export let customErrorMessage: string | undefined = undefined
 	export let onlyMaskPassword = false
 	export let nullable: boolean = false
+	export let title: string | undefined = undefined
+	export let placeholder: string | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -233,7 +237,7 @@
 		{#if displayHeader}
 			<FieldHeader
 				prettify={prettifyHeader}
-				{label}
+				label={title && !emptyString(title) ? title : label}
 				{disabled}
 				{required}
 				{type}
@@ -241,6 +245,7 @@
 				{format}
 				{simpleTooltip}
 			/>
+
 			{#if editableSchema}
 				<span class="mx-8" />
 				{#if editableSchema.i > 0}
@@ -260,7 +265,7 @@
 			{/if}
 		{/if}
 		{#if editableSchema}
-			<label class="text-secondary">
+			<Label label="Description">
 				<textarea
 					class="mb-1"
 					use:autosize
@@ -269,7 +274,15 @@
 					on:keydown={onKeyDown}
 					placeholder="Field description"
 				/>
-			</label>
+			</Label>
+			<div class="flex flex-row gap-2 w-full">
+				<Label label="Custom Title" class="w-full">
+					<svelte:fragment slot="header">
+						<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
+					</svelte:fragment>
+					<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
+				</Label>
+			</div>
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
@@ -317,6 +330,11 @@
 								<ObjectTypeNarrowing bind:format />
 							{/if}
 						</div>
+						{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern)}
+							<Label label="Placeholder" class="pt-2">
+								<textarea placeholder="Enter a placeholder" rows="1" bind:value={placeholder} />
+							</Label>
+						{/if}
 						{#if !required && type === 'string'}
 							<div class="mt-2 border-t pt-4">
 								<Toggle
@@ -381,7 +399,7 @@
 							class={valid
 								? ''
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-							placeholder={defaultValue ?? ''}
+							placeholder={placeholder ?? defaultValue ?? ''}
 							bind:value
 							min={extra['min']}
 							max={extra['max']}
@@ -680,7 +698,7 @@
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
-					placeholder={defaultValue ?? ''}
+					placeholder={placeholder ?? defaultValue ?? ''}
 					bind:value
 				/>
 			{:else if inputCat == 'string'}
@@ -688,7 +706,11 @@
 					<div class="flex flex-row w-full items-center justify-between relative">
 						{#if password || extra?.['password'] == true}
 							{#if onlyMaskPassword}
-								<Password {disabled} bind:password={value} placeholder={defaultValue ?? ''} />
+								<Password
+									{disabled}
+									bind:password={value}
+									placeholder={placeholder ?? defaultValue ?? ''}
+								/>
 							{:else}
 								<PasswordArgInput {disabled} bind:value />
 							{/if}
@@ -713,7 +735,7 @@
 											? ''
 											: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
 									)}
-									placeholder={defaultValue ?? ''}
+									placeholder={placeholder ?? defaultValue ?? ''}
 									bind:value
 								/>
 							{/key}
