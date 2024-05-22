@@ -175,7 +175,7 @@
 			<div class="w-1/12 text-2xs flex flex-row">
 				{jobs && jobCountString(jobs.length)}
 				<Popover>
-					<AlertTriangle size={16} class="text-yellow-500"/>
+					<AlertTriangle size={16} class="ml-0.5 text-yellow-500"/>
 					<svelte:fragment slot="text">
 						Too specific filtering may have caused the omission of obscured jobs. This is done for security reasons. To see obscured jobs, try removing some filters.
 					</svelte:fragment>
