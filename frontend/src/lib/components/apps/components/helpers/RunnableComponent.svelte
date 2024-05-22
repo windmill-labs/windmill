@@ -137,6 +137,8 @@
 		resultJobLoader &&
 		refreshIfAutoRefresh('arg changed')
 
+	$: runnableInputValues && dispatch('argsChanged')
+
 	$: refreshOn =
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
