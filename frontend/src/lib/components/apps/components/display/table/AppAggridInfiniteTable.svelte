@@ -180,6 +180,7 @@
 	bind:loading
 	bind:runnableComponent
 	{render}
+	autoRefresh={true}
 	allowConcurentRequests
 	on:argsChanged={() => {
 		clear()
