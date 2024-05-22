@@ -8517,6 +8517,8 @@ components:
           type: integer
         concurrency_time_window_s:
           type: integer
+        concurrency_key:
+          type: string
         cache_ttl:
           type: number
         dedicated_worker:

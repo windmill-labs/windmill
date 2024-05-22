@@ -7,6 +7,7 @@ import {
   Confirm,
   JobService,
   log,
+  NewScript,
   readAll,
   Script,
   ScriptService,
@@ -208,10 +209,10 @@ export async function handleFile(
       }
     }
 
-    const requestBodyCommon = {
+    const requestBodyCommon: NewScript = {
       content,
       description: typed?.description ?? "",
-      language: language,
+      language: language as NewScript["language"],
       path: remotePath.replaceAll("\\", "/"),
       summary: typed?.summary ?? "",
       kind: typed?.kind,
@@ -228,6 +229,8 @@ export async function handleFile(
       visible_to_runner_only: typed?.visible_to_runner_only,
       no_main_func: typed?.no_main_func,
       priority: typed?.priority,
+      concurrency_key: typed?.concurrency_key,
+      //@ts-ignore
       codebase: codebase?.digest,
       timeout: typed?.timeout,
     };
@@ -259,7 +262,9 @@ export async function handleFile(
               Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             typed.priority == Boolean(remote.priority) &&
-            typed.timeout == remote.timeout)
+            typed.timeout == remote.timeout &&
+            //@ts-ignore
+            typed.concurrency_key == remote["concurrency_key"])
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
@@ -293,28 +298,7 @@ export async function handleFile(
 async function createScript(
   bundleContent: string | undefined,
   workspaceId: string,
-  body: {
-    parent_hash: string | undefined;
-    content: string;
-    description: any;
-    language: ScriptLanguage;
-    path: string;
-    summary: any;
-    kind: any;
-    lock: any;
-    schema: any;
-    tag: any;
-    ws_error_handler_muted: any;
-    dedicated_worker: any;
-    cache_ttl: any;
-    concurrency_time_window_s: any;
-    concurrent_limit: any;
-    deployment_message: string | undefined;
-    restart_unless_cancelled: any;
-    visible_to_runner_only: any;
-    no_main_func: any;
-    priority: any;
-  },
+  body: NewScript,
   workspace: Workspace
 ) {
   if (!bundleContent) {
