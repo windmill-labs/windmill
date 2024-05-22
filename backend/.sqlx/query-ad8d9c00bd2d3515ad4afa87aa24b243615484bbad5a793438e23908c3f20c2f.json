@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH active_users as (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login')),\n        active_user_count as (SELECT count(email)::INT as count from active_users),\n        active_author_count as (SELECT count(distinct email)::INT as count FROM usr WHERE usr.operator IS false AND email IN (SELECT email FROM active_users))\n        SELECT active_author_count.count as author_count, active_user_count.count - active_author_count.count as operator_count FROM active_user_count, active_author_count",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "author_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "operator_count",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "ad8d9c00bd2d3515ad4afa87aa24b243615484bbad5a793438e23908c3f20c2f"
+}
