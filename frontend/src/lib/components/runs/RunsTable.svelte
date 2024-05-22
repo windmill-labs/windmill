@@ -4,10 +4,14 @@
 	import VirtualList from 'svelte-tiny-virtual-list'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
+	import Popover from '../Popover.svelte'
+	import { workspaceStore } from '$lib/stores'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
 	export let externalJobs: Job[] = []
+	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
 	export let selectedId: string | undefined = undefined
 	export let selectedWorkspace: string | undefined = undefined
@@ -166,6 +170,16 @@
 						>{externalJobs.length} jobs obscured</Tooltip
 					>
 				</div>
+			</div>
+		{:else if $workspaceStore !== 'admins' &&  omittedObscuredJobs}
+			<div class="w-1/12 text-2xs flex flex-row">
+				{jobs && jobCountString(jobs.length)}
+				<Popover>
+					<AlertTriangle size={16} class="text-yellow-500"/>
+					<svelte:fragment slot="text">
+						Too specific filtering may have caused the omission of obscured jobs. This is done for security reasons. To see obscured jobs, try removing some filters.
+					</svelte:fragment>
+				</Popover>
 			</div>
 		{:else}
 			<div class="w-1/12 text-2xs">{jobs && jobCountString(jobs.length)}</div>
