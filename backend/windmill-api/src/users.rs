@@ -2158,7 +2158,11 @@ async fn login(
 
             audit_log(
                 &mut *tx,
-                &email,
+                &AuditAuthor {
+                    username: email.clone(),
+                    email: email.clone(),
+                    username_override: None,
+                },
                 "users.login",
                 ActionKind::Create,
                 "global",
