@@ -2139,6 +2139,17 @@ async fn login(
 
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
 
+            audit_log(
+                &mut *tx,
+                &email,
+                "users.login",
+                ActionKind::Create,
+                "global",
+                Some(&truncate_token(&token)),
+                None,
+            )
+            .await?;
+
             tx.commit().await?;
             Ok(token)
         }
