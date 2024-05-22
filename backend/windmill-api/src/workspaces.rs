@@ -2232,6 +2232,8 @@ struct ScriptMetadata {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_key: Option<String>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -2511,6 +2513,7 @@ async fn tarball_workspace(
                 visible_to_runner_only: script.visible_to_runner_only,
                 no_main_func: script.no_main_func,
                 codebase: script.codebase,
+                concurrency_key: script.concurrency_key,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
