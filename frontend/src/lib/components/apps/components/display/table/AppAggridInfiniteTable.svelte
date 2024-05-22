@@ -31,16 +31,10 @@
 	let runnableComponent: RunnableComponent | undefined = undefined
 
 	function clear() {
-		lastComponentInput = componentInput
-
 		setTimeout(() => {
 			aggrid?.clearRows()
 		}, 0)
 	}
-
-	let lastComponentInput = componentInput
-
-	$: JSON.stringify(lastComponentInput) !== JSON.stringify(componentInput) && clear()
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const { app, worldStore } = context
@@ -182,6 +176,9 @@
 	{render}
 	autoRefresh={true}
 	allowConcurentRequests
+	on:argsChanged={() => {
+		clear()
+	}}
 >
 	<div class="flex flex-col h-full">
 		{#if resolvedConfig.searchEnabled}
