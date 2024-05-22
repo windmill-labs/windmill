@@ -596,7 +596,7 @@ impl JobCompletedSender {
 // on linux, we drop caches every DROP_CACHE_PERIOD to avoid OOM killer believing we are using too much memory just because we create lots of files when executing jobs
 #[cfg(any(target_os = "linux"))]
 pub async fn drop_cache() {
-    tracing::debug!("Dropping linux file caches");
+    tracing::info!("Syncing and dropping linux file caches to reduce memory usage");
     // Run the sync command
     if let Err(e) = tokio::process::Command::new("sync").status().await {
         tracing::error!("Failed to run sync command: {}", e);
@@ -608,11 +608,11 @@ pub async fn drop_cache() {
         Ok(mut file) => {
             // Write '3' to the file to drop caches
             if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, b"3").await {
-                tracing::error!("Failed to write to /proc/sys/vm/drop_caches: {}", e);
+                tracing::warn!("Failed to write to /proc/sys/vm/drop_caches (expected to not work in not in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer): {}", e);
             }
         }
         Err(e) => {
-            tracing::error!("Failed to open /proc/sys/vm/drop_caches: {}", e);
+            tracing::warn!("Failed to open /proc/sys/vm/drop_caches (expected to not work in not in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer):: {}", e);
         }
     }
 }
