@@ -247,6 +247,8 @@ components:
           type: number
         concurrency_time_window_s:
           type: number
+        custom_concurrency_key:
+          type: string
       required:
         - type
         - content
