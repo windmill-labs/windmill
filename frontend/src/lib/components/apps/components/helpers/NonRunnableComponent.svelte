@@ -46,7 +46,7 @@
 		connections.forEach((connection) => {
 			const output = $worldStore.outputsById[connection.componentId]
 
-			if (output) {
+			if (output?.loading?.subscribe) {
 				const unsubscribe = output.loading.subscribe(
 					{
 						id: `loading-${connection.componentId}`,
