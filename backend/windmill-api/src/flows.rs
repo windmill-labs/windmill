@@ -348,7 +348,7 @@ async fn create_flow(
 
     audit_log(
         &mut tx,
-        &authed,
+        &authed.username,
         "flows.create",
         ActionKind::Create,
         &w_id,
@@ -553,7 +553,7 @@ async fn update_flow(
 
     audit_log(
         &mut tx,
-        &authed,
+        &authed.username,
         "flows.update",
         ActionKind::Create,
         &w_id,
@@ -746,7 +746,7 @@ async fn archive_flow_by_path(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "flows.archive",
         ActionKind::Delete,
         &w_id,
@@ -813,7 +813,7 @@ async fn delete_flow_by_path(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "flows.delete",
         ActionKind::Delete,
         &w_id,

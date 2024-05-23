@@ -24,7 +24,7 @@ use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -473,20 +473,15 @@ pub async fn transform_json_value<'c>(
             let path = y.strip_prefix("$var:").unwrap();
             let tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;
-
             let v = crate::variables::get_value_internal(
                 tx,
                 db,
                 workspace,
                 path,
-                &user_db
+                user_db
                     .clone()
-                    .map(|_| authed.into())
-                    .unwrap_or(AuditAuthor {
-                        email: "backend".to_string(),
-                        username: "backend".to_string(),
-                        username_override: None,
-                    }),
+                    .map(|_| authed.username.as_str())
+                    .unwrap_or("backend"),
             )
             .await?;
             Ok(Value::String(v))
@@ -655,7 +650,7 @@ async fn create_resource(
     .await?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "resources.create",
         ActionKind::Create,
         &w_id,
@@ -715,7 +710,7 @@ async fn delete_resource(
     .await?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "resources.delete",
         ActionKind::Delete,
         &w_id,
@@ -801,7 +796,7 @@ async fn update_resource(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "resources.update",
         ActionKind::Update,
         &w_id,
@@ -862,7 +857,7 @@ async fn update_resource_value(
     .await?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "resources.update",
         ActionKind::Update,
         &w_id,
@@ -1006,7 +1001,7 @@ async fn create_resource_type(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "resource_types.create",
         ActionKind::Create,
         &w_id,
@@ -1070,7 +1065,7 @@ async fn delete_resource_type(
     .await?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "resource_types.delete",
         ActionKind::Delete,
         &w_id,
@@ -1126,7 +1121,7 @@ async fn update_resource_type(
     sqlx::query(&sql).execute(&mut *tx).await?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "resource_types.update",
         ActionKind::Update,
         &w_id,

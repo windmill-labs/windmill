@@ -317,7 +317,7 @@ async fn proxy(
     let mut tx = db.begin().await?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "openai.request",
         ActionKind::Execute,
         &w_id,

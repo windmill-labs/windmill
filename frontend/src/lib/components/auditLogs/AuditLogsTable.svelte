@@ -92,7 +92,7 @@
 						{date}
 					</Cell>
 				</tr>
-				{#each logsByDay as { id, timestamp, username, operation: op, action_kind, resource, parameters }}
+				{#each logsByDay as { id, timestamp, username, operation: op, action_kind, resource }}
 					<Row
 						hoverable
 						selected={id === selectedId}
@@ -108,11 +108,8 @@
 						</Cell>
 						<Cell>
 							<div class="flex flex-row gap-2 items-center">
-								<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-48">
+								<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-20">
 									{username}
-									{#if parameters && 'end_user' in parameters}
-										<span> (end user: {parameters.end_user})</span>
-									{/if}
 								</div>
 								<Button
 									color="light"
