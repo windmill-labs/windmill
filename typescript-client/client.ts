@@ -4,6 +4,7 @@ import {
   JobService,
   HelpersService,
   OidcService,
+  UserService,
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -713,4 +714,16 @@ export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
   }
 
   return base64;
+}
+
+/**
+ * Get email from workspace username
+ * This method is particularly useful for apps that require the email address of the viewer.
+ * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+ * @param username
+ * @returns email address
+ */
+export async function usernameToEmail(username: string): Promise<string> {
+  const workspace = getWorkspace();
+  return await UserService.usernameToEmail({ username, workspace });
 }

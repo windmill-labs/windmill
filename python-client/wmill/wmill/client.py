@@ -582,6 +582,14 @@ class Windmill:
             f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
             params={"approver": approver},
         ).json()
+    
+    def username_to_email(self, username: str) -> str:
+        """
+        Get email from workspace username
+        This method is particularly useful for apps that require the email address of the viewer.
+        Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+        """
+        return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
 
 
 def init_global_client(f):
@@ -920,6 +928,10 @@ def run_script(
         cleanup=cleanup,
         timeout=timeout,
     )
+
+@init_global_client
+def username_to_email(username: str) -> str:
+    return _client.username_to_email(username)
 
 
 def task(*args, **kwargs):
