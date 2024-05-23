@@ -304,8 +304,8 @@
 							$componentControl[id] = {
 								agGrid: { api: e.api, columnApi: e.columnApi },
 								setSelectedIndex: (index) => {
-									if(index === null) {
-										e.api.deselectAll();
+									if (index === null) {
+										e.api.deselectAll()
 										outputs?.selectedRow?.set({})
 										outputs?.selectedRowIndex.set(0)
 									} else {

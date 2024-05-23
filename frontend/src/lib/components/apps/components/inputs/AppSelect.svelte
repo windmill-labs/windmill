@@ -21,7 +21,6 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -227,6 +226,7 @@
 				inAppEditor={true}
 				--border-radius="0.250rem"
 				--clear-icon-color="#6b7280"
+				--border={$darkMode ? '1px solid #6b7280' : '1px solid #d1d5db'}
 				bind:filterText
 				on:filter={handleFilter}
 				on:clear={onClear}
@@ -238,7 +238,7 @@
 					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
 				{value}
-				class={twMerge($darkMode ? '!border-gray-500' : '!border-gray-300', css?.input?.class)}
+				class={css?.input?.class}
 				placeholder={resolvedConfig.placeholder}
 				disabled={resolvedConfig.disabled}
 				on:focus={() => {
