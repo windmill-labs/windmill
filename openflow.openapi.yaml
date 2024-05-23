@@ -513,5 +513,9 @@ components:
             required:
               - resume_id
               - approver
-
+        failed_retries:
+          type: array
+          items:
+            type: string
+            format: uuid
       required: [type]

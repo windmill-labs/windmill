@@ -3811,6 +3811,7 @@ async fn restarted_flows_resolution(
                     flow_jobs: _,
                     branch_chosen: _,
                     approvers: _,
+                    failed_retries: _,
                 } => Ok(truncated_modules.push(module)),
                 _ => Err(Error::InternalErr(format!(
                     "Flow cannot be restarted from a non successful module",

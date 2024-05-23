@@ -17,7 +17,7 @@ use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, KEEP_JOB_DIR};
 use anyhow::Context;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::types::Json;
@@ -158,6 +158,10 @@ pub struct SkipIfStopped {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
+#[derive(sqlx::FromRow, Deserialize)]
+pub struct RowFlowStatus {
+    pub flow_status: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+}
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal<
     'a,
@@ -190,25 +194,25 @@ pub async fn update_flow_status_after_job_completion_internal<
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
-        let old_status_json = sqlx::query_scalar!(
+        let old_status_json = sqlx::query_as::<_, RowFlowStatus>(
             "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
-            flow,
-            w_id
         )
+        .bind(flow)
+        .bind(w_id)
         .fetch_one(db)
         .await
         .map_err(|e| {
             Error::InternalErr(format!(
                 "fetching flow status {flow} while reporting {success} {result:?}: {e}"
             ))
-        })?
-        .ok_or_else(|| Error::InternalErr(format!("requiring a previous status")))?;
-
-        let old_status = serde_json::from_value::<FlowStatus>(old_status_json).or_else(|e| {
-            Err(Error::InternalErr(format!(
-                "requiring status to be parsable as FlowStatus: {e:?}"
-            )))
         })?;
+
+        let old_status = serde_json::from_str::<FlowStatus>(old_status_json.flow_status.get())
+            .or_else(|e| {
+                Err(Error::InternalErr(format!(
+                    "requiring status to be parsable as FlowStatus: {e:?}"
+                )))
+            })?;
 
         let module_index = usize::try_from(old_status.step).ok();
 
@@ -384,6 +388,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             flow_jobs: Some(jobs.clone()),
                             branch_chosen: None,
                             approvers: vec![],
+                            failed_retries: vec![],
                         }
                     } else {
                         success = false;
@@ -392,6 +397,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             job: job_id_for_status.clone(),
                             flow_jobs: Some(jobs.clone()),
                             branch_chosen: None,
+                            failed_retries: vec![],
                         }
                     };
                     let r = sqlx::query_scalar!(
@@ -517,6 +523,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             flow_jobs,
                             branch_chosen,
                             approvers: vec![],
+                            failed_retries: old_status.retry.failed_jobs.clone(),
                         }),
                     )
                 } else {
@@ -529,7 +536,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .fetch_optional(&mut tx)
                         .await
                         .map_err(|e| {
-                            Error::InternalErr(format!("error while getting retry fromn step: {e}"))
+                            Error::InternalErr(format!("error while getting retry from step: {e}"))
                         })?
                         .flatten();
 
@@ -549,6 +556,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             job: job_id_for_status.clone(),
                             flow_jobs,
                             branch_chosen,
+                            failed_retries: old_status.retry.failed_jobs.clone(),
                         }),
                     )
                 }
@@ -1788,11 +1796,13 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 status.retry.failed_jobs.push(job.clone());
                 sqlx::query(
                     "UPDATE queue
-                    SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
+                    SET flow_status = JSONB_SET(JSONB_SET(flow_status, ARRAY['retry'], $1), ARRAY['modules', $3::TEXT, 'failed_retries'], $4)
                     WHERE id = $2",
                 )
                 .bind(json!(RetryStatus { fail_count, ..status.retry.clone() }))
                 .bind(flow_job.id)
+                .bind(status.step)
+                .bind(json!(status.retry.failed_jobs))
                 .execute(db)
                 .await
                 .context("update flow retry")?;
@@ -1819,9 +1829,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     .context("missing failure module")?;
                 status_module = status.failure_module.module_status.clone();
 
-                /* (retry feature) save the previous_result the first time this step is run */
-                let retry = &module.retry.clone().unwrap_or_default();
-                if retry.has_attempts() {
+                if module.retry.as_ref().is_some_and(|x| x.has_attempts()) {
                     sqlx::query(
                         "UPDATE queue
                         SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
@@ -1835,28 +1843,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 };
                 None
             }
-
-            /* (retry feature) save the previous_result the first time this step is run */
-        }
-        FlowStatusModule::WaitingForPriorSteps { .. }
-            if module
-                .retry
-                .as_ref()
-                .map(|x| x.has_attempts())
-                .unwrap_or(false)
-                && status.retry.fail_count == 0 =>
-        {
-            sqlx::query(
-                "UPDATE queue
-                SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
-                WHERE id = $2",
-            )
-            .bind(json!(RetryStatus { fail_count: 0, failed_jobs: vec![] }))
-            .bind(flow_job.id)
-            .execute(db)
-            .await
-            .context("update flow retry")?;
-            None
         }
         _ => None,
     };
@@ -1972,7 +1958,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 job: Uuid::nil(),
                 flow_jobs: Some(vec![]),
                 branch_chosen: None,
-                approvers: vec![]
+                approvers: vec![],
+                failed_retries: vec![],
             }))
             .bind(flow_job.id)
             .execute(db)
