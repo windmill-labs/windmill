@@ -9,6 +9,7 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{ApiAuthed, DB},
+    resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -145,6 +146,7 @@ pub struct AppHistoryUpdate {
 
 pub type StaticFields = HashMap<String, Box<RawValue>>;
 pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
+pub type AllowUserResources = Vec<String>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -158,6 +160,7 @@ pub enum ExecutionMode {
 pub struct PolicyTriggerableInputs {
     static_inputs: StaticFields,
     one_of_inputs: OneOfFields,
+    allow_user_resources: AllowUserResources,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -940,6 +943,7 @@ pub struct ExecuteApp {
     // if set, the app is executed as viewer with the given static fields
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
+    pub force_viewer_allow_user_resources: Option<AllowUserResources>,
 }
 
 fn digest(code: &str) -> String {
@@ -976,6 +980,7 @@ async fn execute_component(
         ExecuteApp {
             force_viewer_static_fields: Some(static_fields),
             force_viewer_one_of_fields: Some(one_of_fields),
+            force_viewer_allow_user_resources: Some(allow_user_resources),
             ..
         } => {
             let mut hm = HashMap::new();
@@ -986,6 +991,7 @@ async fn execute_component(
                     PolicyTriggerableInputs {
                         static_inputs: static_fields,
                         one_of_inputs: one_of_fields,
+                        allow_user_resources,
                     },
                 );
             } else {
@@ -998,6 +1004,7 @@ async fn execute_component(
                     PolicyTriggerableInputs {
                         static_inputs: static_fields,
                         one_of_inputs: one_of_fields,
+                        allow_user_resources,
                     },
                 );
             }
@@ -1155,11 +1162,16 @@ fn build_args(
     component: &str,
     path: String,
     args: HashMap<String, Box<RawValue>>,
+    authed: Option<ApiAuthed>,
+    user_db: UserDB,
+    db: DB,
+    workspace: &str,
+    token: &str,
 ) -> Result<PushArgs> {
     let key = format!("{}:{}", component, &path);
-    let (static_inputs, one_of_inputs) = match policy {
+    let (static_inputs, one_of_inputs, allow_user_resources) = match policy {
         Policy { triggerables_v2: Some(t), .. } => {
-            let PolicyTriggerableInputs { static_inputs, one_of_inputs } = t
+            let PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources } = t
                 .get(&key)
                 .or_else(|| t.get(&path))
                 .map(|x| x.clone())
@@ -1168,6 +1180,7 @@ fn build_args(
                         Some(PolicyTriggerableInputs {
                             static_inputs: HashMap::new(),
                             one_of_inputs: HashMap::new(),
+                            allow_user_resources: Vec::new(),
                         })
                     } else {
                         None
@@ -1177,7 +1190,7 @@ fn build_args(
                     Error::BadRequest(format!("path {} is not allowed in the app policy", path))
                 })?;
 
-            (static_inputs, one_of_inputs)
+            (static_inputs, one_of_inputs, allow_user_resources)
         }
         Policy { triggerables: Some(t), .. } => {
             let static_inputs = t
@@ -1195,7 +1208,7 @@ fn build_args(
                     Error::BadRequest(format!("path {} is not allowed in the app policy", path))
                 })?;
 
-            (static_inputs, HashMap::new())
+            (static_inputs, HashMap::new(), Vec::new())
         }
         _ => Err(Error::BadRequest(format!(
             "Policy is missing triggerables for {}",
@@ -1239,10 +1252,15 @@ fn build_args(
     }
 
     for (k, v) in args {
-        let arg_str = serde_json::to_string(&v).unwrap_or_else(|_| "".to_string());
+        let arg_str = v.get();
 
-        if !arg_str.contains("$var:") && !arg_str.contains("$res:") {
+        if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
             safe_args.insert(k.to_string(), v);
+        } else if arg_str.starts_with("\"$res:") && allow_user_resources.contains(&k) {
+            get_resource_value_interpolated_internal(
+                authed, user_db, db, workspace, &path, job_id, token,
+            )
+            .await?;
         } else {
             safe_args.insert(
                 k.to_string(),
