@@ -30,7 +30,7 @@ use windmill_common::{
         PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_server_config, stats_ee::get_user_usage, users::truncate_token, worker::{
+    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_server_config, stats_ee::get_user_usage, users::truncate_token, utils::now_from_db, worker::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
     }, BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED
@@ -1164,11 +1164,13 @@ async fn handle_zombie_flows(
             .await?;
         } else {
             let id = flow.id.clone();
+            let last_ping = flow.last_ping.clone();
+            let now = now_from_db(db).await?;
             cancel_zombie_flow_job(
                 db,
                 flow,
                 &rsmq,
-                format!("Flow {} cancelled as it was hanging in between 2 steps", id),
+                format!("Flow {} cancelled as it was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})", id),
             )
             .await?;
         }
