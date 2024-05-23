@@ -223,7 +223,7 @@ async fn create_folder(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "folder.create",
         ActionKind::Create,
         &w_id,
@@ -356,7 +356,7 @@ async fn update_folder(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "folder.update",
         ActionKind::Update,
         &w_id,
@@ -522,7 +522,7 @@ async fn delete_folder(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "folder.delete",
         ActionKind::Delete,
         &w_id,
@@ -585,7 +585,7 @@ async fn add_owner(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "folder.add_owner",
         ActionKind::Update,
         &w_id,
@@ -664,7 +664,7 @@ async fn remove_owner(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "folder.remove_owner",
         ActionKind::Update,
         &w_id,
