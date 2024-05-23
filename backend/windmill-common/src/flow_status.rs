@@ -124,6 +124,7 @@ struct UntaggedFlowStatusModule {
     parallel: Option<bool>,
     while_loop: Option<bool>,
     approvers: Option<Vec<Approval>>,
+    failed_retries: Option<Vec<Uuid>>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -167,6 +168,8 @@ pub enum FlowStatusModule {
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
         approvers: Vec<Approval>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        failed_retries: Vec<Uuid>,
     },
     Failure {
         id: String,
@@ -175,6 +178,8 @@ pub enum FlowStatusModule {
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        failed_retries: Vec<Uuid>,
     },
 }
 
@@ -235,6 +240,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
+                failed_retries: untagged.failed_retries.unwrap_or_default(),
             }),
             "Failure" => Ok(FlowStatusModule::Failure {
                 id: untagged
@@ -245,6 +251,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
                 branch_chosen: untagged.branch_chosen,
+                failed_retries: untagged.failed_retries.unwrap_or_default(),
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
