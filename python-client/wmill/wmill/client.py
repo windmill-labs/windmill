@@ -142,9 +142,7 @@ class Windmill:
             timeout = timeout.total_seconds()
 
         job_id = self.run_script_async(path=path, hash_=hash_, args=args)
-        return self.wait_job(
-            job_id, timeout, verbose, cleanup, assert_result_is_not_none
-        )
+        return self.wait_job(job_id, timeout, verbose, cleanup, assert_result_is_not_none)
 
     def wait_job(
         self,
@@ -183,7 +181,7 @@ class Windmill:
                 atexit.unregister(cancel_job)
 
             if completed:
-                result =  result_res["result"]
+                result = result_res["result"]
                 if success:
                     if result is None and assert_result_is_not_none:
                         raise Exception("Result was none")
@@ -203,9 +201,7 @@ class Windmill:
             if verbose:
                 logger.info(f"sleeping 0.5 seconds for {job_id = }")
 
-            
             time.sleep(0.5)
-
 
     def cancel_running(self) -> dict:
         """Cancel currently running executions of the same script."""
@@ -246,7 +242,6 @@ class Windmill:
     def get_root_job_id(self, job_id: str | None = None) -> dict:
         job_id = job_id or os.environ.get("WM_JOB_ID")
         return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
-
 
     def get_id_token(self, audience: str) -> str:
         return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
@@ -349,10 +344,9 @@ class Windmill:
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = self.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value,  raise_for_status=False)
+        r = self.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value, raise_for_status=False)
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
-
 
     def get_flow_user_state(self, key: str) -> Any:
         """Get the user state of a flow at a given key"""
@@ -568,7 +562,7 @@ class Windmill:
     @staticmethod
     def get_shared_state(path: str = "state.json") -> None:
         """
-        Set the state in the shared folder using pickle
+        Get the state in the shared folder using pickle
         """
         import json
 
@@ -582,6 +576,14 @@ class Windmill:
             f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
             params={"approver": approver},
         ).json()
+
+    def username_to_email(self, username: str) -> str:
+        """
+        Get email from workspace username
+        This method is particularly useful for apps that require the email address of the viewer.
+        Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+        """
+        return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
 
 
 def init_global_client(f):
@@ -616,6 +618,7 @@ def deprecate(in_favor_of: str):
 @init_global_client
 def get_workspace() -> str:
     return _client.workspace
+
 
 @init_global_client
 def get_root_job_id(job_id: str | None = None) -> str:
@@ -848,7 +851,7 @@ def set_shared_state(value: Any, path="state.json") -> None:
 
 def get_shared_state(path="state.json") -> None:
     """
-    Set the state in the shared folder using pickle
+    Get the state in the shared folder using pickle
     """
     return Windmill.get_shared_state(path=path)
 
@@ -875,6 +878,7 @@ def get_flow_user_state(key: str) -> Any:
     Get the user state of a flow at a given key
     """
     return _client.get_flow_user_state(key)
+
 
 @init_global_client
 def set_flow_user_state(key: str, value: Any) -> None:
@@ -922,10 +926,22 @@ def run_script(
     )
 
 
+@init_global_client
+def username_to_email(username: str) -> str:
+    """
+    Get email from workspace username
+    This method is particularly useful for apps that require the email address of the viewer.
+    Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+    """
+    return _client.username_to_email(username)
+
+
 def task(*args, **kwargs):
     from inspect import signature
+
     def f(func, tag: str | None = None):
         if os.environ.get("WM_JOB_ID") is None or os.environ.get("MAIN_OVERRIDE") == func.__name__:
+
             def inner(*args, **kwargs):
                 return func(*args, **kwargs)
 
@@ -963,9 +979,8 @@ def task(*args, **kwargs):
                 return r
 
             return inner
+
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         return f(args[0], None)
     else:
         return lambda x: f(x, kwargs.get("tag"))
-
-
