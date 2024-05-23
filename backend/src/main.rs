@@ -575,15 +575,8 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         let instance_name = rd_string(8);
-        if mode != Mode::Agent {
-            schedule_stats(
-                instance_name,
-                mode.clone(),
-                &db,
-                &HTTP_CLIENT,
-                cfg!(feature = "enterprise"),
-            )
-            .await;
+        if mode == Mode::Server || mode == Mode::Standalone {
+            schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
         }
 
         futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;

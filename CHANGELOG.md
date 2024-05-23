@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.335.0](https://github.com/windmill-labs/windmill/compare/v1.334.0...v1.335.0) (2024-05-22)
+
+
+### Features
+
+* improve user audit logs and stats ([#3786](https://github.com/windmill-labs/windmill/issues/3786)) ([2f370de](https://github.com/windmill-labs/windmill/commit/2f370de62805e1291901cf19368ae4270d70a916))
+
+
+### Bug Fixes
+
+* **cli:** add concurrency key to script ([4d28a38](https://github.com/windmill-labs/windmill/commit/4d28a38750c94dc4362778ace6a227472bd4cd9b))
+* **frontend:** Fix aggrid infinite refresh ([#3789](https://github.com/windmill-labs/windmill/issues/3789)) ([85cd8b4](https://github.com/windmill-labs/windmill/commit/85cd8b4c0ef7aa0b8325db2f99b31ed31a051804))
+
 ## [1.334.0](https://github.com/windmill-labs/windmill/compare/v1.333.5...v1.334.0) (2024-05-21)
 
 

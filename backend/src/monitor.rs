@@ -22,10 +22,7 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 use windmill_common::{
-    ee::CriticalErrorChannel,
-    error,
-    flow_status::FlowStatusModule,
-    global_settings::{
+    ee::CriticalErrorChannel, error, flow_status::FlowStatusModule, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
@@ -33,17 +30,10 @@ use windmill_common::{
         PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-    },
-    jobs::QueuedJob,
-    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
-    server::load_server_config,
-    users::truncate_token,
-    worker::{
+    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_server_config, stats_ee::get_user_usage, users::truncate_token, worker::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
-    },
-    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
-    METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    }, BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -865,20 +855,13 @@ pub async fn save_usage_metrics(db: &Pool<Postgres>) {
             .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::hours(24) - chrono::Duration::minutes(random_nb % 60))
             .unwrap_or(true)
         {
-            let counts = sqlx::query!(
-                "WITH all_users as (SELECT count(*)::INT as count FROM usr WHERE disabled IS false),
-                authors as (SELECT count(distinct email)::INT as count FROM usr WHERE usr.operator IS false AND disabled IS false)
-                SELECT authors.count as author_count, all_users.count - authors.count as operator_count FROM all_users, authors"
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .ok();
+            let user_usage = get_user_usage(&mut *tx).await.ok();
 
-            if let Some(counts) = counts {
+            if let Some(user_usage) = user_usage {
                 sqlx::query!(
                     "INSERT INTO metrics (id, value) VALUES ('author_count', $1), ('operator_count', $2)",
-                    serde_json::json!(counts.author_count), 
-                    serde_json::json!(counts.operator_count)
+                    serde_json::json!(user_usage.author_count.unwrap_or(0)), 
+                    serde_json::json!(user_usage.operator_count.unwrap_or(0))
                 )
                 .execute(&mut *tx)
                 .await
@@ -1096,11 +1079,16 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             mpsc::channel::<SameWorkerPayload>(1);
         let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
 
+        let label = if job.permissioned_as != format!("u/{}", job.created_by) && job.permissioned_as != job.created_by {
+            format!("ephemeral-script-end-user-{}", job.created_by)
+        } else {
+            "ephemeral-script".to_string()
+        };
         let token = create_token_for_owner(
             &db,
             &job.workspace_id,
             &job.permissioned_as,
-            "ephemeral-script",
+            &label,
             *SCRIPT_TOKEN_EXPIRY,
             &job.email,
             &job.id,

@@ -599,6 +599,7 @@
 						<RunsTable
 							{jobs}
 							externalJobs={externalJobs ?? []}
+							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
 							bind:selectedId
@@ -825,6 +826,7 @@
 				activeLabel={label}
 				{jobs}
 				externalJobs={externalJobs ?? []}
+				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 				showExternalJobs={!graphIsRunsChart}
 				bind:selectedId
 				bind:selectedWorkspace

@@ -275,6 +275,7 @@
 		on:done
 		on:doneError
 		on:cancel
+		on:argsChanged
 		on:resultSet={() => (initializing = false)}
 		on:success={(e) => {
 			onSuccess(e.detail)
