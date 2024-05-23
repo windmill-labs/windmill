@@ -7,7 +7,6 @@
 	export let nbDisplayed: number
 	export let items: any[] | undefined
 	export let isSearching: boolean = false
-	console.log(`Show code is ${showCode}`)
 
 	let treeLoading = false
 
