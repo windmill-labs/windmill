@@ -66,6 +66,7 @@
 	let jobFailures: boolean[] = []
 
 	let forloop_selected = ''
+	let retry_selected = ''
 	let timeout: NodeJS.Timeout
 
 	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
@@ -296,7 +297,8 @@
 					duration_ms: job['duration_ms'],
 					started_at: started_at,
 					iteration: mod.iterator?.itered?.length,
-					iteration_total: mod.iterator?.itered?.length
+					iteration_total: mod.iterator?.itered?.length,
+					retries: mod?.failed_retries?.length
 					// retries: $flowStateStore?.raw_flow
 				})
 				setDurationStatusByJob(mod.id, job.id, {
@@ -653,6 +655,43 @@
 							<div class="line w-8 h-10" />
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
+							{#if render && Array.isArray(mod.failed_retries)}
+								{#each mod.failed_retries as failedRetry, j}
+									<Button
+										variant={retry_selected === failedRetry ? 'contained' : 'border'}
+										color="red"
+										btnClasses="w-full flex justify-start"
+										on:click={() => {
+											if (retry_selected == failedRetry) {
+												retry_selected = ''
+											} else {
+												retry_selected = failedRetry
+											}
+										}}
+										endIcon={{
+											icon: ChevronDown,
+											classes: retry_selected == failedRetry ? '!rotate-180' : ''
+										}}
+									>
+										<span class="truncate font-mono">
+											# Retry {j + 1}: {failedRetry}
+										</span>
+									</Button>
+
+									<!-- <LogId id={loopJobId} /> -->
+									<div class="border p-6" class:hidden={retry_selected != failedRetry}>
+										<svelte:self
+											{childFlow}
+											globalModuleStates={[localModuleStates, ...globalModuleStates]}
+											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
+											render={failedRetry == retry_selected}
+											reducedPolling={false}
+											{workspaceId}
+											jobId={failedRetry}
+										/>
+									</div>
+								{/each}
+							{/if}
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
