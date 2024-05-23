@@ -8,7 +8,7 @@
 
 	function calculateControlOffset(distance, curvature) {
 		if (distance >= 0) {
-			return 0.5 * distance
+			return 0.9 * distance
 		} else {
 			return curvature * 25 * Math.sqrt(-distance)
 		}
@@ -73,6 +73,10 @@
 		})
 		return `M${sourceX},${sourceY} C${sourceControlX},${sourceControlY} ${targetControlX},${targetControlY} ${targetX},${targetY}`
 	}
+	// returns string to pass into edge 'path' svg d attribute for the straight line
+	function getStraightLinePath({ sourceX, sourceY, targetX, targetY }) {
+		return `M${sourceX},${sourceY} L${sourceX},${targetY - 50}`
+	}
 	// determining center of the bezier curve to know where to place the bezier edge text label
 	function getSimpleBezierCenter({
 		sourceX,
@@ -109,6 +113,7 @@
 		const yOffset = Math.abs(centerY - sourceY)
 		return [centerX, centerY, xOffset, yOffset]
 	}
+
 	export let canvasId: string
 	export let edgeId: string
 	const store = findStore(canvasId)
@@ -116,33 +121,54 @@
 	let edge
 	$: edge = $edgesStore[edgeId]
 
-	let params
+	let bezierParams, lineParams
 	$: {
 		const store = findStore(canvasId)
 		const sourceAnchor = getAnchorFromEdge(store, edge.id, 'source')
 		const targetAnchor = getAnchorFromEdge(store, edge.id, 'target')
 		const mapAngle = { 0: 'right', 90: 'top', 180: 'left', 270: 'bottom' }
-		params = {
-			sourceX: edge.sourceX + (edge.offset ?? 0),
-			sourceY: edge.sourceY,
-			sourcePosition: mapAngle[sourceAnchor.angle],
-			targetX: edge.targetX + (edge.offset ?? 0),
-			targetY: edge.targetY,
-			targetPosition: mapAngle[targetAnchor.angle],
-			curvature: 0.25
+
+		if (edge.targetY - edge.sourceY > 100) {
+			bezierParams = {
+				sourceX: edge.sourceX + (edge.offset ?? 0),
+				sourceY: edge.targetY - 100,
+				sourcePosition: mapAngle[sourceAnchor.angle],
+				targetX: edge.targetX + (edge.offset ?? 0),
+				targetY: edge.targetY,
+				targetPosition: mapAngle[targetAnchor.angle],
+				curvature: 0.25
+			}
+			lineParams = {
+				sourceX: edge.sourceX + (edge.offset ?? 0),
+				sourceY: edge.sourceY,
+				targetX: edge.targetX + (edge.offset ?? 0),
+				targetY: edge.targetY - 50
+			}
+		} else {
+			bezierParams = {
+				sourceX: edge.sourceX + (edge.offset ?? 0),
+				sourceY: edge.sourceY,
+				sourcePosition: mapAngle[sourceAnchor.angle],
+				targetX: edge.targetX + (edge.offset ?? 0),
+				targetY: edge.targetY,
+				targetPosition: mapAngle[targetAnchor.angle],
+				curvature: 0.25
+			}
+			lineParams = {}
 		}
 	}
 
 	// pass in params to function that returns a string value for SVG path d attribute (where to be drawn)
-	$: path = getSimpleBezierPath(params)
-	$: [centerX, centerY] = getSimpleBezierCenter(params)
+	$: bezierPath = getSimpleBezierPath(bezierParams)
+	$: linePath = getStraightLinePath(lineParams)
+	$: [bezierCenterX, bezierCenterY] = getSimpleBezierCenter(bezierParams)
 	// pass necessary values to BaseEdge component
 	// BaseEdge renders a 'base' path that can be customized by parent Edge components
 	$: baseEdgeProps = {
 		...edge,
-		path: path,
-		centerX: centerX,
-		centerY: centerY
+		path: `${bezierPath} ${linePath}`,
+		centerX: bezierCenterX,
+		centerY: bezierCenterY
 	}
 </script>
 
