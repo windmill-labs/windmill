@@ -1079,11 +1079,16 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             mpsc::channel::<SameWorkerPayload>(1);
         let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
 
+        let label = if job.permissioned_as != format!("u/{}", job.created_by) && job.permissioned_as != job.created_by {
+            format!("ephemeral-script-end-user-{}", job.created_by)
+        } else {
+            "ephemeral-script".to_string()
+        };
         let token = create_token_for_owner(
             &db,
             &job.workspace_id,
             &job.permissioned_as,
-            "ephemeral-script",
+            &label,
             *SCRIPT_TOKEN_EXPIRY,
             &job.email,
             &job.id,
