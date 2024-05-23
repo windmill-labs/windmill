@@ -9,7 +9,7 @@ cat <<EOF - src/core/OpenAPI.ts > temp_file && mv temp_file src/core/OpenAPI.ts
 const getEnv = (key: string) => {
   if (typeof window === "undefined") {
     // node
-    return process?.env?.[key];
+    return globalThis?.process?.env?.[key];
   }
   // browser
   return window?.process?.env?.[key];
