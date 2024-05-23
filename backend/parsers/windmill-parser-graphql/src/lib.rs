@@ -10,7 +10,7 @@ pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_graphql_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -101,7 +101,8 @@ query($s: String, $arr: [String]) {
                         default: None,
                         has_default: false
                     },
-                ]
+                ],
+                no_main_func: None
             }
         );
 

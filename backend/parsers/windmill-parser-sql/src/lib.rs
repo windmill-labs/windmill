@@ -11,7 +11,7 @@ pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -21,7 +21,7 @@ pub fn parse_pgsql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_pg_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -31,7 +31,7 @@ pub fn parse_bigquery_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_bigquery_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -41,7 +41,7 @@ pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_snowflake_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -51,7 +51,7 @@ pub fn parse_mssql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mssql_file(&code)?;
     if let Some(x) = parsed {
         let args = x;
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature { star_args: false, star_kwargs: false, args, no_main_func: None })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
     }
@@ -396,7 +396,8 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         default: None,
                         has_default: false
                     },
-                ]
+                ],
+                no_main_func: None
             }
         );
 
@@ -431,7 +432,8 @@ SELECT * FROM table WHERE token=@token AND image=@image
                         default: None,
                         has_default: false
                     },
-                ]
+                ],
+                no_main_func: None
             }
         );
 

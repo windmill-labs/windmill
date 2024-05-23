@@ -74,14 +74,10 @@
 			try {
 				script.schema = script.schema ?? emptySchema()
 				try {
-					await inferArgs(script.language, script.content, script.schema)
-					script.no_main_func = undefined
+					const noMainFunc = await inferArgs(script.language, script.content, script.schema)
+					script.no_main_func = noMainFunc || undefined
 				} catch (error) {
-					script.no_main_func = true
-					sendUserToast(
-						`Impossible to infer the schema. Assuming this is a script without main function`,
-						true
-					)
+					sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 				}
 
 				await ScriptService.createScript({

@@ -89,11 +89,19 @@ pub fn parse_php_signature(
             })
             .collect();
 
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: Some(false),
+        })
     } else {
-        Err(anyhow::anyhow!(
-            "main function was not findable".to_string(),
-        ))
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+        })
     }
 }
 
@@ -157,7 +165,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         has_default: false,
                         default: None
                     }
-                ]
+                ],
+                no_main_func: Some(false)
             }
         );
 
