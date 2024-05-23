@@ -214,13 +214,10 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = undefined
+				const noMainFunc = await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = noMainFunc || undefined
 			} catch (error) {
-				script.no_main_func = true
-				sendUserToast(
-					`The main signature was not parsable. This script is considered to be without main function`
-				)
+				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
 			const newHash = await ScriptService.createScript({
@@ -335,13 +332,10 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = undefined
+				const noMainFunc = await inferArgs(script.language, script.content, script.schema as any)
+				script.no_main_func = noMainFunc || undefined
 			} catch (error) {
-				script.no_main_func = true
-				sendUserToast(
-					`The main signature was not parsable. This script is considered to be without main function`
-				)
+				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
 			if (initialPath == '' || savedScript?.draft_only) {

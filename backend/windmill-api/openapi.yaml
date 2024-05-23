@@ -9437,12 +9437,16 @@ components:
             required:
               - name
               - typ
+        no_main_func:
+          type: boolean
+          nullable: true
       required:
         - star_args
         - start_kwargs
         - args
         - type
         - error
+        - no_main_func
 
     Preview:
       type: object

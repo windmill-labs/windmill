@@ -117,11 +117,15 @@ pub fn parse_python_signature(
                     }
                 })
                 .collect(),
+            no_main_func: Some(false),
         })
     } else {
-        Err(anyhow::anyhow!(
-            "main function was not findable".to_string(),
-        ))
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+        })
     }
 }
 
@@ -308,7 +312,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         default: Some(json!(true)),
                         has_default: true
                     },
-                ]
+                ],
+                no_main_func: Some(false),
             }
         );
 
@@ -367,7 +372,8 @@ def main(test1: str,
                         default: Some(json!("$res:g/all/resource")),
                         has_default: true
                     }
-                ]
+                ],
+                no_main_func: Some(false),
             }
         );
 
@@ -421,7 +427,8 @@ def main(test1: str,
                         default: Some(json!("<function call>")),
                         has_default: true
                     }
-                ]
+                ],
+                no_main_func: Some(false),
             }
         );
 
@@ -461,7 +468,8 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         default: None,
                         has_default: false
                     }
-                ]
+                ],
+                no_main_func: Some(false),
             }
         );
 

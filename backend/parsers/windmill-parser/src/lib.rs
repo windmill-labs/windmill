@@ -14,6 +14,7 @@ pub struct MainArgSignature {
     pub star_args: bool,
     pub star_kwargs: bool,
     pub args: Vec<Arg>,
+    pub no_main_func: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
