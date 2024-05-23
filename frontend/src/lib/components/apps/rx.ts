@@ -157,7 +157,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 
 		// return a callback to unsubscribe
 		return () => {
-			const index = subscribers.indexOf(x)
+			const index = subscribers.findIndex((y) => y === x || (y.id && y.id === x.id))
 			if (index !== -1) {
 				subscribers.splice(index, 1)
 			}
