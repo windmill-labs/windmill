@@ -35,8 +35,6 @@
 	}
 
 	function builtSubscriptions(connections: InputConnectionEval[]) {
-		console.log('builtSubscriptions', connections)
-
 		// If we are rebuilding the subscriptions, we need to unsubscribe from the previous ones
 		if (subscriptions.length > 0) {
 			subscriptions.forEach((unsubscribe) => unsubscribe?.())
