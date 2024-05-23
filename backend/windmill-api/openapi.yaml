@@ -2028,7 +2028,7 @@ paths:
   /w/{workspace}/users/username_to_email/{username}:
     get:
       summary: get email from username
-      operationId: username_to_email
+      operationId: usernameToEmail
       tags:
         - user
       parameters:
