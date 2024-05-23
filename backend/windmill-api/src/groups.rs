@@ -252,7 +252,7 @@ async fn create_group(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "group.create",
         ActionKind::Create,
         &w_id,
@@ -296,7 +296,7 @@ async fn create_igroup(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "igroup.create",
         ActionKind::Create,
         "global",
@@ -337,7 +337,7 @@ async fn update_igroup(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "igroup.updated",
         ActionKind::Delete,
         "global",
@@ -367,7 +367,7 @@ async fn delete_igroup(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "igroup.delete",
         ActionKind::Delete,
         "global",
@@ -472,7 +472,7 @@ async fn delete_group(
     .await?;
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "group.delete",
         ActionKind::Delete,
         &w_id,
@@ -522,7 +522,7 @@ async fn update_group(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "group.edit",
         ActionKind::Update,
         &w_id,
@@ -573,7 +573,7 @@ async fn add_user(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "group.adduser",
         ActionKind::Update,
         &w_id,
@@ -624,7 +624,7 @@ async fn add_user_igroup(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "igroup.adduser",
         ActionKind::Update,
         "global",
@@ -693,7 +693,7 @@ async fn remove_user_igroup(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "igroup.removeuser",
         ActionKind::Update,
         "global",
@@ -733,7 +733,7 @@ async fn remove_user(
 
     audit_log(
         &mut *tx,
-        &authed.username,
+        &authed,
         "group.removeuser",
         ActionKind::Update,
         &w_id,
