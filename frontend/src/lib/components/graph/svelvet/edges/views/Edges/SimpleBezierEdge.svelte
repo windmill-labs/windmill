@@ -160,7 +160,7 @@
 
 	// pass in params to function that returns a string value for SVG path d attribute (where to be drawn)
 	$: bezierPath = getSimpleBezierPath(bezierParams)
-	$: linePath = getStraightLinePath(lineParams)
+	$: linePath = lineParams ? getStraightLinePath(lineParams) : ''
 	$: [bezierCenterX, bezierCenterY] = getSimpleBezierCenter(bezierParams)
 	// pass necessary values to BaseEdge component
 	// BaseEdge renders a 'base' path that can be customized by parent Edge components
