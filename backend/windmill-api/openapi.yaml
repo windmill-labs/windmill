@@ -2025,10 +2025,10 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/users/email_from_username/{username}:
+  /w/{workspace}/users/username_to_email/{username}:
     get:
       summary: get email from username
-      operationId: emailFromUsername
+      operationId: usernameToEmail
       tags:
         - user
       parameters:
