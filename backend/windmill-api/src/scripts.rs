@@ -663,7 +663,7 @@ async fn create_script_internal<'c>(
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {
         audit_log(
             &mut tx,
-            &authed,
+            &authed.username,
             "scripts.update",
             ActionKind::Update,
             &w_id,
@@ -682,7 +682,7 @@ async fn create_script_internal<'c>(
     } else {
         audit_log(
             &mut tx,
-            &authed,
+            &authed.username,
             "scripts.create",
             ActionKind::Create,
             &w_id,
@@ -1163,7 +1163,7 @@ async fn archive_script_by_path(
     .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "scripts.archive",
         ActionKind::Delete,
         &w_id,
@@ -1215,7 +1215,7 @@ async fn archive_script_by_hash(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "scripts.archive",
         ActionKind::Delete,
         &w_id,
@@ -1255,7 +1255,7 @@ async fn delete_script_by_hash(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "scripts.delete",
         ActionKind::Delete,
         &w_id,
@@ -1322,7 +1322,7 @@ async fn delete_script_by_path(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "scripts.delete",
         ActionKind::Delete,
         &w_id,

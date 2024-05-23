@@ -51,7 +51,7 @@ use sqlx::types::JsonRawValue;
 use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use tower_http::cors::{Any, CorsLayer};
 use urlencoding::encode;
-use windmill_audit::audit_ee::{audit_log, AuditAuthor};
+use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, SERVER_CONFIG};
 use windmill_common::{
@@ -317,31 +317,18 @@ async fn cancel_job_api(
 ) -> error::Result<String> {
     let tx = db.begin().await?;
 
-    let audit_author = match opt_authed {
-        Some(authed) => (&authed).into(),
-        None => AuditAuthor {
-            email: "anonymous".to_string(),
-            username: "anonymous".to_string(),
-            username_override: None,
-        },
+    let username = match opt_authed {
+        Some(authed) => authed.username,
+        None => "anonymous".to_string(),
     };
 
-    let (mut tx, job_option) = windmill_queue::cancel_job(
-        &audit_author.username,
-        reason,
-        id,
-        &w_id,
-        tx,
-        &db,
-        rsmq,
-        false,
-    )
-    .await?;
+    let (mut tx, job_option) =
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, &db, rsmq, false).await?;
 
     if let Some(id) = job_option {
         audit_log(
             &mut *tx,
-            &audit_author,
+            &username,
             "jobs.cancel",
             ActionKind::Delete,
             &w_id,
@@ -371,17 +358,13 @@ async fn cancel_persistent_script_api(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<()> {
-    let audit_author = match opt_authed {
-        Some(authed) => (&authed).into(),
-        None => AuditAuthor {
-            email: "anonymous".to_string(),
-            username: "anonymous".to_string(),
-            username_override: None,
-        },
+    let username = match opt_authed {
+        Some(authed) => authed.username,
+        None => "anonymous".to_string(),
     };
 
     let cancelled_job_ids = windmill_queue::cancel_persistent_script_jobs(
-        &audit_author.username,
+        &username,
         reason,
         script_path.to_path(),
         &w_id,
@@ -392,7 +375,7 @@ async fn cancel_persistent_script_api(
 
     audit_log(
         &db,
-        &audit_author,
+        &username,
         "jobs.cancel_persistent",
         ActionKind::Delete,
         &w_id,
@@ -423,31 +406,18 @@ async fn force_cancel(
 ) -> error::Result<String> {
     let tx = db.begin().await?;
 
-    let audit_author = match opt_authed {
-        Some(authed) => (&authed).into(),
-        None => AuditAuthor {
-            email: "anonymous".to_string(),
-            username: "anonymous".to_string(),
-            username_override: None,
-        },
+    let username = match opt_authed {
+        Some(authed) => authed.username,
+        None => "anonymous".to_string(),
     };
 
-    let (mut tx, job_option) = windmill_queue::cancel_job(
-        &audit_author.username,
-        reason,
-        id,
-        &w_id,
-        tx,
-        &db,
-        rsmq,
-        true,
-    )
-    .await?;
+    let (mut tx, job_option) =
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, &db, rsmq, true).await?;
 
     if let Some(id) = job_option {
         audit_log(
             &mut *tx,
-            &audit_author,
+            &username,
             "jobs.force_cancel",
             ActionKind::Delete,
             &w_id,
@@ -963,6 +933,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
     }
 }
 
+
 pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
     lq: &ListQueueQuery,
@@ -1425,7 +1396,7 @@ async fn resume_suspended_job_internal(
     {
         approver.approver
     } else {
-        authed.as_ref().map(|x| x.username.clone())
+        authed.map(|x| x.username)
     };
     insert_resume_job(
         resume_id,
@@ -1448,17 +1419,9 @@ async fn resume_suspended_job_internal(
     } else {
         resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
     }
-
-    let audit_author = match authed {
-        Some(authed) => (&authed).into(),
-        None => {
-            let approver = approver.unwrap_or_else(|| "anonymous".to_string());
-            AuditAuthor { email: approver.clone(), username: approver, username_override: None }
-        }
-    };
     audit_log(
         &mut *tx,
-        &audit_author,
+        &approver.unwrap_or_else(|| "anonymous".to_string()),
         "jobs.approved",
         ActionKind::Update,
         &w_id,
@@ -2084,75 +2047,76 @@ pub struct UnifiedJob {
 }
 
 const CJ_FIELDS: &[&str] = &[
-    "'CompletedJob' as typ",
-    "id",
-    "workspace_id",
-    "parent_job",
-    "created_by",
-    "created_at",
-    "started_at",
-    "null as scheduled_for",
-    "null as running",
-    "script_hash",
-    "script_path",
-    "null as args",
-    "duration_ms",
-    "success",
-    "deleted",
-    "canceled",
-    "canceled_by",
-    "job_kind",
-    "schedule_path",
-    "permissioned_as",
-    "is_flow_step",
-    "language",
-    "is_skipped",
-    "email",
-    "visible_to_owner",
-    "null as suspend",
-    "mem_peak",
-    "tag",
-    "null as concurrent_limit",
-    "null as concurrency_time_window_s",
-    "priority",
-    "result->'wm_labels' as labels",
-];
+            "'CompletedJob' as typ",
+            "id",
+            "workspace_id",
+            "parent_job",
+            "created_by",
+            "created_at",
+            "started_at",
+            "null as scheduled_for",
+            "null as running",
+            "script_hash",
+            "script_path",
+            "null as args",
+            "duration_ms",
+            "success",
+            "deleted",
+            "canceled",
+            "canceled_by",
+            "job_kind",
+            "schedule_path",
+            "permissioned_as",
+            "is_flow_step",
+            "language",
+            "is_skipped",
+            "email",
+            "visible_to_owner",
+            "null as suspend",
+            "mem_peak",
+            "tag",
+            "null as concurrent_limit",
+            "null as concurrency_time_window_s",
+            "priority",
+            "result->'wm_labels' as labels",
+        ];
 const QJ_FIELDS: &[&str] = &[
-    "'QueuedJob' as typ",
-    "id",
-    "workspace_id",
-    "parent_job",
-    "created_by",
-    "created_at",
-    "started_at",
-    "scheduled_for",
-    "running",
-    "script_hash",
-    "script_path",
-    "null as args",
-    "null as duration_ms",
-    "null as success",
-    "false as deleted",
-    "canceled",
-    "canceled_by",
-    "job_kind",
-    "schedule_path",
-    "permissioned_as",
-    "is_flow_step",
-    "language",
-    "false as is_skipped",
-    "email",
-    "visible_to_owner",
-    "suspend",
-    "mem_peak",
-    "tag",
-    "concurrent_limit",
-    "concurrency_time_window_s",
-    "priority",
-    "null as labels",
-];
+            "'QueuedJob' as typ",
+            "id",
+            "workspace_id",
+            "parent_job",
+            "created_by",
+            "created_at",
+            "started_at",
+            "scheduled_for",
+            "running",
+            "script_hash",
+            "script_path",
+            "null as args",
+            "null as duration_ms",
+            "null as success",
+            "false as deleted",
+            "canceled",
+            "canceled_by",
+            "job_kind",
+            "schedule_path",
+            "permissioned_as",
+            "is_flow_step",
+            "language",
+            "false as is_skipped",
+            "email",
+            "visible_to_owner",
+            "suspend",
+            "mem_peak",
+            "tag",
+            "concurrent_limit",
+            "concurrency_time_window_s",
+            "priority",
+            "null as labels",
+        ];
 
 impl UnifiedJob {
+
     pub fn completed_job_fields() -> &'static [&'static str] {
         CJ_FIELDS
     }
@@ -4354,7 +4318,7 @@ async fn delete_completed_job<'a>(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "jobs.delete",
         ActionKind::Delete,
         &w_id,

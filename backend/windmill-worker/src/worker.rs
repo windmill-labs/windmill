@@ -127,20 +127,12 @@ pub async fn create_token_for_owner_in_bg(
         let owner = job.permissioned_as.clone();
         let email = job.email.clone();
         let job_id = job.id.clone();
-
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
         tokio::spawn(async move {
             let token = create_token_for_owner(
                 &db.clone(),
                 &w_id,
                 &owner,
-                &label,
+                "ephemeral-script",
                 *SCRIPT_TOKEN_EXPIRY,
                 &email,
                 &job_id,

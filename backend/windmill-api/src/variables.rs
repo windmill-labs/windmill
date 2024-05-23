@@ -20,7 +20,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde_json::Value;
-use windmill_audit::audit_ee::{audit_log, AuditAuthorable};
+use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -151,7 +151,7 @@ async fn get_variable(
         if decrypt_secret {
             audit_log(
                 &mut *tx,
-                &authed,
+                &authed.username,
                 "variables.decrypt_secret",
                 ActionKind::Execute,
                 &w_id,
@@ -192,7 +192,7 @@ async fn get_value(
 ) -> JsonResult<String> {
     let path = path.to_path();
     let tx = user_db.begin(&authed).await?;
-    return get_value_internal(tx, &db, &w_id, &path, &authed)
+    return get_value_internal(tx, &db, &w_id, &path, &authed.username)
         .await
         .map(Json);
 }
@@ -315,7 +315,7 @@ async fn create_variable(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "variables.create",
         ActionKind::Create,
         &w_id,
@@ -391,7 +391,7 @@ async fn delete_variable(
     .await?;
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "variables.delete",
         ActionKind::Delete,
         &w_id,
@@ -547,7 +547,7 @@ async fn update_variable(
 
     audit_log(
         &mut *tx,
-        &authed,
+        &authed.username,
         "variables.update",
         ActionKind::Update,
         &w_id,
@@ -603,7 +603,7 @@ pub async fn get_value_internal<'c>(
     db: &DB,
     w_id: &str,
     path: &str,
-    audit_author: &impl AuditAuthorable,
+    username: &str,
 ) -> Result<String> {
     let variable_o = sqlx::query!(
         "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
@@ -622,7 +622,7 @@ pub async fn get_value_internal<'c>(
     let r = if variable.is_secret {
         audit_log(
             &mut *tx,
-            audit_author,
+            username,
             "variables.decrypt_secret",
             ActionKind::Execute,
             &w_id,
