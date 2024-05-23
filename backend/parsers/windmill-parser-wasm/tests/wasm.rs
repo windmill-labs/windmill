@@ -116,7 +116,8 @@ export function main(test1?: string, test2: string = \"burkina\",
                     default: None,
                     has_default: true
                 }
-            ]
+            ],
+            no_main_func: Some(false)
         }
     );
 
@@ -185,7 +186,8 @@ export function main(test2 = \"burkina\",
                     default: Some(json!({"a": "test", "b": 42})),
                     has_default: true
                 }
-            ]
+            ],
+            no_main_func: Some(false)
         }
     );
 
@@ -230,7 +232,8 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
                     default: Some(json!({"a": "foo", "b": 42})),
                     has_default: true
                 }
-            ]
+            ],
+            no_main_func: Some(false)
         }
     );
 
@@ -258,7 +261,8 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
                 ])))),
                 default: None,
                 has_default: false
-            }]
+            }],
+            no_main_func: Some(false)
         }
     );
 
@@ -388,7 +392,8 @@ Write-Output 'Testing...'
                     default: None,
                     has_default: false
                 }
-            ]
+            ],
+            no_main_func: None,
         }
     );
 

@@ -112,7 +112,6 @@
 			schema = nschema
 		} catch (e) {
 			validCode = false
-			schema = emptySchema()
 		}
 	}
 

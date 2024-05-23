@@ -176,13 +176,16 @@ pub fn parse_deno_signature(
                 .into_iter()
                 .map(|x| parse_param(x, &cm, skip_dflt, &mut c))
                 .collect::<anyhow::Result<Vec<Arg>>>()?,
+            no_main_func: Some(false),
         };
         Ok(r)
     } else {
-        Err(anyhow::anyhow!(
-            "main function was not findable (expected to find 'export function main(...)'"
-                .to_string(),
-        ))
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+        })
     }
 }
 
