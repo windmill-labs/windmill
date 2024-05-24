@@ -72,7 +72,7 @@ pub fn workspaced_service() -> Router {
         .route("/whois/:username", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
-        .route("/email_from_username/:username", get(email_from_username))
+        .route("/username_to_email/:username", get(username_to_email))
 }
 
 pub fn global_service() -> Router {
@@ -2607,7 +2607,7 @@ async fn get_instance_username_info(
     }))
 }
 
-async fn email_from_username(
+async fn username_to_email(
     Path((w_id, username)): Path<(String, String)>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
