@@ -3,6 +3,9 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[cfg(feature = "enterprise")]
+use crate::DB;
+
 lazy_static::lazy_static! {
   pub static ref LICENSE_KEY_VALID: Arc<RwLock<bool>> = Arc::new(RwLock::new(true));
   pub static ref LICENSE_KEY_ID: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
@@ -25,3 +28,6 @@ pub async fn get_license_plan() -> LicensePlan {
 pub enum CriticalErrorChannel {}
 
 pub async fn trigger_critical_error_channels(_error_message: String) {}
+
+#[cfg(feature = "enterprise")]
+pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &DB) {}

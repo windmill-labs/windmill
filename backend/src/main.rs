@@ -16,6 +16,10 @@ use std::{
 };
 use tokio::fs::DirBuilder;
 use windmill_api::HTTP_CLIENT;
+
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::schedule_key_renewal;
+
 use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
@@ -577,6 +581,11 @@ Windmill Community Edition {GIT_VERSION}
         let instance_name = rd_string(8);
         if mode == Mode::Server || mode == Mode::Standalone {
             schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
+        }
+
+        #[cfg(feature = "enterprise")]
+        if mode == Mode::Server || mode == Mode::Standalone {
+            schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
         futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
