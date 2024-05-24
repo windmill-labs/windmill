@@ -158,16 +158,14 @@ func SetState(state interface{}) error {
 	return nil
 }
 
-func GetResumeUrls(approver string) (struct {
+type ResumeUrls struct {
 	ApprovalPage string `json:"approvalPage"`
 	Cancel       string `json:"cancel"`
 	Resume       string `json:"resume"`
-}, error) {
-	var urls struct {
-		ApprovalPage string `json:"approvalPage"`
-		Cancel       string `json:"cancel"`
-		Resume       string `json:"resume"`
-	}
+}
+
+func GetResumeUrls(approver string) (ResumeUrls, error) {
+	var urls ResumeUrls
 	client, err := GetClient()
 	if err != nil {
 		return urls, err
