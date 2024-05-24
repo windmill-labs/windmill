@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"math/rand"
 	"net/http"
 	"os"
 
+	"github.com/google/uuid"
 	api "github.com/windmill-labs/windmill-go-client/api"
 )
 
@@ -153,4 +156,40 @@ func SetState(state interface{}) error {
 		return err
 	}
 	return nil
+}
+
+func GetResumeUrls(approver string) (struct {
+	ApprovalPage string `json:"approvalPage"`
+	Cancel       string `json:"cancel"`
+	Resume       string `json:"resume"`
+}, error) {
+	var urls struct {
+		ApprovalPage string `json:"approvalPage"`
+		Cancel       string `json:"cancel"`
+		Resume       string `json:"resume"`
+	}
+	client, err := GetClient()
+	if err != nil {
+		return urls, err
+	}
+	jobId, err := uuid.Parse(os.Getenv("WM_JOB_ID"))
+	if err != nil {
+		return urls, err
+	}
+	params := api.GetResumeUrlsParams{Approver: &approver}
+	nonce := rand.Intn(int(math.MaxUint32))
+	res, err := client.Client.GetResumeUrlsWithResponse(context.Background(),
+		client.Workspace,
+		jobId,
+		nonce,
+		&params,
+	)
+	if err != nil {
+		return urls, err
+	}
+	if res.StatusCode()/100 != 2 {
+		return urls, errors.New(string(res.Body))
+	}
+	urls = *res.JSON200
+	return urls, nil
 }
