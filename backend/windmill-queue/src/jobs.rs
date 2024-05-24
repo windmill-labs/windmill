@@ -59,9 +59,9 @@ use windmill_common::{
     },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
-    scripts::{ScriptHash, ScriptLang},
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
-    utils::{not_found_if_none, report_critical_error},
+    utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
     BASE_URL, DB, METRICS_ENABLED,
 };
@@ -2991,6 +2991,10 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
                 email = SUPERADMIN_NOTIFICATION_EMAIL;
             }
+
+            let hub_script =
+                get_full_hub_script_by_path(StripPath(path.clone()), &HTTP_CLIENT, _db).await?;
+
             (
                 None,
                 Some(path),
@@ -2999,7 +3003,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                 JobKind::Script_Hub,
                 None,
                 None,
-                None,
+                Some(hub_script.language),
                 None,
                 None,
                 None,
@@ -3430,12 +3434,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             },
             script_path.clone().expect("dedicated script has a path")
         )
-    } else if job_kind == JobKind::Script_Hub {
-        if per_workspace {
-            format!("hub-{}", workspace_id)
-        } else {
-            "hub".to_string()
-        }
     } else {
         if tag == Some("".to_string()) {
             tag = None;
