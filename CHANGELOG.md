@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.336.1](https://github.com/windmill-labs/windmill/compare/v1.336.0...v1.336.1) (2024-05-24)
+
+
+### Bug Fixes
+
+* revert bun to 1.1.8 ([ba9cdb1](https://github.com/windmill-labs/windmill/commit/ba9cdb1ae2aca13fd06876b48e0acdb65f2a1b00))
+
 ## [1.336.0](https://github.com/windmill-labs/windmill/compare/v1.335.0...v1.336.0) (2024-05-23)
 
 
