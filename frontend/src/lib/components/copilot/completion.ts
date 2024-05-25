@@ -34,7 +34,7 @@ export async function editorCodeCompletion(
 	]
 
 	try {
-		const result = await getNonStreamingCompletion(messages, abortController, 'gpt-3.5-turbo-1106')
+		const result = await getNonStreamingCompletion(messages, abortController)
 
 		const match = result.match(/```[a-zA-Z]+\n([\s\S]*?)\n```/)
 

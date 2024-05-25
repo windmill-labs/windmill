@@ -381,7 +381,7 @@
 						</ToggleButtonGroup>
 
 						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							GPT-4 Turbo<Bot size={14} />
+							GPT-4o<Bot size={14} />
 						</div>
 					</div>
 					<div class="flex w-96 items-start">
