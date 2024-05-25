@@ -59,7 +59,7 @@ pub async fn do_mysql(
             .await?;
 
         let as_raw = serde_json::from_value(val)
-            .map_err(|e| Error::InternalErr(format!("Error while parsing inline resource: {e}")))?;
+            .map_err(|e| Error::InternalErr(format!("Error while parsing inline resource: {e:#}")))?;
 
         Some(as_raw)
     } else {

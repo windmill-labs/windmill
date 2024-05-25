@@ -104,15 +104,15 @@ pub async fn initial_load(
     _is_agent: bool,
 ) {
     if let Err(e) = load_metrics_enabled(db).await {
-        tracing::error!("Error loading expose metrics: {e}");
+        tracing::error!("Error loading expose metrics: {e:#}");
     }
 
     if let Err(e) = load_metrics_debug_enabled(db).await {
-        tracing::error!("Error loading expose debug metrics: {e}");
+        tracing::error!("Error loading expose debug metrics: {e:#}");
     }
 
     if let Err(e) = load_tag_per_workspace_enabled(db).await {
-        tracing::error!("Error loading default tag per workpsace: {e}");
+        tracing::error!("Error loading default tag per workpsace: {e:#}");
     }
 
     if server_mode {
@@ -273,7 +273,7 @@ pub async fn load_keep_job_dir(db: &DB) {
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => KEEP_JOB_DIR.store(t, Ordering::Relaxed),
         Err(e) => {
-            tracing::error!("Error loading keep job dir metrics: {e}");
+            tracing::error!("Error loading keep job dir metrics: {e:#}");
         }
         _ => (),
     };
@@ -287,7 +287,7 @@ pub async fn load_require_preexisting_user(db: &DB) {
             REQUIRE_PREEXISTING_USER_FOR_OAUTH.store(t, Ordering::Relaxed)
         }
         Err(e) => {
-            tracing::error!("Error loading keep job dir metrics: {e}");
+            tracing::error!("Error loading keep job dir metrics: {e:#}");
         }
         _ => (),
     };
@@ -950,7 +950,7 @@ pub async fn reload_worker_config(
                     tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     if let Err(e) = windmill_worker::common::clean_cache().await {
-                        tracing::error!("Error cleaning the cache: {e}");
+                        tracing::error!("Error cleaning the cache: {e:#}");
                     }
                 }
             }

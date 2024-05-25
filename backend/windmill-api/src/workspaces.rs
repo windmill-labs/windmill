@@ -376,7 +376,7 @@ async fn get_settings(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting settings: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting settings: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -399,7 +399,7 @@ async fn get_deploy_to(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -919,7 +919,7 @@ async fn get_copilot_info(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
     Ok(Json(CopilotInfo {

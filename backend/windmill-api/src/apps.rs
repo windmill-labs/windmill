@@ -736,7 +736,7 @@ async fn delete_app(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;
 

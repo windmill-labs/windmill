@@ -117,7 +117,7 @@ pub async fn update_flow_status_after_job_completion<
         {
             Ok(j) => j,
             Err(e) => {
-                tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e}", nrec.flow,&nrec.job_id_for_status);
+                tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e:#}", nrec.flow,&nrec.job_id_for_status);
                 update_flow_status_after_job_completion_internal(
                     db,
                     client,
@@ -203,7 +203,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         .await
         .map_err(|e| {
             Error::InternalErr(format!(
-                "fetching flow status {flow} while reporting {success} {result:?}: {e}"
+                "fetching flow status {flow} while reporting {success} {result:?}: {e:#}"
             ))
         })?;
 
@@ -269,7 +269,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .bind(flow)
             .fetch_one(db)
             .await
-            .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e}")))?;
+            .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e:#}")))?;
             let r = SkipIfStopped::from_row(&row)?;
 
             let stop_early = success
@@ -331,7 +331,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .fetch_one(&mut tx)
                         .await.map_err(|e| {
                             Error::InternalErr(format!(
-                                "error while fetching iterator index: {e}"
+                                "error while fetching iterator index: {e:#}"
                             ))
                         })?
                         .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
@@ -355,7 +355,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .await
                         .map_err(|e| {
                             Error::InternalErr(format!(
-                                "error while fetching branchall index: {e}"
+                                "error while fetching branchall index: {e:#}"
                             ))
                         })?
                         .ok_or_else(|| Error::InternalErr(format!("requiring an index in InProgress")))?;
@@ -375,7 +375,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .await
                         .map_err(|e| {
                             Error::InternalErr(format!(
-                                "error while fetching sucess from completed_jobs: {e}"
+                                "error while fetching sucess from completed_jobs: {e:#}"
                             ))
                         })?
                         .into_iter()
@@ -405,7 +405,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         flow,
                     ).fetch_optional(db).await.map_err(|e| {
                         Error::InternalErr(format!(
-                            "error while deleting parallel_monitor_lock: {e}"
+                            "error while deleting parallel_monitor_lock: {e:#}"
                         ))
                     })?;
                     if r.is_some() {
@@ -431,7 +431,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .fetch_all(db)
                         .await
                         .map_err(|e| {
-                            Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e}"))
+                            Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e:#}"))
                         })?;
                         for id in ids {
                             sqlx::query!(
@@ -442,7 +442,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             .await
                             .map_err(|e| {
                                 Error::InternalErr(format!(
-                                    "error decreasing suspend for {id}: {e}"
+                                    "error decreasing suspend for {id}: {e:#}"
                                 ))
                             })?;
                         }
@@ -457,7 +457,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     .execute(db)
                     .await
                     .map_err(|e| {
-                        Error::InternalErr(format!("error while setting last ping to null: {e}"))
+                        Error::InternalErr(format!("error while setting last ping to null: {e:#}"))
                     })?;
 
                     let r = sqlx::query_scalar!(
@@ -465,7 +465,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         flow,
                         job_id_for_status
                     ).fetch_optional(db).await.map_err(|e| {
-                        Error::InternalErr(format!("error while removing parallel_monitor_lock: {e}"))
+                        Error::InternalErr(format!("error while removing parallel_monitor_lock: {e:#}"))
                     })?;
                     if r.is_some() {
                         tracing::info!(
@@ -536,7 +536,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .fetch_optional(&mut tx)
                         .await
                         .map_err(|e| {
-                            Error::InternalErr(format!("error while getting retry from step: {e}"))
+                            Error::InternalErr(format!("error while getting retry from step: {e:#}"))
                         })?
                         .flatten();
 
@@ -574,7 +574,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             .execute(&mut tx)
             .await
             .map_err(|e| {
-                Error::InternalErr(format!("error while setting flow index for {flow}: {e}"))
+                Error::InternalErr(format!("error while setting flow index for {flow}: {e:#}"))
             })?;
             old_status.step + 1
         } else {
@@ -595,7 +595,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 .fetch_one(&mut tx)
                 .await.map_err(|e| {
                     Error::InternalErr(format!(
-                        "error while fetching failure module: {e}"
+                        "error while fetching failure module: {e:#}"
                     ))
                 })?;
 
@@ -613,7 +613,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 .await
                 .map_err(|e| {
                     Error::InternalErr(format!(
-                        "error while setting flow status in failure step: {e}"
+                        "error while setting flow status in failure step: {e:#}"
                     ))
                 })?;
             } else {
@@ -628,7 +628,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 .execute(&mut tx)
                 .await
                 .map_err(|e| {
-                    Error::InternalErr(format!("error while setting new flow status: {e}"))
+                    Error::InternalErr(format!("error while setting new flow status: {e:#}"))
                 })?;
 
                 if let Some(job_result) = new_status.job_result() {
@@ -643,7 +643,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     .execute(&mut tx)
                     .await.map_err(|e| {
                         Error::InternalErr(format!(
-                            "error while setting leaf jobs: {e}"
+                            "error while setting leaf jobs: {e:#}"
                         ))
                     })?;
                 }
@@ -759,7 +759,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                 .execute(db)
                 .await
                 .map_err(|e| {
-                    Error::InternalErr(format!("error while cleaning up completed_job: {e}"))
+                    Error::InternalErr(format!("error while cleaning up completed_job: {e:#}"))
                 })?;
             }
         }
@@ -821,7 +821,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                     stop_early && skip_if_stop_early,
                     Json(
                         &serde_json::from_str::<Value>(nresult.get()).unwrap_or_else(
-                            |e| json!({"error": format!("Impossible to serialize error: {e}")}),
+                            |e| json!({"error": format!("Impossible to serialize error: {e:#}")}),
                         ),
                     ),
                     0,
@@ -966,7 +966,7 @@ async fn compute_skip_loop_failures_and_parallelism(
     .fetch_one(db)
     .await
     .map(|(v, n)| (v,n))
-    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
+    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e:#}")))
 }
 
 async fn compute_skip_branchall_failure<'c>(
@@ -986,7 +986,7 @@ async fn compute_skip_branchall_failure<'c>(
     .fetch_one(db)
     .await
     .map(|(v,)| v)
-    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
+    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e:#}")))
 }
 
 async fn has_failure_module<'c>(
@@ -1001,7 +1001,7 @@ async fn has_failure_module<'c>(
     .bind(flow)
     .fetch_one(&mut **tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("error during retrieval of has_failure_module: {e}")))
+    .map_err(|e| Error::InternalErr(format!("error during retrieval of has_failure_module: {e:#}")))
     .map(|v| v.unwrap_or(false))
 }
 
@@ -1015,7 +1015,7 @@ async fn has_failure_module<'c>(
 //     )
 //     .fetch_one(db)
 //     .await
-//     .map_err(|e| Error::InternalErr(format!("error during retrieval of cleanup module: {e}")))?;
+//     .map_err(|e| Error::InternalErr(format!("error during retrieval of cleanup module: {e:#}")))?;
 
 //     raw_value
 //         .clone()
@@ -1117,7 +1117,7 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
     )
     .fetch_one(db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e:#}")))?;
     if r.step < r.len {
         Ok(Step::Step(r.step.ok_or_else(|| {
             Error::InternalErr("step is null".to_string())
@@ -1176,7 +1176,7 @@ async fn transform_input(
                 .await
                 .map_err(|e| {
                     Error::ExecutionErr(format!(
-                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                        "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
                     ))
                 })?;
                 mapped.insert(key.to_string(), v);
@@ -1359,7 +1359,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             .await
             .map_err(|e| {
                 Error::InternalErr(format!(
-                    "error sending update flow message to job completed channel: {e}"
+                    "error sending update flow message to job completed channel: {e:#}"
                 ))
             })?;
 
@@ -1406,7 +1406,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                         .await
                         .map_err(|e| {
                             Error::InternalErr(format!(
-                                "error sending update flow message to job completed channel: {e}"
+                                "error sending update flow message to job completed channel: {e:#}"
                             ))
                         })?;
 
@@ -1438,7 +1438,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     .await
                     .map_err(|e| {
                         Error::InternalErr(format!(
-                            "error sending update flow message to job completed channel: {e}"
+                            "error sending update flow message to job completed channel: {e:#}"
                         ))
                     })?;
 
@@ -1547,7 +1547,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                 .await
                                 .map_err(|e| {
                                     Error::ExecutionErr(format!(
-                                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                                        "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
                                     ))
                                 })?
                                 .get(),
@@ -1557,7 +1557,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                             } else {
                                 let e = eval_result.err().unwrap();
                                 return Err(Error::ExecutionErr(format!(
-                                    "Result returned by input transform invalid `{e}`"
+                                    "Result returned by input transform invalid `{e:#}`"
                                 )));
                             }
                         }
@@ -1686,7 +1686,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     .await
                     .map_err(|e| {
                         Error::InternalErr(format!(
-                            "error sending update flow message to job completed channel: {e}"
+                            "error sending update flow message to job completed channel: {e:#}"
                         ))
                     })?;
 
@@ -1742,7 +1742,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                             .await
                             .map_err(|e| {
                                 Error::ExecutionErr(format!(
-                                    "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                                    "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
                                 ))
                             })?
                             .get(),
@@ -1881,7 +1881,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         if let Some(row) = row {
             RawArgs::from_row(&row)
                 .map(|x| x.args.map(|x| x.0).unwrap_or_else(HashMap::new))
-                .map_err(|e| error::Error::InternalErr(format!("Impossible to build args: {e}")))
+                .map_err(|e| error::Error::InternalErr(format!("Impossible to build args: {e:#}")))
         } else {
             Ok(HashMap::new())
         }
@@ -1913,7 +1913,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 })
                 .unwrap(),
             )
-            .map_err(|e| error::Error::InternalErr(format!("identity: {e}"))),
+            .map_err(|e| error::Error::InternalErr(format!("identity: {e:#}"))),
 
             Ok(_) => Ok(flow_job_args),
             Err(e) => {
@@ -2152,7 +2152,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
         if payload_tag.delete_after_use {
             let uuid_singleton_json = serde_json::to_value(&[uuid])
-                .map_err(|e| error::Error::InternalErr(format!("Unable to serialize uuid: {e}")))?;
+                .map_err(|e| error::Error::InternalErr(format!("Unable to serialize uuid: {e:#}")))?;
 
             sqlx::query(
                 "UPDATE queue
