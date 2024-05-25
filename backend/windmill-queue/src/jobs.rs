@@ -1772,7 +1772,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
 
         let job_uuid: Uuid = pulled_job.id;
         let avg_script_duration: Option<i64> = sqlx::query_scalar!(
-            "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS BIGINT) AS avg_duration_s FROM
+            "SELECT CAST(ROUND(AVG(duration_ms), 0) AS BIGINT) AS avg_duration_s FROM
                 (SELECT duration_ms FROM concurrency_key LEFT JOIN completed_job ON completed_job.id = concurrency_key.job_id WHERE key = $1 AND ended_at IS NOT NULL
                 ORDER BY ended_at
                 DESC LIMIT 10) AS t",
@@ -1782,17 +1782,39 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         .await?;
         tracing::info!("avg script duration computed: {:?}", avg_script_duration);
 
+        // let before_me = sqlx::query!(
+        //     "SELECT schedu FROM queue WHERE script_path = $1 AND job_kind != 'dependencies' AND running = true AND workspace_id = $2 AND canceled = false AND started_at < $3 ORDER BY started_at DESC LIMIT 1",
+        //     job_script_path,
+        //     &pulled_job.workspace_id,
+        //     min_started_at.now.unwrap()
+        // )
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
-        let estimated_next_schedule_timestamp = ((min_started_at
-            .min_started_at
-            .unwrap_or(min_started_at.now.unwrap()))
-            + Duration::try_seconds(avg_script_duration.map(i64::from).unwrap_or(0))
-                .unwrap_or_default()
-                .max(Duration::try_seconds(5).unwrap_or_default())
+        let inc = Duration::try_milliseconds(avg_script_duration.map(i64::from).unwrap_or(0))
+            .unwrap_or_default()
+            .max(Duration::try_seconds(1).unwrap_or_default())
             + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
-                .unwrap_or_default()
-                .max(Duration::try_seconds(5).unwrap_or_default()))
-        .max(min_started_at.now.unwrap() + Duration::try_seconds(10).unwrap_or_default());
+                .unwrap_or_default();
+
+        let now = min_started_at.now.unwrap();
+        let min_started_p_inc = min_started_at.min_started_at.unwrap_or(now) + inc;
+
+        let mut estimated_next_schedule_timestamp = min_started_p_inc;
+        loop {
+            let nestimated = estimated_next_schedule_timestamp + inc;
+            let jobs_in_window = sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM queue LEFT JOIN concurrency_key ON concurrency_key.job_id = queue.id
+                 WHERE key = $1 AND running = false AND canceled = false AND scheduled_for >= $2 AND scheduled_for < $3",
+                job_concurrency_key,
+                estimated_next_schedule_timestamp,
+                nestimated
+            ).fetch_optional(db).await?.flatten().unwrap_or(0) as i32;
+            tracing::info!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, nestimated: {nestimated}, inc: {inc}", estimated_next_schedule_timestamp);
+            if jobs_in_window < job_custom_concurrent_limit {
+                break;
+            } else {
+                estimated_next_schedule_timestamp = nestimated;
+            }
+        }
 
         tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {}", 
             job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp);
