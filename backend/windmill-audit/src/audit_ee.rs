@@ -15,6 +15,13 @@ use windmill_common::{
 use crate::{ActionKind, AuditLog, ListAuditLogQuery};
 use sqlx::{Postgres, Transaction};
 
+#[derive(Clone)]
+pub struct AuditAuthor {
+    pub username: String,
+    pub email: String,
+    pub username_override: Option<String>,
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     _db: E,
