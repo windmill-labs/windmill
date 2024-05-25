@@ -25,3 +25,8 @@ pub async fn get_license_plan() -> LicensePlan {
 pub enum CriticalErrorChannel {}
 
 pub async fn trigger_critical_error_channels(_error_message: String) {}
+
+#[cfg(feature = "enterprise")]
+pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {
+    // Implementation is not open source
+}
