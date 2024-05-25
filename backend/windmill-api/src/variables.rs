@@ -97,9 +97,10 @@ async fn list_variables(
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
-         WHERE variable.workspace_id = $1 ORDER BY path",
+         WHERE variable.workspace_id = $1 AND variable.path NOT LIKE 'u/' || $2 || '/secret_arg/%' ORDER BY path",
     )
     .bind(&w_id)
+    .bind(&authed.username)
     .fetch_all(&mut *tx)
     .await?;
 

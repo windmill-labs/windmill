@@ -4900,6 +4900,8 @@ paths:
                       type: string
                     path:
                       type: string
+                    lock:
+                      type: string
                     cache_ttl:
                       type: integer
                   required:
@@ -4909,6 +4911,10 @@ paths:
                   type: object
                 force_viewer_one_of_fields:
                   type: object
+                force_viewer_allow_user_resources:
+                  type: array
+                  items:
+                    type: string
               required:
                 - args
                 - component

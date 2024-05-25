@@ -26,6 +26,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
+use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
 use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
@@ -146,7 +147,7 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -273,6 +274,20 @@ pub async fn transform_json_value(
                 .map_err(|e| {
                     Error::NotFound(format!("Resource {path} not found for `{name}`: {e}"))
                 })
+        }
+        Value::String(y) if y.starts_with("$encrypted:") => {
+            let encrypted = y.strip_prefix("$encrypted:").unwrap();
+            let mut tx = db.begin().await?;
+            let mc = build_crypt_with_key_suffix(&mut tx, &job.workspace_id, &job.id.to_string())
+                .await?;
+            tx.commit().await?;
+            decrypt_value_with_mc(encrypted.to_string(), mc)
+                .await
+                .and_then(|x| {
+                    serde_json::from_str(&x).map_err(|e| Error::InternalErr(e.to_string()))
+                })
+
+            // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {

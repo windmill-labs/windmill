@@ -8,7 +8,7 @@
 	export let disabled: boolean
 
 	let path = ''
-	let password = ''
+	let password = value && !value.startsWith('$var:') ? value : ''
 
 	async function generateValue() {
 		let npath =

@@ -37,9 +37,8 @@
 			notFound = true
 		}
 	}
-	$: {
-		$workspaceStore && loadSchema()
-	}
+	$: $workspaceStore && loadSchema()
+
 	$: notFound && rawCode && parseJson()
 
 	function parseJson() {

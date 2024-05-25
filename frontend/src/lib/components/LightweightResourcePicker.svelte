@@ -20,7 +20,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue
 			  }
-			: undefined
+			: ''
 
 	let collection = [valueSelect]
 
@@ -63,7 +63,7 @@
 	}}
 	on:clear={() => {
 		value = undefined
-		valueSelect = undefined
+		valueSelect = ''
 	}}
 	items={collection}
 	class="text-clip grow min-w-0"
