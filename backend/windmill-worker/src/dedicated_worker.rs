@@ -110,7 +110,7 @@ pub async fn handle_dedicated_process(
             .await
             .expect("child process encountered an error");
         if let Err(e) = process_status(status) {
-            tracing::error!("child exit status was not success: {e}");
+            tracing::error!("child exit status was not success: {e:#}");
         } else {
             tracing::info!("child exist status was success");
         }
@@ -203,7 +203,7 @@ pub async fn handle_dedicated_process(
 
     child
         .await
-        .map_err(|e| anyhow::anyhow!("child process encountered an error: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("child process encountered an error: {e:#}"))?;
     tracing::info!("dedicated worker child process exited successfully");
     Ok(())
 }

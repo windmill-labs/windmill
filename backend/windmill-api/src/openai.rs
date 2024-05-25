@@ -198,7 +198,7 @@ async fn proxy(
         }
 
         let config: OpenaiConfig = serde_json::from_value(resource.unwrap())
-            .map_err(|e| Error::InternalErr(format!("validating openai resource {e}")))?;
+            .map_err(|e| Error::InternalErr(format!("validating openai resource {e:#}")))?;
 
         let mut user = None::<String>;
         let mut resource = match config {
@@ -238,7 +238,7 @@ async fn proxy(
         let azure_base_path = if let Some(azure_base_path) = azure_base_path {
             Some(
                 serde_json::from_value::<String>(azure_base_path).map_err(|e| {
-                    Error::InternalErr(format!("validating openai azure base path {e}"))
+                    Error::InternalErr(format!("validating openai azure base path {e:#}"))
                 })?,
             )
         } else {

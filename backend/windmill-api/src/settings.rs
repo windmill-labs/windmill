@@ -115,7 +115,7 @@ pub async fn test_s3_bucket(
         .ok_or_else(|| {
             error::Error::InternalErr("Failed to list files in blob storage".to_string())
         })?
-        .map_err(|e| anyhow::anyhow!("error listing bucket: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("error listing bucket: {e:#}"))?;
     tracing::info!("Listed files: {:?}", first_file);
     let path = object_store::path::Path::from(format!(
         "/test-s3-bucket-{uuid}",
@@ -125,7 +125,7 @@ pub async fn test_s3_bucket(
     client
         .put(&path, Bytes::from_static(b"hello"))
         .await
-        .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e:#}"))?;
     let content = client
         .get(&path)
         .await

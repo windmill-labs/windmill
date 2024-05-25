@@ -997,7 +997,7 @@ async fn global_whoami(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")));
+    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e:#}")));
 
     if let Ok(user) = user {
         Ok(Json(user))
@@ -1932,7 +1932,7 @@ async fn set_password(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("setting password: {e}")))?
+    .map_err(|e| Error::InternalErr(format!("setting password: {e:#}")))?
     .unwrap_or("".to_string());
 
     if custom_type != "password".to_string() {

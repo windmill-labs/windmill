@@ -434,7 +434,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "querying getting tag for hash {script_hash}: {e}"
+            "querying getting tag for hash {script_hash}: {e:#}"
         ))
     })?;
     Ok((

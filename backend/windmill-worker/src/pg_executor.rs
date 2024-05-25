@@ -132,7 +132,7 @@ pub async fn do_postgresql(
             if !root_certificate_pem.is_empty() {
                 connector.add_root_certificate(
                     Certificate::from_pem(root_certificate_pem.as_bytes())
-                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e}")))?,
+                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
                 );
             } else {
                 connector.danger_accept_invalid_certs(true);

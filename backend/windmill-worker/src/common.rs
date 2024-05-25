@@ -172,13 +172,13 @@ pub async fn transform_json<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -200,13 +200,13 @@ pub async fn transform_json_as_values<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -254,7 +254,7 @@ pub async fn transform_json_value(
                 .await
                 .map(|x| json!(x))
                 .map_err(|e| {
-                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e}"))
+                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -271,7 +271,7 @@ pub async fn transform_json_value(
                 )
                 .await
                 .map_err(|e| {
-                    Error::NotFound(format!("Resource {path} not found for `{name}`: {e}"))
+                    Error::NotFound(format!("Resource {path} not found for `{name}`: {e:#}"))
                 })
         }
         Value::String(y) if y.starts_with("$") => {
@@ -613,7 +613,7 @@ where
                     .fetch_optional(&db)
                     .await
                     .unwrap_or_else(|e| {
-                        tracing::error!(%e, "error updating job {job_id}: {e}");
+                        tracing::error!(%e, "error updating job {job_id}: {e:#}");
                         Some((false, None, None, false))
                     })
                     .unwrap_or_else(|| {
@@ -886,7 +886,7 @@ pub async fn handle_child(
         if let Some(mut file) = File::create(format!("/proc/{pid}/oom_score_adj"))
             .await
             .map_err(|e| {
-                tracing::error!("Could not create oom_score_file to pid {pid}: {e}");
+                tracing::error!("Could not create oom_score_file to pid {pid}: {e:#}");
                 e
             })
             .ok()
@@ -1202,7 +1202,7 @@ pub async fn resolve_job_timeout(
             .fetch_one(_db)
             .await
             .map_err(|e| {
-                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e}");
+                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e:#}");
             })
             .unwrap_or(false);
     #[cfg(not(feature = "cloud"))]
@@ -1558,7 +1558,7 @@ pub async fn save_in_cache(
     .execute(db)
     .await
     {
-        tracing::error!("Error creating cache resource {e}")
+        tracing::error!("Error creating cache resource {e:#}")
     }
 }
 
