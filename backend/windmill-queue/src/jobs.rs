@@ -40,7 +40,7 @@ use tokio::{sync::RwLock, time::sleep};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 #[cfg(not(feature = "enterprise"))]
 use windmill_common::worker::PriorityTags;
@@ -3600,9 +3600,23 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             JobKind::DeploymentCallback => "jobs.run.deployment_callback",
         };
 
+        let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
+            AuditAuthor {
+                email: email.to_string(),
+                username: permissioned_as.trim_start_matches("u/").to_string(),
+                username_override: Some(user.to_string()),
+            }
+        } else {
+            AuditAuthor {
+                email: email.to_string(),
+                username: user.to_string(),
+                username_override: None,
+            }
+        };
+
         audit_log(
             &mut tx,
-            &user,
+            &audit_author,
             operation_name,
             ActionKind::Execute,
             workspace_id,
@@ -3797,6 +3811,7 @@ async fn restarted_flows_resolution(
                     flow_jobs: _,
                     branch_chosen: _,
                     approvers: _,
+                    failed_retries: _,
                 } => Ok(truncated_modules.push(module)),
                 _ => Err(Error::InternalErr(format!(
                     "Flow cannot be restarted from a non successful module",

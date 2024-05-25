@@ -31,6 +31,7 @@
 	export let modType: string | undefined = undefined
 	export let bgColor: string = ''
 	export let concurrency: boolean = false
+	export let retries: number | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -57,11 +58,13 @@
 					transition:fade|local={{ duration: 200 }}
 					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
+					{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
 					<Repeat size={14} />
 				</div>
 				<svelte:fragment slot="text">Retries</svelte:fragment>
 			</Popover>
 		{/if}
+
 		{#if concurrency}
 			<Popover notClickable>
 				<div

@@ -7,7 +7,7 @@
 .ag-theme-alpine,
 .ag-theme-alpine-dark,
 .ag-theme-alpine-auto-dark {
-	--ag-alpine-active-color: rgb(255, 239, 254);
+	--ag-alpine-active-color: rgb(96, 165, 250);
 	--ag-selected-row-background-color: rgb(219, 234, 254, 0.5);
 	--ag-row-hover-color: rgb(191, 219, 254, 0.5);
 	--ag-column-hover-color: rgba(33, 150, 243, 0.1);

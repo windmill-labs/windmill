@@ -318,6 +318,7 @@
 						insertable,
 						insertableEnd,
 						branchable,
+						retries: flowModuleStates?.[mod.id]?.retries,
 						duration_ms: flowModuleStates?.[mod.id]?.duration_ms,
 						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
 						annotation,

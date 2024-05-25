@@ -30,9 +30,19 @@ pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
                 Arg { name: get_name(param), otyp, typ, default: None, has_default: false }
             })
             .collect_vec();
-        Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: Some(false),
+        })
     } else {
-        Err(anyhow::anyhow!("no main function found".to_string(),))
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: vec![],
+            no_main_func: Some(true),
+        })
     }
 }
 
@@ -216,7 +226,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         default: None,
                         has_default: false
                     },
-                ]
+                ],
+                no_main_func: Some(false)
             }
         );
 

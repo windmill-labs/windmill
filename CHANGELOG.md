@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.336.1](https://github.com/windmill-labs/windmill/compare/v1.336.0...v1.336.1) (2024-05-24)
+
+
+### Bug Fixes
+
+* revert bun to 1.1.8 ([ba9cdb1](https://github.com/windmill-labs/windmill/commit/ba9cdb1ae2aca13fd06876b48e0acdb65f2a1b00))
+
+## [1.336.0](https://github.com/windmill-labs/windmill/compare/v1.335.0...v1.336.0) (2024-05-23)
+
+
+### Features
+
+* **frontend:** improve graph edges + fix depedencies detection ([#3802](https://github.com/windmill-labs/windmill/issues/3802)) ([d11e350](https://github.com/windmill-labs/windmill/commit/d11e350de395811daad8a49c0eef7b3b19460ead))
+* improve parsers when no main func ([#3805](https://github.com/windmill-labs/windmill/issues/3805)) ([001278c](https://github.com/windmill-labs/windmill/commit/001278cddd6e91f767f090e358db4299611f0451))
+* improve permissioned audit logs ([#3799](https://github.com/windmill-labs/windmill/issues/3799)) ([62f3180](https://github.com/windmill-labs/windmill/commit/62f318077cd77d8332bbe02ac279a5bca7351e51))
+* improve premissioned audit logs ([#3793](https://github.com/windmill-labs/windmill/issues/3793)) ([21a077e](https://github.com/windmill-labs/windmill/commit/21a077ecfaa2dfabe6a46e425214182845b5259e))
+* store failed_retries per module state and display failed retries in flow status viewer ([62e8816](https://github.com/windmill-labs/windmill/commit/62e88169ea47e6357931bafd564ab45df40a62ff))
+* store failed_retries per module state and display failed retries in flow status viewer ([7e0be89](https://github.com/windmill-labs/windmill/commit/7e0be8914bcb33caf680358f083e80edfb83d00f))
+
+
+### Bug Fixes
+
+* **frontend:** Add missing loading state for non-runnable components … ([#3797](https://github.com/windmill-labs/windmill/issues/3797)) ([a0acdc1](https://github.com/windmill-labs/windmill/commit/a0acdc1217967562bb349a2b718c82af74b8bc45))
+* show code option in tree view ([#3803](https://github.com/windmill-labs/windmill/issues/3803)) ([1745a9d](https://github.com/windmill-labs/windmill/commit/1745a9dd1617de4686480e0cfc9ba2ef2da0c625))
+* update bun to 1.1.9 ([bfd2d27](https://github.com/windmill-labs/windmill/commit/bfd2d27415a906f9133777b69653ddacf659de41))
+
+## [1.335.0](https://github.com/windmill-labs/windmill/compare/v1.334.0...v1.335.0) (2024-05-22)
+
+
+### Features
+
+* improve user audit logs and stats ([#3786](https://github.com/windmill-labs/windmill/issues/3786)) ([2f370de](https://github.com/windmill-labs/windmill/commit/2f370de62805e1291901cf19368ae4270d70a916))
+
+
+### Bug Fixes
+
+* **cli:** add concurrency key to script ([4d28a38](https://github.com/windmill-labs/windmill/commit/4d28a38750c94dc4362778ace6a227472bd4cd9b))
+* **frontend:** Fix aggrid infinite refresh ([#3789](https://github.com/windmill-labs/windmill/issues/3789)) ([85cd8b4](https://github.com/windmill-labs/windmill/commit/85cd8b4c0ef7aa0b8325db2f99b31ed31a051804))
+
 ## [1.334.0](https://github.com/windmill-labs/windmill/compare/v1.333.5...v1.334.0) (2024-05-21)
 
 

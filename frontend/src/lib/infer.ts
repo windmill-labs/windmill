@@ -46,7 +46,7 @@ export async function inferArgs(
 	language: SupportedLanguage | undefined,
 	code: string,
 	schema: Schema
-): Promise<void> {
+): Promise<boolean | null> {
 	await init(wasmUrl)
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
@@ -124,7 +124,7 @@ export async function inferArgs(
 		} else if (language == 'php') {
 			inferedSchema = JSON.parse(parse_php(code))
 		} else {
-			return
+			return null
 		}
 		if (inferedSchema.type == 'Invalid') {
 			throw new Error(inferedSchema.error)
@@ -153,6 +153,8 @@ export async function inferArgs(
 		}
 	}
 	await tick()
+
+	return inferedSchema.no_main_func
 }
 
 export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {

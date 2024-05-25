@@ -62,7 +62,10 @@ function filterDependentComponents(modules: FlowModule[], id: string): Record<st
 				modules
 					.map((mod) => [
 						mod.id,
-						getModuleExprs(mod).filter((expr) => expr.includes(`results.${id}`))
+						getModuleExprs(mod).filter((expr) => {
+							const pattern = new RegExp(`\\bresults\\.${id}(?:\\b|\\.)`)
+							return pattern.test(expr)
+						})
 					])
 					.filter((x) => x[1].length > 0)
 		  )
