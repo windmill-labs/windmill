@@ -1809,7 +1809,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 job_concurrency_key,
                 estimated_next_schedule_timestamp,
                 nestimated
-            ).fetch_optional(db).await?.flatten().unwrap_or(0) as i32;
+            ).fetch_optional(&mut tx).await?.flatten().unwrap_or(0) as i32;
             tracing::info!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, nestimated: {nestimated}, inc: {inc}", estimated_next_schedule_timestamp);
             if jobs_in_window < job_custom_concurrent_limit {
                 break;
