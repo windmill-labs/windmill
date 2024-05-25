@@ -1773,13 +1773,14 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         let job_uuid: Uuid = pulled_job.id;
         let avg_script_duration: Option<i64> = sqlx::query_scalar!(
             "SELECT CAST(ROUND(AVG(duration_ms) / 1000, 0) AS BIGINT) AS avg_duration_s FROM
-                (SELECT duration_ms FROM completed_job WHERE script_path = $1
-                ORDER BY started_at
+                (SELECT duration_ms FROM concurrency_key LEFT JOIN completed_job ON completed_job.id = concurrency_key.job_id WHERE key = $1 AND ended_at IS NOT NULL
+                ORDER BY ended_at
                 DESC LIMIT 10) AS t",
-            job_script_path
+            job_concurrency_key
         )
         .fetch_one(&mut tx)
         .await?;
+        tracing::info!("avg script duration computed: {:?}", avg_script_duration);
 
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
         let estimated_next_schedule_timestamp = ((min_started_at
@@ -1827,13 +1828,15 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             tx.commit().await?;
         } else {
             // if using posgtres, then we're able to re-queue the entire batch of scheduled job for this script_path, so we do it
-            sqlx::query(&format!(
+            sqlx::query!(
                 "UPDATE queue
                 SET running = false
                 , started_at = null
-                , scheduled_for = '{estimated_next_schedule_timestamp}'
-                WHERE (id = '{job_uuid}') OR (script_path = '{job_script_path}' AND running = false AND scheduled_for <= now())"
-            ))
+                , scheduled_for = $1
+                WHERE id = $2",
+                estimated_next_schedule_timestamp,
+                job_uuid,
+            )
             .fetch_all(&mut tx)
             .await
             .map_err(|e| Error::InternalErr(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e}")))?;
