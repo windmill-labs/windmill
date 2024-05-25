@@ -22,10 +22,30 @@ pub struct AuditAuthor {
     pub username_override: Option<String>,
 }
 
+impl AuditAuthorable for AuditAuthor {
+    fn email(&self) -> &str {
+        &self.email
+    }
+
+    fn username(&self) -> &str {
+        &self.username
+    }
+
+    fn username_override(&self) -> Option<&str> {
+        self.username_override.as_deref()
+    }
+}
+
+pub trait AuditAuthorable {
+    fn username(&self) -> &str;
+    fn email(&self) -> &str;
+    fn username_override(&self) -> Option<&str>;
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     _db: E,
-    _username: &str,
+    _author: &impl AuditAuthorable,
     mut _operation: &str,
     _action_kind: ActionKind,
     _w_id: &str,
