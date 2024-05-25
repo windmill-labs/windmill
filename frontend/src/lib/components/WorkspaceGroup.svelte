@@ -91,7 +91,6 @@
 		'powershell',
 		'dependency',
 		'flow',
-		'hub',
 		'other',
 		'bun',
 		'php'
