@@ -3551,7 +3551,7 @@ async fn add_batch_jobs(
         job_kind,
         language,
         dedicated_worker,
-        _custom_concurrency_key,
+        custom_concurrency_key,
         concurrent_limit,
         concurrent_time_window_s,
         timeout,
@@ -3695,6 +3695,13 @@ async fn add_batch_jobs(
         )
         .fetch_all(&db)
         .await?;
+    sqlx::query!(
+        "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
+        custom_concurrency_key,
+        &uuids
+    )
+    .execute(&db)
+    .await?;
 
     Ok(Json(uuids))
 }
