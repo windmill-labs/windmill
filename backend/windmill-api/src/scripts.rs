@@ -1160,7 +1160,7 @@ async fn archive_script_by_path(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
     audit_log(
         &mut *tx,
         &authed,
@@ -1211,7 +1211,7 @@ async fn archive_script_by_hash(
     .bind(&hash.0)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1251,7 +1251,7 @@ async fn delete_script_by_hash(
     .bind(&w_id)
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1310,7 +1310,7 @@ async fn delete_script_by_path(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?;
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
@@ -1357,7 +1357,7 @@ async fn delete_script_by_path(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;
 

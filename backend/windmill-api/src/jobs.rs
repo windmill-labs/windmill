@@ -484,7 +484,7 @@ pub async fn get_path_for_hash<'c>(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "querying getting path for hash {hash} in {w_id}: {e}"
+            "querying getting path for hash {hash} in {w_id}: {e:#}"
         ))
     })?;
     Ok(path)
@@ -516,7 +516,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "querying getting path for hash {hash} in {w_id}: {e}"
+            "querying getting path for hash {hash} in {w_id}: {e:#}"
         ))
     })?;
     Ok((

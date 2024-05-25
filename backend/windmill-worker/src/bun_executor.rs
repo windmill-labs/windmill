@@ -450,7 +450,7 @@ pub async fn generate_wrapper_mjs(
         format!("{job_dir}/wrapper.mjs"),
     )
     .await
-    .map_err(|e| error::Error::InternalErr(format!("Could not move wrapper to mjs: {e}")))?;
+    .map_err(|e| error::Error::InternalErr(format!("Could not move wrapper to mjs: {e:#}")))?;
     Ok(())
 }
 
