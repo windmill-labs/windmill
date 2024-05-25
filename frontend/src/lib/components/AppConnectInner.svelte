@@ -26,8 +26,14 @@
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 
 	export let newPageOAuth = false
-	export let isValid = true
 	export let step = 1
+	export let resourceType = ''
+	export let isGoogleSignin
+	export let disabled = false
+	export let manual = false
+	export let no_back = false
+
+	let isValid = true
 
 	const nativeLanguagesCategory = [
 		'postgresql',
@@ -39,7 +45,6 @@
 	]
 
 	let filter = ''
-	let manual = false
 	let value: string = ''
 	let valueToken: TokenResponse | undefined = undefined
 	let connects:
@@ -72,10 +77,7 @@
 	let description = ''
 
 	let drawer: Drawer
-	let resourceType = ''
 	let resourceTypeInfo: ResourceType | undefined = undefined
-
-	let no_back = false
 
 	let pathError = ''
 
@@ -121,6 +123,27 @@
 	}
 
 	const connectAndManual = ['gitlab']
+
+	$: isGoogleSignin =
+		step == 1 &&
+		(resourceType == 'google' ||
+			resourceType == 'gmail' ||
+			resourceType == 'gcal' ||
+			resourceType == 'gdrive' ||
+			resourceType == 'gsheets')
+
+	$: disabled =
+		(step == 1 && resourceType == '') ||
+		(step == 2 &&
+			value == '' &&
+			args &&
+			args['token'] == '' &&
+			args['password'] == '' &&
+			args['api_key'] == '' &&
+			args['key'] == '' &&
+			linkedSecret != undefined) ||
+		(step == 3 && pathError != '') ||
+		!isValid
 
 	export async function loadResources() {
 		await loadConnects()

@@ -3,18 +3,18 @@
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
-	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 	import AppConnectInner from './AppConnectInner.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	export let newPageOAuth = false
 
-	let value: string = ''
-
 	let drawer: Drawer
 	let resourceType = ''
 	let step = 1
-	let isValid = true
+	let disabled = false
+	let isGoogleSignin = false
+	let no_back = false
+	let manual = false
 
 	let appConnectInner: AppConnectInner | undefined = undefined
 
@@ -29,27 +29,6 @@
 	}
 
 	const dispatch = createEventDispatcher()
-
-	$: isGoogleSignin =
-		step == 1 &&
-		(resourceType == 'google' ||
-			resourceType == 'gmail' ||
-			resourceType == 'gcal' ||
-			resourceType == 'gdrive' ||
-			resourceType == 'gsheets')
-
-	$: disabled =
-		(step == 1 && resourceType == '') ||
-		(step == 2 &&
-			value == '' &&
-			args &&
-			args['token'] == '' &&
-			args['password'] == '' &&
-			args['api_key'] == '' &&
-			args['key'] == '' &&
-			linkedSecret != undefined) ||
-		(step == 3 && pathError != '') ||
-		!isValid
 
 	let darkMode: boolean = false
 </script>
@@ -73,7 +52,10 @@
 			bind:this={appConnectInner}
 			bind:step
 			bind:resourceType
-			bind:isValid
+			bind:isGoogleSignin
+			bind:disabled
+			bind:no_back
+			bind:manual
 			{newPageOAuth}
 		/>
 		<div slot="actions" class="flex gap-1">
