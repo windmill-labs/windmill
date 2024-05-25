@@ -1789,9 +1789,11 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         //     min_started_at.now.unwrap()
         // )
         // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
-        let inc = Duration::try_milliseconds(avg_script_duration.map(i64::from).unwrap_or(0))
-            .unwrap_or_default()
-            .max(Duration::try_seconds(1).unwrap_or_default())
+        let inc = Duration::try_milliseconds(
+            avg_script_duration.map(|x| i64::from(x + 100)).unwrap_or(0),
+        )
+        .unwrap_or_default()
+        .max(Duration::try_seconds(1).unwrap_or_default())
             + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
                 .unwrap_or_default();
 
