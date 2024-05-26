@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { oauthStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
@@ -25,13 +25,11 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 
-	export let newPageOAuth = false
 	export let step = 1
 	export let resourceType = ''
-	export let isGoogleSignin
+	export let isGoogleSignin = false
 	export let disabled = false
 	export let manual = false
-	export let no_back = false
 
 	let isValid = true
 
@@ -47,16 +45,12 @@
 	let filter = ''
 	let value: string = ''
 	let valueToken: TokenResponse | undefined = undefined
-	let connects:
-		| Record<string, { scopes: string[]; extra_params?: Record<string, string> }>
-		| undefined = undefined
+	let connects: string[] | undefined = undefined
 	let connectsManual:
 		| [string, { img?: string; instructions: string[]; key?: string }][]
 		| undefined = undefined
 	let args: any = {}
 	let renderDescription = true
-
-	$: $workspaceStore && loadResources()
 
 	$: linkedSecretCandidates = apiTokenApps[resourceType]?.linkedSecret
 		? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
@@ -84,39 +78,28 @@
 		step = 1
 		value = ''
 		description = ''
-		no_back = false
 		resourceType = rt ?? ''
 		valueToken = undefined
 		await loadConnects()
 
-		const connect = connects?.[resourceType]
-		if (connect) {
-			scopes = connect.scopes
-			extra_params = Object.entries(connect.extra_params ?? {})
+		const isConnect = connects?.includes(resourceType)
+		if (isConnect) {
+			manual = false
+			next()
 		} else {
 			manual = true
 			if (rt) {
 				next()
+			} else {
+				loadResourceTypes()
 			}
 		}
 	}
 
-	export function openFromOauth(rt: string) {
-		resourceType = rt
-		value = $oauthStore?.access_token!
-		valueToken = $oauthStore!
-		$oauthStore = undefined
-		manual = false
-		step = 3
-		no_back = true
-	}
-
 	async function loadConnects() {
-		const nconnects = (await OauthService.listOauthConnects()) as any
-		if (nconnects['supabase_wizard']) {
-			delete nconnects['supabase_wizard']
+		if (!connects) {
+			connects = await OauthService.listOauthConnects()
 		}
-		connects = nconnects
 	}
 
 	const connectAndManual = ['gitlab']
@@ -139,11 +122,14 @@
 			args['api_key'] == '' &&
 			args['key'] == '' &&
 			linkedSecret != undefined) ||
-		(step == 3 && pathError != '') ||
+		step == 3 ||
+		(step == 4 && pathError != '') ||
 		!isValid
 
-	export async function loadResources() {
-		await loadConnects()
+	export async function loadResourceTypes() {
+		if (connectsManual) {
+			return
+		}
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: $workspaceStore!
 		})
@@ -172,26 +158,58 @@
 		} catch (e) {}
 	}
 
+	function popupListener(event) {
+		let data = event.data
+		if (event.origin !== window.location.origin) {
+			return
+		}
+		if (data.type === 'error') {
+			sendUserToast(event.data.error, true)
+			step = 2
+		} else if (data.type === 'success') {
+			resourceType = data.resource_type
+			value = data.res.access_token!
+			valueToken = data.res
+			step = 4
+		}
+	}
+
+	async function getScopesAndParams() {
+		const connect = await OauthService.getOauthConnect({ client: resourceType })
+		scopes = connect.scopes ?? []
+		extra_params = Object.entries(connect.extra_params ?? {})
+	}
+
+	async function getResourceTypeInfo() {
+		resourceTypeInfo = await ResourceService.getResourceType({
+			workspace: $workspaceStore!,
+			path: resourceType
+		})
+	}
 	export async function next() {
-		if (step == 1 && manual) {
-			resourceTypeInfo = await ResourceService.getResourceType({
-				workspace: $workspaceStore!,
-				path: resourceType
-			})
+		if (step == 1) {
+			if (manual) {
+				await getResourceTypeInfo()
+				args = {}
+			} else {
+				await Promise.all([getScopesAndParams(), getResourceTypeInfo()])
+			}
 			step += 1
-			args = {}
-		} else if (step == 1 && !manual) {
+		} else if (step == 2 && !manual) {
 			const url = new URL(`/api/oauth/connect/${resourceType}`, window.location.origin)
 			url.searchParams.append('scopes', scopes.join('+'))
 			if (extra_params.length > 0) {
 				extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
 			}
-			if (!newPageOAuth) {
-				window.location.href = url.toString()
-			} else {
-				window.open(url.toString(), '_blank')
-				dispatch('close')
-			}
+			// if (!newPageOAuth) {
+			// 	window.location.href = url.toString()
+			// } else {
+			window.addEventListener('message', popupListener, { once: true })
+			window.open(url.toString(), '_blank', 'popup=true')
+			step += 1
+
+			// 	dispatch('close')
+			// }
 		} else {
 			let exists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
@@ -257,29 +275,39 @@
 				}
 			})
 			dispatch('refresh', path)
-			sendUserToast(`Saved resource${saveVariable ? ' and variable' : ''} path: ${path}`)
 			dispatch('close')
+			sendUserToast(`Saved resource${saveVariable ? ' and variable' : ''} path: ${path}`)
+			step = 1
+			resourceType = ''
 		}
 	}
 
 	export async function back() {
-		if (step > 1) {
+		if (step == 4) {
+			step -= 2
+		} else if (step > 1) {
 			step -= 1
+		}
+		if (step == 1) {
+			loadConnects()
+			loadResourceTypes()
 		}
 	}
 
 	const dispatch = createEventDispatcher()
 
-	let filteredConnects: [string, { scopes: string[]; extra_params?: Record<string, string> }][] = []
+	let filteredConnects: string[] = []
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
 		[]
+
+	let editScopes = false
 </script>
 
 <SearchItems
 	{filter}
-	items={connects ? Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) : undefined}
+	items={connects ? connects.sort((a, b) => a.localeCompare(b)) : undefined}
 	bind:filteredItems={filteredConnects}
-	f={(x) => x[0]}
+	f={(x) => x}
 />
 <SearchItems
 	{filter}
@@ -301,7 +329,7 @@
 	<h2 class="mb-4">OAuth APIs</h2>
 	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 		{#if filteredConnects}
-			{#each filteredConnects as [key, values]}
+			{#each filteredConnects as key}
 				<Button
 					size="sm"
 					variant="border"
@@ -310,8 +338,7 @@
 					on:click={() => {
 						manual = false
 						resourceType = key
-						scopes = values.scopes
-						extra_params = Object.entries(values.extra_params ?? {})
+						next()
 					}}
 				>
 					<IconedResourceType name={key} after={true} width="20px" height="20px" />
@@ -323,19 +350,13 @@
 			{/each}
 		{/if}
 	</div>
-	{#if connects && Object.keys(connects).length == 0}
+	{#if connects && connects.length == 0}
 		<div class="text-secondary text-sm w-full"
 			>No OAuth APIs has been setup on the instance. To add oauth APIs, first sync the resource
 			types with the hub, then add oauth configuration. See <a
 				href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
 			>
 		</div>
-	{/if}
-	{#if manual == false && resourceType != ''}
-		<h3>Scopes</h3>
-		{#if !manual && resourceType != ''}
-			<OauthScopes bind:scopes />
-		{/if}
 	{/if}
 
 	<h2 class="mt-8 mb-4">Others</h2>
@@ -363,12 +384,11 @@
 						size="sm"
 						variant="border"
 						color={key === resourceType ? 'blue' : 'light'}
-						btnClasses={key === resourceType ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
 						on:click={() => {
 							manual = true
 							resourceType = key
 							next()
-							dispatch('click')
 						}}
 					>
 						<IconedResourceType name={key} after={true} width="20px" height="20px" />
@@ -382,18 +402,17 @@
 	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 		{#if filteredConnectsManual}
 			{#each filteredConnectsManual as [key, _]}
-				{#if !nativeLanguagesCategory.includes(key)}
+				{#if !nativeLanguagesCategory.includes(key) && key != 'supabase_wizard'}
 					<!-- Exclude specific items -->
 					<Button
 						size="sm"
 						variant="border"
 						color={key === resourceType ? 'blue' : 'light'}
-						btnClasses={key === resourceType ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
 						on:click={() => {
 							manual = true
 							resourceType = key
 							next()
-							dispatch('click')
 						}}
 					>
 						<IconedResourceType name={key} after={true} width="20px" height="20px" />
@@ -471,6 +490,38 @@
 			/>
 		{/key}
 	</div>
+{:else if step == 2 && !manual}
+	{#if manual == false && resourceType != ''}
+		<h1 class="mb-4">{resourceType}</h1>
+		<div class="my-4 text-secondary"
+			>Click connect to create a resource backed by an oauth connection, whose token is fetched from
+			the external services and refreshed automatically if needed before expiration (using its
+			refresh token)</div
+		>
+		<h4 class="mb-2">Description</h4>
+		<div class="text-sm mb-8">
+			<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
+		</div>
+		<h3 class="mb-4 flex gap-4"
+			>Scopes <button
+				on:click={() => {
+					editScopes = !editScopes
+				}}><Pen size={14} /></button
+			></h3
+		>
+
+		{#if editScopes}
+			<OauthScopes bind:scopes />
+		{:else}
+			<div class="flex flex-col gap-1">
+				{#each scopes as scope}
+					<div class="py-0.5 pl-2 text-xs">- {scope}</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+{:else if step == 3 && !manual}
+	Finish connection in popup window
 {:else}
 	<Path
 		initialPath=""

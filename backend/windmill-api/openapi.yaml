@@ -2578,16 +2578,41 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties:
-                  type: object
-                  properties:
-                    extra_params:
-                      additionalProperties:
-                        type: string
-                    scopes:
-                      type: array
-                      items:
-                        type: string
+                type: array
+                items:
+                  type: string
+
+  /oauth/get_connect/{client}:
+    get:
+      summary: get oauth connect
+      operationId: getOAuthConnect
+      tags:
+        - oauth
+      parameters:
+        - name: client
+          description: client name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: get 
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  extra_params:
+                    additionalProperties:
+                      type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+
+
+
 
   /w/{workspace}/resources/create:
     post:

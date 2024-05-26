@@ -31,7 +31,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType } from '$lib/gen'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
-	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
+	import {  userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
 	import { convert } from '@redocly/json-to-json-schema'
@@ -265,11 +265,6 @@
 	}
 
 	onMount(() => {
-		let resource_type = $page.url.searchParams.get('resource_type')
-		if ($oauthStore && resource_type) {
-			appConnect.openFromOauth?.(resource_type)
-		}
-
 		const callback = $page.url.searchParams.get('callback')
 		if (callback == 'supabase_wizard') {
 			supabaseConnect.open?.()
@@ -695,7 +690,7 @@
 											</div>
 
 											{#if is_oauth}
-												<div class="w-10">
+												<div class="w-10 pt-1.5">
 													{#if refresh_error}
 														<Popover>
 															<Circle

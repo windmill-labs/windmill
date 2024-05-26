@@ -6,25 +6,17 @@
 	import AppConnectInner from './AppConnectInner.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
-	export let newPageOAuth = false
-
 	let drawer: Drawer
 	let resourceType = ''
 	let step = 1
 	let disabled = false
 	let isGoogleSignin = false
-	let no_back = false
 	let manual = false
 
 	let appConnectInner: AppConnectInner | undefined = undefined
 
 	export async function open(rt?: string) {
 		appConnectInner?.open(rt)
-		drawer.openDrawer?.()
-	}
-
-	export function openFromOauth(rt: string) {
-		appConnectInner?.openFromOauth(rt)
 		drawer.openDrawer?.()
 	}
 
@@ -38,6 +30,7 @@
 <Drawer
 	bind:this={drawer}
 	on:close={() => {
+		step = 1
 		dispatch('close')
 	}}
 	size="800px"
@@ -54,13 +47,12 @@
 			bind:resourceType
 			bind:isGoogleSignin
 			bind:disabled
-			bind:no_back
 			bind:manual
-			{newPageOAuth}
 			on:close={drawer?.closeDrawer}
+			on:refresh
 		/>
 		<div slot="actions" class="flex gap-1">
-			{#if step > 1 && !no_back}
+			{#if step > 1}
 				<Button variant="border" on:click={appConnectInner?.back}>Back</Button>
 			{/if}
 			{#if isGoogleSignin}
@@ -73,9 +65,9 @@
 				</button>
 			{:else}
 				<Button {disabled} on:click={appConnectInner?.next}>
-					{#if step == 1 && !manual}
+					{#if step == 2 && !manual}
 						Connect
-					{:else if step == 1 && manual}
+					{:else if step == 1}
 						Next
 					{:else}
 						Save

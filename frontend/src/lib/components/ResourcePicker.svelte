@@ -58,11 +58,8 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadResources(resourceType)
-		}
-	}
+	$: $workspaceStore && loadResources(resourceType)
+
 	$: dispatch('change', value)
 
 	let appConnect: AppConnect
@@ -84,7 +81,6 @@
 			type: valueType ?? ''
 		}
 	}}
-	newPageOAuth
 	bind:this={appConnect}
 />
 

@@ -343,6 +343,9 @@
 							allowUserResources.push(k)
 						}
 					} else {
+						if (isEditor && field?.type == 'connected' && field.allowUserResources) {
+							allowUserResources.push(k)
+						}
 						nonStaticRunnableInputs[k] = runnableInputValues[k]
 					}
 				}
