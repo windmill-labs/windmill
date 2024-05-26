@@ -1798,7 +1798,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 .unwrap_or_default();
 
         let now = min_started_at.now.unwrap();
-        let min_started_p_inc = min_started_at.min_started_at.unwrap_or(now) + inc;
+        let min_started_p_inc = (min_started_at.min_started_at.unwrap_or(now) + inc)
+            .max(now + Duration::try_seconds(1).unwrap_or_default());
 
         let mut estimated_next_schedule_timestamp = min_started_p_inc;
         loop {
