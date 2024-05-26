@@ -15,10 +15,13 @@
 
 	let appConnectInner: AppConnectInner | undefined = undefined
 
+	let rtToLoad: string | undefined = ''
 	export async function open(rt?: string) {
-		appConnectInner?.open(rt)
+		rtToLoad = rt
 		drawer.openDrawer?.()
 	}
+
+	$: appConnectInner?.open(rtToLoad)
 
 	const dispatch = createEventDispatcher()
 
