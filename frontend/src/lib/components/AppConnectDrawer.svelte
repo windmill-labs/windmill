@@ -57,6 +57,7 @@
 			bind:no_back
 			bind:manual
 			{newPageOAuth}
+			on:close={drawer?.closeDrawer}
 		/>
 		<div slot="actions" class="flex gap-1">
 			{#if step > 1 && !no_back}

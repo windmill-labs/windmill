@@ -11,7 +11,7 @@
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Path from './Path.svelte'
-	import { Button, Drawer, Skeleton } from './common'
+	import { Button, Skeleton } from './common'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
 	import WhitelistIp from './WhitelistIp.svelte'
@@ -76,7 +76,6 @@
 	let path: string
 	let description = ''
 
-	let drawer: Drawer
 	let resourceTypeInfo: ResourceType | undefined = undefined
 
 	let pathError = ''
@@ -100,7 +99,6 @@
 				next()
 			}
 		}
-		drawer.openDrawer?.()
 	}
 
 	export function openFromOauth(rt: string) {
@@ -111,7 +109,6 @@
 		manual = false
 		step = 3
 		no_back = true
-		drawer.openDrawer?.()
 	}
 
 	async function loadConnects() {
@@ -193,7 +190,7 @@
 				window.location.href = url.toString()
 			} else {
 				window.open(url.toString(), '_blank')
-				drawer.closeDrawer()
+				dispatch('close')
 			}
 		} else {
 			let exists = await VariableService.existsVariable({
@@ -261,7 +258,7 @@
 			})
 			dispatch('refresh', path)
 			sendUserToast(`Saved resource${saveVariable ? ' and variable' : ''} path: ${path}`)
-			drawer.closeDrawer?.()
+			dispatch('close')
 		}
 	}
 
