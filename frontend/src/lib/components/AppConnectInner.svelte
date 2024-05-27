@@ -98,7 +98,7 @@
 
 	async function loadConnects() {
 		if (!connects) {
-			connects = await OauthService.listOauthConnects()
+			connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
 		}
 	}
 
@@ -403,7 +403,7 @@
 	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 		{#if filteredConnectsManual}
 			{#each filteredConnectsManual as [key, _]}
-				{#if !nativeLanguagesCategory.includes(key) && key != 'supabase_wizard'}
+				{#if !nativeLanguagesCategory.includes(key)}
 					<!-- Exclude specific items -->
 					<Button
 						size="sm"
