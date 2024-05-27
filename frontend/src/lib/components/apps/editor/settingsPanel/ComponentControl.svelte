@@ -29,7 +29,7 @@
 		</div>
 
 		{#if collapsed}
-			<div class="flex flex-row gap-1">
+			<div class="flex flex-row gap-1 flex-wrap">
 				{#each componentControls as control}
 					<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border">
 						{control.title}

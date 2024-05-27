@@ -16,6 +16,10 @@ use std::{
 };
 use tokio::fs::DirBuilder;
 use windmill_api::HTTP_CLIENT;
+
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::schedule_key_renewal;
+
 use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
@@ -353,7 +357,7 @@ Windmill Community Edition {GIT_VERSION}
                 base_internal_tx
                     .send(base_internal_url.clone())
                     .map_err(|e| {
-                        anyhow::anyhow!("Could not send base_internal_url to agent: {e}")
+                        anyhow::anyhow!("Could not send base_internal_url to agent: {e:#}")
                     })?;
             }
             Ok(()) as anyhow::Result<()>
@@ -453,7 +457,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
                                                     if let Err(e) = load_tag_per_workspace_enabled(&db).await {
-                                                        tracing::error!("Error loading default tag per workpsace: {e}");
+                                                        tracing::error!("Error loading default tag per workpsace: {e:#}");
                                                     }
                                                 },
                                                 RETENTION_PERIOD_SECS_SETTING => {
@@ -557,7 +561,7 @@ Windmill Community Edition {GIT_VERSION}
             });
 
             if let Err(e) = h.await {
-                tracing::error!("Error waiting for monitor handle:{e}")
+                tracing::error!("Error waiting for monitor handle:{e:#}")
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -577,6 +581,11 @@ Windmill Community Edition {GIT_VERSION}
         let instance_name = rd_string(8);
         if mode == Mode::Server || mode == Mode::Standalone {
             schedule_stats(instance_name, &db, &HTTP_CLIENT).await;
+        }
+
+        #[cfg(feature = "enterprise")]
+        if mode == Mode::Server || mode == Mode::Standalone {
+            schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
         futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;

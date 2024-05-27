@@ -58,7 +58,7 @@ export function schemaToInputsSpec(
 		const property = schema.properties[key]
 
 		accu[key] = {
-			type: defaultUserInput && !property.format?.startsWith('resource-') ? 'user' : 'static',
+			type: defaultUserInput ? 'user' : 'static',
 			value: property.default,
 			fieldType: property.type,
 			format: property.format

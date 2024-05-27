@@ -674,7 +674,7 @@
 										}}
 									>
 										<span class="truncate font-mono">
-											# Retry {j + 1}: {failedRetry}
+											# Attempt {j + 1}: {failedRetry}
 										</span>
 									</Button>
 

@@ -31,9 +31,9 @@ lazy_static::lazy_static! {
         "snowflake".to_string(),
         "mssql".to_string(),
         "graphql".to_string(),
+        "php".to_string(),
         "dependency".to_string(),
         "flow".to_string(),
-        "hub".to_string(),
         "other".to_string()
     ];
 

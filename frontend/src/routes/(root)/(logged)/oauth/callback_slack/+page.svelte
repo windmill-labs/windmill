@@ -4,7 +4,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
-	import { workspaceStore, oauthStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -17,11 +17,10 @@
 		if (error) {
 			sendUserToast(`Error trying to add slack connection: ${error}`, true)
 		} else if (code && state) {
-			const token = await OauthService.connectSlackCallback({
+			await OauthService.connectSlackCallback({
 				workspace: $workspaceStore!,
 				requestBody: { code, state }
 			})
-			oauthStore.set({ access_token: token })
 			sendUserToast(
 				'Slack workspace connected to your Windmill workspace and slack token saved in the folder `slack_bot` at `f/slack_bot/bot_token`.'
 			)

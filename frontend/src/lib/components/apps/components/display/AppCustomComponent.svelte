@@ -18,9 +18,9 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { AppInput } from '../../inputType'
-	import { RunnableWrapper } from '../helpers'
 	import type { CustomComponentConfig } from '../../editor/component'
 	import { Loader2 } from 'lucide-svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let render: boolean

@@ -130,7 +130,7 @@ pub async fn run_server(
             let r =
                 rsmq_async::RsmqConnection::create_queue(&mut rsmq, &tag, None, None, None).await;
             if let Err(e) = r {
-                tracing::info!("Redis queue {tag} could not be created: {e}");
+                tracing::info!("Redis queue {tag} could not be created: {e:#}");
             } else {
                 tracing::info!("Redis queue {tag} created");
             }

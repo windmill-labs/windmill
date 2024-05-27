@@ -4,7 +4,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
-	import AppConnect from './AppConnect.svelte'
+	import AppConnect from './AppConnectDrawer.svelte'
 	import { Button } from './common'
 	import ResourceEditor from './ResourceEditor.svelte'
 	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
@@ -58,11 +58,8 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadResources(resourceType)
-		}
-	}
+	$: $workspaceStore && loadResources(resourceType)
+
 	$: dispatch('change', value)
 
 	let appConnect: AppConnect
@@ -84,7 +81,6 @@
 			type: valueType ?? ''
 		}
 	}}
-	newPageOAuth
 	bind:this={appConnect}
 />
 

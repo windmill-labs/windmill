@@ -185,7 +185,7 @@ async fn create_schedule(
         .bind(&ns.tag)
     .fetch_one(&mut tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -268,7 +268,7 @@ async fn edit_schedule(
         .bind(&w_id)
     .fetch_one(&mut tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e:#}")))?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -793,6 +793,7 @@ pub async fn clear_schedule<'c>(
     path: &str,
     w_id: &str,
 ) -> Result<()> {
+    tracing::info!("Clearing schedule {}", path);
     sqlx::query!(
         "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND workspace_id = $2 AND is_flow_step = false",
         path,

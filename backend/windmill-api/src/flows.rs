@@ -504,7 +504,7 @@ async fn update_flow(
         nf.visible_to_runner_only.unwrap_or(false),
     )
     .execute(&mut tx)
-    .await?;
+    .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to flow update: {e:#}")))?;
 
     if nf.path != flow_path {
         check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
@@ -520,7 +520,7 @@ async fn update_flow(
             .bind(&flow_path)
             .bind(&w_id)
         .fetch_all(&mut tx)
-        .await?;
+        .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to related schedules update: {e:#}")))?;
 
     let schedule = sqlx::query_as::<_, Schedule>(
         "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *")
@@ -528,7 +528,7 @@ async fn update_flow(
         .bind(&flow_path)
         .bind(&w_id)
     .fetch_optional(&mut tx)
-    .await?;
+    .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to related schedule update: {e:#}")))?;
 
     if let Some(schedule) = schedule {
         clear_schedule(tx.transaction_mut(), &flow_path, &w_id).await?;
@@ -618,14 +618,24 @@ async fn update_flow(
         w_id
     )
     .execute(&mut new_tx)
-    .await?;
+    .await
+    .map_err(|e| {
+        error::Error::InternalErr(format!(
+            "Error updating flow due to updating dependency job field: {e:#}"
+        ))
+    })?;
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE queue SET canceled = true WHERE id = $1",
             old_dep_job
         )
         .execute(&mut new_tx)
-        .await?;
+        .await
+        .map_err(|e| {
+            error::Error::InternalErr(format!(
+                "Error updating flow due to cancelling dependency job: {e:#}"
+            ))
+        })?;
     }
 
     new_tx.commit().await?;
@@ -844,7 +854,7 @@ async fn delete_flow_by_path(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e}"
+            "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;
 

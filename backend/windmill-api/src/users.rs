@@ -72,7 +72,7 @@ pub fn workspaced_service() -> Router {
         .route("/whois/:username", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
-        .route("/email_from_username/:username", get(email_from_username))
+        .route("/username_to_email/:username", get(username_to_email))
 }
 
 pub fn global_service() -> Router {
@@ -997,7 +997,7 @@ async fn global_whoami(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")));
+    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e:#}")));
 
     if let Ok(user) = user {
         Ok(Json(user))
@@ -1932,7 +1932,7 @@ async fn set_password(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("setting password: {e}")))?
+    .map_err(|e| Error::InternalErr(format!("setting password: {e:#}")))?
     .unwrap_or("".to_string());
 
     if custom_type != "password".to_string() {
@@ -2607,7 +2607,7 @@ async fn get_instance_username_info(
     }))
 }
 
-async fn email_from_username(
+async fn username_to_email(
     Path((w_id, username)): Path<(String, String)>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {

@@ -26,6 +26,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
+use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
 use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG};
 use windmill_common::{
     error::{self, Error},
@@ -146,7 +147,7 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -172,13 +173,13 @@ pub async fn transform_json<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -200,13 +201,13 @@ pub async fn transform_json_as_values<'a>(
         let inner_vs = v.get();
         if (*RE_RES_VAR).is_match(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             let transformed =
                 transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
                     .await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
-                error::Error::InternalErr(format!("Error while parsing inner arg: {e}"))
+                error::Error::InternalErr(format!("Error while parsing inner arg: {e:#}"))
             })?;
             r.insert(k.to_string(), as_raw);
         } else {
@@ -254,7 +255,7 @@ pub async fn transform_json_value(
                 .await
                 .map(|x| json!(x))
                 .map_err(|e| {
-                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e}"))
+                    Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -271,8 +272,22 @@ pub async fn transform_json_value(
                 )
                 .await
                 .map_err(|e| {
-                    Error::NotFound(format!("Resource {path} not found for `{name}`: {e}"))
+                    Error::NotFound(format!("Resource {path} not found for `{name}`: {e:#}"))
                 })
+        }
+        Value::String(y) if y.starts_with("$encrypted:") => {
+            let encrypted = y.strip_prefix("$encrypted:").unwrap();
+            let mut tx = db.begin().await?;
+            let mc = build_crypt_with_key_suffix(&mut tx, &job.workspace_id, &job.id.to_string())
+                .await?;
+            tx.commit().await?;
+            decrypt_value_with_mc(encrypted.to_string(), mc)
+                .await
+                .and_then(|x| {
+                    serde_json::from_str(&x).map_err(|e| Error::InternalErr(e.to_string()))
+                })
+
+            // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
             let flow_path = if let Some(uuid) = job.parent_job {
@@ -613,7 +628,7 @@ where
                     .fetch_optional(&db)
                     .await
                     .unwrap_or_else(|e| {
-                        tracing::error!(%e, "error updating job {job_id}: {e}");
+                        tracing::error!(%e, "error updating job {job_id}: {e:#}");
                         Some((false, None, None, false))
                     })
                     .unwrap_or_else(|| {
@@ -886,7 +901,7 @@ pub async fn handle_child(
         if let Some(mut file) = File::create(format!("/proc/{pid}/oom_score_adj"))
             .await
             .map_err(|e| {
-                tracing::error!("Could not create oom_score_file to pid {pid}: {e}");
+                tracing::error!("Could not create oom_score_file to pid {pid}: {e:#}");
                 e
             })
             .ok()
@@ -1202,7 +1217,7 @@ pub async fn resolve_job_timeout(
             .fetch_one(_db)
             .await
             .map_err(|e| {
-                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e}");
+                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e:#}");
             })
             .unwrap_or(false);
     #[cfg(not(feature = "cloud"))]
@@ -1558,7 +1573,7 @@ pub async fn save_in_cache(
     .execute(db)
     .await
     {
-        tracing::error!("Error creating cache resource {e}")
+        tracing::error!("Error creating cache resource {e:#}")
     }
 }
 

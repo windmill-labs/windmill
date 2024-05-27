@@ -78,6 +78,20 @@ pub async fn build_crypt<'c>(
     Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
 }
 
+pub async fn build_crypt_with_key_suffix<'c>(
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    key_suffix: &str,
+) -> crate::error::Result<MagicCrypt256> {
+    let key = get_workspace_key(w_id, db).await?;
+    let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+        format!("{}{}{}", key, salt, key_suffix)
+    } else {
+        format!("{}{}", key, key_suffix)
+    };
+    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
+}
+
 pub async fn get_workspace_key<'c>(
     w_id: &str,
     db: &mut Transaction<'c, Postgres>,
@@ -88,7 +102,7 @@ pub async fn get_workspace_key<'c>(
     )
     .fetch_one(&mut **db)
     .await
-    .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e}")))?;
+    .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e:#}")))?;
     Ok(key)
 }
 
@@ -118,9 +132,7 @@ pub async fn get_secret_value_as_admin(
             let mut tx = db.begin().await?;
             let mc = build_crypt(&mut tx, &w_id).await?;
             tx.commit().await?;
-
-            mc.decrypt_base64_to_string(value)
-                .map_err(|e| crate::Error::InternalErr(e.to_string()))?
+            decrypt_value_with_mc(value, mc).await?
         } else {
             "".to_string()
         }
@@ -129,6 +141,15 @@ pub async fn get_secret_value_as_admin(
     };
 
     Ok(r)
+}
+
+pub async fn decrypt_value_with_mc(
+    value: String,
+    mc: MagicCrypt256,
+) -> Result<String, crate::error::Error> {
+    Ok(mc
+        .decrypt_base64_to_string(value)
+        .map_err(|e| crate::Error::InternalErr(e.to_string()))?)
 }
 
 pub async fn get_reserved_variables(

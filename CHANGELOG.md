@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.337.0](https://github.com/windmill-labs/windmill/compare/v1.336.1...v1.337.0) (2024-05-25)
+
+
+### Features
+
+* add GetResumeUrls to go client ([#3810](https://github.com/windmill-labs/windmill/issues/3810)) ([59f980f](https://github.com/windmill-labs/windmill/commit/59f980f75a9a507f22349f822579a5542f69b988))
+* automatic key renewal ([#3815](https://github.com/windmill-labs/windmill/issues/3815)) ([831cf89](https://github.com/windmill-labs/windmill/commit/831cf89b6367009d0d861975cb8f78b616b0868e))
+
+
+### Bug Fixes
+
+* rename email_from_username to username_to_email ([#3813](https://github.com/windmill-labs/windmill/issues/3813)) ([7584c2b](https://github.com/windmill-labs/windmill/commit/7584c2b0bbc216896daa6a366028cfc3ab5af00c))
+* use hub script language as tag instead of 'hub' ([#3816](https://github.com/windmill-labs/windmill/issues/3816)) ([47bb5d2](https://github.com/windmill-labs/windmill/commit/47bb5d2492856c5cecd77d386c802958f0aa7211))
+
 ## [1.336.1](https://github.com/windmill-labs/windmill/compare/v1.336.0...v1.336.1) (2024-05-24)
 
 

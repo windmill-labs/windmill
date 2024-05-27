@@ -15,10 +15,14 @@
 	import { writable } from 'svelte/store'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { isCloudHosted } from '$lib/cloud'
+	import Login from '$lib/components/Login.svelte'
+	import { getUserExt } from '$lib/user'
+	import { User, UserRoundX } from 'lucide-svelte'
+	import ChartHighlightTheme from '$lib/components/ChartHighlightTheme.svelte'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
-
+	let noPermission = false
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
 	async function loadApp() {
@@ -28,21 +32,46 @@
 				path: $page.params.secret
 			})
 		} catch (e) {
-			notExists = true
+			if (e.status == 401) {
+				noPermission = true
+			} else {
+				notExists = true
+			}
 		}
 	}
 
 	if (BROWSER) {
 		setLicense()
 		loadApp()
+		loadUser()
+	}
+
+	async function loadUser() {
+		try {
+			userStore.set(await getUserExt($page.params.workspace))
+		} catch (e) {
+			console.warn('Anonymous user')
+		}
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
+
+	const darkMode =
+		window.localStorage.getItem('dark-mode') ??
+		(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+
+	if (darkMode === 'dark') {
+		document.documentElement.classList.add('dark')
+	} else {
+		document.documentElement.classList.remove('dark')
+	}
 </script>
 
 <svelte:head>
 	{@html github}
 </svelte:head>
+
+<ChartHighlightTheme />
 
 <div
 	class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
@@ -54,13 +83,26 @@
 	>
 </div>
 
+<div class="z-50 text-2xs text-tertiary absolute top-3 left-2"
+	>{#if $userStore}
+		<div class="flex gap-1 items-center"><User size={14} />{$userStore.username}</div>
+	{:else}<UserRoundX size={14} />{/if}
+</div>
+
 {#if notExists}
 	<div class="px-4 mt-20"
 		><Alert type="error" title="Not found"
-			>There was an error loading the app. Either it does not exist at this url or its visibility
-			has changed to not be public anymore. <a href="/">Go to app</a>
+			>There was an error loading the app, is the url correct? <a href="/">Go to Windmill</a>
 		</Alert></div
 	>
+{:else if noPermission}
+	<div class="px-4 mt-20 w-full text-center font-bold text-xl"
+		>{#if $userStore}You are logged in but have no read access for this app{:else}You must be logged
+			in and have read access for this app{/if}</div
+	>
+	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
+		<Login rd={$page.url.toString()} />
+	</div>
 {:else if app}
 	{#key app}
 		<div

@@ -484,7 +484,7 @@ pub async fn get_path_for_hash<'c>(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "querying getting path for hash {hash} in {w_id}: {e}"
+            "querying getting path for hash {hash} in {w_id}: {e:#}"
         ))
     })?;
     Ok(path)
@@ -516,7 +516,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
-            "querying getting path for hash {hash} in {w_id}: {e}"
+            "querying getting path for hash {hash} in {w_id}: {e:#}"
         ))
     })?;
     Ok((
@@ -3551,7 +3551,7 @@ async fn add_batch_jobs(
         job_kind,
         language,
         dedicated_worker,
-        _custom_concurrency_key,
+        custom_concurrency_key,
         concurrent_limit,
         concurrent_time_window_s,
         timeout,
@@ -3695,6 +3695,13 @@ async fn add_batch_jobs(
         )
         .fetch_all(&db)
         .await?;
+    sqlx::query!(
+        "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
+        custom_concurrency_key,
+        &uuids
+    )
+    .execute(&db)
+    .await?;
 
     Ok(Json(uuids))
 }

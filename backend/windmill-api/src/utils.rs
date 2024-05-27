@@ -21,7 +21,7 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
         .fetch_optional(db)
         .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?
+        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e:#}")))?
         .unwrap_or(false);
 
     if !is_admin {
@@ -148,7 +148,7 @@ pub async fn get_instance_username_or_create_pending<'c>(
             )
             .execute(&mut **tx)
             .await
-            .map_err(|e| Error::InternalErr(format!("creating pending user: {e}")))?;
+            .map_err(|e| Error::InternalErr(format!("creating pending user: {e:#}")))?;
 
             Ok(username)
         }

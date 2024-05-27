@@ -14,8 +14,6 @@
 	export let isValid: boolean = true
 	export let defaultValues: Record<string, any> = {}
 	export let dynamicEnums: Record<string, any> = {}
-	export let hideResourceInput: boolean = false
-	export let resourceInputUnsupported: boolean = false
 
 	let inputCheck: { [id: string]: boolean } = {}
 	let errors: { [id: string]: string } = {}
@@ -91,8 +89,6 @@
 				on:inputClicked
 				{displayType}
 				{css}
-				{hideResourceInput}
-				{resourceInputUnsupported}
 			/>
 		{/if}
 	{/each}

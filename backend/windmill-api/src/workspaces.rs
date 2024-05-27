@@ -376,7 +376,7 @@ async fn get_settings(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting settings: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting settings: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -399,7 +399,7 @@ async fn get_deploy_to(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting deploy_to: {e:#}")))?;
 
     tx.commit().await?;
     Ok(Json(settings))
@@ -919,7 +919,7 @@ async fn get_copilot_info(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("getting openai_resource_path and code_completion_enabled: {e:#}")))?;
     tx.commit().await?;
 
     Ok(Json(CopilotInfo {
@@ -2578,9 +2578,9 @@ async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
             sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                "SELECT * FROM variable WHERE workspace_id = $1"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND path NOT LIKE 'u/%/secret_arg/%'"
             } else {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND path NOT LIKE  'u/%/secret_arg/%'"
             })
             .bind(&w_id)
             .fetch_all(&mut *tx)

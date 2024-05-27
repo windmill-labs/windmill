@@ -25,7 +25,7 @@
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
-	const { worldStore, connectingInput, app, selectedComponent, componentControl, mode } =
+	const { worldStore, connectingInput, app, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -127,8 +127,6 @@
 				displayType={Boolean(resolvedConfig.displayType)}
 				largeGap={Boolean(resolvedConfig.largeGap)}
 				{css}
-				hideResourceInput={$mode === 'preview'}
-				resourceInputUnsupported={$mode === 'dnd'}
 			/>
 		</div>
 	{:else}
