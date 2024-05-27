@@ -54,6 +54,8 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "haystack" => "haystack-ai",
     "github" => "PyGithub",
     "ldap" => "python-ldap",
+    "opensearchpy" => "opensearch-py",
+    
 };
 
 fn replace_import(x: String) -> String {
