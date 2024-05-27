@@ -191,7 +191,7 @@
 		}
 		loading = true
 		try {
-			if ((concurrencyKey == null || concurrencyKey === '') && $workspaceStore != "admins") {
+			if (concurrencyKey == null || concurrencyKey === '') {
 				let newJobs = await fetchJobs(maxTs, undefined)
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
@@ -284,7 +284,7 @@
 
 					loading = true
 					let newJobs: Job[]
-					if ((concurrencyKey == null || concurrencyKey === '') && $workspaceStore != "admins") {
+					if (concurrencyKey == null || concurrencyKey === '') {
 						newJobs = await fetchJobs(maxTs, minTs ?? ts)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
@@ -298,7 +298,7 @@
 					if (newJobs && newJobs.length > 0 && jobs) {
 						jobs = updateWithNewJobs(jobs, newJobs)
 						jobs = jobs
-						if ((concurrencyKey == null || concurrencyKey === '') && $workspaceStore != "admins") {
+						if (concurrencyKey == null || concurrencyKey === '') {
 							if (!extendedJobs) {
 								extendedJobs = { jobs: jobs, obscured_jobs: [] } as ExtendedJobs
 							} else {
