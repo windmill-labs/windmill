@@ -19,7 +19,6 @@
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import DeleteComponent from './settingsPanel/DeleteComponent.svelte'
 	import { secondaryMenuLeft } from './settingsPanel/secondaryMenu'
-	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import { clickOutside } from '$lib/utils'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
@@ -60,7 +59,7 @@
 	let componentCallbacks: ComponentCallbacks | undefined = undefined
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
-	const { movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { movingcomponents, stylePanel } = getContext<AppEditorContext>('AppEditorContext')
 
 	let deleteComponent: DeleteComponent | undefined = undefined
 
@@ -85,7 +84,7 @@
 		{
 			label: 'Show style panel',
 			onClick: () => {
-				secondaryMenuLeft?.toggle(StylePanel, { type: 'style' })
+				secondaryMenuLeft?.toggle(stylePanel(), { type: 'style' })
 			},
 			icon: Paintbrush2,
 			disabled: $secondaryMenuLeft.isOpen

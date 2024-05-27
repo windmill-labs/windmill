@@ -16,6 +16,9 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Login from '$lib/components/Login.svelte'
+	import { getUserExt } from '$lib/user'
+	import { User, UserRoundX } from 'lucide-svelte'
+	import ChartHighlightTheme from '$lib/components/ChartHighlightTheme.svelte'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
@@ -40,14 +43,35 @@
 	if (BROWSER) {
 		setLicense()
 		loadApp()
+		loadUser()
+	}
+
+	async function loadUser() {
+		try {
+			userStore.set(await getUserExt($page.params.workspace))
+		} catch (e) {
+			console.warn('Anonymous user')
+		}
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
+
+	const darkMode =
+		window.localStorage.getItem('dark-mode') ??
+		(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+
+	if (darkMode === 'dark') {
+		document.documentElement.classList.add('dark')
+	} else {
+		document.documentElement.classList.remove('dark')
+	}
 </script>
 
 <svelte:head>
 	{@html github}
 </svelte:head>
+
+<ChartHighlightTheme />
 
 <div
 	class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
@@ -59,6 +83,12 @@
 	>
 </div>
 
+<div class="z-50 text-2xs text-tertiary absolute top-3 left-2"
+	>{#if $userStore}
+		<div class="flex gap-1 items-center"><User size={14} />{$userStore.username}</div>
+	{:else}<UserRoundX size={14} />{/if}
+</div>
+
 {#if notExists}
 	<div class="px-4 mt-20"
 		><Alert type="error" title="Not found"
@@ -67,7 +97,8 @@
 	>
 {:else if noPermission}
 	<div class="px-4 mt-20 w-full text-center font-bold text-xl"
-		>You must be logged in and have read access for this app</div
+		>{#if $userStore}You are logged in but have no read access for this app{:else}You must be logged
+			in and have read access for this app{/if}</div
 	>
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		<Login rd={$page.url.toString()} />

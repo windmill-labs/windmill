@@ -167,7 +167,7 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
-		goto('/api/oauth/login/' + provider)
+		window.location.href = window.location.origin + '/api/oauth/login/' + provider
 	}
 
 	$: error && sendUserToast(error, true)

@@ -288,6 +288,7 @@ export type AppEditorContext = {
 	movingcomponents: Writable<string[] | undefined>
 	jobsDrawerOpen: Writable<boolean>
 	scale: Writable<number>
+	stylePanel: () => any
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
