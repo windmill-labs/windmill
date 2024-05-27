@@ -6,6 +6,26 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Concurrency Limit Observability',
+		href: 'https://www.windmill.dev/changelog/concurrency-limit-observability',
+		date: '2024-05-15'
+	},
+	{
+		label: 'PHP Support',
+		href: 'https://www.windmill.dev/changelog/php-support',
+		date: '2024-05-15'
+	},
+	{
+		label: 'nativets/REST supports the full wmill API',
+		href: 'https://www.windmill.dev/changelog/nativets-wmill-library',
+		date: '2024-05-13'
+	},
+	{
+		label: 'Workers Metrics',
+		href: 'https://www.windmill.dev/changelog/workers-metrics',
+		date: '2024-05-10'
+	},
+	{
 		label: 'CLI and Git Sync major improvements',
 		href: 'https://www.windmill.dev/changelog/cli-lockfiles',
 		date: '2024-04-28'
