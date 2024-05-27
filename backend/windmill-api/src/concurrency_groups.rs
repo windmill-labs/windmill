@@ -221,7 +221,7 @@ async fn get_concurrent_intervals(
     // the workspace.
     // To avoid infering information through filtering, don't return obscured
     // jobs if the filters are too specific
-    if should_fetch_obscured_jobs {
+    if should_fetch_obscured_jobs && w_id != "admins"{
         // Get the obscured jobs from all workspaces (concurrency key could be global)
         let (sqlb_q, sqlb_c) = (
             filter_list_queue_query(
