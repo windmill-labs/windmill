@@ -6,6 +6,8 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import { Button, Drawer, DrawerContent } from './common'
+	import { Plus } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -20,7 +22,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue
 			  }
-			: undefined
+			: ''
 
 	let collection = [valueSelect]
 
@@ -42,34 +44,82 @@
 		collection = nc
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadResources(resourceType)
-		}
-	}
+	$: $workspaceStore && loadResources(resourceType)
+
 	$: dispatch('change', value)
 
 	let darkMode: boolean = false
+
+	let drawer: Drawer | undefined = undefined
+
+	function processEvent(event: MessageEvent) {
+		if (event.origin !== window.location.origin) {
+			return
+		}
+
+		if (event.data.type === 'refresh') {
+			value = event.data.detail
+			valueSelect = { value, label: value }
+			drawer?.closeDrawer?.()
+		}
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
 
-<Select
-	portal={!disablePortal}
-	value={valueSelect}
-	on:change={(e) => {
-		value = e.detail.value
-		valueSelect = e.detail
-	}}
-	on:clear={() => {
-		value = undefined
-		valueSelect = undefined
-	}}
-	items={collection}
-	class="text-clip grow min-w-0"
-	placeholder="{resourceType ?? 'any'} resource"
-	inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-	containerStyles={darkMode
-		? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-		: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-/>
+<Drawer bind:this={drawer} size="800px">
+	<DrawerContent
+		title="Add a Resource"
+		on:close={drawer.closeDrawer}
+		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
+		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
+	>
+		<iframe
+			title="App connection"
+			class="w-full h-full"
+			src="/embed_connect?resource_type={resourceType}"
+		/>
+	</DrawerContent>
+</Drawer>
+
+<div class="flex flex-col w-full items-start">
+	<div class="flex flex-row gap-x-1 w-full">
+		<Select
+			portal={!disablePortal}
+			value={valueSelect}
+			on:change={(e) => {
+				value = e.detail.value
+				valueSelect = e.detail
+			}}
+			on:clear={() => {
+				value = undefined
+				valueSelect = ''
+			}}
+			items={collection}
+			class="text-clip grow min-w-0"
+			placeholder="{resourceType ?? 'any'} resource"
+			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+			containerStyles={darkMode
+				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+				: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+		/>
+
+		{#if resourceType}
+			<Button
+				color="light"
+				variant="border"
+				size="xs"
+				on:click={() => {
+					window.removeEventListener('message', processEvent)
+					window.addEventListener('message', processEvent, {
+						once: true
+					})
+
+					drawer?.openDrawer?.()
+				}}
+				startIcon={{ icon: Plus }}
+				iconOnly
+			/>
+		{/if}
+	</div>
+</div>

@@ -918,7 +918,7 @@ export function recursivelyFilterKeyInJSON(
 	return filteredJSON
 }
 
-export function collectOneOfFields(fields: AppInputs, app: App) {
+export function collectOneOfFields(fields: AppInputs, app: App): Record<string, any[]> {
 	return Object.fromEntries(
 		Object.entries(fields ?? {})
 			.filter(([k, v]) => v.type == 'evalv2')
@@ -975,6 +975,7 @@ export function collectOneOfFields(fields: AppInputs, app: App) {
 
 				return [k, undefined]
 			})
+			.filter(([k, v]) => v !== undefined)
 	)
 }
 

@@ -92,13 +92,20 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Label from './Label.svelte'
 	import { shouldDisplayPlaceholder } from '$lib/utils'
+	import type VariableEditor from './VariableEditor.svelte'
+	import ItemPicker from './ItemPicker.svelte'
+	import { Plus } from 'lucide-svelte'
+	import { VariableService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	export let error = ''
 	export let editing = false
 	export let oldArgName: string | undefined = undefined
 	export let isFlowInput = false
 	export let propsNames: string[] = []
+	export let variableEditor: VariableEditor | undefined = undefined
 
+	let itemPicker: ItemPicker | undefined = undefined
 	const dispatch = createEventDispatcher()
 	let drawer: Drawer
 
@@ -275,20 +282,21 @@
 			<div>
 				<div class="flex flex-row gap-x-4 items-center">
 					<ArgInput
+						{itemPicker}
 						resourceTypes={getResourceTypesFromFormat(property.format)}
 						label="Default"
 						bind:value={property.default}
-						type={property.selectedType}
+						type={property.password ? 'string' : property.selectedType}
 						pattern={property.pattern}
 						customErrorMessage={property.customErrorMessage}
 						itemsType={property.items}
 						contentEncoding={property.contentEncoding}
 						format={property.format}
-						extra={property}
-						disabled={property.password}
+						extra={property.password ? {} : property}
 						nullable={property.nullable}
 						title={property.title}
 						placeholder={property.placeholder}
+						{variableEditor}
 					/>
 					<div>
 						<Toggle
@@ -432,3 +440,35 @@
 		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
+
+{#if isFlowInput}
+	<ItemPicker
+		bind:this={itemPicker}
+		pickCallback={(path, _) => {
+			if (property) {
+				property.default = '$var:' + path
+			}
+		}}
+		itemName="Variable"
+		tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+		extraField="path"
+		loadItems={async () =>
+			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+				name: x.path,
+				...x
+			}))}
+	>
+		<div slot="submission">
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => variableEditor?.initNew?.()}
+			>
+				New Variable
+			</Button>
+		</div>
+	</ItemPicker>
+{/if}

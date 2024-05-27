@@ -174,8 +174,15 @@
 				})
 		)
 	}
+
+	type TriggerableV2 = {
+		static_inputs: Record<string, any>
+		one_of_inputs?: Record<string, any[] | undefined>
+		allow_user_resources?: string[]
+	}
+
 	async function computeTriggerables() {
-		const allTriggers = (await Promise.all(
+		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
 			allItems($app.grid, $app.subgrids)
 				.flatMap((x) => {
 					let c = x.data as AppComponent
@@ -257,39 +264,56 @@
 							}
 						})
 
-					return processed
+					return processed as Promise<[string, TriggerableV2] | undefined>[]
 				})
 				.concat(
 					Object.values($app.hiddenInlineScripts ?? {}).map(async (v, i) => {
 						return await processRunnable(BG_PREFIX + i, v, v.fields)
-					})
+					}) as Promise<[string, TriggerableV2] | undefined>[]
 				)
-		)) as ([string, Record<string, any>] | undefined)[]
+		)) as ([string, TriggerableV2] | undefined)[]
 
 		delete policy.triggerables
-		policy.triggerables_v2 = Object.fromEntries(
-			allTriggers.filter(Boolean) as [string, Record<string, any>][]
+		const ntriggerables: Record<string, TriggerableV2> = Object.fromEntries(
+			allTriggers.filter(Boolean) as [string, TriggerableV2][]
 		)
+		console.log(ntriggerables)
+		policy.triggerables_v2 = ntriggerables
 	}
 
 	async function processRunnable(
 		id: string,
 		runnable: Runnable,
 		fields: Record<string, any>
-	): Promise<[string, Record<string, any>] | undefined> {
+	): Promise<[string, TriggerableV2] | undefined> {
 		const staticInputs = collectStaticFields(fields)
 		const oneOfInputs = collectOneOfFields(fields, $app)
-		if (runnable?.type == 'runnableByName') {
-			console.log('processRunnable:content', runnable.inlineScript?.content)
+		const allowUserResources: string[] = Object.entries(fields)
+			.map(([k, v]) => {
+				return v['allowUserResources'] ? k : undefined
+			})
+			.filter(Boolean) as string[]
 
+		if (runnable?.type == 'runnableByName') {
 			let hex = await hash(runnable.inlineScript?.content)
 			console.log('hex', hex, id)
-			return [`${id}:rawscript/${hex}`, { static_inputs: staticInputs, one_of_inputs: oneOfInputs }]
+			return [
+				`${id}:rawscript/${hex}`,
+				{
+					static_inputs: staticInputs,
+					one_of_inputs: oneOfInputs,
+					allow_user_resources: allowUserResources
+				}
+			]
 		} else if (runnable?.type == 'runnableByPath') {
 			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
 			return [
 				`${id}:${prefix}/${runnable.path}`,
-				{ static_inputs: staticInputs, one_of_inputs: oneOfInputs }
+				{
+					static_inputs: staticInputs,
+					one_of_inputs: oneOfInputs,
+					allow_user_resources: allowUserResources
+				}
 			]
 		}
 	}

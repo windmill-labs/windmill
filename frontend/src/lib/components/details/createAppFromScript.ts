@@ -385,10 +385,12 @@ type Field = {
 	type: 'static' | 'connected'
 	value: any
 	fieldType?: string
+	format?: string
 	connection?: {
 		componentId: string
 		path: string
 	}
+	allowUserResources?: boolean
 }
 
 function convertSchemaToFields(schema: Record<string, any> | undefined): { [key: string]: Field } {
@@ -403,6 +405,8 @@ function convertSchemaToFields(schema: Record<string, any> | undefined): { [key:
 			type: 'connected',
 			value: fieldInfo.default,
 			fieldType: fieldInfo.type,
+			format: fieldInfo.format,
+			allowUserResources: true,
 			connection: {
 				componentId: 'c',
 				path: `values.${fieldName}`

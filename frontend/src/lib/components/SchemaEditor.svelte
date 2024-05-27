@@ -18,8 +18,10 @@
 	import { flip } from 'svelte/animate'
 	import Portal from 'svelte-portal'
 	import { Plus } from 'lucide-svelte'
+	import type VariableEditor from './VariableEditor.svelte'
 
 	export let isFlowInput = false
+	export let variableEditor: VariableEditor | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -382,5 +384,6 @@
 		bind:editing
 		bind:oldArgName
 		propsNames={Object.keys(schema.properties ?? {})}
+		{variableEditor}
 	/>
 </Portal>
