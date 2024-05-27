@@ -18,8 +18,8 @@
 	import AppAggridExplorerTable from './AppAggridExplorerTable.svelte'
 	import { getPrimaryKeys } from '../dbtable/utils'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
-	import type { RunnableComponent } from '../../helpers'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
+	import RunnableComponent from '../../helpers/RunnableComponent.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
