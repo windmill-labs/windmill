@@ -35,7 +35,9 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	const outputs = initOutput($worldStore, id, {
+		open: false
+	})
 
 	let css = initCss($app.css?.modalcomponent, customCss)
 	let disposable: Disposable | undefined = undefined
@@ -57,16 +59,20 @@
 			unclosableModal()
 
 			disposable?.openDrawer()
+			outputs?.open.set(true)
 		},
 		closeModal: () => {
 			disposable?.closeDrawer()
+			outputs?.open.set(false)
 		},
 		open: () => {
 			unclosableModal()
 			disposable?.openDrawer()
+			outputs?.open.set(true)
 		},
 		close: () => {
 			disposable?.closeDrawer()
+			outputs?.open.set(false)
 		}
 	}
 </script>
@@ -118,6 +124,7 @@
 						subGridIndex: 0
 					}
 					disposable?.toggleDrawer()
+					outputs?.open.set(true)
 				}}
 				size={resolvedConfig.buttonSize}
 				color={resolvedConfig.buttonColor}
@@ -155,6 +162,7 @@
 						<button
 							on:click|stopPropagation={() => {
 								disposable?.closeDrawer()
+								outputs?.open.set(false)
 							}}
 							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 						>
