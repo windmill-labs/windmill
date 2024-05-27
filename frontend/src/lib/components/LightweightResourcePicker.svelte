@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { Plus } from 'lucide-svelte'
+	import type { AppViewerContext } from './apps/types'
 
 	const dispatch = createEventDispatcher()
 
@@ -15,6 +16,8 @@
 	export let value: string | undefined = initialValue
 	export let resourceType: string | undefined = undefined
 	export let disablePortal = false
+
+	const appViewerContext = getContext<AppViewerContext>('AppViewerContext')
 
 	let valueSelect =
 		initialValue || value
@@ -77,7 +80,8 @@
 		<iframe
 			title="App connection"
 			class="w-full h-full"
-			src="/embed_connect?resource_type={resourceType}"
+			src="/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
+				$workspaceStore}"
 		/>
 	</DrawerContent>
 </Drawer>
