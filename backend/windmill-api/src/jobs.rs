@@ -1140,6 +1140,23 @@ async fn list_queue_jobs(
     tx.commit().await?;
     Ok(Json(jobs))
 }
+use sql_builder::SqlBuilder;
+
+async fn cancel_filtered(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+
+    Path(w_id): Path<String>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let sqlb = *SqlBuilder::select_from("queue")
+        .fields(&["id", "running, is_flow_step"])
+        .and_where_ge("scheduled_for", "now()")
+        .and_where_eq("workspace_id", "?".bind(&w_id))
+        .and_where_is_null("schedule_path");
+}
 
 async fn cancel_all(
     authed: ApiAuthed,
