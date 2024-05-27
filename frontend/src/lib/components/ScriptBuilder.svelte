@@ -452,14 +452,18 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'ui'
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 <slot />
 
 {#if !$userStore?.operator}
-	<Drawer placement="right" bind:open={metadataOpen} size="800px">
+	<Drawer
+		placement="right"
+		bind:open={metadataOpen}
+		size={selectedTab === 'ui' ? '1200px' : '800px'}
+	>
 		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
 			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={selectedTab}>
@@ -476,7 +480,7 @@
 				</Tab>
 				<Tab value="schedule" active={$scheduleStore.enabled}>Schedule</Tab>
 				<svelte:fragment slot="content">
-					<div class="p-4">
+					<div class={selectedTab === 'ui' ? 'p-0' : 'p-4'}>
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
@@ -969,7 +973,6 @@
 							</div>
 						</TabContent>
 						<TabContent value="ui">
-							<div class="mt-4" />
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
 						<TabContent value="schedule">
