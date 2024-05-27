@@ -124,7 +124,7 @@
 		on:open={() => {
 			outputs?.open.set(true)
 			handleSideEffect(
-				resolvedConfig.onOpen,
+				resolvedConfig?.onOpen,
 				true,
 				$runnableComponents,
 				$componentControl,
@@ -134,7 +134,7 @@
 		on:close={() => {
 			outputs?.open.set(false)
 			handleSideEffect(
-				resolvedConfig.onClose,
+				resolvedConfig?.onClose,
 				true,
 				$runnableComponents,
 				$componentControl,

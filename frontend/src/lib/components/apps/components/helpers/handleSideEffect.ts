@@ -2,7 +2,7 @@ import { sendUserToast } from '$lib/toast'
 import type { SideEffectAction } from './types'
 
 export async function handleSideEffect(
-	sideEffect: SideEffectAction,
+	sideEffect: SideEffectAction | undefined,
 	success: boolean,
 	runnableComponents: Record<string, { cb: (() => void)[] }> | undefined,
 	componentControl: Record<
