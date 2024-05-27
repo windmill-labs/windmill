@@ -972,7 +972,7 @@
 				{:else}<Loader2 class="animate-spin" />
 				{/if}
 				<div class="text-xs text-secondary"
-					>You may share this url directly or embed it using an iframe</div
+					>You may share this url directly or embed it using an iframe (if not requiring login)</div
 				>
 			</div>
 
