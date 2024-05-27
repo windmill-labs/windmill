@@ -601,150 +601,6 @@ const onErrorClick = {
 	}
 } as const
 
-const onOpenClick = {
-	type: 'oneOf',
-	tooltip: 'Action to perform on open',
-	selected: 'none',
-	labels,
-	configuration: {
-		none: {},
-		gotoUrl: {
-			url: {
-				tooltip: 'Go to the given url, absolute or relative',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				placeholder: '/apps/get/foo',
-				onDemandOnly: true
-			},
-			newTab: {
-				tooltip: 'Open the url in a new tab',
-				fieldType: 'boolean',
-				type: 'static',
-				value: true
-			}
-		},
-		setTab: {
-			setTab: {
-				type: 'static',
-				value: [] as Array<{ id: string; index: number }>,
-				fieldType: 'array',
-				subFieldType: 'tab-select',
-				tooltip: 'Set the tabs id and index to go to on error',
-				onDemandOnly: true
-			}
-		},
-		sendToast: {
-			message: {
-				tooltip: 'The message of the toast to display',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				placeholder: 'Hello there',
-				onDemandOnly: true
-			}
-		},
-		open: {
-			id: {
-				tooltip: 'The id of the modal or the drawer to open',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				noVariablePicker: true
-			}
-		},
-		close: {
-			id: {
-				tooltip: 'The id of the modal or the drawer to close',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				noVariablePicker: true
-			}
-		},
-		clearFiles: {
-			id: {
-				tooltip: 'The id of s3 file input to clear',
-				fieldType: 'text',
-				type: 'static',
-				value: ''
-			}
-		}
-	}
-} as const
-
-const onCloseClick = {
-	type: 'oneOf',
-	tooltip: 'Action to perform on close',
-	selected: 'none',
-	labels,
-	configuration: {
-		none: {},
-		gotoUrl: {
-			url: {
-				tooltip: 'Go to the given url, absolute or relative',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				placeholder: '/apps/get/foo',
-				onDemandOnly: true
-			},
-			newTab: {
-				tooltip: 'Open the url in a new tab',
-				fieldType: 'boolean',
-				type: 'static',
-				value: true
-			}
-		},
-		setTab: {
-			setTab: {
-				type: 'static',
-				value: [] as Array<{ id: string; index: number }>,
-				fieldType: 'array',
-				subFieldType: 'tab-select',
-				tooltip: 'Set the tabs id and index to go to on error',
-				onDemandOnly: true
-			}
-		},
-		sendToast: {
-			message: {
-				tooltip: 'The message of the toast to display',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				placeholder: 'Hello there',
-				onDemandOnly: true
-			}
-		},
-		open: {
-			id: {
-				tooltip: 'The id of the modal or the drawer to open',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				noVariablePicker: true
-			}
-		},
-		close: {
-			id: {
-				tooltip: 'The id of the modal or the drawer to close',
-				fieldType: 'text',
-				type: 'static',
-				value: '',
-				noVariablePicker: true
-			}
-		},
-		clearFiles: {
-			id: {
-				tooltip: 'The id of s3 file input to clear',
-				fieldType: 'text',
-				type: 'static',
-				value: ''
-			}
-		}
-	}
-} as const
-
 const paginationOneOf = {
 	type: 'oneOf',
 	selected: 'auto',
@@ -3134,9 +2990,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					type: 'static',
 					value: false
-				},
-				onOpen: onOpenClick,
-				onClose: onCloseClick
+				}
 			},
 			componentInput: undefined,
 			numberOfSubgrids: 1
@@ -3318,9 +3172,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					type: 'static',
 					value: false
-				},
-				onOpen: onOpenClick,
-				onClose: onCloseClick
+				}
 			},
 			componentInput: undefined,
 			numberOfSubgrids: 1
