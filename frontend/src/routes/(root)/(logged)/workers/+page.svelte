@@ -345,6 +345,8 @@
 							<Cell head>Current job</Cell>
 							<Cell head>Occupancy rate</Cell>
 						{/if}
+						<Cell head>Memory usage</Cell>
+						<Cell head>vCPUs/memory limits</Cell>
 						<Cell head>Version</Cell>
 						<Cell head last>Liveness</Cell>
 					</tr>
@@ -354,7 +356,7 @@
 						<tr class="border-t">
 							<Cell
 								first
-								colspan={(!config || config?.dedicated_worker == undefined) && $superadmin ? 9 : 7}
+								colspan={(!config || config?.dedicated_worker == undefined) && $superadmin ? 11 : 9}
 								scope="colgroup"
 								class="bg-surface-secondary/60 py-2 border-b"
 							>
@@ -367,7 +369,7 @@
 						</tr>
 
 						{#if workers}
-							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version }}
+							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage }}
 								<tr>
 									<Cell first>{worker}</Cell>
 									<Cell>
@@ -394,11 +396,16 @@
 											{Math.ceil(occupancy_rate ?? 0 * 100)}%
 										</Cell>
 									{/if}
-									<Cell
-										><div class="!text-2xs"
-											>{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip></div
-										></Cell
-									>
+									<Cell>{memory_usage ? Math.round(memory_usage / 1000000) + 'MB' : '--'}</Cell>
+									<Cell>
+										{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
+										/ {memory ? Math.round(memory / 1000000) + 'MB' : '--'}
+									</Cell>
+									<Cell>
+										<div class="!text-2xs">
+											{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
+										</div>
+									</Cell>
 									<Cell last>
 										<Badge
 											color={last_ping != undefined ? (last_ping < 60 ? 'green' : 'red') : 'gray'}

@@ -9907,6 +9907,12 @@ components:
           type: string
         occupancy_rate:
           type: number
+        memory:
+          type: number
+        vcpus:
+          type: number
+        memory_usage:
+          type: number
       required:
         - worker
         - worker_instance
