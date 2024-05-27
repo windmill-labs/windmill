@@ -63,6 +63,7 @@
 	$componentControl[id] = {
 		openModal: () => {
 			unclosableModal()
+
 			disposable?.openDrawer()
 		},
 		closeModal: () => {

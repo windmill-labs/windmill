@@ -100,7 +100,7 @@
 					parentComponentId: id,
 					subGridIndex: 0
 				}
-				appDrawer?.openDrawer()
+				appDrawer.toggleDrawer()
 			}}
 			size={resolvedConfig.size}
 			color={resolvedConfig.color}
@@ -145,7 +145,8 @@
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}
 			on:close={() => {
-				appDrawer?.closeDrawer()
+				appDrawer?.toggleDrawer()
+				$focusedGrid = undefined
 			}}
 			fullScreen={$mode !== 'dnd'}
 		>
