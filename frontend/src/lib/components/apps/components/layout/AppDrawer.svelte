@@ -12,6 +12,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import SideEffectHandler from '../helpers/SideEffectHandler.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -35,21 +36,38 @@
 		components['drawercomponent'].initialData.configuration,
 		configuration
 	)
-	initOutput($worldStore, id, {})
+	const outputs = initOutput($worldStore, id, {
+		open: false
+	})
 
 	let appDrawer: Drawer
 
+	function toggleOpen() {
+		appDrawer?.openDrawer()
+		outputs?.open.set(true)
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, [])
+	}
+
+	function toggleClose() {
+		appDrawer?.closeDrawer()
+		outputs?.open.set(false)
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, [])
+	}
+
 	$componentControl[id] = {
 		open: () => {
-			appDrawer?.openDrawer()
+			toggleOpen()
 		},
 		close: () => {
-			appDrawer?.closeDrawer()
+			toggleClose()
 		}
 	}
 
 	let css = initCss($app.css?.drawercomponent, customCss)
+	let sideEffectHandler: SideEffectHandler | undefined = undefined
 </script>
+
+<SideEffectHandler bind:this={sideEffectHandler} />
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -94,7 +112,7 @@
 					parentComponentId: id,
 					subGridIndex: 0
 				}
-				appDrawer.toggleDrawer()
+				toggleOpen()
 			}}
 			size={resolvedConfig.size}
 			color={resolvedConfig.color}
@@ -115,12 +133,14 @@
 		alwaysOpen
 		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
 		shouldUsePortal={false}
+		on:clickOutside={() => {
+			toggleClose()
+		}}
 	>
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}
 			on:close={() => {
-				appDrawer?.toggleDrawer()
-				$focusedGrid = undefined
+				toggleClose()
 			}}
 			fullScreen={$mode !== 'dnd'}
 		>

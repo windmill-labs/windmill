@@ -71,7 +71,13 @@
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
+			<div
+				class="overlay {$$props.positionClass ?? ''}"
+				on:click={(e) => {
+					handleClickAway(e)
+					dispatch('clickOutside')
+				}}
+			/>
 			<div class="panel {placement} {$$props.positionClass}" class:size>
 				{#if open || !timeout || alwaysOpen}
 					<slot {open} />

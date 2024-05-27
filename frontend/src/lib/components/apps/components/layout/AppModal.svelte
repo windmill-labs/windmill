@@ -15,6 +15,7 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
+	import SideEffectHandler from '../helpers/SideEffectHandler.svelte'
 
 	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
 	export let id: string
@@ -54,30 +55,41 @@
 			unclickableOutside = false
 		}, 1000)
 	}
+
+	function toggleOpen() {
+		disposable?.openDrawer()
+		outputs?.open.set(true)
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, [])
+	}
+
+	function toggleClose() {
+		disposable?.closeDrawer()
+		outputs?.open.set(false)
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, [])
+	}
+
 	$componentControl[id] = {
 		openModal: () => {
 			unclosableModal()
-
-			disposable?.openDrawer()
-			outputs?.open.set(true)
+			toggleOpen()
 		},
 		closeModal: () => {
-			disposable?.closeDrawer()
-			outputs?.open.set(false)
+			toggleClose()
 		},
 		open: () => {
 			unclosableModal()
-			disposable?.openDrawer()
-			outputs?.open.set(true)
+			toggleOpen()
 		},
 		close: () => {
-			disposable?.closeDrawer()
-			outputs?.open.set(false)
+			toggleClose()
 		}
 	}
+
+	let sideEffectHandler: SideEffectHandler | undefined = undefined
 </script>
 
 <InitializeComponent {id} />
+<SideEffectHandler bind:this={sideEffectHandler} />
 
 {#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -123,8 +135,7 @@
 						parentComponentId: id,
 						subGridIndex: 0
 					}
-					disposable?.toggleDrawer()
-					outputs?.open.set(true)
+					toggleOpen()
 				}}
 				size={resolvedConfig.buttonSize}
 				color={resolvedConfig.buttonColor}
@@ -136,7 +147,17 @@
 {/if}
 
 <Portal target="#app-editor-top-level-drawer">
-	<Disposable {id} let:handleClickAway let:zIndex let:open bind:this={disposable}>
+	<Disposable
+		{id}
+		let:handleClickAway
+		let:zIndex
+		let:open
+		bind:this={disposable}
+		on:close={() => {
+			outputs?.open.set(false)
+			sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, [])
+		}}
+	>
 		<div
 			class={twMerge(
 				`${
@@ -161,8 +182,7 @@
 					<div class="w-8">
 						<button
 							on:click|stopPropagation={() => {
-								disposable?.closeDrawer()
-								outputs?.open.set(false)
+								toggleClose()
 							}}
 							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 						>

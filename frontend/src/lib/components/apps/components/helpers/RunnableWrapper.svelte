@@ -6,64 +6,16 @@
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
-	import { sendUserToast } from '$lib/toast'
 	import InitializeComponent from './InitializeComponent.svelte'
 	import type { CancelablePromise } from '$lib/gen'
+	import type { SideEffectAction } from './types'
+	import SideEffectHandler from './SideEffectHandler.svelte'
 
 	export let componentInput: AppInput | undefined
 	export let noInitialize = false
 	export let hideRefreshButton: boolean | undefined = undefined
 	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
 	export let overrideAutoRefresh: boolean = false
-
-	type SideEffectAction =
-		| {
-				selected:
-					| 'gotoUrl'
-					| 'none'
-					| 'setTab'
-					| 'sendToast'
-					| 'sendErrorToast'
-					| 'errorOverlay'
-					| 'openModal'
-					| 'closeModal'
-					| 'open'
-					| 'close'
-					| 'clearFiles'
-				configuration: {
-					gotoUrl: { url: (() => string) | string | undefined; newTab: boolean | undefined }
-					setTab: {
-						setTab:
-							| (() => { id: string; index: number }[])
-							| { id: string; index: number }[]
-							| undefined
-					}
-					sendToast?: {
-						message: (() => string) | string | undefined
-					}
-					sendErrorToast?: {
-						message: (() => string) | string | undefined
-						appendError: boolean | undefined
-					}
-					openModal?: {
-						modalId: string | undefined
-					}
-					closeModal?: {
-						modalId: string | undefined
-					}
-					open?: {
-						id: string | undefined
-					}
-					close?: {
-						id: string | undefined
-					}
-					clearFiles?: {
-						id: string | undefined
-					}
-				}
-		  }
-		| undefined
-
 	export let id: string
 	export let result: any = undefined
 	export let initializing: boolean = true
@@ -95,8 +47,7 @@
 		runnableComponent?.setArgs(value)
 	}
 
-	const { staticExporter, noBackend, componentControl, runnableComponents } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
@@ -130,115 +81,19 @@
 		)
 	}
 
+	let sideEffectHandler: SideEffectHandler | undefined = undefined
+
 	export async function handleSideEffect(success: boolean, errorMessage?: string) {
-		const sideEffect = success ? doOnSuccess : doOnError
-
-		if (recomputeIds && success) {
-			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb.map((cb) => cb()))
-		}
-		if (!sideEffect) return
-
-		if (sideEffect.selected == 'none') return
-
-		switch (sideEffect.selected) {
-			case 'setTab':
-				let setTab = sideEffect?.configuration.setTab?.setTab
-				if (!setTab) return
-				if (typeof setTab === 'function') {
-					setTab = await setTab()
-				}
-				if (Array.isArray(setTab)) {
-					setTab.forEach((tab) => {
-						if (tab) {
-							const { id, index } = tab
-							$componentControl[id].setTab?.(index)
-						}
-					})
-				}
-				break
-			case 'gotoUrl':
-				let gotoUrl = sideEffect?.configuration?.gotoUrl?.url
-
-				if (!gotoUrl) return
-				if (typeof gotoUrl === 'function') {
-					gotoUrl = await gotoUrl()
-				}
-				const newTab = sideEffect?.configuration?.gotoUrl?.newTab
-
-				if (newTab) {
-					window.open(gotoUrl, '_blank')
-				} else {
-					window.location.href = gotoUrl
-				}
-
-				break
-			case 'sendToast': {
-				let message = sideEffect?.configuration?.sendToast?.message
-
-				if (!message) return
-				if (typeof message === 'function') {
-					message = await message()
-				}
-				sendUserToast(message, !success)
-				break
-			}
-			case 'sendErrorToast': {
-				let message = sideEffect?.configuration?.sendErrorToast?.message
-				const appendError = sideEffect?.configuration?.sendErrorToast?.appendError
-
-				if (!message) return
-
-				if (typeof message === 'function') {
-					message = await message()
-				}
-
-				sendUserToast(message, true, [], appendError ? errorMessage : undefined)
-				break
-			}
-			case 'openModal': {
-				const modalId = sideEffect?.configuration?.openModal?.modalId
-				if (modalId) {
-					$componentControl[modalId].openModal?.()
-				}
-				break
-			}
-			case 'closeModal': {
-				const modalId = sideEffect?.configuration?.closeModal?.modalId
-
-				if (!modalId) return
-
-				$componentControl[modalId].closeModal?.()
-				break
-			}
-			case 'open': {
-				const id = sideEffect?.configuration?.open?.id
-
-				if (!id) return
-
-				$componentControl[id].open?.()
-				break
-			}
-			case 'close': {
-				const id = sideEffect?.configuration?.close?.id
-
-				if (!id) return
-
-				$componentControl[id].close?.()
-				break
-			}
-			case 'clearFiles': {
-				const id = sideEffect?.configuration?.clearFiles?.id
-
-				if (!id) return
-
-				$componentControl[id].clearFiles?.()
-				break
-			}
-			default:
-				break
-		}
+		sideEffectHandler?.handleSideEffect(
+			success ? doOnSuccess : doOnError,
+			success,
+			recomputeIds,
+			errorMessage
+		)
 	}
 </script>
+
+<SideEffectHandler bind:this={sideEffectHandler} />
 
 {#if componentInput === undefined}
 	{#if !noInitialize}
@@ -279,9 +134,11 @@
 		on:resultSet={() => (initializing = false)}
 		on:success={(e) => {
 			onSuccess(e.detail)
-			handleSideEffect(true)
+			sideEffectHandler?.handleSideEffect(doOnSuccess, true, recomputeIds)
 		}}
-		on:handleError={(e) => handleSideEffect(false, e.detail)}
+		on:handleError={(e) => {
+			sideEffectHandler?.handleSideEffect(doOnError, false, recomputeIds, e.detail)
+		}}
 		{outputs}
 		{errorHandledByComponent}
 	>
