@@ -198,15 +198,15 @@ export const PHP_INIT_CODE = `<?php
 // // stripe/stripe-php
 
 function main(
-	// Postgresql $a,
+  // Postgresql $a,
   // array $b,
   // object $c,
-	int $d = 123,
-	string $e = "default value",
-	float $f = 3.5,
+  int $d = 123,
+  string $e = "default value",
+  float $f = 3.5,
   bool $g = true,
 ) {
-	return $d;
+  return $d;
 }
 `
 

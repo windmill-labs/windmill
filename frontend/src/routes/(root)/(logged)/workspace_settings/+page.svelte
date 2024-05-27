@@ -1016,8 +1016,7 @@
 						Select an OpenAI resource to unlock Windmill AI features.
 					</div>
 					<div class="text-tertiary text-xs">
-						Windmill AI uses OpenAI's GPT-3.5-turbo for code completion and GPT-4 Turbo for all
-						other AI features.
+						Windmill AI uses OpenAI's GPT-4o for all AI features.
 						<a
 							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
 							target="_blank"

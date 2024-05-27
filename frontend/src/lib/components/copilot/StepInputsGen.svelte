@@ -63,7 +63,8 @@ ${flowDetails}
 Determine for all the inputs "${argNames.join(
 				'", "'
 			)}", what to pass either from the previous results of the flow inputs. 
-All possibles inputs either start with results. or flow_input. and are follow by the key of the input.			
+All possibles inputs either start with results. or flow_input. and are followed by the key of the input.			
+When the step is in a loop, the iterator value is accessible as flow_input.iter.value
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
