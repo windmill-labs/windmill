@@ -163,6 +163,7 @@
 		if (event.origin !== window.location.origin) {
 			return
 		}
+
 		if (data.type === 'error') {
 			sendUserToast(event.data.error, true)
 			step = 2
