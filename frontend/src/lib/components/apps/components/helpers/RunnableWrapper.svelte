@@ -133,18 +133,9 @@
 		on:resultSet={() => (initializing = false)}
 		on:success={(e) => {
 			onSuccess(e.detail)
-			handleSideEffectUtil(doOnSuccess, true, $runnableComponents, $componentControl, recomputeIds)
+			handleSideEffect(true)
 		}}
-		on:handleError={(e) => {
-			handleSideEffectUtil(
-				doOnError,
-				false,
-				$runnableComponents,
-				$componentControl,
-				recomputeIds,
-				e.detail
-			)
-		}}
+		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}
 		{errorHandledByComponent}
 	>
