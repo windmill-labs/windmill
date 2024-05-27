@@ -89,11 +89,12 @@ The current step is ${selectedId}, you can find the details for the step and pre
 ${flowDetails}
 Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. 
 All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
+When the step is in a loop, the iterator value is accessible as flow_input.iter.value
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
 Favor results and flow_input.iter.value over flow inputs.
-If none of the results and flow inputs are appropriate (or a more appropriate for other step inputs), you can also imagine new flow_input properties which we will create programmatically based on what you provide.
+If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
