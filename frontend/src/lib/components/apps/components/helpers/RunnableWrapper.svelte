@@ -9,7 +9,7 @@
 	import InitializeComponent from './InitializeComponent.svelte'
 	import type { CancelablePromise } from '$lib/gen'
 	import type { SideEffectAction } from './types'
-	import { handleSideEffect as x } from './handleSideEffect'
+	import { handleSideEffect as handleSideEffectUtil } from './handleSideEffect'
 
 	export let componentInput: AppInput | undefined
 	export let noInitialize = false
@@ -83,7 +83,7 @@
 	}
 
 	export async function handleSideEffect(success: boolean, errorMessage?: string) {
-		x(
+		handleSideEffectUtil(
 			success ? doOnSuccess : doOnError,
 			success,
 			$runnableComponents,
@@ -133,10 +133,17 @@
 		on:resultSet={() => (initializing = false)}
 		on:success={(e) => {
 			onSuccess(e.detail)
-			x(doOnSuccess, true, $runnableComponents, $componentControl, recomputeIds)
+			handleSideEffectUtil(doOnSuccess, true, $runnableComponents, $componentControl, recomputeIds)
 		}}
 		on:handleError={(e) => {
-			x(doOnError, false, $runnableComponents, $componentControl, recomputeIds, e.detail)
+			handleSideEffectUtil(
+				doOnError,
+				false,
+				$runnableComponents,
+				$componentControl,
+				recomputeIds,
+				e.detail
+			)
 		}}
 		{outputs}
 		{errorHandledByComponent}
