@@ -9,7 +9,7 @@
 	import InitializeComponent from './InitializeComponent.svelte'
 	import type { CancelablePromise } from '$lib/gen'
 	import type { SideEffectAction } from './types'
-	import SideEffectHandler from './SideEffectHandler.svelte'
+	import { handleSideEffect as x } from './handleSideEffect'
 
 	export let componentInput: AppInput | undefined
 	export let noInitialize = false
@@ -47,7 +47,8 @@
 		runnableComponent?.setArgs(value)
 	}
 
-	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
+	const { staticExporter, noBackend, runnableComponents, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
@@ -81,19 +82,17 @@
 		)
 	}
 
-	let sideEffectHandler: SideEffectHandler | undefined = undefined
-
 	export async function handleSideEffect(success: boolean, errorMessage?: string) {
-		sideEffectHandler?.handleSideEffect(
+		x(
 			success ? doOnSuccess : doOnError,
 			success,
+			$runnableComponents,
+			$componentControl,
 			recomputeIds,
 			errorMessage
 		)
 	}
 </script>
-
-<SideEffectHandler bind:this={sideEffectHandler} />
 
 {#if componentInput === undefined}
 	{#if !noInitialize}
@@ -134,10 +133,10 @@
 		on:resultSet={() => (initializing = false)}
 		on:success={(e) => {
 			onSuccess(e.detail)
-			sideEffectHandler?.handleSideEffect(doOnSuccess, true, recomputeIds)
+			x(doOnSuccess, true, $runnableComponents, $componentControl, recomputeIds)
 		}}
 		on:handleError={(e) => {
-			sideEffectHandler?.handleSideEffect(doOnError, false, recomputeIds, e.detail)
+			x(doOnError, false, $runnableComponents, $componentControl, recomputeIds, e.detail)
 		}}
 		{outputs}
 		{errorHandledByComponent}

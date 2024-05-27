@@ -11,8 +11,8 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import SideEffectHandler from '../helpers/SideEffectHandler.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { handleSideEffect } from '../helpers/handleSideEffect'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -31,7 +31,8 @@
 		worldStore,
 		connectingInput,
 		mode,
-		componentControl
+		componentControl,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
@@ -44,28 +45,17 @@
 
 	let appDrawer: Drawer
 
-	function toggleOpen() {
-		appDrawer?.openDrawer()
-		outputs?.open.set(true)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, onOpenRecomputeIds)
-	}
-
 	$componentControl[id] = {
 		open: () => {
-			toggleOpen()
+			appDrawer?.openDrawer()
 		},
 		close: () => {
 			appDrawer?.closeDrawer()
-			outputs?.open.set(false)
-			sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
 		}
 	}
 
 	let css = initCss($app.css?.drawercomponent, customCss)
-	let sideEffectHandler: SideEffectHandler | undefined = undefined
 </script>
-
-<SideEffectHandler bind:this={sideEffectHandler} />
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -110,7 +100,7 @@
 					parentComponentId: id,
 					subGridIndex: 0
 				}
-				toggleOpen()
+				appDrawer?.openDrawer()
 			}}
 			size={resolvedConfig.size}
 			color={resolvedConfig.color}
@@ -131,9 +121,25 @@
 		alwaysOpen
 		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
 		shouldUsePortal={false}
+		on:open={() => {
+			outputs?.open.set(true)
+			handleSideEffect(
+				resolvedConfig.onOpen,
+				true,
+				$runnableComponents,
+				$componentControl,
+				onOpenRecomputeIds
+			)
+		}}
 		on:close={() => {
 			outputs?.open.set(false)
-			sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
+			handleSideEffect(
+				resolvedConfig.onClose,
+				true,
+				$runnableComponents,
+				$componentControl,
+				onCloseRecomputeIds
+			)
 		}}
 	>
 		<DrawerContent

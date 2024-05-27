@@ -14,8 +14,8 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
-	import SideEffectHandler from '../helpers/SideEffectHandler.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { handleSideEffect } from '../helpers/handleSideEffect'
 
 	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
 	export let id: string
@@ -35,7 +35,8 @@
 		worldStore,
 		connectingInput,
 		mode,
-		componentControl
+		componentControl,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -59,40 +60,25 @@
 		}, 1000)
 	}
 
-	function toggleOpen() {
-		disposable?.openDrawer()
-		outputs?.open.set(true)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, onOpenRecomputeIds)
-	}
-
-	function toggleClose() {
-		disposable?.closeDrawer()
-		outputs?.open.set(false)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
-	}
-
 	$componentControl[id] = {
 		openModal: () => {
 			unclosableModal()
-			toggleOpen()
+			disposable?.openDrawer()
 		},
 		closeModal: () => {
-			toggleClose()
+			disposable?.closeDrawer()
 		},
 		open: () => {
 			unclosableModal()
-			toggleOpen()
+			disposable?.openDrawer()
 		},
 		close: () => {
-			toggleClose()
+			disposable?.closeDrawer()
 		}
 	}
-
-	let sideEffectHandler: SideEffectHandler | undefined = undefined
 </script>
 
 <InitializeComponent {id} />
-<SideEffectHandler bind:this={sideEffectHandler} />
 
 {#each Object.keys(components['modalcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
@@ -138,7 +124,7 @@
 						parentComponentId: id,
 						subGridIndex: 0
 					}
-					toggleOpen()
+					disposable?.openDrawer()
 				}}
 				size={resolvedConfig.buttonSize}
 				color={resolvedConfig.buttonColor}
@@ -156,9 +142,25 @@
 		let:zIndex
 		let:open
 		bind:this={disposable}
+		on:open={() => {
+			outputs?.open.set(true)
+			handleSideEffect(
+				resolvedConfig.onOpen,
+				true,
+				$runnableComponents,
+				$componentControl,
+				onOpenRecomputeIds
+			)
+		}}
 		on:close={() => {
 			outputs?.open.set(false)
-			sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, [])
+			handleSideEffect(
+				resolvedConfig.onClose,
+				true,
+				$runnableComponents,
+				$componentControl,
+				onCloseRecomputeIds
+			)
 		}}
 	>
 		<div
