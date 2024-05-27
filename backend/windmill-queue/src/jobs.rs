@@ -1798,7 +1798,8 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 .unwrap_or_default();
 
         let now = min_started_at.now.unwrap();
-        let min_started_p_inc = min_started_at.min_started_at.unwrap_or(now) + inc;
+        let min_started_p_inc = (min_started_at.min_started_at.unwrap_or(now) + inc)
+            .max(now + Duration::try_seconds(3).unwrap_or_default());
 
         let mut estimated_next_schedule_timestamp = min_started_p_inc;
         loop {
@@ -1835,6 +1836,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 SET running = false
                 , started_at = null
                 , scheduled_for = '{estimated_next_schedule_timestamp}'
+                , last_ping = null
                 WHERE id = '{job_uuid}'
                 RETURNING tag"
             ))
@@ -1857,6 +1859,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 SET running = false
                 , started_at = null
                 , scheduled_for = $1
+                , last_ping = null
                 WHERE id = $2",
                 estimated_next_schedule_timestamp,
                 job_uuid,

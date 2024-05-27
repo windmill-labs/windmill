@@ -3,7 +3,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import { AppService } from '$lib/gen'
+	import { AppService, type ExecuteComponentData } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
@@ -325,26 +325,39 @@
 			jobId = await resultJobLoader?.abstractRun(async () => {
 				const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
 				const staticRunnableInputs = {}
+				const allowUserResources: string[] = []
 				for (const k of Object.keys(fields ?? {})) {
 					let field = fields[k]
 					if (field?.type == 'static' && fields[k]) {
-						staticRunnableInputs[k] = field.value
+						if (isEditor) {
+							staticRunnableInputs[k] = field.value
+						}
 					} else if (field?.type == 'user') {
 						nonStaticRunnableInputs[k] = args?.[k]
+						if (isEditor && field.allowUserResources) {
+							allowUserResources.push(k)
+						}
 					} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
 						nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
+						if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
+							allowUserResources.push(k)
+						}
 					} else {
+						if (isEditor && field?.type == 'connected' && field.allowUserResources) {
+							allowUserResources.push(k)
+						}
 						nonStaticRunnableInputs[k] = runnableInputValues[k]
 					}
 				}
 
-				const oneOfRunnableInputs = collectOneOfFields(fields, $app)
+				const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, $app) : {}
 
-				const requestBody = {
+				const requestBody: ExecuteComponentData['requestBody'] = {
 					args: nonStaticRunnableInputs,
 					component: id,
 					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
-					force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs
+					force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs,
+					force_viewer_allow_user_resources: !isEditor ? undefined : allowUserResources
 				}
 
 				if (runnable?.type === 'runnableByName') {
@@ -355,7 +368,7 @@
 					if (inlineScript) {
 						requestBody['raw_code'] = {
 							content: inlineScript.content,
-							language: inlineScript.language,
+							language: inlineScript.language ?? '',
 							path: inlineScript.path,
 							lock: inlineScript.lock,
 							cache_ttl: inlineScript.cache_ttl

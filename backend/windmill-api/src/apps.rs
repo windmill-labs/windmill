@@ -9,7 +9,9 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{ApiAuthed, DB},
+    resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
+    variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -38,7 +40,7 @@ use windmill_common::{
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, Pagination, StripPath,
     },
-    variables::build_crypt,
+    variables::{build_crypt, build_crypt_with_key_suffix},
     worker::to_raw_value,
     HUB_BASE_URL,
 };
@@ -145,6 +147,7 @@ pub struct AppHistoryUpdate {
 
 pub type StaticFields = HashMap<String, Box<RawValue>>;
 pub type OneOfFields = HashMap<String, Vec<Box<RawValue>>>;
+pub type AllowUserResources = Vec<String>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -158,6 +161,7 @@ pub enum ExecutionMode {
 pub struct PolicyTriggerableInputs {
     static_inputs: StaticFields,
     one_of_inputs: OneOfFields,
+    allow_user_resources: AllowUserResources,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -421,6 +425,8 @@ async fn get_app_by_id(
 }
 
 async fn get_public_app_by_secret(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
@@ -450,10 +456,32 @@ async fn get_public_app_by_secret(
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
-        return Err(Error::NotAuthorized(
-            "App visibility does not allow public access".to_string(),
-        ));
+    if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        return Ok(Json(app));
+    }
+
+    if opt_authed.is_none() {
+        {
+            return Err(Error::NotAuthorized(
+                "App visibility does not allow public access and you are not logged in".to_string(),
+            ));
+        }
+    } else {
+        let authed = opt_authed.unwrap();
+        let mut tx = user_db.begin(&authed).await?;
+        let is_visible = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+            id,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        if !is_visible.unwrap_or(false) {
+            return Err(Error::NotAuthorized(
+                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+            ));
+        }
     }
 
     Ok(Json(app))
@@ -940,6 +968,7 @@ pub struct ExecuteApp {
     // if set, the app is executed as viewer with the given static fields
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
+    pub force_viewer_allow_user_resources: Option<AllowUserResources>,
 }
 
 fn digest(code: &str) -> String {
@@ -952,6 +981,7 @@ fn digest(code: &str) -> String {
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<ExecuteApp>,
@@ -976,6 +1006,7 @@ async fn execute_component(
         ExecuteApp {
             force_viewer_static_fields: Some(static_fields),
             force_viewer_one_of_fields: Some(one_of_fields),
+            force_viewer_allow_user_resources: Some(allow_user_resources),
             ..
         } => {
             let mut hm = HashMap::new();
@@ -986,6 +1017,7 @@ async fn execute_component(
                     PolicyTriggerableInputs {
                         static_inputs: static_fields,
                         one_of_inputs: one_of_fields,
+                        allow_user_resources,
                     },
                 );
             } else {
@@ -998,6 +1030,7 @@ async fn execute_component(
                     PolicyTriggerableInputs {
                         static_inputs: static_fields,
                         one_of_inputs: one_of_fields,
+                        allow_user_resources,
                     },
                 );
             }
@@ -1027,22 +1060,31 @@ async fn execute_component(
     let (username, permissioned_as, email) = match policy.execution_mode {
         ExecutionMode::Anonymous => {
             let username = opt_authed
-                .map(|a| a.username)
+                .as_ref()
+                .map(|a| a.username.clone())
                 .unwrap_or_else(|| "anonymous".to_string());
             let (permissioned_as, email) = get_on_behalf_of(&policy)?;
             (username, permissioned_as, email)
         }
         ExecutionMode::Publisher => {
-            let username = opt_authed.map(|a| a.username).ok_or_else(|| {
-                Error::BadRequest("publisher execution mode requires authentication".to_string())
-            })?;
+            let username = opt_authed
+                .as_ref()
+                .map(|a| a.username.clone())
+                .ok_or_else(|| {
+                    Error::BadRequest(
+                        "publisher execution mode requires authentication".to_string(),
+                    )
+                })?;
             let (permissioned_as, email) = get_on_behalf_of(&policy)?;
             (username, permissioned_as, email)
         }
         ExecutionMode::Viewer => {
-            let (username, email) = opt_authed.map(|a| (a.username, a.email)).ok_or_else(|| {
-                Error::BadRequest("Required to be authed in viewer mode".to_string())
-            })?;
+            let (username, email) = opt_authed
+                .as_ref()
+                .map(|a| (a.username.clone(), a.email.clone()))
+                .ok_or_else(|| {
+                    Error::BadRequest("Required to be authed in viewer mode".to_string())
+                })?;
             (
                 username.clone(),
                 username_to_permissioned_as(&username),
@@ -1051,17 +1093,37 @@ async fn execute_component(
         }
     };
 
-    let (job_payload, args, tag) = match payload {
+    let (job_payload, (args, job_id), tag) = match payload {
         ExecuteApp { args, component, raw_code: Some(raw_code), path: None, .. } => {
             let content = &raw_code.content;
             let payload = JobPayload::Code(raw_code.clone());
             let path = digest(content);
-            let args = build_args(policy, &component, path, args)?;
+            let args = build_args(
+                policy,
+                &component,
+                path,
+                args,
+                opt_authed.as_ref(),
+                &user_db,
+                &db,
+                &w_id,
+            )
+            .await?;
             (payload, args, None)
         }
         ExecuteApp { args, component, raw_code: None, path: Some(path), .. } => {
             let (payload, tag) = get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?;
-            let args = build_args(policy, &component, path.to_string(), args)?;
+            let args = build_args(
+                policy,
+                &component,
+                path.to_string(),
+                args,
+                opt_authed.as_ref(),
+                &user_db,
+                &db,
+                &w_id,
+            )
+            .await?;
             (payload, args, tag)
         }
         _ => unreachable!(),
@@ -1081,7 +1143,7 @@ async fn execute_component(
         None,
         None,
         None,
-        None,
+        job_id,
         false,
         false,
         None,
@@ -1150,16 +1212,21 @@ async fn exists_app(
     Ok(Json(exists))
 }
 
-fn build_args(
+async fn build_args(
     policy: Policy,
     component: &str,
     path: String,
     args: HashMap<String, Box<RawValue>>,
-) -> Result<PushArgs> {
+    authed: Option<&ApiAuthed>,
+    user_db: &UserDB,
+    db: &DB,
+    w_id: &str,
+) -> Result<(PushArgs, Option<Uuid>)> {
+    let mut job_id: Option<Uuid> = None;
     let key = format!("{}:{}", component, &path);
-    let (static_inputs, one_of_inputs) = match policy {
+    let (static_inputs, one_of_inputs, allow_user_resources) = match policy {
         Policy { triggerables_v2: Some(t), .. } => {
-            let PolicyTriggerableInputs { static_inputs, one_of_inputs } = t
+            let PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources } = t
                 .get(&key)
                 .or_else(|| t.get(&path))
                 .map(|x| x.clone())
@@ -1168,6 +1235,7 @@ fn build_args(
                         Some(PolicyTriggerableInputs {
                             static_inputs: HashMap::new(),
                             one_of_inputs: HashMap::new(),
+                            allow_user_resources: Vec::new(),
                         })
                     } else {
                         None
@@ -1177,7 +1245,7 @@ fn build_args(
                     Error::BadRequest(format!("path {} is not allowed in the app policy", path))
                 })?;
 
-            (static_inputs, one_of_inputs)
+            (static_inputs, one_of_inputs, allow_user_resources)
         }
         Policy { triggerables: Some(t), .. } => {
             let static_inputs = t
@@ -1195,7 +1263,7 @@ fn build_args(
                     Error::BadRequest(format!("path {} is not allowed in the app policy", path))
                 })?;
 
-            (static_inputs, HashMap::new())
+            (static_inputs, HashMap::new(), Vec::new())
         }
         _ => Err(Error::BadRequest(format!(
             "Policy is missing triggerables for {}",
@@ -1206,7 +1274,58 @@ fn build_args(
     let mut args = args.clone();
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
 
+    // tracing::error!("{:?}", allow_user_resources);
+    for k in allow_user_resources.iter() {
+        if let Some(arg_val) = args.get(k) {
+            let key = serde_json::from_str::<String>(arg_val.get()).ok();
+            if let Some(path) =
+                key.and_then(|x| x.clone().strip_prefix("$res:").map(|x| x.to_string()))
+            {
+                if let Some(authed) = authed {
+                    let res = get_resource_value_interpolated_internal(
+                        authed,
+                        Some(user_db.clone()),
+                        db,
+                        w_id,
+                        &path,
+                        None,
+                        "",
+                    )
+                    .await?;
+                    if res.is_none() {
+                        return Err(Error::BadRequest(format!(
+                            "Resource {} not found or not allowed for viewer",
+                            path
+                        )));
+                    }
+                    let job_id = if let Some(job_id) = job_id {
+                        job_id
+                    } else {
+                        job_id = Some(ulid::Ulid::new().into());
+                        job_id.unwrap()
+                    };
+                    let mut tx = db.begin().await?;
+                    let mc =
+                        build_crypt_with_key_suffix(&mut tx, &w_id, &job_id.to_string()).await?;
+                    let encrypted = encrypt(&mc, to_raw_value(&res.unwrap()).get());
+                    tx.commit().await?;
+                    safe_args.insert(
+                        k.to_string(),
+                        to_raw_value(&format!("$encrypted:{encrypted}")),
+                    );
+                } else {
+                    return Err(Error::BadRequest(
+                        "User resources are not allowed without being logged in".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
     for (k, v) in one_of_inputs {
+        if safe_args.contains_key(&k) {
+            continue;
+        }
         if let Some(arg_val) = args.get(&k) {
             let arg_str = arg_val.get();
 
@@ -1239,9 +1358,13 @@ fn build_args(
     }
 
     for (k, v) in args {
-        let arg_str = serde_json::to_string(&v).unwrap_or_else(|_| "".to_string());
+        if safe_args.contains_key(&k) {
+            continue;
+        }
 
-        if !arg_str.contains("$var:") && !arg_str.contains("$res:") {
+        let arg_str = v.get();
+
+        if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
             safe_args.insert(k.to_string(), v);
         } else {
             safe_args.insert(
@@ -1254,7 +1377,7 @@ fn build_args(
                         )
                         .replace(
                             "$res:",
-                            "The following resource has been omitted for security reasons: ",
+                            "The following resource has been omitted for security reasons, to allow it, toggle: 'Allow resources from users' on that field input: ",
                         ),
                 )
                 .map_err(|e| {
@@ -1270,5 +1393,5 @@ fn build_args(
     for (k, v) in static_inputs {
         extra.insert(k.to_string(), v.to_owned());
     }
-    Ok(PushArgs { extra, args: safe_args })
+    Ok((PushArgs { extra, args: safe_args }, job_id))
 }

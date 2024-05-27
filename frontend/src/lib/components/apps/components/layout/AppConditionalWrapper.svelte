@@ -5,9 +5,9 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration } from '../../types'
 	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number

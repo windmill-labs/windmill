@@ -31,7 +31,6 @@
 	import DbExplorerCount from './DbExplorerCount.svelte'
 	import AppAggridExplorerTable from '../table/AppAggridExplorerTable.svelte'
 	import type { IDatasource } from 'ag-grid-community'
-	import { RunnableWrapper } from '../../helpers'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import InsertRowRunnable from './InsertRowRunnable.svelte'
 	import DeleteRow from './DeleteRow.svelte'
@@ -40,6 +39,7 @@
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import { CancelablePromise } from '$lib/gen'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
+	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations

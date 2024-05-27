@@ -177,7 +177,8 @@
 		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined),
 		jobsDrawerOpen: writable(false),
-		scale
+		scale,
+		stylePanel: () => StylePanel
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined

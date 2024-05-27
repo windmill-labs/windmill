@@ -90,3 +90,4 @@ pin-project.workspace = true
 crc.workspace = true
 http.workspace = true
 async-stream.workspace = true
+ulid.workspace = true
