@@ -230,7 +230,6 @@
 	}}
 	readOnlyMode={false}
 />
-
 <!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>

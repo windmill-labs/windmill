@@ -16,6 +16,7 @@
 	import { fieldTypeToTsType } from '../../utils'
 	import EvalV2InputEditor from './inputEditor/EvalV2InputEditor.svelte'
 	import { Button } from '$lib/components/common'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -119,7 +120,7 @@
 						}}
 					>
 						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" />
-						{#if userInputEnabled && !format?.startsWith('resource-')}
+						{#if userInputEnabled}
 							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" />
 						{/if}
 						{#if fileUpload}
@@ -189,6 +190,20 @@
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
+		{/if}
+		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && fieldType == 'object' && format?.startsWith('resource-')}
+			<div class="flex flex-row">
+				<Toggle
+					size="xs"
+					bind:checked={componentInput.allowUserResources}
+					options={{ right: 'Allow resources from users' }}
+				/>
+				<Tooltip
+					>Apps are executed on behalf of publishers and by default cannot access viewer's
+					resources. If you use a non-static resource picker and connect it here, you need to toggle
+					this.</Tooltip
+				>
+			</div>
 		{/if}
 	</div>
 {/if}
