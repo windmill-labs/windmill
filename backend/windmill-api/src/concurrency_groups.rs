@@ -197,10 +197,10 @@ async fn get_concurrent_intervals(
             args: None,
             result: None,
             tag: None,
-            scheduled_for_before_now: None,
             has_null_parent: None,
             label: None,
-            is_not_schedule: None,
+            scheduled_for_before_now: _,
+            is_not_schedule: _,
             started_before: _,
             started_after: _,
             created_before: _,
@@ -222,27 +222,19 @@ async fn get_concurrent_intervals(
     // To avoid infering information through filtering, don't return obscured
     // jobs if the filters are too specific
     if should_fetch_obscured_jobs {
-        let (sqlb_q, sqlb_c) = if w_id != "admin" {
-            // By default get obscured jobs from all workspaces, unless in
-            // admin workspace where admins can select to get all or not
-            (
-                filter_list_queue_query(
-                    sqlb_q,
-                    &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
-                    "admins",
-                ),
-                filter_list_completed_query(
-                    sqlb_c,
-                    &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
-                    "admins",
-                ),
-            )
-        } else {
-            (
-                filter_list_queue_query(sqlb_q, &lqq, w_id.as_str()),
-                filter_list_completed_query(sqlb_c, &lq, w_id.as_str()),
-            )
-        };
+        // Get the obscured jobs from all workspaces (concurrency key could be global)
+        let (sqlb_q, sqlb_c) = (
+            filter_list_queue_query(
+                sqlb_q,
+                &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
+                "admins",
+            ),
+            filter_list_completed_query(
+                sqlb_c,
+                &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
+                "admins",
+            ),
+        );
 
         sqlb_q_user = filter_list_queue_query(sqlb_q_user, &lqq, w_id.as_str());
         sqlb_c_user = filter_list_completed_query(sqlb_c_user, &lq, w_id.as_str());
@@ -311,6 +303,8 @@ async fn get_concurrent_intervals(
             omitted_obscured_jobs: !should_fetch_obscured_jobs,
         }))
     } else {
+        sqlb_q = filter_list_queue_query(sqlb_q, &lqq, w_id.as_str());
+        sqlb_c = filter_list_completed_query(sqlb_c, &lq, w_id.as_str());
         let sql_q = sqlb_q.query()?;
         let sql_c = sqlb_c.query()?;
 
