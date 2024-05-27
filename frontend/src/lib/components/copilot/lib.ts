@@ -18,7 +18,7 @@ export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 const openaiConfig: ChatCompletionCreateParamsStreaming = {
 	temperature: 0,
 	max_tokens: 4096,
-	model: 'gpt-4-0125-preview',
+	model: 'gpt-4o-2024-05-13',
 	seed: 42,
 	stream: true,
 	messages: []
@@ -136,11 +136,13 @@ async function getResourceTypes(scriptOptions: CopilotOptions) {
 }
 
 export async function addResourceTypes(scriptOptions: CopilotOptions, prompt: string) {
-	if (['deno', 'bun', 'nativets', 'python3'].includes(scriptOptions.language)) {
+	if (['deno', 'bun', 'nativets', 'python3', 'php'].includes(scriptOptions.language)) {
 		const resourceTypes = await getResourceTypes(scriptOptions)
 		const resourceTypesText = formatResourceTypes(
 			resourceTypes,
-			scriptOptions.language === 'python3' ? 'python3' : 'typescript'
+			['deno', 'bun', 'nativets'].includes(scriptOptions.language)
+				? 'typescript'
+				: (scriptOptions.language as 'python3' | 'php')
 		)
 		prompt = prompt.replace('{resourceTypes}', resourceTypesText)
 	}
