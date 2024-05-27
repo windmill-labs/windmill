@@ -277,7 +277,6 @@
 		const ntriggerables: Record<string, TriggerableV2> = Object.fromEntries(
 			allTriggers.filter(Boolean) as [string, TriggerableV2][]
 		)
-		console.log(ntriggerables)
 		policy.triggerables_v2 = ntriggerables
 	}
 
@@ -389,7 +388,7 @@
 
 	let secretUrl: string | undefined = undefined
 
-	$: secretUrl == undefined && policy.execution_mode == 'anonymous' && getSecretUrl()
+	$: appPath != '' && secretUrl == undefined && getSecretUrl()
 
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
@@ -399,15 +398,16 @@
 	}
 
 	async function setPublishState() {
+		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: appPath,
 			requestBody: { policy }
 		})
 		if (policy.execution_mode == 'anonymous') {
-			sendUserToast('App made visible publicly at the secret URL.')
+			sendUserToast('App require no login to be accessed')
 		} else {
-			sendUserToast('App made unaccessible publicly')
+			sendUserToast('App require login and read-access')
 		}
 	}
 
@@ -923,22 +923,26 @@
 			</Alert>
 		{:else}
 			<Alert title="App executed on behalf of you">
-				A viewer of the app will execute the runnables of the app on behalf of the publisher (you).
+				A viewer of the app will execute the runnables of the app on behalf of the publisher (you)
 				<Tooltip>
-					This is to ensure that all resources/runnable available at time of creating the app would
-					prevent the good execution of the app. To guarantee tight security, a policy is computed
-					at time of deployment of the app which only allow the scripts/flows referred to in the app
-					to be called on behalf of, and the resources are passed by reference so that their actual
-					value is . Furthermore, static parameters are not overridable. Hence, users will only be
-					able to use the app as intended by the publisher without risk for leaking resources not
-					used in the app.
+					It ensures that all required resources/runnable visible for publisher but not for viewer
+					at time of creating the app would prevent the execution of the app. To guarantee tight
+					security, a policy is computed at time of deployment of the app which only allow the
+					scripts/flows referred to in the app to be called on behalf of. Furthermore, static
+					parameters are not overridable. Hence, users will only be able to use the app as intended
+					by the publisher without risk for leaking resources not used in the app.
 				</Tooltip>
 			</Alert>
+
+			<div class="mt-10" />
+
+			<h2>Secret public URL</h2>
 			<div class="mt-4" />
+
 			<Toggle
 				options={{
-					left: `Require read-access`,
-					right: `Publish publicly for anyone knowing the secret url`
+					left: `Require login and read-access`,
+					right: `No login required`
 				}}
 				checked={policy.execution_mode == 'anonymous'}
 				on:change={(e) => {
@@ -947,11 +951,11 @@
 				}}
 			/>
 
-			{#if policy.execution_mode == 'anonymous' && secretUrl}
-				{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
-				{@const href = $page.url.protocol + '//' + url}
-				<div class="my-6 box">
-					Public url:
+			<div class="my-6 box">
+				Secret public url:
+				{#if secretUrl}
+					{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
+					{@const href = $page.url.protocol + '//' + url}
 					<a
 						on:click={(e) => {
 							e.preventDefault()
@@ -965,12 +969,16 @@
 							<Clipboard />
 						</span>
 					</a>
-				</div>
+				{:else}<Loader2 class="animate-spin" />
+				{/if}
+				<div class="text-xs text-secondary"
+					>You may share this url directly or embed it using an iframe</div
+				>
+			</div>
 
-				<Alert type="info" title="Only latest saved app is publicly available">
-					Once made public, you will still need to deploy the app to make visible the latest changes
-				</Alert>
-			{/if}
+			<Alert type="info" title="Only latest deployed app is publicly available">
+				You will still need to deploy the app to make visible the latest changes
+			</Alert>
 		{/if}
 	</DrawerContent>
 </Drawer>

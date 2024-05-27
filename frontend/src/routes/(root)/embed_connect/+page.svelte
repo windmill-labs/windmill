@@ -4,6 +4,7 @@
 	import AppConnectInner from '$lib/components/AppConnectInner.svelte'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { Button } from '$lib/components/common'
+	import { workspaceStore } from '$lib/stores'
 	import { onMount } from 'svelte'
 
 	let resourceType = $page.url.searchParams.get('resource_type') ?? undefined
@@ -15,6 +16,11 @@
 	let appConnect: AppConnectInner | undefined = undefined
 
 	let darkMode: boolean = false
+	const workspace = $page.url.searchParams.get('workspace')
+
+	if (workspace) {
+		$workspaceStore = workspace
+	}
 
 	onMount(async () => {
 		if (resourceType) {
