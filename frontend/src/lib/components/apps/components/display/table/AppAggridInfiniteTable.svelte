@@ -16,9 +16,10 @@
 	import { initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 	import AppAggridExplorerTable from './AppAggridExplorerTable.svelte'
-	import { DebouncedInput, type RunnableComponent } from '../..'
 	import { getPrimaryKeys } from '../dbtable/utils'
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
+	import type { RunnableComponent } from '../../helpers'
+	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

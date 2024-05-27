@@ -15,10 +15,11 @@
 	import { writable } from 'svelte/store'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { isCloudHosted } from '$lib/cloud'
+	import Login from '$lib/components/Login.svelte'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
-
+	let noPermission = false
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
 	async function loadApp() {
@@ -28,7 +29,11 @@
 				path: $page.params.secret
 			})
 		} catch (e) {
-			notExists = true
+			if (e.status == 401) {
+				noPermission = true
+			} else {
+				notExists = true
+			}
 		}
 	}
 
@@ -57,10 +62,16 @@
 {#if notExists}
 	<div class="px-4 mt-20"
 		><Alert type="error" title="Not found"
-			>There was an error loading the app. Either it does not exist at this url or its visibility
-			has changed to not be public anymore. <a href="/">Go to app</a>
+			>There was an error loading the app, is the url correct? <a href="/">Go to Windmill</a>
 		</Alert></div
 	>
+{:else if noPermission}
+	<div class="px-4 mt-20 w-full text-center font-bold text-xl"
+		>You must be logged in and have read access for this app</div
+	>
+	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
+		<Login rd={$page.url.toString()} />
+	</div>
 {:else if app}
 	{#key app}
 		<div
