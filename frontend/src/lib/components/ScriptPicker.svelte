@@ -128,14 +128,14 @@
 		{#if itemKind == 'flow'}
 			<div class="flex gap-2">
 				{#if allowEdit}
-				<Button
-					endIcon={{ icon: ExternalLink }}
-					target="_blank"
-					color="light"
-					size="xs"
-					variant="border"
-					href="/flows/edit/{scriptPath}">Edit</Button
-				>
+					<Button
+						endIcon={{ icon: ExternalLink }}
+						target="_blank"
+						color="light"
+						size="xs"
+						variant="border"
+						href="/flows/edit/{scriptPath}">Edit</Button
+					>
 				{/if}
 				<Button
 					color="light"
@@ -151,16 +151,16 @@
 		{:else if itemKind == 'app'}
 			<div class="flex gap-2">
 				{#if allowEdit}
-				<Button
-					startIcon={{ icon: Pen }}
-					target="_blank"
-					color="light"
-					size="xs"
-					href="/apps/edit/{scriptPath}"
-					variant="border"
-				>
-					Edit
-				</Button>
+					<Button
+						startIcon={{ icon: Pen }}
+						target="_blank"
+						color="light"
+						size="xs"
+						href="/apps/edit/{scriptPath}"
+						variant="border"
+					>
+						Edit
+					</Button>
 				{/if}
 				<Button
 					color="light"
@@ -176,16 +176,16 @@
 		{:else}
 			<div class="flex gap-2">
 				{#if allowEdit}
-				<Button
-					startIcon={{ icon: Pen }}
-					target="_blank"
-					color="light"
-					size="xs"
-					href="/scripts/edit/{scriptPath}"
-					variant="border"
-				>
-					Edit
-				</Button>
+					<Button
+						startIcon={{ icon: Pen }}
+						target="_blank"
+						color="light"
+						size="xs"
+						href="/scripts/edit/{scriptPath}"
+						variant="border"
+					>
+						Edit
+					</Button>
 				{/if}
 				<Button
 					color="light"
