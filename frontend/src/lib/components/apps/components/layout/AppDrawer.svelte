@@ -12,7 +12,6 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import { handleSideEffect } from '../helpers/handleSideEffect'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -123,23 +122,11 @@
 		shouldUsePortal={false}
 		on:open={() => {
 			outputs?.open.set(true)
-			handleSideEffect(
-				resolvedConfig?.onOpen,
-				true,
-				$runnableComponents,
-				$componentControl,
-				onOpenRecomputeIds
-			)
+			onOpenRecomputeIds?.forEach((id) => runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 		}}
 		on:close={() => {
 			outputs?.open.set(false)
-			handleSideEffect(
-				resolvedConfig?.onClose,
-				true,
-				$runnableComponents,
-				$componentControl,
-				onCloseRecomputeIds
-			)
+			onCloseRecomputeIds?.forEach((id) => runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 		}}
 	>
 		<DrawerContent

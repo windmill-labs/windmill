@@ -413,7 +413,7 @@
 				bind:recomputeIds={componentSettings.item.data.onOpenRecomputeIds}
 				ownId={component.id}
 				title="Trigger runnables on open"
-				tooltip="Select components to recompute after this component has opened"
+				tooltip="Select components to recompute after this component was opened"
 			/>
 		{/if}
 		{#if (`onCloseRecomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.onCloseRecomputeIds)) || componentSettings.item.data.type === 'modalcomponent' || componentSettings.item.data.type === 'drawercomponent'}
@@ -421,7 +421,7 @@
 				bind:recomputeIds={componentSettings.item.data.onCloseRecomputeIds}
 				ownId={component.id}
 				title="Trigger runnables on close"
-				tooltip="Select components to recompute after this component has closed"
+				tooltip="Select components to recompute after this component was closed"
 			/>
 		{/if}
 		{#if componentSettings.item.data.type === 'checkboxcomponent'}
