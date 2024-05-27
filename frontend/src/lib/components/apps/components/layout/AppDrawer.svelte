@@ -50,18 +50,14 @@
 		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, onOpenRecomputeIds)
 	}
 
-	function toggleClose() {
-		appDrawer?.closeDrawer()
-		outputs?.open.set(false)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
-	}
-
 	$componentControl[id] = {
 		open: () => {
 			toggleOpen()
 		},
 		close: () => {
-			toggleClose()
+			appDrawer?.closeDrawer()
+			outputs?.open.set(false)
+			sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
 		}
 	}
 
@@ -135,14 +131,15 @@
 		alwaysOpen
 		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
 		shouldUsePortal={false}
-		on:clickOutside={() => {
-			toggleClose()
+		on:close={() => {
+			outputs?.open.set(false)
+			sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
 		}}
 	>
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}
 			on:close={() => {
-				toggleClose()
+				appDrawer?.closeDrawer()
 			}}
 			fullScreen={$mode !== 'dnd'}
 		>
