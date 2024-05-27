@@ -9,8 +9,8 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	// import type { EvalV2AppInput, StaticAppInput } from '../../inputType'
 	import { writable } from 'svelte/store'
-	import { InputValue } from '../helpers'
 	import GroupWrapper from '../GroupWrapper.svelte'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number

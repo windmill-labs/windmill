@@ -6,12 +6,12 @@
 	import { initCss } from '../../utils'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
-	import { AlignWrapper } from '../helpers'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string

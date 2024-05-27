@@ -192,16 +192,20 @@
 			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
 		{/if}
 		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && fieldType == 'object' && format?.startsWith('resource-')}
-			<div class="flex flex-row">
+			<div class="flex flex-row items-center">
 				<Toggle
 					size="xs"
 					bind:checked={componentInput.allowUserResources}
-					options={{ right: 'Allow resources from users' }}
+					options={{
+						left: 'static resource select only',
+						right: 'resources from users allowed'
+					}}
 				/>
 				<Tooltip
 					>Apps are executed on behalf of publishers and by default cannot access viewer's
-					resources. If you use a non-static resource picker and connect it here, you need to toggle
-					this.</Tooltip
+					resources. If the resource passed here as a reference does not come from a static
+					'Resource Select' component (which will be whitelisted by the auto-generated policy), you
+					need to toggle this.</Tooltip
 				>
 			</div>
 		{/if}

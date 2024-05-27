@@ -7,7 +7,9 @@
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 
 	import AppButton from '../../buttons/AppButton.svelte'
-	import { AppCheckbox, AppSelect } from '../..'
+	import AppCheckbox from '../../inputs/AppCheckbox.svelte'
+	import AppSelect from '../../inputs/AppSelect.svelte'
+
 	import { twMerge } from 'tailwind-merge'
 	import { Popup } from '$lib/components/common'
 	import { Plug2 } from 'lucide-svelte'
