@@ -144,11 +144,11 @@
 		bind:this={disposable}
 		on:open={() => {
 			outputs?.open.set(true)
-			onOpenRecomputeIds?.forEach((id) => runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+			onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 		}}
 		on:close={() => {
 			outputs?.open.set(false)
-			onCloseRecomputeIds?.forEach((id) => runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+			onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
 		}}
 	>
 		<div
