@@ -24,6 +24,9 @@
 	export let noWFull = false
 	export let render: boolean
 
+	export let onOpenRecomputeIds: string[] | undefined = undefined
+	export let onCloseRecomputeIds: string[] | undefined = undefined
+
 	const {
 		app,
 		focusedGrid,
@@ -31,11 +34,14 @@
 		worldStore,
 		connectingInput,
 		mode,
-		componentControl
+		componentControl,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	const outputs = initOutput($worldStore, id, {
+		open: false
+	})
 
 	let css = initCss($app.css?.modalcomponent, customCss)
 	let disposable: Disposable | undefined = undefined
@@ -52,6 +58,7 @@
 			unclickableOutside = false
 		}, 1000)
 	}
+
 	$componentControl[id] = {
 		openModal: () => {
 			unclosableModal()
@@ -117,7 +124,7 @@
 						parentComponentId: id,
 						subGridIndex: 0
 					}
-					disposable?.toggleDrawer()
+					disposable?.openDrawer()
 				}}
 				size={resolvedConfig.buttonSize}
 				color={resolvedConfig.buttonColor}
@@ -129,7 +136,21 @@
 {/if}
 
 <Portal target="#app-editor-top-level-drawer">
-	<Disposable {id} let:handleClickAway let:zIndex let:open bind:this={disposable}>
+	<Disposable
+		{id}
+		let:handleClickAway
+		let:zIndex
+		let:open
+		bind:this={disposable}
+		on:open={() => {
+			outputs?.open.set(true)
+			onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+		}}
+		on:close={() => {
+			outputs?.open.set(false)
+			onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+		}}
+	>
 		<div
 			class={twMerge(
 				`${
