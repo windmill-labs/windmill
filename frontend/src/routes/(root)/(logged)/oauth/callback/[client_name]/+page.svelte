@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'

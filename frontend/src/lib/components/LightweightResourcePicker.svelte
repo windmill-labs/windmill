@@ -52,8 +52,6 @@
 
 	let drawer: Drawer | undefined = undefined
 
-	let iframe: HTMLIFrameElement | undefined = undefined
-
 	function processEvent(event: MessageEvent) {
 		if (event.origin !== window.location.origin) {
 			return
@@ -77,7 +75,6 @@
 		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 	>
 		<iframe
-			bind:this={iframe}
 			title="App connection"
 			class="w-full h-full"
 			src="/embed_connect?resource_type={resourceType}"
