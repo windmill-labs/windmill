@@ -9,7 +9,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { Alert } from '$lib/components/common'
-	import { AlignWrapper } from '../helpers'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations

@@ -6,13 +6,13 @@
 	import { initCss } from '../../utils'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
-	import { AlignWrapper } from '../helpers'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import SideEffectHandler from '../helpers/SideEffectHandler.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -21,6 +21,8 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let render: boolean
+	export let onOpenRecomputeIds: string[] | undefined = undefined
+	export let onCloseRecomputeIds: string[] | undefined = undefined
 
 	const {
 		app,
@@ -45,13 +47,13 @@
 	function toggleOpen() {
 		appDrawer?.openDrawer()
 		outputs?.open.set(true)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, [])
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, onOpenRecomputeIds)
 	}
 
 	function toggleClose() {
 		appDrawer?.closeDrawer()
 		outputs?.open.set(false)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, [])
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
 	}
 
 	$componentControl[id] = {

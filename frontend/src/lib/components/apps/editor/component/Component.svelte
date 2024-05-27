@@ -8,42 +8,7 @@
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import type { AppComponent } from './components'
-	import {
-		AppBarChart,
-		AppDisplayComponent,
-		AppTable,
-		AppText,
-		AppButton,
-		AppPieChart,
-		AppSelect,
-		AppCheckbox,
-		AppTextInput,
-		AppNumberInput,
-		AppDateInput,
-		AppForm,
-		AppScatterChart,
-		AppTimeseries,
-		AppHtml,
-		AppMarkdown,
-		AppSliderInputs,
-		AppFormButton,
-		VegaLiteHtml,
-		PlotlyHtml,
-		PlotlyHtmlV2,
-		AppRangeInput,
-		AppTabs,
-		AppIcon,
-		AppCurrencyInput,
-		AppDivider,
-		AppFileInput,
-		AppImage,
-		AppContainer,
-		AppAggridTable,
-		AppDrawer,
-		AppMap,
-		AppSplitpanes,
-		AppPdf
-	} from '../../components'
+
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 	import AppMultiSelectV2 from '../../components/inputs/AppMultiSelectV2.svelte'
 	import AppModal from '../../components/layout/AppModal.svelte'
@@ -76,6 +41,40 @@
 	import AppDateTimeInput from '../../components/inputs/AppDateTimeInput.svelte'
 	import AppAggridInfiniteTable from '../../components/display/table/AppAggridInfiniteTable.svelte'
 	import AppAggridInfiniteTableEe from '../../components/display/table/AppAggridInfiniteTableEe.svelte'
+	import AppDisplayComponent from '../../components/display/AppDisplayComponent.svelte'
+	import AppTimeseries from '../../components/display/AppTimeseries.svelte'
+	import AppHtml from '../../components/display/AppHtml.svelte'
+	import AppMarkdown from '../../components/display/AppMarkdown.svelte'
+	import VegaLiteHtml from '../../components/display/VegaLiteHtml.svelte'
+	import PlotlyHtml from '../../components/display/PlotlyHtml.svelte'
+	import PlotlyHtmlV2 from '../../components/display/PlotlyHtmlV2.svelte'
+	import AppScatterChart from '../../components/display/AppScatterChart.svelte'
+	import AppPieChart from '../../components/display/AppPieChart.svelte'
+	import AppTable from '../../components/display/table/AppTable.svelte'
+	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
+	import AppText from '../../components/display/AppText.svelte'
+	import AppButton from '../../components/buttons/AppButton.svelte'
+	import AppForm from '../../components/buttons/AppForm.svelte'
+	import AppFormButton from '../../components/buttons/AppFormButton.svelte'
+	import AppCheckbox from '../../components/inputs/AppCheckbox.svelte'
+	import AppTextInput from '../../components/inputs/AppTextInput.svelte'
+	import AppDateInput from '../../components/inputs/AppDateInput.svelte'
+	import AppSelect from '../../components/inputs/AppSelect.svelte'
+	import AppBarChart from '../../components/display/AppBarChart.svelte'
+	import AppDivider from '../../components/layout/AppDivider.svelte'
+	import AppRangeInput from '../../components/inputs/AppRangeInput.svelte'
+	import AppTabs from '../../components/layout/AppTabs.svelte'
+	import AppContainer from '../../components/layout/AppContainer.svelte'
+	import AppSplitpanes from '../../components/layout/AppSplitpanes.svelte'
+	import AppIcon from '../../components/display/AppIcon.svelte'
+	import AppFileInput from '../../components/inputs/AppFileInput.svelte'
+	import AppImage from '../../components/display/AppImage.svelte'
+	import AppDrawer from '../../components/layout/AppDrawer.svelte'
+	import AppMap from '../../components/display/AppMap.svelte'
+	import AppPdf from '../../components/display/AppPdf.svelte'
+	import AppCurrencyInput from '../../components/inputs/currency/AppCurrencyInput.svelte'
+	import AppSliderInputs from '../../components/inputs/AppSliderInputs.svelte'
+	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -713,6 +712,8 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onOpenRecomputeIds={component.onOpenRecomputeIds}
+				onCloseRecomputeIds={component.onCloseRecomputeIds}
 				{render}
 			/>
 		{:else if component.type === 'mapcomponent'}
@@ -736,6 +737,8 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onOpenRecomputeIds={component.onOpenRecomputeIds}
+				onCloseRecomputeIds={component.onCloseRecomputeIds}
 				{render}
 			/>
 		{:else if component.type === 'schemaformcomponent'}

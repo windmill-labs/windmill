@@ -5,7 +5,6 @@
 	import { initCss } from '../../utils'
 	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
-	import { AlignWrapper } from '../helpers'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import Portal from 'svelte-portal'
@@ -16,6 +15,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import SideEffectHandler from '../helpers/SideEffectHandler.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let customCss: ComponentCustomCSS<'modalcomponent'> | undefined = undefined
 	export let id: string
@@ -24,6 +24,9 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let render: boolean
+
+	export let onOpenRecomputeIds: string[] | undefined = undefined
+	export let onCloseRecomputeIds: string[] | undefined = undefined
 
 	const {
 		app,
@@ -59,13 +62,13 @@
 	function toggleOpen() {
 		disposable?.openDrawer()
 		outputs?.open.set(true)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, [])
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onOpen, true, onOpenRecomputeIds)
 	}
 
 	function toggleClose() {
 		disposable?.closeDrawer()
 		outputs?.open.set(false)
-		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, [])
+		sideEffectHandler?.handleSideEffect(resolvedConfig.onClose, true, onCloseRecomputeIds)
 	}
 
 	$componentControl[id] = {

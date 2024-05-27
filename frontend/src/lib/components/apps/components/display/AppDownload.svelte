@@ -7,11 +7,11 @@
 	import { initCss, transformBareBase64IfNecessary } from '../../utils'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import { AlignWrapper } from '../helpers'
 	import { Button } from '$lib/components/common'
 	import { loadIcon } from '../icon'
 	import ComponentErrorHandler from '../helpers/ComponentErrorHandler.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations

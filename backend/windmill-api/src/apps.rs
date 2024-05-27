@@ -425,6 +425,8 @@ async fn get_app_by_id(
 }
 
 async fn get_public_app_by_secret(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
@@ -454,10 +456,32 @@ async fn get_public_app_by_secret(
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
-        return Err(Error::NotAuthorized(
-            "App visibility does not allow public access".to_string(),
-        ));
+    if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        return Ok(Json(app));
+    }
+
+    if opt_authed.is_none() {
+        {
+            return Err(Error::NotAuthorized(
+                "App visibility does not allow public access and you are not logged in".to_string(),
+            ));
+        }
+    } else {
+        let authed = opt_authed.unwrap();
+        let mut tx = user_db.begin(&authed).await?;
+        let is_visible = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+            id,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        if !is_visible.unwrap_or(false) {
+            return Err(Error::NotAuthorized(
+                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+            ));
+        }
     }
 
     Ok(Json(app))

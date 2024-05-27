@@ -6,12 +6,13 @@
 	import { initCss } from '../../utils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { RunnableComponent, RunnableWrapper } from '../helpers'
 	import type { AppInput } from '../../inputType'
 	import { ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import Stepper from '$lib/components/common/stepper/Stepper.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
