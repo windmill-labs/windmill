@@ -6,7 +6,7 @@
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { Badge, Button, SecondsInput } from './common'
+	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
@@ -80,25 +80,20 @@
 	export let nullable: boolean = false
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+	export let editor: SimpleEditor | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
 	let ignoreValueUndefined = false
-
 	let error: string = ''
-
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode: false
 	let isListJson = false
-
 	let el: HTMLTextAreaElement | undefined = undefined
-
-	export let editor: SimpleEditor | undefined = undefined
-
+	let rawValue: string | undefined = undefined
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
-	let rawValue: string | undefined = undefined
 
 	function computeDefaultValue(
 		nvalue?: any,
@@ -244,20 +239,35 @@
 					placeholder="Field description"
 				/>
 			</Label>
-			<div class="flex flex-row gap-2 w-full">
-				<Label label="Custom Title" class="w-full">
-					<svelte:fragment slot="header">
-						<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
-					</svelte:fragment>
-					<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
-				</Label>
-			</div>
+
+			<Label label="Custom Title" class="w-full">
+				<svelte:fragment slot="header">
+					<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
+				</svelte:fragment>
+				<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
+			</Label>
+
+			<Label label="Placeholder">
+				<svelte:fragment slot="header">
+					<Tooltip light>
+						Will be displayed in the input field when the field is empty. If not set, the default
+						value will be used. The placeholder is disabled depending on the field typ, format, etc.
+					</Tooltip>
+				</svelte:fragment>
+
+				<textarea
+					placeholder="Enter a placeholder"
+					rows="1"
+					bind:value={placeholder}
+					disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
+				/>
+			</Label>
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
 			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 				<div class="mt-8">
-					<Section label="Arguments" small>
+					<Section label="Field settings" small>
 						<div class="mt-2">
 							{#if type == 'string'}
 								<StringTypeNarrowing
@@ -283,11 +293,7 @@
 								<ObjectTypeNarrowing bind:format />
 							{/if}
 						</div>
-						{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern)}
-							<Label label="Placeholder" class="pt-2">
-								<textarea placeholder="Enter a placeholder" rows="1" bind:value={placeholder} />
-							</Label>
-						{/if}
+
 						{#if !required && type === 'string'}
 							<div class="mt-2 border-t pt-4">
 								<Toggle
@@ -304,23 +310,23 @@
 					</Section>
 				</div>
 			{/if}
+
 			{#if previewEnabled}
 				<span class="text-2xs font-semibold">Preview:</span>
 			{/if}
 		{/if}
+
+		{#if description && previewEnabled}
+			<div class="text-xs italic pb-1 text-secondary">
+				<pre class="font-main whitespace-normal">{description}</pre>
+			</div>
+		{/if}
+
 		{#if previewEnabled}
 			<div class="flex space-x-1">
 				{#if inputCat == 'number'}
 					{#if extra['min'] != undefined && extra['max'] != undefined}
-						<div class="flex w-full gap-1">
-							<span>{extra['min']}</span>
-
-							<div class="grow">
-								<Range bind:value min={extra['min']} max={extra['max']} />
-							</div>
-							<span>{extra['max']}</span>
-							<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
-						</div>
+						<Range bind:value min={extra['min']} max={extra['max']} />
 					{:else if extra['seconds'] !== undefined}
 						<SecondsInput bind:seconds={value} on:focus />
 					{:else if extra?.currency}
@@ -719,7 +725,8 @@
 									Linked to variable <button
 										class="text-blue-500 underline"
 										on:click={() => variableEditor?.editVariable?.(value.slice(5))}
-										>{value.slice(5)}</button
+									>
+										{value.slice(5)}</button
 									>
 								{/if}
 							</div>
@@ -729,7 +736,7 @@
 				<slot name="actions" />
 			</div>
 		{/if}
-		{#if !compact || (error && error != '')}
+		{#if (!compact || (error && error != '')) && previewEnabled}
 			<div class="text-right text-xs text-red-600 dark:text-red-400">
 				{#if disabled || error === ''}
 					&nbsp;

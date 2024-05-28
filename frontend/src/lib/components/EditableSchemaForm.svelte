@@ -10,7 +10,6 @@
 
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
-	import { flip } from 'svelte/animate'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	export let schema: Schema | any
@@ -27,8 +26,6 @@
 	export let noDelete = false
 	export let prettifyHeader = false
 	export let disablePortal = false
-
-	const moveAnimationDuration = 1000
 
 	function changePosition(i: number, up: boolean): any {
 		const entries = Object.entries(schema.properties)
@@ -117,69 +114,82 @@
 			schema.properties = n
 		}
 	}
+
+	let wrapperHeight: number | undefined = undefined
+	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
+	const offset = 48 + 31 + 31 + 16 + 1
 </script>
 
-<Splitpanes class="h-full">
-	<Pane size={50}>
-		<div class="p-4">
-			<SchemaForm {schema} bind:args />
-		</div>
-	</Pane>
-	<Pane size={50}>
-		<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} divide-y">
-			{#if keys.length > 0}
-				{#each keys as argName, i (argName)}
-					<div animate:flip={{ duration: moveAnimationDuration }}>
-						<div class="w-full bg-gray-50 px-2 py-1">
-							{argName}
-						</div>
-						<div class="p-4">
-							{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-								{#if typeof args == 'object' && schema?.properties[argName]}
-									<ArgInput
-										previewEnabled={false}
-										{disablePortal}
-										{resourceTypes}
-										{prettifyHeader}
-										autofocus={i == 0 && autofocus}
-										label={argName}
-										bind:description={schema.properties[argName].description}
-										bind:value={args[argName]}
-										type={schema.properties[argName].type}
-										required={schema.required?.includes(argName) ?? false}
-										bind:pattern={schema.properties[argName].pattern}
-										bind:valid={inputCheck[argName]}
-										defaultValue={schema.properties[argName].default}
-										bind:enum_={schema.properties[argName].enum}
-										bind:format={schema.properties[argName].format}
-										bind:contentEncoding={schema.properties[argName].contentEncoding}
-										bind:customErrorMessage={schema.properties[argName].customErrorMessage}
-										properties={schema.properties[argName].properties}
-										nestedRequired={schema.properties[argName].required}
-										bind:itemsType={schema.properties[argName].items}
-										editableSchema={{ i, total: keys.length }}
-										on:changePosition={(event) => changePosition(event.detail.i, event.detail.up)}
-										{compact}
-										{variableEditor}
-										{itemPicker}
-										bind:pickForField
-										bind:extra={schema.properties[argName]}
-										simpleTooltip={schemaFieldTooltip[argName]}
-										nullable={schema.properties[argName].nullable}
-										bind:title={schema.properties[argName].title}
-										bind:placeholder={schema.properties[argName].placeholder}
-									/>
+<div style={`height: calc(100vh - ${offset}px);`} bind:clientHeight={wrapperHeight}>
+	<Splitpanes>
+		<Pane size={50}>
+			<div class="p-4" style={`height: ${wrapperHeight}px; overflow-y: auto;`}>
+				<SchemaForm {schema} bind:args />
+			</div>
+		</Pane>
+		<Pane size={50}>
+			<div
+				class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} divide-y"
+				style={`height: ${wrapperHeight}px; overflow-y: auto;`}
+			>
+				{#if keys.length > 0}
+					{#each keys as argName, i (argName)}
+						<div class="border-t">
+							<div class="w-full flex bg-gray-50 px-4 py-1 border-b justify-between items-center">
+								{argName}
+								{#if schema.required?.includes(argName)}
+									<span class="text-red-500 text-xs"> Required </span>
 								{/if}
-							{/if}
+							</div>
+							<div class="p-4">
+								{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+									{#if typeof args == 'object' && schema?.properties[argName]}
+										<ArgInput
+											displayHeader={false}
+											previewEnabled={false}
+											{disablePortal}
+											{resourceTypes}
+											{prettifyHeader}
+											autofocus={i == 0 && autofocus}
+											label={argName}
+											bind:description={schema.properties[argName].description}
+											bind:value={args[argName]}
+											type={schema.properties[argName].type}
+											required={schema.required?.includes(argName) ?? false}
+											bind:pattern={schema.properties[argName].pattern}
+											bind:valid={inputCheck[argName]}
+											defaultValue={schema.properties[argName].default}
+											bind:enum_={schema.properties[argName].enum}
+											bind:format={schema.properties[argName].format}
+											bind:contentEncoding={schema.properties[argName].contentEncoding}
+											bind:customErrorMessage={schema.properties[argName].customErrorMessage}
+											properties={schema.properties[argName].properties}
+											nestedRequired={schema.properties[argName].required}
+											bind:itemsType={schema.properties[argName].items}
+											editableSchema={{ i, total: keys.length }}
+											on:changePosition={(event) => changePosition(event.detail.i, event.detail.up)}
+											{compact}
+											{variableEditor}
+											{itemPicker}
+											bind:pickForField
+											bind:extra={schema.properties[argName]}
+											simpleTooltip={schemaFieldTooltip[argName]}
+											nullable={schema.properties[argName].nullable}
+											bind:title={schema.properties[argName].title}
+											bind:placeholder={schema.properties[argName].placeholder}
+										/>
+									{/if}
+								{/if}
+							</div>
 						</div>
-					</div>
-				{/each}
-			{:else if !shouldHideNoInputs}
-				<div class="text-secondary text-sm">No inputs</div>
-			{/if}
-		</div>
-	</Pane>
-</Splitpanes>
+					{/each}
+				{:else if !shouldHideNoInputs}
+					<div class="text-secondary text-sm">No inputs</div>
+				{/if}
+			</div>
+		</Pane>
+	</Splitpanes>
+</div>
 
 {#if !noVariablePicker}
 	<ItemPicker

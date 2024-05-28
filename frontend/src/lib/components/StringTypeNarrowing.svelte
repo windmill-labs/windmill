@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'
-	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
 	import Alert from './common/alert/Alert.svelte'
 	import ClearableInput from './common/clearableInput/ClearableInput.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import RegexGen from './copilot/RegexGen.svelte'
 
 	export let pattern: string | undefined
@@ -78,196 +79,202 @@
 	]
 </script>
 
-<RadioButton
-	label="Kind"
-	options={[
-		['None', 'none'],
-		['File (base64)', 'base64'],
-		['Enum', 'enum'],
-		['Format', 'format'],
-		['Pattern', 'pattern']
-	]}
-	bind:value={kind}
-	on:change={(e) => {
-		if (e.detail != 'enum') {
-			enum_ = undefined
-		}
-		if (e.detail == 'none') {
-			pattern = undefined
-			format = undefined
-			contentEncoding = undefined
-			customErrorMessage = undefined
-			minRows = undefined
-			disableCreate = undefined
-			disableVariablePicker = undefined
-		}
-	}}
-/>
-<div class="my-2" />
-
-{#if kind == 'pattern'}
-	<label for="input" class="mb-2 text-secondary text-xs">
-		Pattern (Regex)
-		<div class="flex flex-row gap-1">
-			<input
-				id="input"
-				type="text"
-				placeholder="^(\\([0-9]{3}\\))?[0-9]{3}-[0-9]{4}$"
-				bind:value={patternStr}
-				class="text-sm"
-			/>
-			<RegexGen
-				on:gen={(e) => {
-					const { res, prompt } = e.detail
-					patternStr = res
-					customErrorMessage = 'does not match: ' + prompt
-				}}
-			/>
-			<Button
-				variant="border"
-				color="blue"
-				size="sm"
-				on:click={() => {
-					patternStr = ''
-				}}
-			>
-				clear
-			</Button>
-		</div>
-		<div class="mt-2 flex gap-2">
-			<Toggle
-				size="xs"
-				options={{ right: 'Custom error message' }}
-				checked={customErrorMessage != undefined && customErrorMessage != ''}
-				on:change={(e) => {
-					if (e.detail) {
-						customErrorMessage = 'Custom error message'
-					} else {
-						customErrorMessage = undefined
-					}
-				}}
-				>Custom error message
-			</Toggle>
-			<input type="text" bind:value={customErrorMessage} />
-		</div>
-	</label>
-{:else if kind == 'enum'}
-	<label for="input" class="mb-2 text-secondary text-xs">
-		Enums
-		<div class="flex flex-col gap-1">
-			{#each enum_ || [] as e}
-				<div class="flex flex-row max-w-md">
-					<input id="input" type="text" bind:value={e} />
-					<Button size="sm" btnClasses="ml-6" on:click={() => remove(e)}>-</Button>
-				</div>
-			{/each}
-		</div>
-		<div class="flex flex-row my-1">
-			<Button color="light" size="sm" on:click={add}>+</Button>
-			<Button
-				color="light"
-				variant="border"
-				size="sm"
-				btnClasses="ml-2"
-				on:click={() => (enum_ = undefined)}
-			>
-				Clear
-			</Button>
-		</div>
-	</label>
-	{#if !noExtra}
-		<Toggle
-			size="sm"
-			options={{ right: 'Disallow creating custom values' }}
-			checked={disableCreate != undefined && disableCreate}
-			on:change={(e) => {
-				if (e.detail) {
-					disableCreate = true
-				} else {
-					disableCreate = undefined
-				}
-			}}
-		/>
-	{/if}
-{:else if kind == 'resource'}
-	<div class="mt-1" />
-	<ResourceTypePicker bind:value={resource} />
-{:else if kind == 'format'}
-	<select class="mt-1" bind:value={format}>
-		<option value={undefined} />
-		{#each FORMATS as f}
-			<option value={f}>{f}</option>
-		{/each}
-	</select>
-
-	{#if format == 'date'}
-		<div class="mt-1" />
-
-		<div class="grid grid-cols-3 gap-2">
-			<Label label="Date format passed to script" class="col-span-2">
-				<svelte:fragment slot="header">
-					<Tooltip light>
-						Setting the date output format will allow you to specify how the date will be passed to
-						the script.
-					</Tooltip>
-				</svelte:fragment>
-				<ClearableInput type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
-			</Label>
-			<Label label="Presets">
-				<select
-					bind:value={dateFormat}
-					disabled={dateFormat ? !presetOptions.map((f) => f.format).includes(dateFormat) : false}
-				>
-					{#each presetOptions as f}
-						<option value={f.format}>{f.label}</option>
-					{/each}
-				</select>
-			</Label>
-		</div>
-	{/if}
-{:else if kind == 'none'}
-	{#if !noExtra}
-		<label
-			>min textarea rows:
-			<input type="number" bind:value={minRows} />
-		</label>
-	{/if}
-{:else if kind === 'base64'}
-	<Alert
-		type="warning"
-		title="S3 Object recommended"
-		collapsible
-		size="xs"
-		documentationLink="Pattern (Regex) https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
-	>
-		For large files, we recommend using the S3 Object type instead of the base64 string type.
-	</Alert>
-{/if}
-{#if (kind == 'none' || kind == 'pattern' || kind == 'format') && !noExtra}
-	<div class="mt-1" />
-	<Toggle
-		size="xs"
-		options={{ right: 'Disable variable picker' }}
-		checked={disableVariablePicker != undefined && disableVariablePicker}
-		on:change={(e) => {
-			if (e.detail) {
-				disableVariablePicker = true
-			} else {
+<div class="flex flex-col gap-4">
+	<ToggleButtonGroup
+		bind:selected={kind}
+		on:selected={(e) => {
+			if (e.detail != 'enum') {
+				enum_ = undefined
+			}
+			if (e.detail == 'none') {
+				pattern = undefined
+				format = undefined
+				contentEncoding = undefined
+				customErrorMessage = undefined
+				minRows = undefined
+				disableCreate = undefined
 				disableVariablePicker = undefined
 			}
 		}}
-	/>
-{/if}
+	>
+		{#each [['None', 'none'], ['File (base64)', 'base64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
+			<ToggleButton value={x[1]} label={x[0]} tooltip="ads" showTooltipIcon />
+		{/each}
+	</ToggleButtonGroup>
+	{#if kind == 'pattern'}
+		<Label label="Pattern (Regex)">
+			<svelte:fragment slot="header">
+				<Tooltip light>
+					Setting a pattern will allow you to specify a regular expression that the input should
+					adhere to. You can use the regex generator to help you create a pattern.
+				</Tooltip>
+			</svelte:fragment>
+			<div class="flex flex-row gap-1">
+				<ClearableInput
+					id="input"
+					type="text"
+					placeholder="^(\\([0-9]{3}\\))?[0-9]{3}-[0-9]{4}$"
+					bind:value={patternStr}
+				/>
+				<RegexGen
+					on:gen={(e) => {
+						const { res, prompt } = e.detail
+						patternStr = res
+						customErrorMessage = 'does not match: ' + prompt
+					}}
+				/>
+			</div>
+		</Label>
+		<Label label="Custom error message" class="w-full">
+			<svelte:fragment slot="header">
+				<Tooltip light>
+					Setting a custom error message will allow you to specify a message that will be shown when
+					the input does not match the pattern.
+				</Tooltip>
+			</svelte:fragment>
+			<svelte:fragment slot="action">
+				<Toggle
+					size="xs"
+					options={{ right: 'Enable' }}
+					checked={customErrorMessage != undefined && customErrorMessage != ''}
+					on:change={(e) => {
+						if (e.detail) {
+							customErrorMessage = 'Custom error message'
+						} else {
+							customErrorMessage = undefined
+						}
+					}}
+				/>
+			</svelte:fragment>
+			<input
+				type="text"
+				bind:value={customErrorMessage}
+				disabled={customErrorMessage == undefined || customErrorMessage == ''}
+			/>
+		</Label>
+	{:else if kind == 'enum'}
+		<Label label="Enums">
+			<svelte:fragment slot="header">
+				<Tooltip light>
+					Setting enums will allow you to specify a list of values that the input can take. If you
+					want to allow custom values, you can disable the option below.
+				</Tooltip>
+			</svelte:fragment>
+			<svelte:fragment slot="action">
+				<Button color="light" size="xs" btnClasses="ml-2" on:click={() => (enum_ = undefined)}>
+					Clear enums
+				</Button>
+			</svelte:fragment>
+			<div class="flex flex-col gap-1">
+				{#each enum_ || [] as e}
+					<div class="flex flex-row max-w-md">
+						<input id="input" type="text" bind:value={e} />
+						<Button size="sm" btnClasses="ml-6" on:click={() => remove(e)}>-</Button>
+					</div>
+				{/each}
+			</div>
+			<div class="flex flex-row my-1">
+				<Button color="light" size="sm" on:click={add}>+</Button>
+			</div>
+		</Label>
+		{#if !noExtra}
+			<Toggle
+				size="xs"
+				options={{ right: 'Disallow creating custom values' }}
+				checked={disableCreate != undefined && disableCreate}
+				on:change={(e) => {
+					if (e.detail) {
+						disableCreate = true
+					} else {
+						disableCreate = undefined
+					}
+				}}
+			/>
+		{/if}
+	{:else if kind == 'resource'}
+		<div class="mt-1" />
+		<ResourceTypePicker bind:value={resource} />
+	{:else if kind == 'format'}
+		<Label label="Format">
+			<svelte:fragment slot="header">
+				<Tooltip light>
+					Setting the format will allow you to specify a format that the input should adhere to.
+				</Tooltip>
+			</svelte:fragment>
+			<select bind:value={format}>
+				<option value={undefined} />
+				{#each FORMATS as f}
+					<option value={f}>{f}</option>
+				{/each}
+			</select>
+		</Label>
+		{#if format == 'date'}
+			<div class="mt-1" />
 
-{#if kind == 'none' || kind == 'pattern'}
-	<div class="mt-1" />
-	<Toggle
-		size="xs"
-		options={{ right: 'Is Password' }}
-		checked={password}
-		on:change={(e) => {
-			password = e.detail
-		}}
-	/>
-	<div class="mb-4" />
-{/if}
+			<div class="grid grid-cols-3 gap-2">
+				<Label label="Date format passed to script" class="col-span-2">
+					<svelte:fragment slot="header">
+						<Tooltip light>
+							Setting the date output format will allow you to specify how the date will be passed
+							to the script.
+						</Tooltip>
+					</svelte:fragment>
+					<ClearableInput type="text" bind:value={dateFormat} placeholder="yyyy-MM-dd" />
+				</Label>
+				<Label label="Presets">
+					<select
+						bind:value={dateFormat}
+						disabled={dateFormat ? !presetOptions.map((f) => f.format).includes(dateFormat) : false}
+					>
+						{#each presetOptions as f}
+							<option value={f.format}>{f.label}</option>
+						{/each}
+					</select>
+				</Label>
+			</div>
+		{/if}
+	{:else if kind == 'none'}
+		{#if !noExtra}
+			<Label label="Min textarea rows">
+				<input type="number" bind:value={minRows} />
+			</Label>
+		{/if}
+	{:else if kind === 'base64'}
+		<Alert
+			type="warning"
+			title="S3 Object recommended"
+			size="xs"
+			tooltip="Check out the documentation for more information:"
+			documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
+		>
+			For large files, we recommend using the S3 Object type instead of the base64 string type.
+		</Alert>
+	{/if}
+	{#if (kind == 'none' || kind == 'pattern' || kind == 'format') && !noExtra}
+		<Toggle
+			size="xs"
+			options={{ right: 'Disable variable picker' }}
+			checked={disableVariablePicker != undefined && disableVariablePicker}
+			on:change={(e) => {
+				if (e.detail) {
+					disableVariablePicker = true
+				} else {
+					disableVariablePicker = undefined
+				}
+			}}
+			disabled={['email', 'yaml', 'sql', 'date-time', 'date'].includes(format ?? '')}
+		/>
+	{/if}
+
+	{#if kind == 'none' || kind == 'pattern'}
+		<Toggle
+			size="xs"
+			options={{ right: 'Is Password' }}
+			checked={password}
+			on:change={(e) => {
+				password = e.detail
+			}}
+		/>
+		<div class="mb-4" />
+	{/if}
+</div>
