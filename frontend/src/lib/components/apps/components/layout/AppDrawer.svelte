@@ -20,6 +20,8 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let render: boolean
+	export let onOpenRecomputeIds: string[] | undefined = undefined
+	export let onCloseRecomputeIds: string[] | undefined = undefined
 
 	const {
 		app,
@@ -28,14 +30,17 @@
 		worldStore,
 		connectingInput,
 		mode,
-		componentControl
+		componentControl,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const resolvedConfig = initConfig(
 		components['drawercomponent'].initialData.configuration,
 		configuration
 	)
-	initOutput($worldStore, id, {})
+	const outputs = initOutput($worldStore, id, {
+		open: false
+	})
 
 	let appDrawer: Drawer
 
@@ -115,6 +120,14 @@
 		alwaysOpen
 		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
 		shouldUsePortal={false}
+		on:open={() => {
+			outputs?.open.set(true)
+			onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+		}}
+		on:close={() => {
+			outputs?.open.set(false)
+			onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+		}}
 	>
 		<DrawerContent
 			title={resolvedConfig.drawerTitle}

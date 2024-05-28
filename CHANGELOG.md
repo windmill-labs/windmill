@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.338.1](https://github.com/windmill-labs/windmill/compare/v1.338.0...v1.338.1) (2024-05-28)
+
+
+### Bug Fixes
+
+* fix retry not working on single step flow due to opt ([6166c4d](https://github.com/windmill-labs/windmill/commit/6166c4d7aae9eddcee92f950959b9d2290bc917a))
+* remove quotes around interpolated arg values of tags ([8b66636](https://github.com/windmill-labs/windmill/commit/8b66636a8908c0043d2be63c6462ce28acc43fd9))
+
+## [1.338.0](https://github.com/windmill-labs/windmill/compare/v1.337.0...v1.338.0) (2024-05-27)
+
+
+### Features
+
+* allow user resources in apps with a toggle ([#3821](https://github.com/windmill-labs/windmill/issues/3821)) ([5877727](https://github.com/windmill-labs/windmill/commit/5877727c167bf9b62bedaa7eeafad3c913b1089d))
+* **frontend:** add open/close state of the modal in the outputs ([#3822](https://github.com/windmill-labs/windmill/issues/3822)) ([c246bb0](https://github.com/windmill-labs/windmill/commit/c246bb07052e65e9b336529ad638bcb9cc9686cd))
+* **frontend:** upgrade to gpt-4o + add AI support for php ([#3820](https://github.com/windmill-labs/windmill/issues/3820)) ([2561853](https://github.com/windmill-labs/windmill/commit/256185308e2c0f1b5395a76bc7de5d3857f867d4))
+* public apps can require login ([#3825](https://github.com/windmill-labs/windmill/issues/3825)) ([e2a1219](https://github.com/windmill-labs/windmill/commit/e2a1219373cace1bf4130004c27b9bf3595f7dd9))
+* worker vcpus/memory limits + mem usage ([#3828](https://github.com/windmill-labs/windmill/issues/3828)) ([621464b](https://github.com/windmill-labs/windmill/commit/621464b55025d601f747f611cbb3485d363a480a))
+
+
+### Bug Fixes
+
+* filtering not always working with concurrency keys ([#3823](https://github.com/windmill-labs/windmill/issues/3823)) ([47df9f3](https://github.com/windmill-labs/windmill/commit/47df9f33cce5a20231b6b38d4eb1ff370699fc38))
+* improve concurrency re-scheduling at scale ([f2d9c3c](https://github.com/windmill-labs/windmill/commit/f2d9c3c77729fe32366a1c0628d5c0af4d603dff))
+* improve concurrency re-scheduling at scale ([e187fa6](https://github.com/windmill-labs/windmill/commit/e187fa6263100cb26a24726123bcc3bbe641a6e8))
+* make all error strings more verbose ([7a36f30](https://github.com/windmill-labs/windmill/commit/7a36f30fe3138089df5c3a4ce87744c4a459044d))
+
 ## [1.337.0](https://github.com/windmill-labs/windmill/compare/v1.336.1...v1.337.0) (2024-05-25)
 
 

@@ -11,7 +11,7 @@
 	export let tooltip: string =
 		'Select components to recompute after this runnable has successfully run'
 	export let documentationLink: string =
-		'https://www.windmill.dev/docs/apps/app-runnable-panel#recompute-others'
+		'https://www.windmill.dev/docs/apps/app-runnable-panel#trigger-runnables-on-success'
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
