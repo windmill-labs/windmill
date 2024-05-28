@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.337.0
+  version: 1.338.0
   title: Windmill API
 
   contact:
@@ -9906,6 +9906,12 @@ components:
         current_job_workspace_id:
           type: string
         occupancy_rate:
+          type: number
+        memory:
+          type: number
+        vcpus:
+          type: number
+        memory_usage:
           type: number
       required:
         - worker

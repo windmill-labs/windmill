@@ -132,6 +132,24 @@ fn process_custom_tags(tags: Vec<String>) -> (Vec<String>, HashMap<String, Vec<S
     (global, specific)
 }
 
+pub fn get_worker_memory_usage() -> Option<i64> {
+    let mut memory = std::process::Command::new("cat")
+        .args(["/sys/fs/cgroup/memory.current"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+
+    if memory.is_none() {
+        memory = std::process::Command::new("cat")
+            .args(["/sys/fs/cgroup/memory/memory.usage_in_bytes"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    }
+
+    memory.map(|x| x.parse::<i64>().ok()).flatten()
+}
+
 pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
     let (tags, dw) = {
         let wc = WORKER_CONFIG.read().await.clone();
