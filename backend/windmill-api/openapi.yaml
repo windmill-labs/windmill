@@ -5382,6 +5382,84 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/jobs/queue/cancel_filtered:
+    post:
+      summary: cancel all jobs respecting the given filters
+      operationId: cancelFiltered
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/OrderDesc"
+        - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/ScriptExactPath"
+        - $ref: "#/components/parameters/ScriptStartPath"
+        - $ref: "#/components/parameters/SchedulePath"
+        - $ref: "#/components/parameters/ScriptExactHash"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
+        - $ref: "#/components/parameters/Success"
+        - $ref: "#/components/parameters/ScheduledForBeforeNow"
+        - $ref: "#/components/parameters/JobKinds"
+        - $ref: "#/components/parameters/Suspended"
+        - $ref: "#/components/parameters/Running"
+        - $ref: "#/components/parameters/ArgsFilter"
+        - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/Tag"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: all_workspaces
+          description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
+        - name: concurrency_key
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: uuids of canceled jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/jobs/queue/cancel_selection:
+    post:
+      summary: cancel jobs based on the given uuids
+      operationId: cancelSelection
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: jobsToCancel
+          description: uuids of the jobs to cancel
+          in: query
+          required: true
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: uuids of canceled jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/jobs/completed/list:
     get:
       summary: list all completed jobs

@@ -124,7 +124,7 @@ struct ExtendedJobsParams {
     row_limit: Option<i64>,
 }
 
-fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
+pub fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
     if let Some(key) = concurrency_key {
         sqlb.join("concurrency_key")
             .on_eq("id", "job_id")
