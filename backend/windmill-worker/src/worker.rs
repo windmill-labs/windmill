@@ -1428,6 +1428,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
+
             if let Err(e) = sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $6",
                 jobs_executed,
@@ -1440,7 +1441,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
-            tracing::info!("updating last ping");
+            tracing::info!(
+                "ping update and worker memory snapshot {}kB/{}kB",
+                memory_usage.unwrap_or_default() / 1024,
+                wm_memory_usage.unwrap_or_default() / 1024
+            );
 
             last_ping = Instant::now();
         }
