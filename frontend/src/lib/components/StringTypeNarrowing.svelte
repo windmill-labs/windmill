@@ -238,7 +238,7 @@
 		title="S3 Object recommended"
 		collapsible
 		size="xs"
-		documentationLink="Pattern (Regex) https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
 	>
 		For large files, we recommend using the S3 Object type instead of the base64 string type.
 	</Alert>
