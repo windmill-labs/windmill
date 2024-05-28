@@ -2118,7 +2118,8 @@ fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
                 .get(arg_name)
                 .or(args.extra.get(arg_name))
                 .map(|x| x.get())
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .trim_matches('"');
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
