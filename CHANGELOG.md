@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.338.2](https://github.com/windmill-labs/windmill/compare/v1.338.1...v1.338.2) (2024-05-28)
+
+
+### Bug Fixes
+
+* worker metrics ([#3837](https://github.com/windmill-labs/windmill/issues/3837)) ([5d2b244](https://github.com/windmill-labs/windmill/commit/5d2b244869fb9a6a7d006cfc95b22d9e83d3b9bb))
+
 ## [1.338.1](https://github.com/windmill-labs/windmill/compare/v1.338.0...v1.338.1) (2024-05-28)
 
 
