@@ -251,6 +251,6 @@ async-stream = "^0"
 
 sysinfo = "0.30.12"
 
-tikv-jemallocator = { version = "0.5", features = ["profiling"] }
-tikv-jemalloc-sys  = { version = "^0.5", features = ["profiling"] }
+tikv-jemallocator = { version = "0.5" }
+tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
