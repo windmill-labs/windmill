@@ -34,7 +34,7 @@ use windmill_common::error::to_anyhow;
 
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
-    let r = Router::new()
+    let mut r = Router::new()
         .route("/envs", get(get_local_settings))
         .route(
             "/global/:key",
@@ -46,13 +46,18 @@ pub fn global_service() -> Router {
 
     #[cfg(feature = "parquet")]
     {
-        return r.route("/test_object_storage_config", post(test_s3_bucket));
+        r = r.route("/test_object_storage_config", post(test_s3_bucket));
     }
 
-    #[cfg(not(feature = "parquet"))]
+    #[cfg(feature = "enterprise")]
     {
-        return r;
+        r = r.route(
+            "/latest_key_renewal_attempt",
+            get(get_latest_key_renewal_attempt),
+        );
     }
+
+    r
 }
 
 #[derive(Deserialize)]
@@ -262,4 +267,40 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
 
     Ok("Sent stats".to_string())
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(serde::Serialize)]
+pub struct KeyRenewalAttempt {
+    result: String,
+    attempted_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn get_latest_key_renewal_attempt(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<Option<KeyRenewalAttempt>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let last_attempt = sqlx::query!(
+        "SELECT value, created_at FROM metrics WHERE id = $1 ORDER BY created_at DESC LIMIT 1",
+        "license_key_renewal"
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    match last_attempt {
+        Some(last_attempt) => {
+            let last_attempt_result = serde_json::from_value::<String>(last_attempt.value)
+                .map_err(|e| {
+                    error::Error::InternalErr(format!("Failed to parse last attempt: {}", e))
+                })?;
+            Ok(Json(Some(KeyRenewalAttempt {
+                result: last_attempt_result,
+                attempted_at: last_attempt.created_at,
+            })))
+        }
+        None => Ok(Json(None)),
+    }
 }

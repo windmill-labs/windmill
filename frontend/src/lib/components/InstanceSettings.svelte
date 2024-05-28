@@ -13,10 +13,10 @@
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { capitalize } from '$lib/utils'
+	import { capitalize, classNames, displayDate } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
-	import { AlertTriangle, Plus, X } from 'lucide-svelte'
+	import { AlertTriangle, Circle, Plus, X } from 'lucide-svelte'
 	import CustomSso from './CustomSso.svelte'
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
@@ -25,6 +25,7 @@
 	import Password from './Password.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { fade } from 'svelte/transition'
+	import Popover from './Popover.svelte'
 
 	export let tab: string = 'Core'
 	export let hideTabs: boolean = false
@@ -35,6 +36,10 @@
 	let initialRequirePreexistingUserForOauth: boolean = false
 	let requirePreexistingUserForOauth: boolean = false
 	let ssoOrOauth: 'sso' | 'oauth' = 'sso'
+	let latestKeyRenewalAttempt: {
+		result: string
+		attempted_at: string
+	} | null = null
 
 	let serverConfig = {}
 	let initialValues: Record<string, any> = {}
@@ -79,6 +84,7 @@
 		if (values['base_url'] == undefined) {
 			values['base_url'] = 'http://localhost'
 		}
+		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
 	export async function saveSettings() {
@@ -477,16 +483,56 @@
 																requestBody: { license_key: values[setting.key] }
 															})
 															sendUserToast('Valid key')
-														}}>Test Key</Button
+														}}
 													>
+														Test Key
+													</Button>
 												</div>
-												{#if values[setting.key]?.length > 0}
-													{#if parseDate(values[setting.key])}
-														<span class="text-tertiary text-2xs"
-															>License key expires on {parseDate(values[setting.key])}</span
-														>
+												<div class="flex flex-row gap-0.5 items-center">
+													<div class="">
+														{#if latestKeyRenewalAttempt}
+															<Popover notClickable>
+																<Circle
+																	class={classNames(
+																		latestKeyRenewalAttempt.result === 'success'
+																			? 'text-green-600'
+																			: 'text-red-600',
+																		'inline-flex fill-current'
+																	)}
+																	size={12}
+																/>
+																<div slot="text">
+																	{@const attemptedAt = displayDate(
+																		new Date(latestKeyRenewalAttempt.attempted_at)
+																	)}
+																	{#if latestKeyRenewalAttempt.result === 'success'}
+																		<span class="text-green-500">
+																			Latest key renewal succeeded on {attemptedAt}
+																		</span>
+																	{:else}
+																		<span class="text-red-500">
+																			Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt.result.replace(
+																				'error: ',
+																				''
+																			)}
+																		</span>
+																	{/if}
+																</div>
+															</Popover>
+														{/if}
+													</div>
+													<Tooltip>
+														As long as invoices are paid and usage corresponds to the subscription,
+														the key is renewed daily with a validity of 35 days (grace period).
+													</Tooltip>
+													{#if values[setting.key]?.length > 0}
+														{#if parseDate(values[setting.key])}
+															<span class="text-tertiary text-2xs mt-1"
+																>License key expires on {parseDate(values[setting.key])}</span
+															>
+														{/if}
 													{/if}
-												{/if}
+												</div>
 												{#if licenseKeyChanged}
 													<div class="text-yellow-600"
 														>Refresh page after setting license key and saving to unlock all

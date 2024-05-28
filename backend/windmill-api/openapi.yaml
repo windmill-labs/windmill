@@ -766,6 +766,31 @@ paths:
               schema:
                 type: string
 
+  
+  /settings/latest_key_renewal_attempt:
+    get:
+      summary: get latest key renewal attempt
+      operationId: getLatestKeyRenewalAttempt
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+                  attempted_at:
+                    type: string
+                    format: date-time
+                required:
+                  - result
+                  - attempted_at
+                nullable: true
+
   /saml/test_metadata:
     post:
       summary: test metadata
