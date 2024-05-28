@@ -8313,6 +8313,7 @@ dependencies = [
  "libc",
  "ntapi",
  "once_cell",
+ "rayon",
  "windows",
 ]
 
@@ -9872,7 +9873,9 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "sqlx",
+ "sysinfo",
  "thiserror",
+ "tikv-jemalloc-ctl",
  "tokio",
  "tracing",
  "tracing-flame",
