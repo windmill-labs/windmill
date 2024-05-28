@@ -189,8 +189,19 @@ pub fn get_worker_memory_usage() -> Option<i64> {
 pub fn get_windmill_memory_usage() -> Option<i64> {
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     {
-        let resident = tikv_jemalloc_ctl::stats::resident::mib().unwrap();
-        i64::try_from(resident.read().unwrap()).ok()
+        match tikv_jemalloc_ctl::epoch::advance() {
+            Ok(_) => match tikv_jemalloc_ctl::stats::resident::read() {
+                Ok(resident) => i64::try_from(resident).ok(),
+                Err(e) => {
+                    tracing::error!("jemalloc resident memory read failed: {:?}", e);
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::error!("jemalloc epoch advance failed: {:?}", e);
+                None
+            }
+        }
     }
 
     #[cfg(any(target_env = "msvc", not(feature = "jemalloc")))]
