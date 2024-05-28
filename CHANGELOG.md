@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.338.1](https://github.com/windmill-labs/windmill/compare/v1.338.0...v1.338.1) (2024-05-28)
+
+
+### Bug Fixes
+
+* fix retry not working on single step flow due to opt ([6166c4d](https://github.com/windmill-labs/windmill/commit/6166c4d7aae9eddcee92f950959b9d2290bc917a))
+* remove quotes around interpolated arg values of tags ([8b66636](https://github.com/windmill-labs/windmill/commit/8b66636a8908c0043d2be63c6462ce28acc43fd9))
+
 ## [1.338.0](https://github.com/windmill-labs/windmill/compare/v1.337.0...v1.338.0) (2024-05-27)
 
 
