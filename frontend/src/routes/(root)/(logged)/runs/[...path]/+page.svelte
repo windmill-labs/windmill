@@ -35,6 +35,7 @@
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
@@ -97,7 +98,11 @@
 	let selectedManualDate = 0
 	let autoRefresh: boolean = true
 	let runDrawer: Drawer
+	let isCancelModalOpen = false
 	let cancelAllJobs = false
+	let cancelVisibleJobs = false
+	let cancelFilteredJobs = false
+
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
 	let externalJobs: Job[] | undefined = undefined
@@ -334,6 +339,8 @@
 		graph === 'ConcurrencyChart' &&
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
+
+	$: cancelableJobs = jobs?.filter((j) => j.type == 'QueuedJob' && j.running)
 </script>
 
 <JobLoader
@@ -367,18 +374,101 @@
 	bind:this={jobLoader}
 />
 
+<Modal title="Select what jobs to cancel" bind:open={isCancelModalOpen} cancelText="Return">
+	<div class="flex flex-col gap-3">
+		<Button
+			on:click={() => (cancelVisibleJobs = true)}
+			color="red"
+			disabled={!cancelableJobs || cancelableJobs.length === 0}
+			>Cancel {cancelableJobs?.length} visible jobs <Tooltip disabled={false}
+				>There are many things in the life</Tooltip
+			>
+		</Button>
+		<Button on:click={() => (cancelFilteredJobs = true)} color="red"
+			>Cancel all jobs based on the selected filters<Tooltip
+				>There are many things in the life</Tooltip
+			></Button
+		>
+		<Button on:click={() => (cancelAllJobs = true)} color="red"
+			>Cancel all jobs from this workspace<Tooltip>There are many things in the life</Tooltip
+			></Button
+		>
+	</div>
+</Modal>
+
 <ConfirmationModal
 	title="Confirm cancelling all jobs"
 	confirmationText="Cancel all jobs"
 	open={cancelAllJobs}
 	on:confirmed={async () => {
+		isCancelModalOpen = false
 		cancelAllJobs = false
 		let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}}
 	on:canceled={() => {
+		isCancelModalOpen = false
 		cancelAllJobs = false
+	}}
+/>
+
+<ConfirmationModal
+	title="Confirm cancelling all jobs correspoding to the selected filters"
+	confirmationText="Cancel all jobs matching the filters"
+	open={cancelFilteredJobs}
+	on:confirmed={async () => {
+		isCancelModalOpen = false
+		cancelFilteredJobs = false
+		let uuids = await JobService.cancelFiltered({
+			workspace: $workspaceStore ?? '',
+			startedBefore: maxTs,
+			startedAfter: minTs,
+			schedulePath,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			jobKinds,
+			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			running: success == 'running' ? true : undefined,
+			// isSkipped: isSkipped ? undefined : false,
+			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			// label: label === null || label === '' ? undefined : label,
+			isNotSchedule: showSchedules == false ? true : undefined,
+			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined,
+			allWorkspaces: allWorkspaces ? true : undefined,
+			concurrencyKey: concurrencyKey ?? undefined,
+		})
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+	}}
+	on:canceled={() => {
+		isCancelModalOpen = false
+		cancelFilteredJobs = false
+	}}
+/>
+
+<ConfirmationModal
+	title={`Confirm cancelling the jobs visible on this page`}
+	confirmationText={`Cancel ${cancelableJobs?.length} jobs`}
+	open={cancelVisibleJobs}
+	on:confirmed={async () => {
+		isCancelModalOpen = false
+		cancelVisibleJobs = false
+		console.log(cancelableJobs?.map((x) => x.id))
+		let uuids = await JobService.cancelSelection({ workspace: $workspaceStore ?? '', requestBody: cancelableJobs?.map((x) => x.id) ?? []})
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+	}}
+	on:canceled={() => {
+		isCancelModalOpen = false
+		cancelVisibleJobs = false
 	}}
 />
 
@@ -497,7 +587,7 @@
 					variant="contained"
 					title="Require to be an admin. Cancel all jobs in queue"
 					disabled={!$userStore?.is_admin && !$superadmin}
-					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
+					on:click={async () => (isCancelModalOpen = true)}>Cancel jobs...</Button
 				>
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40">
@@ -724,7 +814,7 @@
 					variant="contained"
 					title="Require to be an admin. Cancel all jobs in queue"
 					disabled={!$userStore?.is_admin && !$superadmin}
-					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
+					on:click={async () => (isCancelModalOpen = true)}>Cancel jobs...</Button
 				>
 			</div>
 			<div class="flex gap-2 py-1">

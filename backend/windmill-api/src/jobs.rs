@@ -934,6 +934,7 @@ pub struct ListQueueQuery {
     pub is_flow_step: Option<bool>,
     pub has_null_parent: Option<bool>,
     pub is_not_schedule: Option<bool>,
+    pub concurrency_key: Option<String>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -962,6 +963,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             is_flow_step: lcq.is_flow_step,
             has_null_parent: lcq.has_null_parent,
             is_not_schedule: lcq.is_not_schedule,
+            concurrency_key: lcq.concurrency_key,
         }
     }
 }
@@ -1215,10 +1217,26 @@ async fn cancel_selection(
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
 
-    Query(jobs): Query<Vec<JobToCancel>>,
     Path(w_id): Path<String>,
+    Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    cancel_jobs(jobs, &db, authed.username.as_str(), w_id.as_str(), rsmq).await
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let jobs_to_cancel = sqlx::query_as!(
+        JobToCancel,
+        "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1)",
+        &jobs
+    )
+    .fetch_all(&db)
+    .await?;
+    cancel_jobs(
+        jobs_to_cancel,
+        &db,
+        authed.username.as_str(),
+        w_id.as_str(),
+        rsmq,
+    )
+    .await
 }
 
 async fn cancel_filtered(
@@ -1228,7 +1246,6 @@ async fn cancel_filtered(
 
     Path(w_id): Path<String>,
     Query(lq): Query<ListQueueQuery>,
-    Query(concurrency_key): Query<Option<String>>,
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -1236,10 +1253,9 @@ async fn cancel_filtered(
         .fields(&["id", "running, is_flow_step"])
         .clone();
 
-    sqlb = join_concurrency_key(concurrency_key.as_ref(), sqlb);
+    sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
 
-    sqlb.and_where_ge("scheduled_for", "now()")
-        .and_where_eq("workspace_id", "?".bind(&w_id))
+    sqlb.and_where_le("scheduled_for", "now()")
         .and_where_is_null("schedule_path");
 
     sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str());
@@ -4181,6 +4197,7 @@ pub struct ListCompletedQuery {
     pub has_null_parent: Option<bool>,
     pub label: Option<String>,
     pub is_not_schedule: Option<bool>,
+    pub concurrency_key: Option<String>,
 }
 
 async fn list_completed_jobs(

@@ -5384,7 +5384,7 @@ paths:
 
   /w/{workspace}/jobs/queue/cancel_filtered:
     post:
-      summary: cancel all jobs respecting the given filters
+      summary: cancel all jobs matching the given filters
       operationId: cancelFiltered
       tags:
         - job
@@ -5409,6 +5409,11 @@ paths:
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: concurrency_key
+          in: query
+          required: false
+          schema:
+            type: string
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -5419,11 +5424,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: concurrency_key
-          in: query
-          required: false
-          schema:
-            type: string
       responses:
         "200":
           description: uuids of canceled jobs
@@ -5442,14 +5442,23 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: jobsToCancel
+        - name: jobs
           description: uuids of the jobs to cancel
-          in: query
+          in: body
           required: true
           schema:
             type: array
             items:
               type: string
+      requestBody:
+        description: create group
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
       responses:
         "200":
           description: uuids of canceled jobs
