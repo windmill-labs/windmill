@@ -212,7 +212,7 @@
 	}
 
 	function phpCompile(schema: Schema) {
-		let res = '	'
+		let res = '  '
 		const entries = Object.entries(schema.properties)
 		if (entries.length === 0) {
 			return 'array'

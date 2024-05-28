@@ -1836,6 +1836,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 SET running = false
                 , started_at = null
                 , scheduled_for = '{estimated_next_schedule_timestamp}'
+                , last_ping = null
                 WHERE id = '{job_uuid}'
                 RETURNING tag"
             ))
@@ -1858,6 +1859,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 SET running = false
                 , started_at = null
                 , scheduled_for = $1
+                , last_ping = null
                 WHERE id = $2",
                 estimated_next_schedule_timestamp,
                 job_uuid,
