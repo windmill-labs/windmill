@@ -7,6 +7,7 @@ edition.workspace = true
 [features]
 default = []
 enterprise = []
+jemalloc = ["dep:tikv-jemalloc-ctl"]
 prometheus = ["dep:prometheus"]
 flamegraph = ["dep:tracing-flame"]
 loki = ["dep:tracing-loki"]
@@ -49,3 +50,7 @@ aws-sdk-sts = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes = { workspace = true, optional = true }
 mail-send.workspace = true
+sysinfo.workspace = true
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemalloc-ctl = { optional = true, workspace = true }

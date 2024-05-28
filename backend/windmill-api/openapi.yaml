@@ -9913,6 +9913,8 @@ components:
           type: number
         memory_usage:
           type: number
+        wm_memory_usage:
+          type: number
       required:
         - worker
         - worker_instance

@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_common::worker::{get_worker_memory_usage, TMP_DIR};
+use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR};
 
 use anyhow::Result;
 use const_format::concatcp;
@@ -1427,13 +1427,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
             let memory_usage = get_worker_memory_usage();
-
+            let wm_memory_usage = get_windmill_memory_usage();
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $5",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
                 worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
                 memory_usage,
+                wm_memory_usage,
                 &worker_name
             ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
