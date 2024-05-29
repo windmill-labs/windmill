@@ -51,12 +51,12 @@ pub fn global_service() -> Router {
 
     #[cfg(feature = "parquet")]
     {
-        r.route("/test_object_storage_config", post(test_s3_bucket));
+        return r.route("/test_object_storage_config", post(test_s3_bucket));
     }
 
     #[cfg(not(feature = "parquet"))]
     {
-        r
+        return r;
     }
 }
 
@@ -313,6 +313,7 @@ pub async fn renew_license_key() -> Result<String> {
 #[cfg(feature = "enterprise")]
 pub async fn renew_license_key(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
     let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db).await;
 
     if result != "success" {

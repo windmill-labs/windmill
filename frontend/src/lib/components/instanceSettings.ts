@@ -78,11 +78,10 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Dev instance',
-			description: 'Indicate if this is a development instance',
+			label: 'Non-prod instance',
+			description: 'Whether we should consider the reported usage of this instance as non-prod',
 			key: 'dev_instance',
 			fieldType: 'boolean',
-			placeholder: 'only needed to prepare upgrade to EE',
 			storage: 'setting',
 			ee_only: 'This is only relevant for EE'
 		},
