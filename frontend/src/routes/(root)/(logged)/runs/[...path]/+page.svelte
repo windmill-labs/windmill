@@ -38,6 +38,7 @@
 
 	let jobs: Job[] | undefined
 	let selectedId: string | undefined = undefined
+	let selectedIds: string[] = []
 	let selectedWorkspace: string | undefined = undefined
 
 	// All Filters
@@ -464,6 +465,8 @@
 			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
+					bind:selectedIds
+					bind:selectedId
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -629,6 +632,10 @@
 								workspace={selectedWorkspace}
 							/>
 						{/if}
+					{:else if selectedIds.length > 1}
+						<div class="text-xs m-4"
+							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
+						>
 					{:else}
 						<div class="text-xs m-4">No job selected</div>
 					{/if}
@@ -689,6 +696,8 @@
 			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
+					bind:selectedIds
+					bind:selectedId
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}

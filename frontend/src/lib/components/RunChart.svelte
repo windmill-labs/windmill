@@ -22,11 +22,19 @@
 	export let maxIsNow: boolean = false
 	export let minTimeSet: string | undefined = undefined
 	export let maxTimeSet: string | undefined = undefined
+	export let selectedId: string | undefined = undefined
+	export let selectedIds: string[] = []
 
 	const dispatch = createEventDispatcher()
+	const SUCCESS_COLOR = '#4ade80'
+	// const SUCCESS_COLOR_TRANSPARENT = '#c9b638'
+	const SUCCESS_COLOR_TRANSPARENT = mergeColors(SUCCESS_COLOR, getBackgorundColor(), 0.8)
+	const FAIL_COLOR = '#f87171'
+	const FAIL_COLOR_TRANSPARENT = mergeColors(FAIL_COLOR, getBackgorundColor(), 0.8)
 
 	$: success = jobs?.filter((x) => x.success)
 	$: failed = jobs?.filter((x) => !x.success)
+
 	ChartJS.register(
 		Title,
 		Tooltip,
@@ -44,8 +52,9 @@
 		labels: ['Duration'],
 		datasets: [
 			{
-				// borderColor: 'rgba(99,0,125, .2)',
-				backgroundColor: '#f87171',
+				borderColor: 'rgba(99,0,125, 0)',
+				backgroundColor: FAIL_COLOR,
+				radius: 3,
 				label: 'Failed',
 				data:
 					failed?.map((job) => ({
@@ -56,8 +65,9 @@
 					})) ?? []
 			},
 			{
-				// borderColor: 'rgba(99,0,125, .2)',
-				backgroundColor: '#4ade80',
+				borderColor: 'rgba(99,0,125, 0)',
+				backgroundColor: SUCCESS_COLOR,
+				radius: 3,
 				label: 'Successful',
 				data:
 					success?.map((job) => ({
@@ -93,6 +103,59 @@
 				})
 			}
 		}
+	}
+
+	function getBackgorundColor(): string {
+		const isDark = document.documentElement.classList.contains('dark')
+
+		return isDark ? '#2e3440' : '#ffffff'
+	}
+	function hexToRgb(hexColor: string): number[] {
+		hexColor = hexColor.replace(/^#/, '')
+
+		const r = parseInt(hexColor.substring(0, 2), 16)
+		const g = parseInt(hexColor.substring(2, 4), 16)
+		const b = parseInt(hexColor.substring(4, 6), 16)
+
+		return [r, g, b]
+	}
+
+	function rgbToHex(rgbColor: number[]): string {
+		// Convert RGB components to hexadecimal string
+		return (
+			'#' +
+			rgbColor
+				.map((c) => {
+					const hex = c.toString(16)
+					return hex.length === 1 ? '0' + hex : hex
+				})
+				.join('')
+		)
+	}
+
+	function mergeColors(color1: string, color2: string, slider: number): string {
+		const rgb1 = hexToRgb(color1)
+		const rgb2 = hexToRgb(color2)
+
+		// Blend colors based on percentage
+		const blendedRgb = rgb1.map((c1, i) => Math.round(c1 * (1 - slider) + rgb2[i] * slider))
+
+		return rgbToHex(blendedRgb)
+	}
+
+	function highlightSelectedPoints(ids: string[]) {
+		if (ids.length === 0) {
+			data.datasets[0].backgroundColor = FAIL_COLOR
+			data.datasets[1].backgroundColor = SUCCESS_COLOR
+		} else {
+			data.datasets[0].backgroundColor = data.datasets[0].data.map((p) =>
+				ids.includes(p.id) ? FAIL_COLOR : FAIL_COLOR_TRANSPARENT
+			)
+			data.datasets[1].backgroundColor = data.datasets[1].data.map((p) =>
+				ids.includes(p.id) ? SUCCESS_COLOR : SUCCESS_COLOR_TRANSPARENT
+			)
+		}
+		selectedIds = ids
 	}
 
 	function getPath(x: any): string {
@@ -176,6 +239,15 @@
 				}
 			}
 		},
+		onClick: (e, u) => {
+			const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
+			highlightSelectedPoints(ids)
+			if (u.length == 1) {
+				selectedId = ids[0]
+			} else {
+				selectedId = undefined
+			}
+		},
 
 		scales: {
 			x: {
@@ -199,6 +271,7 @@
 		},
 		animation: false
 	} as any
+	$: selectedId && highlightSelectedPoints([selectedId])
 </script>
 
 <!-- {JSON.stringify(minTime)}
