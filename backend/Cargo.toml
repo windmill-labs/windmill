@@ -254,3 +254,6 @@ sysinfo = "0.30.12"
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
+
+# 0.1.12 broken (nested dependency of swc_common) 
+triomphe = "<0.1.12"
