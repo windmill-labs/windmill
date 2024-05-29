@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.339.0](https://github.com/windmill-labs/windmill/compare/v1.338.3...v1.339.0) (2024-05-29)
+
+
+### Features
+
+* display last key renewal attempt ([#3839](https://github.com/windmill-labs/windmill/issues/3839)) ([dc2d7e1](https://github.com/windmill-labs/windmill/commit/dc2d7e1c8f5f7c50be04cfea6986ce03a3e33c7b))
+
 ## [1.338.3](https://github.com/windmill-labs/windmill/compare/v1.338.2...v1.338.3) (2024-05-29)
 
 
