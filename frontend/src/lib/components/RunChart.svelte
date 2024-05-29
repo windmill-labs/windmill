@@ -22,7 +22,6 @@
 	export let maxIsNow: boolean = false
 	export let minTimeSet: string | undefined = undefined
 	export let maxTimeSet: string | undefined = undefined
-	export let selectedId: string | undefined = undefined
 	export let selectedIds: string[] = []
 
 	const dispatch = createEventDispatcher()
@@ -49,7 +48,6 @@
 	)
 
 	$: data = {
-		labels: ['Duration'],
 		datasets: [
 			{
 				borderColor: 'rgba(99,0,125, 0)',
@@ -155,7 +153,6 @@
 				ids.includes(p.id) ? SUCCESS_COLOR : SUCCESS_COLOR_TRANSPARENT
 			)
 		}
-		selectedIds = ids
 	}
 
 	function getPath(x: any): string {
@@ -241,12 +238,7 @@
 		},
 		onClick: (e, u) => {
 			const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
-			highlightSelectedPoints(ids)
-			if (u.length == 1) {
-				selectedId = ids[0]
-			} else {
-				selectedId = undefined
-			}
+			selectedIds = ids
 		},
 
 		scales: {
@@ -271,7 +263,9 @@
 		},
 		animation: false
 	} as any
-	$: selectedId && highlightSelectedPoints([selectedId])
+
+	$: highlightSelectedPoints(selectedIds)
+
 </script>
 
 <!-- {JSON.stringify(minTime)}

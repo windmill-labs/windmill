@@ -37,7 +37,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	let jobs: Job[] | undefined
-	let selectedId: string | undefined = undefined
 	let selectedIds: string[] = []
 	let selectedWorkspace: string | undefined = undefined
 
@@ -248,7 +247,7 @@
 		jobs = undefined
 		completedJobs = undefined
 		selectedManualDate = 0
-		selectedId = undefined
+		selectedIds = []
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -385,11 +384,11 @@
 
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
-		{#if selectedId}
-			{#if selectedId === '-'}
+		{#if selectedIds.length === 1}
+			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
 			{:else}
-				<JobPreview blankLink id={selectedId} workspace={selectedWorkspace} />
+				<JobPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
 			{/if}
 		{/if}
 	</DrawerContent>
@@ -466,7 +465,6 @@
 			{#if graph === 'RunChart'}
 				<RunChart
 					bind:selectedIds
-					bind:selectedId
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -605,7 +603,7 @@
 							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
-							bind:selectedId
+							bind:selectedIds
 							bind:selectedWorkspace
 							on:filterByPath={filterByPath}
 							on:filterByUser={filterByUser}
@@ -622,13 +620,13 @@
 					{/if}
 				</Pane>
 				<Pane size={40} minSize={15} class="border-t">
-					{#if selectedId}
-						{#if selectedId === '-'}
+					{#if selectedIds.length === 1}
+						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
 							<JobPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
-								id={selectedId}
+								id={selectedIds[0]}
 								workspace={selectedWorkspace}
 							/>
 						{/if}
@@ -697,7 +695,6 @@
 			{#if graph === 'RunChart'}
 				<RunChart
 					bind:selectedIds
-					bind:selectedId
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -837,7 +834,7 @@
 				externalJobs={externalJobs ?? []}
 				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 				showExternalJobs={!graphIsRunsChart}
-				bind:selectedId
+				bind:selectedIds
 				bind:selectedWorkspace
 				on:select={() => {
 					runDrawer.openDrawer()
