@@ -39,6 +39,7 @@
 </script>
 
 <CapturePayload bind:this={capturePayload} />
+
 <FlowCard {noEditor} title="Flow Input">
 	<div class="p-6">
 		<div class="flex flex-row items-center gap-2 pb-2 border-b border-gray-400">
@@ -90,8 +91,7 @@
 			/>
 		</div>
 	</div>
-	<div class="p-6">
-		<h2 class="mb-4">Customize Flow Inputs</h2>
+	<div class="">
 		<EditableSchemaForm bind:schema={$flowStore.schema} />
 	</div>
 </FlowCard>

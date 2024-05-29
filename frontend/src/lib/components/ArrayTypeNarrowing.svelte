@@ -2,6 +2,7 @@
 	import { Plus, X } from 'lucide-svelte'
 	import { Button } from './common'
 	import { fade } from 'svelte/transition'
+	import Label from './Label.svelte'
 
 	export let itemsType:
 		| {
@@ -19,34 +20,35 @@
 			: 'string'
 </script>
 
-<select
-	bind:value={selected}
-	on:change={() => {
-		if (selected == 'enum') {
-			itemsType = { type: 'string', enum: [] }
-		} else if (selected == 'string') {
-			itemsType = { type: 'string' }
-		} else if (selected == 'number') {
-			itemsType = { type: 'number' }
-		} else if (selected == 'object') {
-			itemsType = { type: 'object' }
-		} else if (selected == 'bytes') {
-			itemsType = { type: 'string', contentEncoding: 'base64' }
-		} else {
-			itemsType = undefined
-		}
-	}}
-	id="array-type-narrowing"
->
-	<option value="string"> Items are strings</option>
-	<option value="enum">Items are strings from an enum</option>
-	<option value="object"> Items are objects (JSON)</option>
-	<option value="number">Items are numbers</option>
-	<option value="bytes">Items are bytes</option>
-</select>
+<Label label="Items type">
+	<select
+		bind:value={selected}
+		on:change={() => {
+			if (selected == 'enum') {
+				itemsType = { type: 'string', enum: [] }
+			} else if (selected == 'string') {
+				itemsType = { type: 'string' }
+			} else if (selected == 'number') {
+				itemsType = { type: 'number' }
+			} else if (selected == 'object') {
+				itemsType = { type: 'object' }
+			} else if (selected == 'bytes') {
+				itemsType = { type: 'string', contentEncoding: 'base64' }
+			} else {
+				itemsType = undefined
+			}
+		}}
+		id="array-type-narrowing"
+	>
+		<option value="string"> Items are strings</option>
+		<option value="enum">Items are strings from an enum</option>
+		<option value="object"> Items are objects (JSON)</option>
+		<option value="number">Items are numbers</option>
+		<option value="bytes">Items are bytes</option>
+	</select>
+</Label>
 {#if Array.isArray(itemsType?.enum)}
-	<div class="pt-1" />
-	<label for="input" class="mb-2 text-secondary text-xs">
+	<label for="input" class="text-secondary text-xs">
 		Enums
 		<div class="flex flex-col gap-1">
 			{#each itemsType?.enum || [] as e}

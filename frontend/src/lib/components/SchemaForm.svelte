@@ -34,6 +34,7 @@
 	export let showSchemaExplorer = false
 	export let showReset = false
 	export let onlyMaskPassword = false
+	export let dndEnabled: boolean = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -129,6 +130,7 @@
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
 							<ArgInput
+								{dndEnabled}
 								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}

@@ -177,7 +177,8 @@
 			property.format,
 			property.enum_,
 			property.contentEncoding,
-			property.pattern
+			property.pattern,
+			undefined
 		)
 	}
 </script>

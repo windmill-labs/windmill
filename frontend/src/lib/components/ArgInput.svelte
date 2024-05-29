@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat, emptyString, shouldDisplayPlaceholder } from '$lib/utils'
-	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
+	import { DollarSign, GripVertical, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
@@ -38,7 +38,6 @@
 	export let label: string = ''
 	export let value: any
 	export let previewEnabled: boolean = true
-	export let defaultValue: any = undefined
 
 	export let description: string = ''
 	export let format: string = ''
@@ -81,6 +80,10 @@
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
 	export let editor: SimpleEditor | undefined = undefined
+	export let dndEnabled: boolean = false
+	export let defaultValue: any = undefined
+	export let propsNames: any = []
+	export let showExpr: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -202,6 +205,14 @@
 	let itemsLimit = 50
 
 	$: validateInput(pattern, value, required)
+
+	function getResourceTypesFromFormat(format: string | undefined): string[] {
+		if (format?.startsWith('resource-')) {
+			return [format.split('-')[1]]
+		}
+
+		return []
+	}
 </script>
 
 <S3FilePicker
@@ -213,25 +224,31 @@
 	}}
 	readOnlyMode={false}
 />
-<!-- svelte-ignore a11y-autofocus -->
-<div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
-	<div>
-		{#if displayHeader}
-			<FieldHeader
-				prettify={prettifyHeader}
-				label={title && !emptyString(title) ? title : label}
-				{disabled}
-				{required}
-				{type}
-				{contentEncoding}
-				{format}
-				{simpleTooltip}
-			/>
-		{/if}
+<div class="flex flex-row items-center justify-between w-full gap-2">
+	<!-- svelte-ignore a11y-autofocus -->
+	<div class={twMerge('flex flex-col w-full', 'gap-1', minW ? 'min-w-[250px]' : '')}>
+		<div>
+			{#if displayHeader}
+				<FieldHeader
+					prettify={prettifyHeader}
+					label={title && !emptyString(title) ? title : label}
+					{disabled}
+					{required}
+					{type}
+					{contentEncoding}
+					{format}
+					{simpleTooltip}
+				/>
+			{/if}{#if description && previewEnabled}
+				<div class="text-xs italic text-secondary">
+					<pre class="font-main whitespace-normal">{description}</pre>
+				</div>
+			{/if}
+		</div>
+
 		{#if editableSchema}
 			<Label label="Description">
 				<textarea
-					class="mb-1"
 					use:autosize
 					rows="1"
 					bind:value={description}
@@ -244,7 +261,8 @@
 				<svelte:fragment slot="header">
 					<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
 				</svelte:fragment>
-				<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
+
+				<input bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
 			</Label>
 
 			<Label label="Placeholder">
@@ -266,60 +284,115 @@
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
 			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
-				<div class="mt-8">
-					<Section label="Field settings" small>
-						<div class="mt-2">
-							{#if type == 'string'}
-								<StringTypeNarrowing
-									bind:customErrorMessage
-									bind:format
-									bind:pattern
-									bind:enum_
-									bind:contentEncoding
-									bind:password={extra['password']}
-									bind:minRows={extra['minRows']}
-									bind:disableCreate={extra['disableCreate']}
-									bind:disableVariablePicker={extra['disableVariablePicker']}
-									bind:dateFormat={extra['dateFormat']}
-								/>
-							{:else if type == 'number' || type == 'integer'}
-								<NumberTypeNarrowing
-									bind:min={extra['min']}
-									bind:max={extra['max']}
-									bind:currency={extra['currency']}
-									bind:currencyLocale={extra['currencyLocale']}
-								/>
-							{:else if type == 'object'}
-								<ObjectTypeNarrowing bind:format />
-							{/if}
-						</div>
-
-						{#if !required && type === 'string'}
-							<div class="mt-2 border-t pt-4">
-								<Toggle
-									options={{
-										right: 'Nullable',
-										rightTooltip:
-											'If enabled, the default value will be null and not an empty string.'
-									}}
-									size="xs"
-									bind:checked={extra.nullable}
-								/>
-							</div>
+				<Section label="Field settings" small>
+					<div class="mt-2">
+						{#if type == 'string'}
+							<StringTypeNarrowing
+								bind:customErrorMessage
+								bind:format
+								bind:pattern
+								bind:enum_
+								bind:contentEncoding
+								bind:password={extra['password']}
+								bind:minRows={extra['minRows']}
+								bind:disableCreate={extra['disableCreate']}
+								bind:disableVariablePicker={extra['disableVariablePicker']}
+								bind:dateFormat={extra['dateFormat']}
+							/>
+						{:else if type == 'number' || type == 'integer'}
+							<NumberTypeNarrowing
+								bind:min={extra['min']}
+								bind:max={extra['max']}
+								bind:currency={extra['currency']}
+								bind:currencyLocale={extra['currencyLocale']}
+							/>
+						{:else if type == 'object'}
+							<ObjectTypeNarrowing bind:format />
 						{/if}
-					</Section>
-				</div>
+					</div>
+				</Section>
 			{/if}
+
+			<div>
+				<div class="flex flex-col gap-2">
+					<Label label="Default">
+						<svelte:self
+							{itemPicker}
+							resourceTypes={getResourceTypesFromFormat(format)}
+							bind:value={defaultValue}
+							type={password ? 'string' : type}
+							displayHeader={false}
+							{pattern}
+							{customErrorMessage}
+							{itemsType}
+							{contentEncoding}
+							{format}
+							{extra}
+							{nullable}
+							{title}
+							{placeholder}
+							{variableEditor}
+						/>
+					</Label>
+					<Toggle
+						options={{ right: 'Required' }}
+						size="xs"
+						bind:checked={required}
+						on:change={(event) => {
+							if (event?.detail) {
+								nullable = false
+							}
+						}}
+					/>
+					{#if type === 'string'}
+						<Toggle
+							options={{
+								right: 'Nullable',
+								rightTooltip: 'If enabled, the default value will be null and not an empty string.'
+							}}
+							size="xs"
+							bind:checked={nullable}
+							disabled={required}
+						/>
+					{/if}
+				</div>
+			</div>
+
+			<div>
+				<Toggle
+					size="xs"
+					options={{ right: 'Show this field only when conditions are met' }}
+					checked={Boolean(showExpr)}
+					on:change={() => {
+						showExpr = showExpr ? undefined : 'true //fields.foo == 42'
+					}}
+				/>
+				{#if showExpr != undefined}
+					<div class="border">
+						<SimpleEditor
+							extraLib={`declare const fields: Record<${propsNames
+								.filter((x) => x != name)
+								.map((x) => `"${x}"`)
+								.join(' | ')}, any>;\n`}
+							lang="javascript"
+							bind:code={showExpr}
+							shouldBindKey={false}
+							fixedOverflowWidgets={false}
+							autoHeight
+						/>
+					</div>
+					<div class="flex flex-row-reverse text-2xs text-tertiary"
+						><div
+							>Other fields are available under <code>fields</code> (e.g:
+							<code>fields.foo == 42</code>)</div
+						></div
+					>
+				{/if}
+			</div>
 
 			{#if previewEnabled}
 				<span class="text-2xs font-semibold">Preview:</span>
 			{/if}
-		{/if}
-
-		{#if description && previewEnabled}
-			<div class="text-xs italic pb-1 text-secondary">
-				<pre class="font-main whitespace-normal">{description}</pre>
-			</div>
 		{/if}
 
 		{#if previewEnabled}
@@ -748,6 +821,9 @@
 			<div class="mb-2" />
 		{/if}
 	</div>
+	{#if dndEnabled}
+		<GripVertical class="w-4 h-4 text-gray-500 cursor-move" />
+	{/if}
 </div>
 
 <style>

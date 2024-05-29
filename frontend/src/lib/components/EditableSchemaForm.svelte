@@ -7,10 +7,13 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { slide } from 'svelte/transition'
 
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { twMerge } from 'tailwind-merge'
+	import { size } from 'lodash'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -26,6 +29,8 @@
 	export let noDelete = false
 	export let prettifyHeader = false
 	export let disablePortal = false
+	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
+	export let offset = 48 + 31 + 31 + 16 + 1
 
 	function changePosition(i: number, up: boolean): any {
 		const entries = Object.entries(schema.properties)
@@ -116,71 +121,98 @@
 	}
 
 	let wrapperHeight: number | undefined = undefined
-	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
-	const offset = 48 + 31 + 31 + 16 + 1
+
+	$: opened = keys?.[0] as string | undefined
 </script>
 
 <div style={`height: calc(100vh - ${offset}px);`} bind:clientHeight={wrapperHeight}>
 	<Splitpanes>
-		<Pane size={50}>
+		<Pane size={50} minSize={20}>
 			<div class="p-4" style={`height: ${wrapperHeight}px; overflow-y: auto;`}>
-				<SchemaForm {schema} bind:args />
+				<SchemaForm {schema} bind:args dndEnabled />
 			</div>
 		</Pane>
-		<Pane size={50}>
+		<Pane size={50} minSize={20}>
 			<div
-				class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} divide-y"
-				style={`height: ${wrapperHeight}px; overflow-y: auto;`}
+				class="w-full {clazz} {flexWrap
+					? 'flex flex-row flex-wrap gap-x-6 '
+					: ''} divide-y overflow-y-auto"
+				style={`height: ${wrapperHeight}px;`}
 			>
 				{#if keys.length > 0}
 					{#each keys as argName, i (argName)}
-						<div class="border-t">
-							<div class="w-full flex bg-gray-50 px-4 py-1 border-b justify-between items-center">
+						<div>
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<div
+								class={twMerge(
+									'w-full flex bg-gray-50 px-4 py-1 justify-between items-center hover:bg-gray-100 cursor-pointer',
+									opened === argName ? 'bg-gray-100 hover:bg-gray-200' : ''
+								)}
+								on:click={() => {
+									if (opened === argName) {
+										opened = undefined
+									} else {
+										opened = argName
+									}
+								}}
+							>
 								{argName}
 								{#if schema.required?.includes(argName)}
 									<span class="text-red-500 text-xs"> Required </span>
 								{/if}
+								<Button
+									size="xs"
+									color="red"
+									variant="border"
+									on:click={() => changePosition(i, true)}
+								>
+									Delete
+								</Button>
 							</div>
-							<div class="p-4">
-								{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-									{#if typeof args == 'object' && schema?.properties[argName]}
-										<ArgInput
-											displayHeader={false}
-											previewEnabled={false}
-											{disablePortal}
-											{resourceTypes}
-											{prettifyHeader}
-											autofocus={i == 0 && autofocus}
-											label={argName}
-											bind:description={schema.properties[argName].description}
-											bind:value={args[argName]}
-											type={schema.properties[argName].type}
-											required={schema.required?.includes(argName) ?? false}
-											bind:pattern={schema.properties[argName].pattern}
-											bind:valid={inputCheck[argName]}
-											defaultValue={schema.properties[argName].default}
-											bind:enum_={schema.properties[argName].enum}
-											bind:format={schema.properties[argName].format}
-											bind:contentEncoding={schema.properties[argName].contentEncoding}
-											bind:customErrorMessage={schema.properties[argName].customErrorMessage}
-											properties={schema.properties[argName].properties}
-											nestedRequired={schema.properties[argName].required}
-											bind:itemsType={schema.properties[argName].items}
-											editableSchema={{ i, total: keys.length }}
-											on:changePosition={(event) => changePosition(event.detail.i, event.detail.up)}
-											{compact}
-											{variableEditor}
-											{itemPicker}
-											bind:pickForField
-											bind:extra={schema.properties[argName]}
-											simpleTooltip={schemaFieldTooltip[argName]}
-											nullable={schema.properties[argName].nullable}
-											bind:title={schema.properties[argName].title}
-											bind:placeholder={schema.properties[argName].placeholder}
-										/>
+							{#if opened === argName}
+								<div class="p-4 border-t" transition:slide>
+									{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+										{#if typeof args == 'object' && schema?.properties[argName]}
+											<ArgInput
+												displayHeader={false}
+												previewEnabled={false}
+												{disablePortal}
+												{resourceTypes}
+												{prettifyHeader}
+												autofocus={i == 0 && autofocus}
+												label={argName}
+												bind:description={schema.properties[argName].description}
+												bind:value={args[argName]}
+												type={schema.properties[argName].type}
+												required={schema.required?.includes(argName) ?? false}
+												bind:pattern={schema.properties[argName].pattern}
+												bind:valid={inputCheck[argName]}
+												defaultValue={schema.properties[argName].default}
+												bind:enum_={schema.properties[argName].enum}
+												bind:format={schema.properties[argName].format}
+												bind:contentEncoding={schema.properties[argName].contentEncoding}
+												bind:customErrorMessage={schema.properties[argName].customErrorMessage}
+												properties={schema.properties[argName].properties}
+												nestedRequired={schema.properties[argName].required}
+												bind:itemsType={schema.properties[argName].items}
+												editableSchema={{ i, total: keys.length }}
+												on:changePosition={(event) =>
+													changePosition(event.detail.i, event.detail.up)}
+												{compact}
+												{variableEditor}
+												{itemPicker}
+												bind:pickForField
+												bind:extra={schema.properties[argName]}
+												simpleTooltip={schemaFieldTooltip[argName]}
+												nullable={schema.properties[argName].nullable}
+												bind:title={schema.properties[argName].title}
+												bind:placeholder={schema.properties[argName].placeholder}
+											/>
+										{/if}
 									{/if}
-								{/if}
-							</div>
+								</div>
+							{/if}
 						</div>
 					{/each}
 				{:else if !shouldHideNoInputs}
