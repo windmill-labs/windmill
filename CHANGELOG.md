@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.339.1](https://github.com/windmill-labs/windmill/compare/v1.339.0...v1.339.1) (2024-05-29)
+
+
+### Bug Fixes
+
+* allow_user_resoruces default deserialization ([7238274](https://github.com/windmill-labs/windmill/commit/7238274d1c7b80e831aa91eac3a6577d9ab462d4))
+
 ## [1.339.0](https://github.com/windmill-labs/windmill/compare/v1.338.3...v1.339.0) (2024-05-29)
 
 
