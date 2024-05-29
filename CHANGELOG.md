@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.338.3](https://github.com/windmill-labs/windmill/compare/v1.338.2...v1.338.3) (2024-05-29)
+
+
+### Bug Fixes
+
+* fix resource type search ([b01e335](https://github.com/windmill-labs/windmill/commit/b01e33523da72050bc08b47bd84e0d8fc88f6dda))
+
 ## [1.338.2](https://github.com/windmill-labs/windmill/compare/v1.338.1...v1.338.2) (2024-05-28)
 
 
