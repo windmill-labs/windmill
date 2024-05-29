@@ -20,12 +20,6 @@ pub async fn get_license_plan() -> LicensePlan {
     return Community;
 }
 
-#[cfg(feature = "enterprise")]
-pub async fn renew_license_key(_http_client: &reqwest::Client, _db: &crate::db::DB) -> String {
-    // Implementation is not open source
-    "".to_string()
-}
-
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum CriticalErrorChannel {}
