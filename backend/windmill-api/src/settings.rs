@@ -42,7 +42,12 @@ pub fn global_service() -> Router {
         )
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
-        .route("/send_stats", post(send_stats));
+        .route("/send_stats", post(send_stats))
+        .route(
+            "/latest_key_renewal_attempt",
+            get(get_latest_key_renewal_attempt),
+        )
+        .route("/renew_license_key", post(renew_license_key));
 
     #[cfg(feature = "parquet")]
     {
@@ -262,4 +267,61 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
 
     Ok("Sent stats".to_string())
+}
+
+#[derive(serde::Serialize)]
+pub struct KeyRenewalAttempt {
+    result: String,
+    attempted_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn get_latest_key_renewal_attempt(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<Option<KeyRenewalAttempt>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let last_attempt = sqlx::query!(
+        "SELECT value, created_at FROM metrics WHERE id = $1 ORDER BY created_at DESC LIMIT 1",
+        "license_key_renewal"
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    match last_attempt {
+        Some(last_attempt) => {
+            let last_attempt_result = serde_json::from_value::<String>(last_attempt.value)
+                .map_err(|e| {
+                    error::Error::InternalErr(format!("Failed to parse last attempt: {}", e))
+                })?;
+            Ok(Json(Some(KeyRenewalAttempt {
+                result: last_attempt_result,
+                attempted_at: last_attempt.created_at,
+            })))
+        }
+        None => Ok(Json(None)),
+    }
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn renew_license_key() -> Result<String> {
+    return Err(error::Error::BadRequest(
+        "License key renewal not available on community edition".to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn renew_license_key(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
+    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db).await;
+
+    if result != "success" {
+        return Err(error::Error::BadRequest(format!(
+            "Failed to renew license key: {}",
+            result
+        )));
+    } else {
+        return Ok("Renewed license key".to_string());
+    }
 }
