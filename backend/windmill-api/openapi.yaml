@@ -791,6 +791,20 @@ paths:
                   - attempted_at
                 nullable: true
 
+  /settings/renew_license_key:
+    post:
+      summary: renew license key
+      operationId: renewLicenseKey
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /saml/test_metadata:
     post:
       summary: test metadata

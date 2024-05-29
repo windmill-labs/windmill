@@ -13,10 +13,10 @@
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { capitalize, classNames, displayDate } from '$lib/utils'
+	import { capitalize, classNames } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
 	import CustomOauth from './CustomOauth.svelte'
-	import { AlertTriangle, Circle, Plus, X } from 'lucide-svelte'
+	import { AlertCircle, AlertTriangle, BadgeCheck, Info, Plus, X, BadgeX } from 'lucide-svelte'
 	import CustomSso from './CustomSso.svelte'
 	import AuthentikSetting from '$lib/components/AuthentikSetting.svelte'
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
@@ -150,7 +150,7 @@
 			try {
 				let i = parseInt(splitted[1])
 				let date = new Date(i * 1000)
-				return date.toDateString()
+				return date.toLocaleDateString()
 			} catch {}
 		}
 		return undefined
@@ -186,6 +186,17 @@
 	let clientName = ''
 
 	let licenseKeyChanged = false
+
+	export async function renewLicenseKey() {
+		try {
+			await SettingService.renewLicenseKey()
+			sendUserToast('Key renewal successful')
+			loadSettings()
+		} catch (err) {
+			latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
+			throw err
+		}
+	}
 </script>
 
 <div class="pb-8">
@@ -487,58 +498,77 @@
 													>
 														Test Key
 													</Button>
+													{#if $enterpriseLicense}
+														<Button on:click={renewLicenseKey} size="xs">Renew key</Button>
+													{/if}
 												</div>
-												<div class="flex flex-row gap-0.5 items-center">
-													<div class="">
-														{#if latestKeyRenewalAttempt}
+												<div class="mt-1 flex flex-col gap-1 items-start">
+													{#if values[setting.key]?.length > 0}
+														{#if parseDate(values[setting.key])}
+															<div class="flex flex-row gap-1 items-center">
+																<Info size={12} class="text-tertiary" />
+																<span class="text-tertiary text-xs"
+																	>License key expires on {parseDate(values[setting.key])}</span
+																>
+															</div>
+														{/if}
+													{/if}
+													{#if latestKeyRenewalAttempt}
+														{@const attemptedAt = new Date(
+															latestKeyRenewalAttempt.attempted_at
+														).toLocaleString()}
+														<div class="relative">
 															<Popover notClickable>
-																<Circle
-																	class={classNames(
-																		latestKeyRenewalAttempt.result === 'success'
-																			? 'text-green-600'
-																			: 'text-red-600',
-																		'inline-flex fill-current'
-																	)}
-																	size={12}
-																/>
-																<div slot="text">
-																	{@const attemptedAt = displayDate(
-																		new Date(latestKeyRenewalAttempt.attempted_at)
-																	)}
+																<div class="flex flex-row items-center gap-1">
 																	{#if latestKeyRenewalAttempt.result === 'success'}
-																		<span class="text-green-500">
+																		<BadgeCheck class="text-green-600" size={12} />
+																	{:else}
+																		<BadgeX class="text-red-600" size={12} />
+																	{/if}
+																	<span
+																		class={classNames(
+																			'text-xs',
+																			latestKeyRenewalAttempt.result === 'success'
+																				? 'text-green-600'
+																				: 'text-red-600'
+																		)}
+																	>
+																		{latestKeyRenewalAttempt.result === 'success'
+																			? 'Latest key renewal succeeded'
+																			: 'Latest key renewal failed'}
+																		on {attemptedAt}
+																	</span>
+																</div>
+																<div slot="text">
+																	{#if latestKeyRenewalAttempt.result === 'success'}
+																		<span class="text-green-300">
 																			Latest key renewal succeeded on {attemptedAt}
 																		</span>
 																	{:else}
-																		<span class="text-red-500">
+																		<span class="text-red-300">
 																			Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt.result.replace(
 																				'error: ',
 																				''
 																			)}
 																		</span>
 																	{/if}
+																	<br />
+																	As long as invoices are paid and usage corresponds to the subscription,
+																	the key is renewed daily with a validity of 35 days (grace period).
 																</div>
 															</Popover>
-														{/if}
-													</div>
-													<Tooltip>
-														As long as invoices are paid and usage corresponds to the subscription,
-														the key is renewed daily with a validity of 35 days (grace period).
-													</Tooltip>
-													{#if values[setting.key]?.length > 0}
-														{#if parseDate(values[setting.key])}
-															<span class="text-tertiary text-2xs mt-1"
-																>License key expires on {parseDate(values[setting.key])}</span
-															>
-														{/if}
+														</div>
+													{/if}
+													{#if licenseKeyChanged && !$enterpriseLicense}
+														<div class="flex flex-row items-center gap-1">
+															<AlertCircle size={12} class="text-yellow-600" />
+															<span class="text-xs text-yellow-600">
+																Refresh page after setting and saving license key to unlock all
+																features
+															</span>
+														</div>
 													{/if}
 												</div>
-												{#if licenseKeyChanged}
-													<div class="text-yellow-600"
-														>Refresh page after setting license key and saving to unlock all
-														features</div
-													>
-												{/if}
 											{:else if setting.fieldType == 'email'}
 												<input
 													type="email"
