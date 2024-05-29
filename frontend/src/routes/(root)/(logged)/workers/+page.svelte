@@ -346,7 +346,7 @@
 							<Cell head>Current job</Cell>
 							<Cell head>Occupancy rate</Cell>
 						{/if}
-						<Cell head>Memory usage<br />(Windmill usage)</Cell>
+						<Cell head>Memory usage<br />(Windmill)</Cell>
 						<Cell head>Limits</Cell>
 						<Cell head>Version</Cell>
 						<Cell head last>Liveness</Cell>
