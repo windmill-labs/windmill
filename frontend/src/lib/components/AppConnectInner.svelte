@@ -387,8 +387,6 @@
 		{#if filteredConnectsManual}
 			{#each filteredConnectsManual as [key, _]}
 				{#if nativeLanguagesCategory.includes(key)}
-					{JSON.stringify(key)}
-					{key}
 					<Button
 						size="sm"
 						variant="border"
