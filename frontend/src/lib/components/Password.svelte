@@ -47,6 +47,7 @@
 		id="password"
 		type="password"
 		bind:value={password}
+		on:keydown
 		autocomplete="off"
 		{placeholder}
 		{disabled}

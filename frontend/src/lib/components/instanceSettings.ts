@@ -78,6 +78,14 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Non-prod instance',
+			description: 'Whether we should consider the reported usage of this instance as non-prod',
+			key: 'dev_instance',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: 'This is only relevant for EE'
+		},
+		{
 			label: 'Retention Period in secs',
 			key: 'retention_period_secs',
 			description: 'How long to keep the jobs data in the database (max 30 days on CE)',
