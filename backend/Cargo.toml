@@ -65,7 +65,6 @@ windmill-worker.workspace = true
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
-tokio-metrics.workspace = true
 rand.workspace = true
 chrono.workspace = true
 git-version.workspace = true
@@ -191,7 +190,6 @@ dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
 futures-core = "^0"
-tokio-metrics = "0.1.0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
@@ -236,8 +234,7 @@ tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
 
-polars = { version = "0.38.3", features = ["lazy", "parquet", "aws", "azure", "csv", "dtype-full", "serde", "strings", "extract_groups"] }
-polars-io = { version = "0.38.3", features = ["csv"] }
+datafusion = "38.0.0"
 object_store = { version = "0.9.1", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
 

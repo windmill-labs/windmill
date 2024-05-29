@@ -687,8 +687,8 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         })
         .unwrap_or_else(|| rd_string(5));
 
-    #[cfg(tokio_unstable)]
-    let monitor = tokio_metrics::TaskMonitor::new();
+    // #[cfg(tokio_unstable)]
+    // let monitor = tokio_metrics::TaskMonitor::new();
 
     let ip = windmill_common::external_ip::get_ip()
         .await
@@ -747,15 +747,15 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 agent_mode,
             );
 
-            #[cfg(tokio_unstable)]
-            {
-                monitor.monitor(f, "worker").await
-            }
+            // #[cfg(tokio_unstable)]
+            // {
+            //     monitor.monitor(f, "worker").await
+            // }
 
-            #[cfg(not(tokio_unstable))]
-            {
-                f.await
-            }
+            // #[cfg(not(tokio_unstable))]
+            // {
+            f.await
+            // }
         }));
     }
 
