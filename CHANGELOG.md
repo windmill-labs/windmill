@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.339.2](https://github.com/windmill-labs/windmill/compare/v1.339.1...v1.339.2) (2024-05-29)
+
+
+### Bug Fixes
+
+* worker memory usage ([#3845](https://github.com/windmill-labs/windmill/issues/3845)) ([e052dd5](https://github.com/windmill-labs/windmill/commit/e052dd5f6e7d8f1f7799204dab2f98e023efaec1))
+
 ## [1.339.1](https://github.com/windmill-labs/windmill/compare/v1.339.0...v1.339.1) (2024-05-29)
 
 
