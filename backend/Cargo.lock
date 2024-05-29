@@ -1283,9 +1283,9 @@ dependencies = [
 
 [[package]]
 name = "bytemuck_derive"
-version = "1.6.1"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "369cfaf2a5bed5d8f8202073b2e093c9f508251de1551a0deb4253e4c7d80909"
+checksum = "1ee891b04274a59bd38b412188e24b849617b2e45a0fd8d057deb63e7403761b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1514,9 +1514,9 @@ dependencies = [
 
 [[package]]
 name = "clang-sys"
-version = "1.8.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a483f3cbf7cec2e153d424d0e92329d816becc6421389bd494375c6065921b9b"
+checksum = "0b023947811758c97c59bf9d1c188fd619ad4718dcaa767947df1cadb14f39f4"
 dependencies = [
  "glob",
  "libc",
@@ -2668,9 +2668,9 @@ dependencies = [
 
 [[package]]
 name = "event-listener"
-version = "5.3.0"
+version = "5.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d9944b8ca13534cdfb2800775f8dd4902ff3fc75a50101466decadfdf322a24"
+checksum = "6032be9bd27023a771701cc49f9f053c751055f71efb2e0ae5c15809093675ba"
 dependencies = [
  "concurrent-queue",
  "parking",
@@ -2693,7 +2693,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f214dc438f977e6d4e3500aaa277f5ad94ca83fbbd9b1a15713ce2344ccc5a1"
 dependencies = [
- "event-listener 5.3.0",
+ "event-listener 5.3.1",
  "pin-project-lite",
 ]
 
@@ -8313,6 +8313,7 @@ dependencies = [
  "libc",
  "ntapi",
  "once_cell",
+ "rayon",
  "windows",
 ]
 
@@ -8811,7 +8812,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "winnow 0.6.8",
+ "winnow 0.6.9",
 ]
 
 [[package]]
@@ -9019,9 +9020,9 @@ dependencies = [
 
 [[package]]
 name = "triomphe"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "859eb650cfee7434994602c3a68b25d77ad9e68c8a6cd491616ef86661382eb3"
+checksum = "1b2cb4fbb9995eeb36ac86fadf24031ccd58f99d6b4b2d7b911db70bddb80d90"
 dependencies = [
  "serde",
  "stable_deref_trait",
@@ -9697,7 +9698,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -9737,7 +9738,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9814,7 +9815,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9832,7 +9833,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "chrono",
  "serde",
@@ -9845,7 +9846,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -9872,7 +9873,9 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "sqlx",
+ "sysinfo",
  "thiserror",
+ "tikv-jemalloc-ctl",
  "tokio",
  "tracing",
  "tracing-flame",
@@ -9883,7 +9886,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -9898,7 +9901,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -9906,7 +9909,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9917,7 +9920,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -9929,7 +9932,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9940,7 +9943,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -9954,7 +9957,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -9965,7 +9968,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -9982,7 +9985,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -9993,7 +9996,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10011,7 +10014,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -10030,7 +10033,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10063,7 +10066,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "serde",
  "wasm-bindgen",
@@ -10074,7 +10077,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.338.1"
+version = "1.338.3"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10311,9 +10314,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.6.8"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3c52e9c97a68071b23e836c9380edae937f17b9c4667bd021973efc689f618d"
+checksum = "86c949fede1d13936a99f14fafd3e76fd642b556dd2ce96287fbe2e0151bfac6"
 dependencies = [
  "memchr",
 ]
@@ -10387,9 +10390,9 @@ checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
 
 [[package]]
 name = "yoke"
-version = "0.7.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65e71b2e4f287f467794c671e2b8f8a5f3716b3c829079a1c44740148eff07e4"
+checksum = "6c5b1314b079b0930c31e3af543d8ee1757b1951ae1e1565ec704403a7240ca5"
 dependencies = [
  "serde",
  "stable_deref_trait",
@@ -10399,9 +10402,9 @@ dependencies = [
 
 [[package]]
 name = "yoke-derive"
-version = "0.7.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e6936f0cce458098a201c245a11bef556c6a0181129c7034d10d76d1ec3a2b8"
+checksum = "28cc31741b18cb6f1d5ff12f5b7523e3d6eb0852bbbad19d73905511d9849b95"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10431,18 +10434,18 @@ dependencies = [
 
 [[package]]
 name = "zerofrom"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "655b0814c5c0b19ade497851070c640773304939a6c0fd5f5fb43da0696d05b7"
+checksum = "91ec111ce797d0e0784a1116d0ddcdbea84322cd79e5d5ad173daeba4f93ab55"
 dependencies = [
  "zerofrom-derive",
 ]
 
 [[package]]
 name = "zerofrom-derive"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6a647510471d372f2e6c2e6b7219e44d8c574d24fdc11c610a61455782f18c3"
+checksum = "0ea7b4a3637ea8669cedf0f1fd5c286a17f3de97b8dd5a70a6c167a1730e63a5"
 dependencies = [
  "proc-macro2",
  "quote",

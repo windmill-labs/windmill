@@ -329,7 +329,9 @@ Windmill Community Edition {GIT_VERSION}
         monitor_pool(&db).await;
 
         #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
-        monitor_mem().await;
+        if !worker_mode {
+            monitor_mem().await;
+        }
 
         let addr = SocketAddr::from((server_bind_address, port));
 

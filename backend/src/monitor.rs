@@ -250,20 +250,44 @@ pub async fn monitor_mem() {
 
         // Obtain a MIB for the `epoch`, `stats.allocated`, and
         // `atats.resident` keys:
-        let e = epoch::mib().unwrap();
-        let allocated = stats::allocated::mib().unwrap();
-        let resident = stats::resident::mib().unwrap();
+        let e = match epoch::mib() {
+            Ok(mib) => mib,
+            Err(e) => {
+                tracing::error!("Error getting jemalloc epoch mib: {:?}", e);
+                return;
+            }
+        };
+        let allocated = match stats::allocated::mib() {
+            Ok(mib) => mib,
+            Err(e) => {
+                tracing::error!("Error getting jemalloc allocated mib: {:?}", e);
+                return;
+            }
+        };
+        let resident = match stats::resident::mib() {
+            Ok(mib) => mib,
+            Err(e) => {
+                tracing::error!("Error getting jemalloc resident mib: {:?}", e);
+                return;
+            }
+        }; 
+        
         
         loop {
             // Many statistics are cached and only updated 
             // when the epoch is advanced:
-            e.advance().unwrap();
-            
-            // Read statistics using MIB key:
-            let allocated = allocated.read().unwrap();
-            let resident = resident.read().unwrap();
-            tracing::info!("{} mb allocated/{} mb resident", bytes_to_mb(allocated as u64), bytes_to_mb(resident as u64));
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            match e.advance() {
+                Ok(_) => {
+                    // Read statistics using MIB key:
+                    let allocated = allocated.read().unwrap_or_default();
+                    let resident = resident.read().unwrap_or_default();
+                    tracing::info!("{} mb allocated/{} mb resident", bytes_to_mb(allocated as u64), bytes_to_mb(resident as u64));
+                },
+                Err(e) => {
+                    tracing::error!("Error advancing jemalloc epoch: {:?}", e);
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(30)).await;
         }
     });
 }

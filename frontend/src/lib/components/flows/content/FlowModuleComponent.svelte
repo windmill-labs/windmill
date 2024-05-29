@@ -63,7 +63,6 @@
 	let modulePreview: ModulePreview
 	let websocketAlive = {
 		pyright: false,
-		black: false,
 		deno: false,
 		go: false,
 		ruff: false,
