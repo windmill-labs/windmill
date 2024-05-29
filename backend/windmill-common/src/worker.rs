@@ -7,7 +7,6 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{atomic::AtomicBool, Arc},
 };
-use sysinfo::{MemoryRefreshKind, System};
 use tokio::sync::RwLock;
 
 use crate::{error, global_settings::CUSTOM_TAGS_SETTING, server::ServerConfig, DB};
@@ -169,21 +168,117 @@ pub fn get_vcpus() -> Option<i64> {
 }
 
 pub fn get_memory() -> Option<i64> {
-    let mut sys = System::new();
-    sys.refresh_memory();
-    let limits = sys.cgroup_limits();
+    let mut memory = std::process::Command::new("cat")
+        .args(["/sys/fs/cgroup/memory.max"])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_string()
+                .trim()
+                .parse::<i64>()
+                .ok()
+        })
+        .flatten();
 
-    if let Some(limits) = limits {
-        i64::try_from(limits.total_memory).ok()
-    } else {
-        None
+    if memory.is_none() {
+        memory = std::process::Command::new("cat")
+            .args(["/sys/fs/cgroup/memory/memory.limit_in_bytes"])
+            .output()
+            .ok()
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_string()
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+            })
+            .flatten()
     }
+
+    memory
 }
 
 pub fn get_worker_memory_usage() -> Option<i64> {
-    let mut sys = System::new();
-    sys.refresh_memory_specifics(MemoryRefreshKind::new().with_ram());
-    i64::try_from(sys.used_memory()).ok()
+    let mut total_memory_usage = std::process::Command::new("cat")
+        .args(["/sys/fs/cgroup/memory.current"])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_string()
+                .trim()
+                .parse::<i64>()
+                .ok()
+        })
+        .flatten();
+
+    if total_memory_usage.is_none() {
+        total_memory_usage = std::process::Command::new("cat")
+            .args(["/sys/fs/cgroup/memory/memory.usage_in_bytes"])
+            .output()
+            .ok()
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_string()
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+            })
+            .flatten()
+    }
+
+    match total_memory_usage {
+        Some(total_memory_usage) => {
+            let mut inactive_file = std::process::Command::new("cat")
+                .args(["/sys/fs/cgroup/memory.stat"])
+                .output()
+                .ok()
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .to_string()
+                        .split("\n")
+                        .find(|s| s.starts_with("inactive_file"))
+                        .map(|s| {
+                            s.split(" ")
+                                .collect::<Vec<&str>>()
+                                .get(1)
+                                .map(|s| s.trim().parse::<i64>().ok())
+                                .flatten()
+                        })
+                        .flatten()
+                })
+                .flatten();
+
+            if inactive_file.is_none() {
+                inactive_file = std::process::Command::new("cat")
+                    .args(["/sys/fs/cgroup/memory/memory.stat"])
+                    .output()
+                    .ok()
+                    .map(|o| {
+                        String::from_utf8_lossy(&o.stdout)
+                            .to_string()
+                            .split("\n")
+                            .find(|s| s.starts_with("total_inactive_file"))
+                            .map(|s| {
+                                s.split(" ")
+                                    .collect::<Vec<&str>>()
+                                    .get(1)
+                                    .map(|s| s.trim().parse::<i64>().ok())
+                                    .flatten()
+                            })
+                            .flatten()
+                    })
+                    .flatten();
+            }
+
+            match inactive_file {
+                Some(inactive_file) => Some(total_memory_usage - inactive_file),
+                None => None,
+            }
+        }
+        None => None,
+    }
 }
 
 pub fn get_windmill_memory_usage() -> Option<i64> {

@@ -249,8 +249,6 @@ tar = "^0"
 http = "^1"
 async-stream = "^0"
 
-sysinfo = "0.30.12"
-
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
