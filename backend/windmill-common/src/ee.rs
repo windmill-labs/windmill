@@ -29,7 +29,7 @@ pub async fn trigger_critical_error_channels(_error_message: String) {}
 #[cfg(feature = "enterprise")]
 pub async fn renew_license_key(_http_client: &reqwest::Client, _db: &crate::db::DB) -> String {
     // Implementation is not open source
-    "License cannot be renewed in Windmill CE".to_string()
+    "".to_string()
 }
 
 #[cfg(feature = "enterprise")]
