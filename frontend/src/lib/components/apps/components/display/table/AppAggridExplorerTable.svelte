@@ -319,7 +319,7 @@
 		}
 	}
 
-	$: resolvedConfig && updateOptions()
+	$: api && resolvedConfig && updateOptions()
 
 	let oldDatasource = datasource
 	$: if (datasource && datasource != oldDatasource) {
@@ -359,6 +359,7 @@
 	}
 
 	function updateOptions() {
+		// console.debug('updateOptions', resolvedConfig, api)
 		api?.updateGridOptions({
 			columnDefs: transformColumnDefs(resolvedConfig?.columnDefs),
 			defaultColDef: {
