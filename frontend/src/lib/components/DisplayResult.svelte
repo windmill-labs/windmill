@@ -27,6 +27,8 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
 	import Popover from './Popover.svelte'
+	import DownloadCsv from './table/DownloadCsv.svelte'
+	import { convertJsonToCsv } from './table/tableUtils'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -110,6 +112,7 @@
 	}
 
 	let is_render_all = false
+	let download_as_csv = false
 	function inferResultKind(result: any) {
 		if (result == 'WINDMILL_TOO_BIG') {
 			largeObject = true
@@ -117,6 +120,7 @@
 		}
 
 		if (result !== undefined) {
+			download_as_csv = false
 			if (typeof result === 'string') {
 				length = 0
 				largeObject = false
@@ -136,12 +140,17 @@
 					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html' | 'gif'
 				}
 
-				const tableLargeObject = roughSizeOfObject(result) > TABLE_MAX_SIZE
+				let size = roughSizeOfObject(result)
 				// Otherwise, check if the result is too large (10kb) for json
-				largeObject = tableLargeObject || roughSizeOfObject(result) > DISPLAY_MAX_SIZE
 
-				if (tableLargeObject) {
+				if (size > TABLE_MAX_SIZE) {
+					largeObject = true
+					if (Array.isArray(result) && isTableRowObject(result)) {
+						download_as_csv = true
+					}
 					return 'json'
+				} else {
+					largeObject = size > DISPLAY_MAX_SIZE
 				}
 
 				if (Array.isArray(result)) {
@@ -629,6 +638,12 @@
 						>
 							Download {filename ? '' : 'as JSON'}
 						</a>
+						{#if download_as_csv}
+							<DownloadCsv
+								getContent={() => convertJsonToCsv(result)}
+								customText="Download as CSV"
+							/>
+						{/if}
 					</div>
 
 					<div class="mt-1 mb-2">

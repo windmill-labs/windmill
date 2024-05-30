@@ -5,51 +5,34 @@
 	import DataTable from './DataTable.svelte'
 	import Head from './Head.svelte'
 	import Row from './Row.svelte'
-	import { pluralize, sendUserToast } from '$lib/utils'
+	import { pluralize } from '$lib/utils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { isEmail, isLink } from './tableUtils'
+	import {
+		computeStructuredObjectsAndHeaders,
+		convertJsonToCsv,
+		isEmail,
+		isLink
+	} from './tableUtils'
 	import type { BadgeColor } from '../common'
 	import Popover from '../Popover.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
-	import Button from '../common/button/Button.svelte'
-	import { Parser } from '@json2csv/plainjs'
+	import DownloadCsv from './DownloadCsv.svelte'
 	export let objects: Array<Record<string, any>> = []
 
 	let currentPage = 1
 	let perPage = 25
 	let search: string = ''
 
-	$: structuredObjects = computeStructuredObjects(objects)
-
+	let structuredObjects: {
+		_id: number
+		rowData: Record<string, any>
+	}[] = []
 	let headers: string[] = []
 
-	function computeStructuredObjects(objects: Array<Record<string, any>>) {
-		if (Array.isArray(objects)) {
-			let nextId = 1
+	$: recomputeObjectsAndHeaders(objects)
 
-			let hds: string[] = []
-			let objs = objects.map((obj) => {
-				let rowData = obj && typeof obj == 'object' ? obj : {}
-				if (Array.isArray(rowData)) {
-					rowData = Object.fromEntries(rowData.map((x, i) => ['col' + i, x]))
-				}
-				let ks = Object.keys(rowData)
-				ks.forEach((x) => {
-					if (!hds.includes(x)) {
-						hds.push(x)
-					}
-				})
-				return {
-					_id: nextId++,
-					rowData
-				}
-			})
-			headers = hds
-			return objs
-		} else {
-			headers = []
-			return []
-		}
+	function recomputeObjectsAndHeaders(objects: Array<Record<string, any>>) {
+		;[headers, structuredObjects] = computeStructuredObjectsAndHeaders(objects)
 	}
 
 	function adjustCurrentPage() {
@@ -62,41 +45,51 @@
 
 	$: perPage && adjustCurrentPage()
 
-	$: data = structuredObjects
-		.filter(
-			({ rowData }) =>
-				search == undefined ||
-				search == '' ||
-				Object.values(rowData).some((value) =>
+	$: data = computeData(structuredObjects, activeSorting, search)
+
+	type ActiveSorting = {
+		column: string
+		direction: 'asc' | 'desc'
+	}
+
+	let activeSorting: ActiveSorting | undefined = undefined
+
+	function computeData(
+		structuredObjects: Array<Record<string, any>>,
+		activeSorting: ActiveSorting | undefined,
+		search: string
+	): Array<Record<string, any>> {
+		let objects = structuredObjects
+		if (search != undefined && search != '') {
+			objects = objects.filter((obj) =>
+				Object.values(obj.rowData).some((value) =>
 					JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
 				)
-		)
-		.sort((a, b) => {
-			if (!activeSorting) return 0
-			const valA = a.rowData[activeSorting.column]
-			const valB = b.rowData[activeSorting.column]
-			const isAsc = activeSorting.direction === 'asc'
-			if (valA == undefined || valA == null) {
-				return isAsc ? -1 : 1
-			}
-			if (valB == undefined || valB == null) {
-				return isAsc ? 1 : -1
-			}
-			if (isAsc) {
-				return valA > valB ? 1 : -1
-			} else {
-				return valA > valB ? -1 : 1
-			}
-		})
+			)
+		}
+		if (activeSorting) {
+			objects = objects.sort((a, b) => {
+				if (!activeSorting) return 0
+				const valA = a.rowData[activeSorting.column]
+				const valB = b.rowData[activeSorting.column]
+				const isAsc = activeSorting.direction === 'asc'
+				if (valA == undefined || valA == null) {
+					return isAsc ? -1 : 1
+				}
+				if (valB == undefined || valB == null) {
+					return isAsc ? 1 : -1
+				}
+				if (isAsc) {
+					return valA > valB ? 1 : -1
+				} else {
+					return valA > valB ? -1 : 1
+				}
+			})
+		}
+		return objects
+	}
 
 	$: slicedData = data.slice((currentPage - 1) * perPage, currentPage * perPage)
-
-	let activeSorting:
-		| {
-				column: string
-				direction: 'asc' | 'desc'
-		  }
-		| undefined = undefined
 
 	let selection = [] as Array<number>
 
@@ -141,16 +134,6 @@
 	// 	let typof = typeof value
 	// 	return (value != undefined && typof === 'string') || typof === 'number' || typof === 'boolean'
 	// }
-
-	function convertJsonToCsv(arr: Array<Record<string, any>>): string {
-		try {
-			const parser = new Parser({})
-			const csv = parser.parse(arr)
-			return csv
-		} catch (err) {
-			throw new Error('An error occured when generating CSV:' + err)
-		}
-	}
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -167,45 +150,18 @@
 				{/if}
 			</div>
 			<div class="flex flex-row items-center gap-2">
-				<Button
-					size="xs"
-					color="light"
-					startIcon={{ icon: Download }}
-					on:click={() => {
-						try {
-							const csvContent = convertJsonToCsv(
-								structuredObjects
-									.filter(({ _id }) => {
-										if (selection.length > 0) {
-											return selection.includes(_id)
-										} else {
-											return true
-										}
-									})
-									.map((obj) => obj.rowData)
-							)
-
-							const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-							const url = URL.createObjectURL(blob)
-							const link = document.createElement('a')
-							link.setAttribute('href', url)
-							link.setAttribute('download', 'data.csv')
-							link.style.visibility = 'hidden'
-							document.body.appendChild(link)
-							link.click()
-
-							document.body.removeChild(link)
-						} catch (err) {
-							sendUserToast(err, true)
-						}
+				<DownloadCsv
+					getContent={() => {
+						return convertJsonToCsv(
+							selection.length > 0
+								? structuredObjects
+										.filter(({ _id }) => selection.includes(_id))
+										.map((obj) => obj.rowData)
+								: objects
+						)
 					}}
-				>
-					{#if selection.length > 0}
-						Download selected as CSV
-					{:else}
-						Download as CSV
-					{/if}
-				</Button>
+					customText={selection.length > 0 ? 'Download selected as CSV' : undefined}
+				/>
 				<Dropdown
 					items={() => {
 						const actions = [
