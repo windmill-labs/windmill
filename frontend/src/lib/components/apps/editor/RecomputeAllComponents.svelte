@@ -54,6 +54,7 @@
 		onClick(!inter)
 	}
 
+	let refreshing: string[] = []
 	function refresh() {
 		let isFirstLoad = false
 		if (!firstLoad) {
@@ -64,6 +65,7 @@
 		loading = true
 
 		console.log('refresh all')
+		refreshing = []
 		const promises = Object.keys($runnableComponents)
 			.flatMap((id) => {
 				if (
@@ -73,10 +75,22 @@
 					return
 				}
 
-				console.log('refresh start', id)
-				return $runnableComponents?.[id]?.cb?.map((f) =>
-					f().then(() => console.log('refreshed', id))
-				)
+				let cb = $runnableComponents?.[id]?.cb
+				if (cb) {
+					console.log('refresh start', id)
+					refreshing.push(id)
+					return cb.map((f) =>
+						f()
+							.then(() => {
+								console.log('refreshed', id)
+								refreshing = refreshing.filter((x) => x !== id)
+							})
+							.catch((e) => {
+								console.error('refresh error', id)
+								refreshing = refreshing.filter((x) => x !== id)
+							})
+					)
+				}
 			})
 			.filter(Boolean)
 
@@ -128,7 +142,7 @@
 		btnClasses="!rounded-r-none text-tertiary !text-2xs {timeout ? '!border !border-blue-500' : ''}"
 		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
 			? `every ${interval / 1000} seconds`
-			: 'once'}"
+			: 'once'} {refreshing.length > 0 ? `(live: ${refreshing.join(', ')}))` : ''}"
 	>
 		<RefreshCw class={loading ? 'animate-spin' : ''} size={14} /> &nbsp;{componentNumber}
 	</Button>

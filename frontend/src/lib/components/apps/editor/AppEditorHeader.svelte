@@ -742,7 +742,6 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-
 <UnsavedConfirmationModal
 	{diffDrawer}
 	savedValue={savedApp}
