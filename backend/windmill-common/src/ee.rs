@@ -30,3 +30,9 @@ pub async fn trigger_critical_error_channels(_error_message: String) {}
 pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::db::DB) -> () {
     // Implementation is not open source
 }
+
+#[cfg(feature = "enterprise")]
+pub async fn renew_license_key(_http_client: &reqwest::Client, _db: &crate::db::DB) -> String {
+    // Implementation is not open source
+    "".to_string()
+}
