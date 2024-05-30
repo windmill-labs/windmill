@@ -16,6 +16,7 @@ serde-wasm-bindgen.workspace = true
 [dependencies]
 windmill-parser.workspace = true
 swc_common.workspace = true
+triomphe.workspace = true
 swc_ecma_parser.workspace = true
 swc_ecma_ast.workspace = true
 swc_ecma_visit.workspace = true

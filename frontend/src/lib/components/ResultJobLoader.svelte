@@ -28,7 +28,7 @@
 
 	$: isLoading = currentId !== undefined
 
-	type Callbacks = { done: (x: any[]) => void; cancel: () => void; error: () => void }
+	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (err: Error) => void }
 
 	let running = false
 	let lastCallbacks: Callbacks | undefined = undefined
@@ -59,7 +59,7 @@
 			}
 			return testId
 		} catch (err) {
-			callbacks?.error()
+			callbacks?.error(err)
 			// if error happens on submitting the job, reset UI state so the user can try again
 			isLoading = false
 			currentId = undefined
@@ -178,7 +178,7 @@
 						job = { ...maybe_job, id }
 						await tick()
 						if (!job?.success && typeof job?.result == 'object' && 'error' in (job?.result ?? {})) {
-							callbacks?.error()
+							callbacks?.error(job.result.error)
 							dispatch('doneError', {
 								id,
 								error: job.result.error

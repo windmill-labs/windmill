@@ -10,7 +10,7 @@ import {
 import flow from "./flow.ts";
 import app from "./apps.ts";
 import script from "./script.ts";
-import workspace from "./workspace.ts";
+import workspace, { getActiveWorkspace } from "./workspace.ts";
 import resource from "./resource.ts";
 import user from "./user.ts";
 import variable from "./variable.ts";
@@ -21,7 +21,7 @@ import folder from "./folder.ts";
 import schedule from "./schedule.ts";
 import sync from "./sync.ts";
 import dev from "./dev.ts";
-import { tryResolveVersion } from "./context.ts";
+import { fetchVersion, tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "./deps.ts";
 import { getHeaders } from "./utils.ts";
@@ -33,7 +33,7 @@ addEventListener("error", (event) => {
   }
 });
 
-export const VERSION = "v1.338.2";
+export const VERSION = "v1.339.2";
 
 let command: any = new Command()
   .name("wmill")
@@ -93,11 +93,14 @@ let command: any = new Command()
   .command("version", "Show version information")
   .action(async (opts) => {
     console.log("CLI build against " + VERSION);
-    const backendVersion = await tryResolveVersion(opts as GlobalOptions);
-    if (backendVersion) {
+    const workspace = await getActiveWorkspace(opts as GlobalOptions);
+    if (workspace) {
+      const backendVersion = await fetchVersion(workspace.remote);
       console.log("Backend Version: " + backendVersion);
     } else {
-      console.log("Cannot resolve Backend Version");
+      console.log(
+        "Cannot fetch backend version: no active workspace selected, choose one to pick a remote to fetch version of"
+      );
     }
   })
   .command(

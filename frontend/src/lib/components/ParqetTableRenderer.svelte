@@ -28,23 +28,18 @@
 					searchCol: searchCol,
 					searchTerm: searchCol ? params.filterModel?.[searchCol]?.filter : undefined
 				})) as any
+				for (let i = 0; i < res.rows.length; i++) {
+					res.rows[i]['__index'] = i + params.startRow
+					if (!$enterpriseLicense) {
+						Object.keys(res.rows[i]).forEach((key) => {
+							if (key != '__index') {
+								res.rows[i][key] = 'Require EE'
+							}
+						})
+					}
+				}
 
-				const data: any[] = []
-
-				res?.columns?.forEach((c) => {
-					c.values.forEach((v, i) => {
-						if (data[i] == undefined) {
-							data.push({ __index: params.startRow + i })
-						}
-						if (!$enterpriseLicense && params.startRow + i > 3) {
-							data[i][c.name] = 'Require EE'
-						} else {
-							data[i][c.name] = v
-						}
-					})
-				})
-
-				params.successCallback(data)
+				params.successCallback(res.rows)
 			} catch (e) {
 				console.error(e)
 				params.failCallback()
@@ -87,7 +82,7 @@
 					// @ts-ignore
 					columnDefs: res.columns.map((c) => {
 						return {
-							field: c.name,
+							field: c,
 							sortable: true,
 							filter: true,
 							filterParams: {

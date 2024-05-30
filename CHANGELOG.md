@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.339.2](https://github.com/windmill-labs/windmill/compare/v1.339.1...v1.339.2) (2024-05-29)
+
+
+### Bug Fixes
+
+* worker memory usage ([#3845](https://github.com/windmill-labs/windmill/issues/3845)) ([e052dd5](https://github.com/windmill-labs/windmill/commit/e052dd5f6e7d8f1f7799204dab2f98e023efaec1))
+
+## [1.339.1](https://github.com/windmill-labs/windmill/compare/v1.339.0...v1.339.1) (2024-05-29)
+
+
+### Bug Fixes
+
+* allow_user_resoruces default deserialization ([7238274](https://github.com/windmill-labs/windmill/commit/7238274d1c7b80e831aa91eac3a6577d9ab462d4))
+
+## [1.339.0](https://github.com/windmill-labs/windmill/compare/v1.338.3...v1.339.0) (2024-05-29)
+
+
+### Features
+
+* display last key renewal attempt ([#3839](https://github.com/windmill-labs/windmill/issues/3839)) ([dc2d7e1](https://github.com/windmill-labs/windmill/commit/dc2d7e1c8f5f7c50be04cfea6986ce03a3e33c7b))
+
+## [1.338.3](https://github.com/windmill-labs/windmill/compare/v1.338.2...v1.338.3) (2024-05-29)
+
+
+### Bug Fixes
+
+* fix resource type search ([b01e335](https://github.com/windmill-labs/windmill/commit/b01e33523da72050bc08b47bd84e0d8fc88f6dda))
+
 ## [1.338.2](https://github.com/windmill-labs/windmill/compare/v1.338.1...v1.338.2) (2024-05-28)
 
 

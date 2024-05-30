@@ -161,6 +161,7 @@ pub enum ExecutionMode {
 pub struct PolicyTriggerableInputs {
     static_inputs: StaticFields,
     one_of_inputs: OneOfFields,
+    #[serde(default)]
     allow_user_resources: AllowUserResources,
 }
 

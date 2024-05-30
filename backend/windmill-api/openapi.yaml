@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.338.2
+  version: 1.339.2
   title: Windmill API
 
   contact:
@@ -756,6 +756,45 @@ paths:
     post:
       summary: send stats
       operationId: sendStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  
+  /settings/latest_key_renewal_attempt:
+    get:
+      summary: get latest key renewal attempt
+      operationId: getLatestKeyRenewalAttempt
+      tags:
+        - setting
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+                  attempted_at:
+                    type: string
+                    format: date-time
+                required:
+                  - result
+                  - attempted_at
+                nullable: true
+
+  /settings/renew_license_key:
+    post:
+      summary: renew license key
+      operationId: renewLicenseKey
       tags:
         - setting
       responses:
