@@ -51,7 +51,7 @@
 		datasets: [
 			{
 				borderColor: 'rgba(99,0,125, 0)',
-				backgroundColor: FAIL_COLOR,
+				backgroundColor: FAIL_COLOR as string | string[],
 				radius: 3,
 				label: 'Failed',
 				data:
@@ -64,7 +64,7 @@
 			},
 			{
 				borderColor: 'rgba(99,0,125, 0)',
-				backgroundColor: SUCCESS_COLOR,
+				backgroundColor: SUCCESS_COLOR as string | string[],
 				radius: 3,
 				label: 'Successful',
 				data:
