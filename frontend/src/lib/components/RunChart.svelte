@@ -264,7 +264,7 @@
 		animation: false
 	} as any
 
-	$: highlightSelectedPoints(selectedIds)
+	$: data && scatterOptions && highlightSelectedPoints(selectedIds)
 
 </script>
 
