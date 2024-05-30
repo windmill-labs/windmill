@@ -255,6 +255,7 @@
 		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
+			callbacks?.done({})
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
 			return
 		}
@@ -312,11 +313,13 @@
 			return
 		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
+			callbacks?.done({})
 			return
 		}
 
 		if (!resultJobLoader) {
 			console.warn('No test job loader')
+			callbacks?.done({})
 			return
 		}
 
