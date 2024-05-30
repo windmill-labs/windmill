@@ -26,7 +26,7 @@
 	const dispatch = createEventDispatcher()
 
 	export let job: Job
-	export let selectedId: string | undefined = undefined
+	export let selected: boolean = false;
 	export let containerWidth: number = 0
 	export let containsLabel: boolean = false
 	export let activeLabel: string | null
@@ -46,7 +46,7 @@
 <div
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
-		selectedId === job.id && !isExternal ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'flex flex-row items-center h-full'
 	)}
 	style="width: {containerWidth}px"
