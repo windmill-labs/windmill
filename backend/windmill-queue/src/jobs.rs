@@ -505,6 +505,45 @@ lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
 }
 
+async fn add_outstanding_wait_time(queued_job: &QueuedJob, db: &Pool<Postgres>, waiting_treshold: i64) -> error::Result<Option<i64>> {
+    let wait_time;
+
+    if let Some(started_time) = queued_job.started_at {
+        wait_time = (started_time - queued_job.scheduled_for).num_milliseconds();
+    } else {
+        return Err(error::Error::InternalErr("completed job didn't have a started_at time".to_string()));
+    }
+
+    if wait_time < waiting_treshold {
+        return Ok(None);
+    }
+
+    let mut job = Some(queued_job.clone());
+    let w_id = &queued_job.workspace_id;
+    let mut job_ids: Vec<Uuid> = vec![];
+
+    while let Some(j) = job{
+        job_ids.push(j.id.clone());
+        if let Some(uuid) = j.parent_job {
+            job = get_queued_job(&uuid, w_id, db).await?;
+        } else {
+            break
+        }
+    }
+
+    sqlx::query!(
+    "INSERT INTO outstanding_wait_time(job_id, waiting_time_ms)
+                            SELECT job_id, $2 as waiting_time_ms FROM unnest($1::UUID[]) as job_id
+                            ON CONFLICT (job_id) DO UPDATE SET waiting_time_ms = outstanding_wait_time.waiting_time_ms + EXCLUDED.waiting_time_ms",
+        &job_ids,
+        wait_time,
+)
+        .execute(db)
+        .await?;
+
+    Ok(Some(wait_time))
+}
+
 #[instrument(level = "trace", skip_all, name = "add_completed_job")]
 pub async fn add_completed_job<
     T: Serialize + Send + Sync + ValidableJson,
@@ -538,6 +577,12 @@ pub async fn add_completed_job<
         queued_job.id,
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
+
+    match add_outstanding_wait_time(queued_job, db, 5000).await {
+        Ok(None) => (),
+        Ok(Some(wait_time)) => tracing::warn!("This job waited for an executer for a significant amount of time. Recording value wait_time={}ms", wait_time),
+        Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
+    }
 
     let mem_peak = mem_peak.max(queued_job.mem_peak.unwrap_or(0));
     let _duration: i64 = sqlx::query_scalar!(

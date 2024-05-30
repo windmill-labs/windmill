@@ -8916,6 +8916,8 @@ components:
           type: string
         priority:
           type: integer
+        waiting_time_ms:
+          type: number
       required:
         - id
         - running
@@ -9033,6 +9035,8 @@ components:
           type: array
           items:
             type: string
+        waiting_time_ms:
+          type: number
       required:
         - id
         - created_by
