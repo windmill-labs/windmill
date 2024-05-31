@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.340.1](https://github.com/windmill-labs/windmill/compare/v1.340.0...v1.340.1) (2024-05-31)
+
+
+### Bug Fixes
+
+* typescript file upload supports arbitrary storage ([9e822d4](https://github.com/windmill-labs/windmill/commit/9e822d4c75152e7a651f31c74ee0d2c9783cd993))
+
 ## [1.340.0](https://github.com/windmill-labs/windmill/compare/v1.339.2...v1.340.0) (2024-05-31)
 
 
