@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.339.2
+  version: 1.340.1
   title: Windmill API
 
   contact:
@@ -2643,8 +2643,7 @@ paths:
                 type: object
                 properties:
                   extra_params:
-                    additionalProperties:
-                      type: string
+                    type: object
                   scopes:
                     type: array
                     items:
@@ -7717,12 +7716,16 @@ paths:
 
   /w/{workspace}/job_helpers/test_connection:
     get:
-      summary: Test connection to the workspace datasets storage
+      summary: Test connection to the workspace object storage
       operationId: datasetStorageTestConnection
       tags:
         - helpers
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: storage
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: Connection settings
@@ -7732,7 +7735,7 @@ paths:
 
   /w/{workspace}/job_helpers/list_stored_files:
     get:
-      summary: List the file keys available in the workspace files storage (S3)
+      summary: List the file keys available in a workspace object storage
       operationId: listStoredFiles
       tags:
         - helpers
@@ -7748,6 +7751,10 @@ paths:
           schema:
             type: string
         - name: prefix
+          in: query
+          schema:
+            type: string
+        - name: storage
           in: query
           schema:
             type: string
@@ -7781,6 +7788,10 @@ paths:
         - name: file_key
           in: query
           required: true
+          schema:
+            type: string
+        - name: storage
+          in: query
           schema:
             type: string
       responses:
@@ -7828,6 +7839,10 @@ paths:
           in: query
           schema:
             type: integer
+        - name: storage
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: FilePreview
@@ -7869,10 +7884,57 @@ paths:
           in: query
           schema:
             type: string
-
+        - name: storage
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: Parquet Preview
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/job_helpers/load_csv_preview/{path}:
+    get:
+      summary: Load a preview of a csv file
+      operationId: loadCsvPreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: offset
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+        - name: sort_col
+          in: query
+          schema:
+            type: string
+        - name: sort_desc
+          in: query
+          schema:
+            type: boolean
+        - name: search_col
+          in: query
+          schema:
+            type: string
+        - name: search_term
+          in: query
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Csv Preview
           content:
             application/json:
               schema: {}
@@ -7888,6 +7950,10 @@ paths:
         - name: file_key
           in: query
           required: true
+          schema:
+            type: string
+        - name: storage
+          in: query
           schema:
             type: string
       responses:
@@ -7913,6 +7979,10 @@ paths:
         - name: dest_file_key
           in: query
           required: true
+          schema:
+            type: string
+        - name: storage
+          in: query
           schema:
             type: string
       responses:
@@ -7948,6 +8018,10 @@ paths:
         - name: resource_type
           in: query
           required: false
+          schema:
+            type: string
+        - name: storage
+          in: query
           schema:
             type: string
       requestBody:
@@ -7994,6 +8068,10 @@ paths:
           required: false
           schema:
             type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: Chunk of the downloaded file
@@ -8002,6 +8080,37 @@ paths:
               schema:
                 type: string
                 format: binary
+
+  /w/{workspace}/job_helpers/download_s3_parquet_file_as_csv:
+    get:
+      summary: Download file to S3 bucket
+      operationId: fileDownloadParquetAsCsv
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The downloaded file
+          content:
+            text/csv:
+              schema:
+                type: string
 
   /w/{workspace}/job_metrics/get/{id}:
     post:
@@ -10381,6 +10490,26 @@ components:
           type: string
         public_resource:
           type: boolean
+        secondary_storage:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              type:
+                type: string
+                enum:
+                  [
+                    "S3Storage",
+                    "AzureBlobStorage",
+                    "AzureWorkloadIdentity",
+                    "S3AwsOidc",
+                  ]
+              s3_resource_path:
+                type: string
+              azure_blob_resource_path:
+                type: string
+              public_resource:
+                type: boolean
 
     WindmillLargeFile:
       type: object

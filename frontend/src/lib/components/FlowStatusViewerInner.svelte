@@ -139,12 +139,15 @@
 			$retryStatus[jobId ?? ''] = count
 		} else if ($retryStatus[jobId ?? ''] != undefined) {
 			delete $retryStatus[jobId ?? '']
+			$retryStatus = $retryStatus
 		}
 		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
+
 		if (jobStatus && jobStatus.count != undefined) {
 			$suspendStatus[jobId ?? ''] = { nb: jobStatus.count, job: job! }
 		} else if ($suspendStatus[jobId ?? ''] != undefined) {
 			delete $suspendStatus[jobId ?? '']
+			$suspendStatus = $suspendStatus
 		}
 	}
 

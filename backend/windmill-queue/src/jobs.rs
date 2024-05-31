@@ -718,7 +718,7 @@ pub async fn add_completed_job<
                 ).fetch_optional(&mut tx).await?;
                 if r.is_some() {
                     tracing::info!(
-                        "parallel flow is done, setting parallel monitor last ping lock for job {}",
+                        "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
                         &queued_job.id
                     );
                 }

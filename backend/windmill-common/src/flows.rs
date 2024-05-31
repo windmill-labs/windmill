@@ -276,8 +276,9 @@ impl FlowModule {
     }
 
     pub fn is_simple(&self) -> bool {
+        //todo: flow modules could also be simple execpt for the fact that the case of having single parallel flow approval step is not handled well (Create SuspendedTimeout)
         self.get_type()
-            .is_ok_and(|x| x == "flow" || x == "script" || x == "rawscript")
+            .is_ok_and(|x| x == "script" || x == "rawscript")
     }
 
     pub fn get_type(&self) -> anyhow::Result<String> {
@@ -528,17 +529,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
 impl Into<Box<serde_json::value::RawValue>> for FlowModuleValue {
     fn into(self) -> Box<serde_json::value::RawValue> {
         crate::worker::to_raw_value(&self)
-    }
-}
-
-impl FlowModuleValue {
-    pub fn is_simple(&self) -> bool {
-        match self {
-            FlowModuleValue::Script { .. } => true,
-            FlowModuleValue::Flow { .. } => true,
-            FlowModuleValue::RawScript { .. } => true,
-            _ => false,
-        }
     }
 }
 
