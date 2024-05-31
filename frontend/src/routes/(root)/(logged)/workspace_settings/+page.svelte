@@ -15,13 +15,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
-	import {
-		type LargeFileStorage,
-		OauthService,
-		WorkspaceService,
-		JobService,
-		ResourceService
-	} from '$lib/gen'
+	import { OauthService, WorkspaceService, JobService, ResourceService } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		copilotInfo,
@@ -53,6 +47,11 @@
 	import { fade } from 'svelte/transition'
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
+	import {
+		convertBackendSettingsToFrontendSettings,
+		convertFrontendToBackendSetting,
+		type S3ResourceSettings
+	} from '$lib/workspace_settings'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -97,10 +96,12 @@
 	let errorHandlerExtraArgs: Record<string, any> = {}
 	let errorHandlerMutedOnCancel: boolean | undefined = undefined
 	let openaiResourceInitialPath: string | undefined = undefined
-	let s3ResourceSettings: {
-		resourceType: 's3' | 'azure_blob' | 's3_aws_oidc' | 'azure_workload_identity'
-		resourcePath: string | undefined
-		publicResource: boolean | undefined
+
+	let s3ResourceSettings: S3ResourceSettings = {
+		resourceType: 's3',
+		resourcePath: undefined,
+		publicResource: undefined,
+		secondaryStorage: undefined
 	}
 	let gitSyncSettings: {
 		include_path: string[]
@@ -226,44 +227,15 @@
 	}
 
 	async function editWindmillLFSSettings(): Promise<void> {
-		if (!emptyString(s3ResourceSettings.resourcePath)) {
-			let resourcePathWithPrefix = `$res:${s3ResourceSettings.resourcePath}`
-			let params = {
-				public_resource: s3ResourceSettings.publicResource
+		const large_file_storage = convertFrontendToBackendSetting(s3ResourceSettings)
+		await WorkspaceService.editLargeFileStorageConfig({
+			workspace: $workspaceStore!,
+			requestBody: {
+				large_file_storage: large_file_storage
 			}
-			if (s3ResourceSettings.resourceType === 'azure_blob') {
-				let typ: LargeFileStorage['type'] = 'AzureBlobStorage'
-				params['type'] = typ
-				params['azure_blob_resource_path'] = resourcePathWithPrefix
-			} else if (s3ResourceSettings.resourceType === 'azure_workload_identity') {
-				let typ: LargeFileStorage['type'] = 'AzureWorkloadIdentity'
-				params['type'] = typ
-				params['azure_blob_resource_path'] = resourcePathWithPrefix
-			} else if (s3ResourceSettings.resourceType === 's3_aws_oidc') {
-				let typ: LargeFileStorage['type'] = 'S3AwsOidc'
-				params['type'] = typ
-				params['s3_resource_path'] = resourcePathWithPrefix
-			} else {
-				let typ: LargeFileStorage['type'] = 'S3Storage'
-				params['type'] = typ
-				params['s3_resource_path'] = resourcePathWithPrefix
-			}
-			await WorkspaceService.editLargeFileStorageConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					large_file_storage: params
-				}
-			})
-			sendUserToast(`Large file storage settings updated`)
-		} else {
-			await WorkspaceService.editLargeFileStorageConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					large_file_storage: undefined
-				}
-			})
-			sendUserToast(`Large file storage settings reset`)
-		}
+		})
+		console.log('Large file storage settings changed', large_file_storage)
+		sendUserToast(`Large file storage settings changed`)
 	}
 
 	async function editWindmillGitSyncSettings(): Promise<void> {
@@ -440,37 +412,8 @@
 		codeCompletionEnabled = settings.code_completion_enabled
 		workspaceDefaultAppPath = settings.default_app
 
-		if (settings.large_file_storage?.type === 'S3Storage') {
-			s3ResourceSettings = {
-				resourceType: 's3',
-				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else if (settings.large_file_storage?.type === 'AzureBlobStorage') {
-			s3ResourceSettings = {
-				resourceType: 'azure_blob',
-				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else if (settings.large_file_storage?.type === 'AzureWorkloadIdentity') {
-			s3ResourceSettings = {
-				resourceType: 'azure_workload_identity',
-				resourcePath: settings.large_file_storage?.azure_blob_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else if (settings.large_file_storage?.type === 'S3AwsOidc') {
-			s3ResourceSettings = {
-				resourceType: 's3_aws_oidc',
-				resourcePath: settings.large_file_storage?.s3_resource_path?.replace('$res:', ''),
-				publicResource: settings.large_file_storage?.public_resource
-			}
-		} else {
-			s3ResourceSettings = {
-				resourceType: 's3',
-				resourcePath: undefined,
-				publicResource: undefined
-			}
-		}
+		s3ResourceSettings = convertBackendSettingsToFrontendSettings(settings.large_file_storage)
+
 		if (settings.git_sync !== undefined && settings.git_sync !== null) {
 			gitSyncTestJobs = []
 			gitSyncSettings = {
@@ -1114,7 +1057,7 @@
 								right:
 									'S3 resource details and content can be accessed by all users of this workspace',
 								rightTooltip:
-									'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details. this effectively by-pass the permissions set on the resource and makes it public to everyone.'
+									'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details and the "open preview" button. This effectively by-pass the permissions set on the resource and makes it public to everyone.'
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
@@ -1150,6 +1093,75 @@
 						{/if}
 					</div>
 				{/if}
+				<div class="mt-6">
+					<div class="flex mt-2 flex-col gap-y-4 max-w-3xl">
+						{#each s3ResourceSettings.secondaryStorage ?? [] as secondaryStorage, idx}
+							<div class="flex gap-1 items-center">
+								<input
+									class="max-w-[200px]"
+									type="text"
+									bind:value={secondaryStorage[0]}
+									placeholder="Storage name"
+								/>
+								<select class="max-w-[125px]" bind:value={secondaryStorage[1].resourceType}>
+									<option value="s3">S3</option>
+									<option value="azure_blob">Azure Blob</option>
+									<option value="s3_aws_oidc">AWS OIDC</option>
+									<option value="azure_workload_identity">Azure Workload Identity</option>
+								</select>
+								<ResourcePicker
+									resourceType={secondaryStorage[1].resourceType}
+									bind:value={secondaryStorage[1].resourcePath}
+								/>
+								<Button
+									size="sm"
+									variant="contained"
+									color="dark"
+									disabled={emptyString(secondaryStorage[1].resourcePath)}
+									on:click={async () => {
+										if ($workspaceStore) {
+											s3FileViewer?.open?.({ s3: '', storage: secondaryStorage[0] })
+										}
+									}}>Browse content (save first)</Button
+								>
+								<button
+									transition:fade|local={{ duration: 100 }}
+									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+									aria-label="Clear"
+									on:click={() => {
+										if (s3ResourceSettings.secondaryStorage) {
+											s3ResourceSettings.secondaryStorage.splice(idx, 1)
+											s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
+										}
+									}}
+								>
+									<X size={14} />
+								</button>
+							</div>
+						{/each}
+						<div class="flex gap-1">
+							<Button
+								size="xs"
+								variant="border"
+								on:click={() => {
+									if (s3ResourceSettings.secondaryStorage === undefined) {
+										s3ResourceSettings.secondaryStorage = []
+									}
+									s3ResourceSettings.secondaryStorage.push([
+										`storage_${s3ResourceSettings.secondaryStorage.length + 1}`,
+										{ resourcePath: '', resourceType: 's3', publicResource: false }
+									])
+									s3ResourceSettings.secondaryStorage = s3ResourceSettings.secondaryStorage
+								}}><Plus size={14} />Add secondary storage</Button
+							>
+							<Tooltip>
+								Secondary storage is a feature that allows you to read and write from storage that
+								isn't your main storage by specifying it in the s3 object as "secondary_storage"
+								with the name of it
+							</Tooltip>
+						</div>
+					</div>
+				</div>
 				<div class="flex mt-5 mb-5 gap-1">
 					<Button
 						color="blue"

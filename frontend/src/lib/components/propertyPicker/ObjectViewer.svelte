@@ -109,7 +109,9 @@
 							<button
 								class="val text-left {pureViewer
 									? 'cursor-auto'
-									: ''} rounded px-1 hover:bg-blue-100 dark:hover:bg-blue-100/10 {getTypeAsString(json[key])}"
+									: ''} rounded px-1 hover:bg-blue-100 dark:hover:bg-blue-100/10 {getTypeAsString(
+									json[key]
+								)}"
 								on:click={() => selectProp(key, json[key])}
 							>
 								{#if json[key] === NEVER_TESTED_THIS_FAR}
@@ -142,7 +144,9 @@
 					{#if getTypeAsString(json) === 's3object'}
 						<a
 							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
-							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}`}
+							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${json?.s3}${
+								json?.storage ? `&storage=${json.storage}` : ''
+							}`}
 							download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
 						>
 							<span class="flex items-center gap-1"><Download size={12} />download</span>
