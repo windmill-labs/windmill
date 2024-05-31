@@ -230,9 +230,17 @@ struct EditCopilotConfig {
     code_completion_enabled: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug)]
+struct LargeFileStorageWithSecondary {
+    #[serde(flatten)]
+    large_file_storage: LargeFileStorage,
+
+    secondary_storage: HashMap<String, LargeFileStorage>,
+}
+
+#[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
-    large_file_storage: Option<LargeFileStorage>,
+    large_file_storage: Option<LargeFileStorageWithSecondary>,
 }
 
 #[derive(Deserialize)]
@@ -952,8 +960,9 @@ async fn edit_large_file_storage_config(
     .await?;
 
     if let Some(lfs_config) = new_config.large_file_storage {
-        let serialized_lfs_config = serde_json::to_value::<LargeFileStorage>(lfs_config)
-            .map_err(|err| Error::InternalErr(err.to_string()))?;
+        let serialized_lfs_config =
+            serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
+                .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",

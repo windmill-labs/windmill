@@ -11,7 +11,8 @@
 		Table2,
 		Braces,
 		Highlighter,
-		InfoIcon
+		InfoIcon,
+		ArrowDownFromLine
 	} from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -22,13 +23,14 @@
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
-	import ParqetTableRenderer from './ParqetTableRenderer.svelte'
+	import ParqetTableRenderer from './ParqetCsvTableRenderer.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
 	import Popover from './Popover.svelte'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
+	import Tooltip from './Tooltip.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -108,7 +110,7 @@
 	let largeObject: boolean | undefined = undefined
 
 	function checkIfS3(result: any, keys: string[]) {
-		return keys.length === 1 && keys.includes('s3') && typeof result.s3 === 'string'
+		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
 
 	let is_render_all = false
@@ -335,6 +337,8 @@
 	}
 
 	let globalForceJson: boolean = false
+
+	let seeS3PreviewFileFromList = ''
 </script>
 
 {#if is_render_all}
@@ -554,8 +558,9 @@
 							class="flex"
 							bind:checked={s3FileDisplayRawMode}
 							size="xs"
-							options={{ right: 'Raw S3 object input' }}
+							options={{ right: 'Raw S3 object' }}
 						/>
+
 						{#if s3FileDisplayRawMode}
 							<Highlight class="" language={json} code={toJsonStr(result).replace(/\\n/g, '\n')} />
 							<button
@@ -564,10 +569,13 @@
 									s3FileViewer?.open?.(result)
 								}}
 								><span class="flex items-center gap-1"
-									><PanelRightOpen size={12} />open preview</span
+									><PanelRightOpen size={12} />object store explorer<Tooltip
+										>Require admin privilege or "S3 resource details and content can be accessed by
+										all users of this workspace" of S3 Storage to be set in the workspace settings</Tooltip
+									></span
 								>
 							</button>
-						{:else}
+						{:else if !result?.disable_download}
 							<FileDownload s3object={result} />
 							<button
 								class="text-secondary underline text-2xs whitespace-nowrap"
@@ -575,23 +583,31 @@
 									s3FileViewer?.open?.(result)
 								}}
 								><span class="flex items-center gap-1"
-									><PanelRightOpen size={12} />open preview</span
+									><PanelRightOpen size={12} />object store explorer<Tooltip
+										>Require admin privilege or "S3 resource details and content can be accessed by
+										all users of this workspace" of S3 Storage to be set in the workspace settings</Tooltip
+									></span
 								>
 							</button>
 						{/if}
 					</div>
-					{#if typeof result?.s3 == 'string' && result?.s3?.endsWith('.parquet')}
-						<ParqetTableRenderer s3resource={result?.s3} />
+					{#if typeof result?.s3 == 'string' && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
+						<ParqetTableRenderer
+							disable_download={result?.disable_download}
+							{workspaceId}
+							s3resource={result?.s3}
+							storage={result?.storage}
+						/>
 					{/if}
 				</div>
 			{:else if !forceJson && resultKind == 's3object-list'}
 				<div class="h-full w-full">
 					<div class="flex flex-col gap-2">
 						<Toggle
-							class="flex"
+							class="flex mt-1"
 							bind:checked={s3FileDisplayRawMode}
 							size="xs"
-							options={{ right: 'Raw S3 object input' }}
+							options={{ right: 'Raw S3 object' }}
 						/>
 						{#each result as s3object}
 							{#if s3FileDisplayRawMode}
@@ -609,8 +625,27 @@
 										><PanelRightOpen size={12} />open preview</span
 									>
 								</button>
-							{:else}
+							{:else if !s3object?.disable_download}
 								<FileDownload {s3object} />
+							{:else}
+								<div class="flex text-secondary pt-2">{s3object?.s3} (download disabled)</div>
+							{/if}
+							{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
+								{#if seeS3PreviewFileFromList == s3object?.s3}
+									<ParqetTableRenderer
+										disable_download={s3object?.disable_download}
+										{workspaceId}
+										s3resource={s3object?.s3}
+										storage={s3object?.storage}
+									/>{:else}
+									<button
+										class="text-secondary whitespace-nowrap flex gap-2 items-center"
+										on:click={() => {
+											seeS3PreviewFileFromList = s3object?.s3
+										}}
+										>open table preview <ArrowDownFromLine />
+									</button>
+								{/if}
 							{/if}
 						{/each}
 					</div>

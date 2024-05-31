@@ -113,6 +113,7 @@ pub struct S3AwsOidcResource {
 #[derive(Deserialize, Clone)]
 pub struct S3Object {
     pub s3: String,
+    pub storage: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
