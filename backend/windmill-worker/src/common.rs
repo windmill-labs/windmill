@@ -1357,7 +1357,7 @@ pub async fn hash_args(
             k.hash(&mut dh);
             let arg_value = hm.get(k).unwrap();
             #[cfg(feature = "parquet")]
-            let arg_additions =
+            let (_, arg_additions) =
                 arg_value_hash_additions(_db, _client, _workspace_id, hm.get(k).unwrap()).await;
             arg_value.get().hash(&mut dh);
             #[cfg(feature = "parquet")]
@@ -1376,21 +1376,33 @@ async fn get_workspace_s3_resource_path(
     db: &DB,
     client: &AuthedClient,
     workspace_id: &str,
+    storage: Option<String>,
 ) -> windmill_common::error::Result<Option<ObjectStoreResource>> {
     use windmill_common::{
         job_s3_helpers_ee::get_s3_resource_internal, s3_helpers::StorageResourceType,
     };
 
-    let raw_lfs_opt = sqlx::query_scalar!(
-        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
-        workspace_id
-    )
-    .fetch_one(db)
-    .await
-    .ok()
-    .flatten()
-    .map(|val| serde_json::from_value::<LargeFileStorage>(val).ok())
-    .flatten();
+    let raw_lfs_opt = if let Some(storage) = storage {
+        sqlx::query_scalar!(
+            "SELECT large_file_storage->'secondary_storage'->$2 FROM workspace_settings WHERE workspace_id = $1",
+            workspace_id,
+            storage
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+    } else {
+        sqlx::query_scalar!(
+            "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+            workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+    };
+    let raw_lfs_opt = raw_lfs_opt
+        .map(|val| serde_json::from_value::<LargeFileStorage>(val).ok())
+        .flatten();
 
     let (rt, path) = match raw_lfs_opt {
         Some(LargeFileStorage::S3Storage(s3_storage)) => {
@@ -1440,47 +1452,26 @@ async fn arg_value_hash_additions(
     client: &AuthedClient,
     workspace_id: &str,
     raw_value: &Box<RawValue>,
-) -> HashMap<String, String> {
+) -> (Option<String>, HashMap<String, String>) {
     let mut result: HashMap<String, String> = HashMap::new();
-    let parsed_s3_values: &mut Vec<S3Object> = &mut Vec::new();
-    extract_all_s3_object_from_raw_value(raw_value, parsed_s3_values);
-    if parsed_s3_values.is_empty() {
-        // no s3 object, nothing to return
-        return result;
-    }
 
-    let s3_resource_opt = get_workspace_s3_resource_path(db, client, workspace_id).await;
-    if let Some(s3_resource) = s3_resource_opt.ok().flatten() {
-        for s3_object in parsed_s3_values {
+    let parsed_value = serde_json::from_str::<S3Object>(raw_value.get());
+
+    let mut storage = None;
+    if let Ok(s3_object) = parsed_value {
+        let s3_resource_opt =
+            get_workspace_s3_resource_path(db, client, workspace_id, s3_object.storage.clone())
+                .await;
+        storage = s3_object.storage.clone();
+
+        if let Some(s3_resource) = s3_resource_opt.ok().flatten() {
             let etag = get_etag_or_empty(&s3_resource, s3_object.clone()).await;
             tracing::warn!("Enriching s3 arg value with etag: {:?}", etag);
             result.insert(s3_object.s3.clone(), etag.unwrap_or_default()); // TODO: maybe inject a random value to invalidate the cache?
         }
     }
 
-    return result;
-}
-
-#[cfg(feature = "parquet")]
-fn extract_all_s3_object_from_raw_value(raw_value: &Box<RawValue>, result: &mut Vec<S3Object>) {
-    let parsed_value = serde_json::from_str::<S3Object>(raw_value.get());
-    if let Ok(parsed_value) = parsed_value {
-        result.push(parsed_value);
-    } else {
-        let parsed_value = serde_json::from_str::<HashMap<String, Box<RawValue>>>(raw_value.get());
-        if let Ok(parsed_value) = parsed_value {
-            for (_, v) in parsed_value {
-                extract_all_s3_object_from_raw_value(&v, result);
-            }
-        } else {
-            let parsed_value = serde_json::from_str::<Vec<Box<RawValue>>>(raw_value.get());
-            if let Ok(parsed_value) = parsed_value {
-                for v in parsed_value {
-                    extract_all_s3_object_from_raw_value(&v, result);
-                }
-            }
-        }
-    }
+    return (storage, result);
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1489,6 +1480,7 @@ struct CachedResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     s3_etags: Option<HashMap<String, String>>,
     value: Box<RawValue>,
+    storage: Option<String>,
 }
 
 pub async fn get_cached_resource_value_if_valid(
@@ -1513,10 +1505,15 @@ pub async fn get_cached_resource_value_if_valid(
             let object_store_resource_opt: Option<ObjectStoreResource> = if s3_etags.is_empty() {
                 None
             } else {
-                get_workspace_s3_resource_path(_db, &client, _workspace_id)
-                    .await
-                    .ok()
-                    .flatten()
+                get_workspace_s3_resource_path(
+                    _db,
+                    &client,
+                    _workspace_id,
+                    cached_resource.storage.clone(),
+                )
+                .await
+                .ok()
+                .flatten()
             };
 
             if !s3_etags.is_empty() && object_store_resource_opt.is_none() {
@@ -1527,7 +1524,10 @@ pub async fn get_cached_resource_value_if_valid(
                 if let Some(object_store_resource) = object_store_resource_opt.clone() {
                     let etag = get_etag_or_empty(
                         &object_store_resource,
-                        S3Object { s3: s3_file_key.clone() },
+                        S3Object {
+                            s3: s3_file_key.clone(),
+                            storage: cached_resource.storage.clone(),
+                        },
                     )
                     .await;
                     if etag.is_none() || etag.clone().unwrap() != s3_file_etag {
@@ -1552,7 +1552,8 @@ pub async fn save_in_cache(
     let expire = chrono::Utc::now().timestamp() + job.cache_ttl.unwrap() as i64;
 
     #[cfg(feature = "parquet")]
-    let s3_etags = arg_value_hash_additions(db, _client, job.workspace_id.as_str(), r).await;
+    let (storage, s3_etags) =
+        arg_value_hash_additions(db, _client, job.workspace_id.as_str(), r).await;
 
     #[cfg(feature = "parquet")]
     let s3_etags = if s3_etags.is_empty() {
@@ -1562,9 +1563,9 @@ pub async fn save_in_cache(
     };
 
     #[cfg(not(feature = "parquet"))]
-    let s3_etags = None;
+    let (storage, s3_etags) = (None, None);
 
-    let store_cache_resource = CachedResource { expire, s3_etags, value: r.clone() };
+    let store_cache_resource = CachedResource { expire, s3_etags, value: r.clone(), storage };
     let raw_json = sqlx::types::Json(store_cache_resource);
 
     if let Err(e) = sqlx::query!(
