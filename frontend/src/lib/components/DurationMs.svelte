@@ -5,14 +5,15 @@
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 
 	export let duration_ms: number
-	export let waiting_time_ms: number | undefined = undefined
+	export let self_wait_time_ms: number | undefined = undefined
+	export let aggregate_wait_time_ms: number | undefined = undefined
 </script>
 
 <div>
 	<Badge large icon={{ icon: Hourglass, position: 'left' }}>
 		Ran in {msToSec(duration_ms)}s
+		{#if self_wait_time_ms || aggregate_wait_time_ms}
+			<WaitTimeWarning {self_wait_time_ms} {aggregate_wait_time_ms} variant="alert" />
+		{/if}
 	</Badge>
-	{#if waiting_time_ms}
-		<WaitTimeWarning {waiting_time_ms} variant="badge" />
-	{/if}
 </div>

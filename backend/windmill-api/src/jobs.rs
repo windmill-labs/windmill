@@ -2067,20 +2067,34 @@ impl Job {
     pub async fn fetch_outstanding_wait_time(
         &mut self,
         db: &Pool<Postgres>,
-    ) -> Result<Option<i64>, sqlx::Error> {
-        let wait_time = sqlx::query_scalar!(
-            "SELECT waiting_time_ms FROM outstanding_wait_time WHERE job_id = $1",
+    ) -> Result<(), sqlx::Error> {
+        let r = sqlx::query!(
+            "SELECT self_wait_time_ms, aggregate_wait_time_ms FROM outstanding_wait_time WHERE job_id = $1",
             self.id()
         )
         .fetch_optional(db)
         .await?;
 
+        let (self_wait_time, aggregate_wait_time) = r.map(|x| (x.self_wait_time_ms, x.aggregate_wait_time_ms)).unwrap_or((None, None));
+
         match self {
-            Job::QueuedJob(job) => job.waiting_time_ms = wait_time,
-            Job::CompletedJob(job) => job.waiting_time_ms = wait_time,
-            Job::CompletedJobWithFormattedResult(job) => job.cj.waiting_time_ms = wait_time,
+            Job::QueuedJob(job) =>
+            {
+                job.self_wait_time_ms = self_wait_time;
+                job.aggregate_wait_time_ms = aggregate_wait_time;
+            },
+            Job::CompletedJob(job) =>
+            {
+                job.self_wait_time_ms = self_wait_time;
+                job.aggregate_wait_time_ms = aggregate_wait_time;
+            },
+            Job::CompletedJobWithFormattedResult(job) =>
+            {
+                job.cj.self_wait_time_ms = self_wait_time;
+                job.cj.aggregate_wait_time_ms = aggregate_wait_time;
+            },
         }
-        Ok(wait_time)
+        Ok(())
     }
 }
 
@@ -2117,7 +2131,8 @@ pub struct UnifiedJob {
     pub concurrency_time_window_s: Option<i32>,
     pub priority: Option<i16>,
     pub labels: Option<serde_json::Value>,
-    pub waiting_time_ms: Option<i64>,
+    pub self_wait_time_ms: Option<i64>,
+    pub aggregate_wait_time_ms: Option<i64>,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -2153,7 +2168,8 @@ const CJ_FIELDS: &[&str] = &[
     "null as concurrency_time_window_s",
     "priority",
     "result->'wm_labels' as labels",
-    "waiting_time_ms",
+    "self_wait_time_ms",
+    "aggregate_wait_time_ms",
 ];
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
@@ -2188,7 +2204,8 @@ const QJ_FIELDS: &[&str] = &[
     "concurrency_time_window_s",
     "priority",
     "null as labels",
-    "waiting_time_ms",
+    "self_wait_time_ms",
+    "aggregate_wait_time_ms",
 ];
 
 impl UnifiedJob {
@@ -2236,7 +2253,8 @@ impl<'a> From<UnifiedJob> for Job {
                 tag: uj.tag,
                 priority: uj.priority,
                 labels: uj.labels,
-                waiting_time_ms: uj.waiting_time_ms,
+                self_wait_time_ms: uj.self_wait_time_ms,
+                aggregate_wait_time_ms: uj.aggregate_wait_time_ms,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -2279,7 +2297,8 @@ impl<'a> From<UnifiedJob> for Job {
                 flow_step_id: None,
                 cache_ttl: None,
                 priority: uj.priority,
-                waiting_time_ms: uj.waiting_time_ms,
+                self_wait_time_ms: uj.self_wait_time_ms,
+                aggregate_wait_time_ms: uj.aggregate_wait_time_ms,
             }),
             t => panic!("job type {} not valid", t),
         }

@@ -8916,7 +8916,9 @@ components:
           type: string
         priority:
           type: integer
-        waiting_time_ms:
+        self_wait_time_ms:
+          type: number
+        aggregate_wait_time_ms:
           type: number
       required:
         - id
@@ -9035,7 +9037,9 @@ components:
           type: array
           items:
             type: string
-        waiting_time_ms:
+        self_wait_time_ms:
+          type: number
+        aggregate_wait_time_ms:
           type: number
       required:
         - id

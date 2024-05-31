@@ -1,14 +1,16 @@
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { msToSec } from '$lib/utils'
-	import { Hourglass } from 'lucide-svelte'
+	import { AlertTriangle, Hourglass } from 'lucide-svelte'
 	import Badge from '../badge/Badge.svelte'
 
-	export let waiting_time_ms: number
-	export let variant: 'badge' | 'icon' = 'icon'
+	export let self_wait_time_ms: number | undefined = undefined
+	export let aggregate_wait_time_ms: number | undefined = undefined
+	export let variant: 'icon' | 'alert' | 'badge' = 'icon'
 
-	function waitColorToClass(color: string): string | undefined {
+	$: total_wait = (self_wait_time_ms ?? 0) + (aggregate_wait_time_ms ?? 0)
+
+	function classFromColorName(color: string): string | undefined {
 		const colors: Record<string, string> = {
 			gray: 'text-gray-400 dark:text-gray-300',
 			red: 'text-red-400 dark:text-red-500',
@@ -19,11 +21,11 @@
 		return colors[color]
 	}
 
-	function waitTimeWarnColor(waiting_time_ms: number): any {
+	function waitColorTresholds(waiting_time_ms: number): any {
 		if (waiting_time_ms > 300_000) {
 			return 'red'
 		}
-		if (waiting_time_ms > 60_000) {
+		if (waiting_time_ms > 30_000) {
 			return 'orange'
 		}
 		if (waiting_time_ms > 5_000) {
@@ -35,21 +37,43 @@
 
 <Popover notClickable>
 	<svete:frament slot="text">
-		This job had an aggregate queue time of {msToSec(waiting_time_ms)}s
-		<Tooltip>
+		<div class="mb-5">
+			{#if self_wait_time_ms != undefined}
+				<div>
+					Time spent waiting for an executor: <span class="font-bold">{msToSec(self_wait_time_ms)}s</span>
+				</div>
+			{/if}
+			{#if aggregate_wait_time_ms != undefined}
+				<div>
+					Child jobs time spent waiting for an executor: <span class="font-bold"
+						>{msToSec(aggregate_wait_time_ms)}s</span
+					>
+				</div>
+			{/if}
+		</div>
+		{#if self_wait_time_ms != undefined && aggregate_wait_time_ms != undefined}
+			The top level job and its children (e.g. flow steps) had to wait a for an unexpected amount of time before
+			starting. The first value is the top level job's time spent waiting for a worker and the second is
+			the cumulative wait time for its children.
+		{:else if self_wait_time_ms}
+			<div> This job spent an unexpected amount of time waiting for a worker before starting. </div>
+		{:else if aggregate_wait_time_ms != undefined}
 			<div>
-				This means the job and its tasks (e.g., flow steps) cumulatively spent a significant amount
-				of time waiting for an executor.
+				This job's children spent an unexpected amount of time waiting for a worker before
+				starting. The value is an aggregate of their individual waiting times.
 			</div>
-		</Tooltip>
+		{/if}
+		<div>
+			In a healthy queue, jobs are expected to start in under 50ms.
+		</div>
 	</svete:frament>
 	{#if variant === 'icon'}
-		<Hourglass class={waitColorToClass(waitTimeWarnColor(waiting_time_ms))} size={14} />
-	{:else}
-		<Badge
-			large
-			icon={{ icon: Hourglass, position: 'left' }}
-			color={waitTimeWarnColor(waiting_time_ms)}
-		>{msToSec(waiting_time_ms)}s</Badge>
+		<Hourglass class={classFromColorName(waitColorTresholds(total_wait))} size={14} />
+	{:else if variant === 'badge'}
+		<Badge large icon={{ icon: Hourglass, position: 'left' }} color={waitColorTresholds(total_wait)}
+			>{msToSec(total_wait)}s</Badge
+		>
+	{:else if variant === 'alert'}
+		<AlertTriangle class={classFromColorName(waitColorTresholds(total_wait))} size={14} />
 	{/if}
 </Popover>
