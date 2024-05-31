@@ -612,6 +612,7 @@ export async function writeS3File(
     fileExtension: undefined,
     s3ResourcePath: s3ResourcePath,
     requestBody: fileContentBlob,
+    storage: s3object?.storage,
   });
   return {
     s3: response.file_key,
