@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.340.2](https://github.com/windmill-labs/windmill/compare/v1.340.1...v1.340.2) (2024-05-31)
+
+
+### Bug Fixes
+
+* add audit log exception to schedules ([2359cdc](https://github.com/windmill-labs/windmill/commit/2359cdc128ebfdd3fc2eff97877ae9957def9270))
+* fix csv preview for storage renderer ([326446e](https://github.com/windmill-labs/windmill/commit/326446e5cefb8e99142d13ea030d51c5d317eaf9))
+
 ## [1.340.1](https://github.com/windmill-labs/windmill/compare/v1.340.0...v1.340.1) (2024-05-31)
 
 
