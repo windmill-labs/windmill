@@ -79,12 +79,21 @@
 
 	async function mountGrid() {
 		if (eGui) {
-			const res = await HelpersService.loadParquetPreview({
-				workspace: $workspaceStore!,
-				path: s3resource,
-				limit: 0,
-				storage: storage
-			})
+			const csv = s3resource.endsWith('.csv')
+
+			const res = csv
+				? await HelpersService.loadCsvPreview({
+						workspace: $workspaceStore!,
+						path: s3resource,
+						limit: 0,
+						storage: storage
+				  })
+				: await HelpersService.loadParquetPreview({
+						workspace: $workspaceStore!,
+						path: s3resource,
+						limit: 0,
+						storage: storage
+				  })
 
 			createGrid(
 				eGui,
