@@ -108,7 +108,7 @@
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
 				{#if job?.['duration_ms']}
-					<DurationMs duration_ms={job?.['duration_ms']} />
+					<DurationMs duration_ms={job?.['duration_ms']} waiting_time_ms={job?.waiting_time_ms} />
 				{/if}
 				{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
 					{#each job?.['labels'] as label}
