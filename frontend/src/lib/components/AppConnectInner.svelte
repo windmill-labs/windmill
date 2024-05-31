@@ -172,7 +172,7 @@
 	async function getScopesAndParams() {
 		const connect = await OauthService.getOauthConnect({ client: resourceType })
 		scopes = connect.scopes ?? []
-		extra_params = Object.entries(connect.extra_params ?? {})
+		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 	}
 
 	async function getResourceTypeInfo() {
