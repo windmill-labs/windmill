@@ -2643,8 +2643,7 @@ paths:
                 type: object
                 properties:
                   extra_params:
-                    additionalProperties:
-                      type: string
+                    type: object
                   scopes:
                     type: array
                     items:
