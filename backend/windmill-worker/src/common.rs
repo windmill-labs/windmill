@@ -1563,7 +1563,7 @@ pub async fn save_in_cache(
     };
 
     #[cfg(not(feature = "parquet"))]
-    let s3_etags = None;
+    let (storage, s3_etags) = (None, None);
 
     let store_cache_resource = CachedResource { expire, s3_etags, value: r.clone(), storage };
     let raw_json = sqlx::types::Json(store_cache_resource);
