@@ -539,7 +539,7 @@ async fn add_outstanding_wait_time(
         // subflows). So this is currently incorrect for those cases
         sqlx::query!(
             "INSERT INTO outstanding_wait_time(job_id, aggregate_wait_time_ms) VALUES ($1, $2)
-                ON CONFLICT (job_id) DO UPDATE SET self_wait_time_ms =
+                ON CONFLICT (job_id) DO UPDATE SET aggregate_wait_time_ms = COALESCE(outstanding_wait_time.aggregate_wait_time_ms, 0) + EXCLUDED.self_wait_time_ms
                 COALESCE(outstanding_wait_time.aggregate_wait_time_ms, 0) + EXCLUDED.self_wait_time_ms",
             root_id,
             wait_time
