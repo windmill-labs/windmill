@@ -20,7 +20,7 @@
 	export let render: boolean
 	export let configuration: RichConfigurations
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['jobidlogcomponent'].initialData.configuration,
@@ -65,7 +65,12 @@
 	/>
 {/each}
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
+<TestJobLoader
+	workspaceOverride={workspace}
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+/>
 
 <RunnableWrapper {outputs} {render} {componentInput} {id}>
 	<div class="flex flex-col w-full h-full component-wrapper">

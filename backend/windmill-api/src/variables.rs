@@ -161,14 +161,14 @@ async fn get_variable(
             )
             .await?;
         }
+
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
                 Some(_refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?)
             } else if !value.is_empty() && decrypt_secret {
-                let mc = build_crypt(&mut tx, &w_id).await?;
-                tx.commit().await?;
-
+                let _ = tx.commit().await;
+                let mc = build_crypt(&db, &w_id).await?;
                 Some(decrypt(&mc, value)?)
             } else if q.include_encrypted.unwrap_or(false) {
                 Some(value)
@@ -255,17 +255,13 @@ async fn exists_variable(
     Ok(Json(exists))
 }
 
-async fn check_path_conflict<'c>(
-    tx: &mut Transaction<'c, Postgres>,
-    w_id: &str,
-    path: &str,
-) -> Result<()> {
+async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
         path,
         w_id
     )
-    .fetch_one(&mut **tx)
+    .fetch_one(db)
     .await?
     .unwrap_or(false);
     if exists {
@@ -289,15 +285,15 @@ async fn create_variable(
 ) -> Result<(StatusCode, String)> {
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
-    let mut tx = user_db.begin(&authed).await?;
-
-    check_path_conflict(&mut tx, &w_id, &variable.path).await?;
+    check_path_conflict(&db, &w_id, &variable.path).await?;
     let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
-        let mc = build_crypt(&mut tx, &w_id).await?;
+        let mc = build_crypt(&db, &w_id).await?;
         encrypt(&mc, &variable.value)
     } else {
         variable.value
     };
+
+    let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         "INSERT INTO variable
@@ -355,12 +351,8 @@ async fn encrypt_value(
     Path(w_id): Path<String>,
     Json(variable): Json<String>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-
-    let mc = build_crypt(&mut tx, &w_id).await?;
+    let mc = build_crypt(&db, &w_id).await?;
     let value = encrypt(&mc, &variable);
-
-    tx.commit().await?;
 
     Ok(value)
 }
@@ -451,8 +443,6 @@ async fn update_variable(
     let path = path.to_path();
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
-    let mut tx = user_db.begin(&authed).await?;
-
     let mut sqlb = SqlBuilder::update_table("variable");
     sqlb.and_where_eq("path", "?".bind(&path));
     sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
@@ -470,13 +460,13 @@ async fn update_variable(
                 &path,
                 &w_id
             )
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&db)
             .await?
             .unwrap_or(false)
         };
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
-            let mc = build_crypt(&mut tx, &w_id).await?;
+            let mc = build_crypt(&db, &w_id).await?;
             encrypt(&mc, &nvalue)
         } else {
             nvalue
@@ -494,7 +484,7 @@ async fn update_variable(
             &path,
             &w_id
         )
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&db)
         .await?
         .unwrap_or(false);
         if old_secret != nbool && ns_value_is_none {
@@ -505,10 +495,11 @@ async fn update_variable(
         sqlb.set_str("is_secret", nbool);
     }
     sqlb.returning("path");
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path {
         if npath != path {
-            check_path_conflict(&mut tx, &w_id, &npath).await?;
+            check_path_conflict(&db, &w_id, &npath).await?;
             require_owner_of_path(&authed, path)?;
 
             let mut v = sqlx::query_scalar!(
@@ -635,8 +626,8 @@ pub async fn get_value_internal<'c>(
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             _refresh_token(tx, &variable.path, &w_id, variable.account.unwrap()).await?
         } else if !value.is_empty() {
-            let mc = build_crypt(&mut tx, &w_id).await?;
             tx.commit().await?;
+            let mc = build_crypt(&db, &w_id).await?;
             decrypt(&mc, value)?
         } else {
             "".to_string()

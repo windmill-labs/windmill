@@ -59,13 +59,11 @@
 	import { fade } from 'svelte/transition'
 	import { loadFlowModuleState, pickScript } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
-	import { snakeCase } from 'lodash'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import { cloneDeep } from 'lodash'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -174,13 +172,13 @@
 			savedFlow = {
 				...(newFlow || savedFlow?.draft_only
 					? {
-							...cloneDeep($flowStore),
+							...structuredClone($flowStore),
 							path: $pathStore,
 							draft_only: true
 					  }
 					: savedFlow),
 				draft: {
-					...cloneDeep($flowStore),
+					...structuredClone($flowStore),
 					path: $pathStore
 				}
 			} as Flow & {
@@ -303,7 +301,7 @@
 				})
 			}
 			savedFlow = {
-				...cloneDeep($flowStore),
+				...structuredClone($flowStore),
 				path: $pathStore
 			} as Flow
 			loadingSave = false
@@ -618,6 +616,18 @@
 		copilotStatus = ''
 	}
 
+	function snakeCase(e: string): string {
+		if (e.toLowerCase() === e) {
+			return e
+		}
+
+		return (
+			e
+				.match(/([A-Z])/g)
+				?.reduce((str, c) => str.replace(new RegExp(c), '_' + c.toLowerCase()), e)
+				?.substring(e.slice(0, 1).match(/([A-Z])/g) ? 1 : 0) ?? e
+		)
+	}
 	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
 		try {
 			push(history, $flowStore)

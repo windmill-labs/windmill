@@ -17,7 +17,7 @@
 	export let customCss: ComponentCustomCSS<'logcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -32,7 +32,12 @@
 	let testJob: Job | undefined = undefined
 </script>
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
+<TestJobLoader
+	workspaceOverride={workspace}
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+/>
 
 {#each Object.keys(css ?? {}) as key (key)}
 	<ResolveStyle

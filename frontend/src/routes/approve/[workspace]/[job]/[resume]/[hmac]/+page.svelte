@@ -81,7 +81,11 @@
 		}
 		let job_result = (await JobService.getCompletedJobResult({
 			workspace: job?.workspace_id ?? '',
-			id: jobId
+			id: jobId,
+			secret: $page.params.hmac,
+			suspendedJob: $page.params.job,
+			resumeId: new Number($page.params.resume).valueOf(),
+			approver
 		})) as any
 		description = job_result?.description
 		default_payload = job_result?.default_args ?? {}
