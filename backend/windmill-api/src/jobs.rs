@@ -616,7 +616,6 @@ lazy_static::lazy_static! {
     static ref GET_QUEUED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "queue");
     static ref GET_QUEUED_JOB_QUERY: String = generate_get_job_query(false, "queue");
 }
-yes it fire before
 fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     let log_expr = if no_logs {
         "null".to_string()
