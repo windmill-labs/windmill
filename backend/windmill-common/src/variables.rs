@@ -8,7 +8,6 @@
 
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
 
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 
