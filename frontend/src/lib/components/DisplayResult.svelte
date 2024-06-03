@@ -637,7 +637,7 @@
 							title="Large result detected"
 							type="warning"
 							tooltip="We recommend using persistent object storage for large result. See docs for setting up an object storage service integration using s3 or any other s3 compatible services."
-							documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
+							documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage#object-storage-for-large-data-s3-r2-minio-azure-blob"
 						/>
 					</div>
 					{#if result && result != 'WINDMILL_TOO_BIG'}

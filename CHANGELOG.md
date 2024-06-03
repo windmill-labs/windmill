@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.338.3](https://github.com/windmill-labs/windmill/compare/v1.338.2...v1.338.3) (2024-05-29)
+
+
+### Bug Fixes
+
+* fix resource type search ([b01e335](https://github.com/windmill-labs/windmill/commit/b01e33523da72050bc08b47bd84e0d8fc88f6dda))
+
+## [1.338.2](https://github.com/windmill-labs/windmill/compare/v1.338.1...v1.338.2) (2024-05-28)
+
+
+### Bug Fixes
+
+* worker metrics ([#3837](https://github.com/windmill-labs/windmill/issues/3837)) ([5d2b244](https://github.com/windmill-labs/windmill/commit/5d2b244869fb9a6a7d006cfc95b22d9e83d3b9bb))
+
+## [1.338.1](https://github.com/windmill-labs/windmill/compare/v1.338.0...v1.338.1) (2024-05-28)
+
+
+### Bug Fixes
+
+* fix retry not working on single step flow due to opt ([6166c4d](https://github.com/windmill-labs/windmill/commit/6166c4d7aae9eddcee92f950959b9d2290bc917a))
+* remove quotes around interpolated arg values of tags ([8b66636](https://github.com/windmill-labs/windmill/commit/8b66636a8908c0043d2be63c6462ce28acc43fd9))
+
 ## [1.338.0](https://github.com/windmill-labs/windmill/compare/v1.337.0...v1.338.0) (2024-05-27)
 
 

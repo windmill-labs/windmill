@@ -27,7 +27,9 @@ use windmill_common::s3_helpers::{
     get_etag_or_empty, LargeFileStorage, ObjectStoreResource, S3Object,
 };
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
-use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG};
+use windmill_common::worker::{
+    get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG,
+};
 use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
@@ -582,10 +584,15 @@ where
                 // update the last_ping column every 5 seconds
                 i+=1;
                 if i % 10 == 0 {
+                    let memory_usage = get_worker_memory_usage();
+                    let wm_memory_usage = get_windmill_memory_usage();
+                    tracing::info!("{worker_name}/{job_id} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     sqlx::query!(
-                        "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2 WHERE worker = $3",
+                        "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4 WHERE worker = $5",
                         &job_id,
                         &w_id,
+                        memory_usage,
+                        wm_memory_usage,
                         &worker_name
                     )
                     .execute(&db)

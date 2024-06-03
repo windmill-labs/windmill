@@ -438,7 +438,7 @@
 						</p>
 						<p>
 							More info in <a
-								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#connect-your-windmill-workspace-to-your-s3-bucket"
+								href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
 								target="_blank">Windmill's documentation</a
 							></p
 						></Alert

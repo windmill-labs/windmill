@@ -94,7 +94,6 @@
 	export let automaticLayout = true
 	export let websocketAlive = {
 		pyright: false,
-		black: false,
 		ruff: false,
 		deno: false,
 		go: false,
@@ -803,22 +802,6 @@
 					{},
 					undefined
 				)
-				connectToLanguageServer(
-					`${wsProtocol}://${window.location.host}/ws/diagnostic`,
-					'black',
-					{
-						formatters: {
-							black: {
-								command: 'black',
-								args: ['--quiet', '-']
-							}
-						},
-						formatFiletypes: {
-							python: 'black'
-						}
-					},
-					undefined
-				)
 			} else if (lang === 'go') {
 				connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/go`,
@@ -876,7 +859,6 @@
 						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 					) {
 						if (
-							!websocketAlive.black &&
 							!websocketAlive.deno &&
 							!websocketAlive.pyright &&
 							!websocketAlive.go &&
@@ -1126,7 +1108,6 @@
 			})
 
 			if (
-				!websocketAlive.black &&
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
 				!websocketAlive.ruff &&

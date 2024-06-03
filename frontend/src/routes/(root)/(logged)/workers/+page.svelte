@@ -311,6 +311,9 @@
 		>
 		{#each groupedWorkers as worker_group (worker_group[0])}
 			{@const config = (workerGroups ?? {})[worker_group[0]]}
+			{@const activeWorkers = worker_group?.[1].flatMap((x) =>
+				x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+			)}
 			<WorkspaceGroup
 				{customTags}
 				name={worker_group[0]}
@@ -318,9 +321,7 @@
 				on:reload={() => {
 					loadWorkerGroups()
 				}}
-				activeWorkers={worker_group?.[1].flatMap((x) =>
-					x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
-				)?.length ?? 0}
+				activeWorkers={activeWorkers?.length ?? 0}
 				{defaultTagPerWorkspace}
 			/>
 
@@ -340,13 +341,13 @@
 						</Cell>
 						<Cell head>Last ping</Cell>
 						<Cell head>Worker start</Cell>
-						<Cell head>Nb of jobs executed</Cell>
+						<Cell head>Jobs ran</Cell>
 						{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 							<Cell head>Current job</Cell>
 							<Cell head>Occupancy rate</Cell>
 						{/if}
-						<Cell head>Memory usage</Cell>
-						<Cell head>vCPUs/memory limits</Cell>
+						<Cell head>Memory usage<br />(Windmill usage)</Cell>
+						<Cell head>Limits</Cell>
 						<Cell head>Version</Cell>
 						<Cell head last>Liveness</Cell>
 					</tr>
@@ -369,7 +370,7 @@
 						</tr>
 
 						{#if workers}
-							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage }}
+							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 								<tr>
 									<Cell first>{worker}</Cell>
 									<Cell>
@@ -389,6 +390,7 @@
 												<a href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}>
 													View job
 												</a>
+												<br />
 												(workspace {current_job_workspace_id})
 											{/if}
 										</Cell>
@@ -396,10 +398,15 @@
 											{Math.ceil(occupancy_rate ?? 0 * 100)}%
 										</Cell>
 									{/if}
-									<Cell>{memory_usage ? Math.round(memory_usage / 1000000) + 'MB' : '--'}</Cell>
+									<Cell
+										>{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}<br
+										/>({wm_memory_usage
+											? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
+											: '--'})</Cell
+									>
 									<Cell>
 										{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
-										/ {memory ? Math.round(memory / 1000000) + 'MB' : '--'}
+										/ {memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
 									</Cell>
 									<Cell>
 										<div class="!text-2xs">

@@ -40,7 +40,7 @@ RUN set -eux; \
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GOBIN=/usr/local/go/bin
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
-RUN pip3 install black tornado python-lsp-jsonrpc ruff-lsp
+RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
 
 COPY --from=downloader /deno /usr/bin/deno
 RUN chmod 755 /usr/bin/deno

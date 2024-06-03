@@ -59,6 +59,8 @@ struct WorkerPing {
     vcpus: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     memory_usage: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wm_memory_usage: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -86,7 +88,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate, memory, vcpus, memory_usage
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate, memory, vcpus, memory_usage, wm_memory_usage
         FROM worker_ping
         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
         ORDER BY ping_at desc LIMIT $2 OFFSET $3",

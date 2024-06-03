@@ -297,7 +297,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let filteredConnects: string[] = []
+	let filteredConnects: { key: string }[] = []
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
 		[]
 
@@ -306,9 +306,15 @@
 
 <SearchItems
 	{filter}
-	items={connects ? connects.sort((a, b) => a.localeCompare(b)) : undefined}
+	items={connects
+		? connects
+				.sort((a, b) => a.localeCompare(b))
+				.map((key) => ({
+					key
+				}))
+		: undefined}
 	bind:filteredItems={filteredConnects}
-	f={(x) => x}
+	f={(x) => x.key}
 />
 <SearchItems
 	{filter}
@@ -330,7 +336,7 @@
 	<h2 class="mb-4">OAuth APIs</h2>
 	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 		{#if filteredConnects}
-			{#each filteredConnects as key}
+			{#each filteredConnects as { key }}
 				<Button
 					size="sm"
 					variant="border"
@@ -381,6 +387,8 @@
 		{#if filteredConnectsManual}
 			{#each filteredConnectsManual as [key, _]}
 				{#if nativeLanguagesCategory.includes(key)}
+					{JSON.stringify(key)}
+					{key}
 					<Button
 						size="sm"
 						variant="border"

@@ -10,10 +10,10 @@
 	import { slide } from 'svelte/transition'
 
 	import { getResourceTypes } from './resourceTypesStore'
-	import { Plus } from 'lucide-svelte'
+	import { Pen, Plus, Trash } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
-	import { size } from 'lodash'
+	import Section from './Section.svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -31,6 +31,8 @@
 	export let disablePortal = false
 	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
 	export let offset = 48 + 31 + 31 + 16 + 1
+
+	export let uiOnly: boolean = false
 
 	function changePosition(i: number, up: boolean): any {
 		const entries = Object.entries(schema.properties)
@@ -129,7 +131,12 @@
 	<Splitpanes>
 		<Pane size={50} minSize={20}>
 			<div class="p-4" style={`height: ${wrapperHeight}px; overflow-y: auto;`}>
-				<SchemaForm {schema} bind:args dndEnabled />
+				<Section
+					label="Form preview"
+					tooltip={'Preview of the form that will be rendered based on the schema.'}
+				>
+					<SchemaForm {schema} bind:args dndEnabled />
+				</Section>
 			</div>
 		</Pane>
 		<Pane size={50} minSize={20}>
@@ -161,14 +168,26 @@
 								{#if schema.required?.includes(argName)}
 									<span class="text-red-500 text-xs"> Required </span>
 								{/if}
-								<Button
-									size="xs"
-									color="red"
-									variant="border"
-									on:click={() => changePosition(i, true)}
-								>
-									Delete
-								</Button>
+								{#if !uiOnly}
+									<div class="flex flex-row gap-1">
+										<Button
+											size="xs"
+											color="light"
+											variant="border"
+											on:click={() => {}}
+											startIcon={{ icon: Pen }}>Edit</Button
+										>
+										<Button
+											size="xs"
+											color="red"
+											variant="border"
+											on:click={() => {}}
+											startIcon={{ icon: Trash }}
+										>
+											Delete</Button
+										>
+									</div>
+								{/if}
 							</div>
 							{#if opened === argName}
 								<div class="p-4 border-t" transition:slide>
@@ -208,6 +227,7 @@
 												nullable={schema.properties[argName].nullable}
 												bind:title={schema.properties[argName].title}
 												bind:placeholder={schema.properties[argName].placeholder}
+												{uiOnly}
 											/>
 										{/if}
 									{/if}

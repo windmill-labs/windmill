@@ -41,59 +41,55 @@
 <CapturePayload bind:this={capturePayload} />
 
 <FlowCard {noEditor} title="Flow Input">
-	<div class="p-6">
-		<div class="flex flex-row items-center gap-2 pb-2 border-b border-gray-400">
-			<div>Copy input's schema from</div>
-			<Button
-				color="dark"
-				size="xs"
-				on:click={() => {
-					capturePayload.openDrawer()
-				}}
-			>
-				A request
-			</Button>
-			<Button
-				color="dark"
-				size="xs"
-				on:click={() => {
-					jsonPayload.openDrawer()
-				}}
-			>
-				A JSON
-			</Button>
-			<Button
-				color="dark"
-				size="xs"
-				on:click={() => {
-					inputLibraryDrawer.openDrawer()
-				}}
-			>
-				Past Runs/Input library
-			</Button>
-			<Button
-				color="dark"
-				size="xs"
-				disabled={$flowStore.value.modules.length === 0 ||
-					$flowStore.value.modules[0].value.type == 'identity'}
-				on:click={() => copyFirstStepSchema($flowStateStore, flowStore)}
-			>
-				First step's inputs
-			</Button>
-		</div>
-		<div class="pt-6">
-			<SchemaEditor
-				isFlowInput
-				bind:schema={$flowStore.schema}
-				on:change={() => {
-					$flowStore = $flowStore
-				}}
-			/>
-		</div>
+	<div class="flex flex-row items-center gap-2 px-4 py-2 border-b">
+		<div>Copy input's schema from</div>
+		<Button
+			color="dark"
+			size="xs"
+			on:click={() => {
+				capturePayload.openDrawer()
+			}}
+		>
+			A request
+		</Button>
+		<Button
+			color="dark"
+			size="xs"
+			on:click={() => {
+				jsonPayload.openDrawer()
+			}}
+		>
+			A JSON
+		</Button>
+		<Button
+			color="dark"
+			size="xs"
+			on:click={() => {
+				inputLibraryDrawer.openDrawer()
+			}}
+		>
+			Past Runs/Input library
+		</Button>
+		<Button
+			color="dark"
+			size="xs"
+			disabled={$flowStore.value.modules.length === 0 ||
+				$flowStore.value.modules[0].value.type == 'identity'}
+			on:click={() => copyFirstStepSchema($flowStateStore, flowStore)}
+		>
+			First step's inputs
+		</Button>
 	</div>
-	<div class="">
-		<EditableSchemaForm bind:schema={$flowStore.schema} />
+	<div class="pt-6">
+		<SchemaEditor
+			isFlowInput
+			bind:schema={$flowStore.schema}
+			on:change={() => {
+				$flowStore = $flowStore
+			}}
+		/>
 	</div>
+	<EditableSchemaForm bind:schema={$flowStore.schema} />
 </FlowCard>
 
 <Drawer bind:this={jsonPayload} size="800px">
