@@ -22,11 +22,12 @@
 	import { forLater } from '$lib/forLater'
 	import { twMerge } from 'tailwind-merge'
 	import Portal from 'svelte-portal'
+	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 
 	const dispatch = createEventDispatcher()
 
 	export let job: Job
-	export let selected: boolean = false;
+	export let selected: boolean = false
 	export let containerWidth: number = 0
 	export let containsLabel: boolean = false
 	export let activeLabel: string | null
@@ -97,6 +98,13 @@
 						(Ran in {msToSec(
 							job.duration_ms
 						)}s{#if job.job_kind == 'flow' || job.job_kind == 'flowpreview'}&nbsp;total{/if})
+					{/if}
+					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
+						<WaitTimeWarning
+							self_wait_time_ms={job.self_wait_time_ms}
+							aggregate_wait_time_ms={job.aggregate_wait_time_ms}
+							variant="icon"
+						/>
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Scheduled for {displayDate(job.scheduled_for)}

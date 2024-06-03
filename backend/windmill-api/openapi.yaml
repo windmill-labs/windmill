@@ -9042,6 +9042,10 @@ components:
           type: string
         priority:
           type: integer
+        self_wait_time_ms:
+          type: number
+        aggregate_wait_time_ms:
+          type: number
       required:
         - id
         - running
@@ -9159,6 +9163,10 @@ components:
           type: array
           items:
             type: string
+        self_wait_time_ms:
+          type: number
+        aggregate_wait_time_ms:
+          type: number
       required:
         - id
         - created_by
