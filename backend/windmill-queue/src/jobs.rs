@@ -1616,50 +1616,6 @@ async fn handle_recovered_schedule<
     return Ok(tx);
 }
 
-const OUTSTANDING_WAIT_TIME_THRESHOLD_MS: i64 = 1000;
-
-async fn add_outstanding_wait_time(
-    queued_job: &QueuedJob,
-    db: &Pool<Postgres>,
-    waiting_threshold: i64,
-) -> error::Result<Option<i64>> {
-    let wait_time;
-
-    if let Some(started_time) = queued_job.started_at {
-        wait_time = (started_time - queued_job.scheduled_for).num_milliseconds();
-    } else {
-        return Ok(None);
-    }
-
-    if wait_time < waiting_threshold {
-        return Ok(None);
-    }
-
-    sqlx::query!(
-        "INSERT INTO outstanding_wait_time(job_id, self_wait_time_ms) VALUES ($1, $2)
-            ON CONFLICT (job_id) DO UPDATE SET self_wait_time_ms = EXCLUDED.self_wait_time_ms",
-        queued_job.id,
-        wait_time
-    )
-    .execute(db)
-    .await?;
-
-    if let Some(root_id) = queued_job.root_job {
-        // TODO: queued_job.root_job is not guaranteed to be the true root job (e.g. parallel flow
-        // subflows). So this is currently incorrect for those cases
-        sqlx::query!(
-            "INSERT INTO outstanding_wait_time(job_id, aggregate_wait_time_ms) VALUES ($1, $2)
-                ON CONFLICT (job_id) DO UPDATE SET aggregate_wait_time_ms =
-                COALESCE(outstanding_wait_time.aggregate_wait_time_ms, 0) + EXCLUDED.aggregate_wait_time_ms",
-            root_id,
-            wait_time
-        )
-        .execute(db)
-        .await?;
-    }
-    Ok(Some(wait_time))
-}
-
 pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
     db: &Pool<Postgres>,
     rsmq: Option<R>,
@@ -1693,11 +1649,6 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
             #[cfg(feature = "prometheus")]
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
-            }
-            match add_outstanding_wait_time(&pulled_job, db, OUTSTANDING_WAIT_TIME_THRESHOLD_MS).await {
-                Ok(None) => (),
-                Ok(Some(wait_time)) => tracing::warn!("This job waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
-                Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
             }
             return Ok(Option::Some(pulled_job));
         }
@@ -1801,11 +1752,6 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
                 QUEUE_PULL_COUNT.inc();
             }
             tx.commit().await?;
-            match add_outstanding_wait_time(&pulled_job, db, OUTSTANDING_WAIT_TIME_THRESHOLD_MS).await {
-                Ok(None) => (),
-                Ok(Some(wait_time)) => tracing::warn!("This job waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
-                Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
-            }
             return Ok(Option::Some(pulled_job));
         }
         let x = sqlx::query_scalar!(

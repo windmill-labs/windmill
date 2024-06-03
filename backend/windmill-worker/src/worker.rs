@@ -625,6 +625,64 @@ pub async fn drop_cache() {
     }
 }
 
+const OUTSTANDING_WAIT_TIME_THRESHOLD_MS: i64 = 1000;
+
+async fn insert_wait_time(job_id: Uuid, root_job_id: Option<Uuid>, db: &Pool<Postgres>, wait_time: i64) -> sqlx::error::Result<()> {
+    sqlx::query!(
+        "INSERT INTO outstanding_wait_time(job_id, self_wait_time_ms) VALUES ($1, $2)
+            ON CONFLICT (job_id) DO UPDATE SET self_wait_time_ms = EXCLUDED.self_wait_time_ms",
+        job_id,
+        wait_time
+    )
+    .execute(db)
+    .await?;
+
+    if let Some(root_id) = root_job_id {
+        // TODO: queued_job.root_job is not guaranteed to be the true root job (e.g. parallel flow
+        // subflows). So this is currently incorrect for those cases
+        sqlx::query!(
+            "INSERT INTO outstanding_wait_time(job_id, aggregate_wait_time_ms) VALUES ($1, $2)
+                ON CONFLICT (job_id) DO UPDATE SET aggregate_wait_time_ms =
+                COALESCE(outstanding_wait_time.aggregate_wait_time_ms, 0) + EXCLUDED.aggregate_wait_time_ms",
+            root_id,
+            wait_time
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn add_outstanding_wait_time(
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    waiting_threshold: i64,
+) -> () {
+    let wait_time;
+
+    if let Some(started_time) = queued_job.started_at {
+        wait_time = (started_time - queued_job.scheduled_for).num_milliseconds();
+    } else {
+        return;
+    }
+
+    if wait_time < waiting_threshold {
+        return;
+    }
+
+    let job_id = queued_job.id;
+    let root_job_id = queued_job.root_job;
+    let db = db.clone();
+
+    tokio::spawn(async move {
+            match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
+                Ok(()) => tracing::warn!("This job waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
+                Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
+            }
+    }.in_current_span());
+}
+
+
 #[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
@@ -1641,6 +1699,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .fetch_add(send_start.elapsed().as_millis() as usize, Ordering::SeqCst);
                 } else {
                     let token = create_token_for_owner_in_bg(&db, &job).await;
+                    add_outstanding_wait_time(&job, db, OUTSTANDING_WAIT_TIME_THRESHOLD_MS).await;
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
