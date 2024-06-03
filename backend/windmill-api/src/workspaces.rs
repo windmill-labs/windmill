@@ -1366,17 +1366,16 @@ async fn set_encryption_key(
         ));
     }
 
-    let mut tx = db.begin().await?;
-    let previous_encryption_key = build_crypt(&mut tx, w_id.as_str()).await?;
+    let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
         w_id
     )
-    .execute(&mut *tx)
+    .execute(&db)
     .await?;
-    let new_encryption_key = build_crypt(&mut tx, w_id.as_str()).await?;
+    let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
     let mut truncated_new_key = request.new_key.clone();
     truncated_new_key.truncate(8);
@@ -1390,7 +1389,7 @@ async fn set_encryption_key(
         "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
         w_id
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&db)
     .await?;
 
     for variable in all_variables {
@@ -1405,11 +1404,10 @@ async fn set_encryption_key(
             w_id,
             variable.path
         )
-        .execute(&mut *tx)
+        .execute(&db)
         .await?;
     }
 
-    tx.commit().await?;
     return Ok(());
 }
 
@@ -2595,7 +2593,7 @@ async fn tarball_workspace(
             .fetch_all(&mut *tx)
             .await?;
 
-        let mc = build_crypt(&mut db.begin().await?, &w_id).await?;
+        let mc = build_crypt(&db, &w_id).await?;
 
         for mut var in variables {
             if plain_secret.or(plain_secrets).unwrap_or(false)
