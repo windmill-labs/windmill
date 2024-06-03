@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.341.0](https://github.com/windmill-labs/windmill/compare/v1.340.2...v1.341.0) (2024-06-03)
+
+
+### Features
+
+* **frontend:** Fix how runnable tied to a table actions are triggered + Display the sync columnDef error only in the editor ([#3862](https://github.com/windmill-labs/windmill/issues/3862)) ([76b6577](https://github.com/windmill-labs/windmill/commit/76b65771a03e35b6d489731f210e24640efda54b))
+* warn when jobs spent a long time waiting in queue ([#3856](https://github.com/windmill-labs/windmill/issues/3856)) ([203264b](https://github.com/windmill-labs/windmill/commit/203264b87174b9774819bcf008bc4c41b866ccd9))
+
+
+### Bug Fixes
+
+* fix python client for S3Object ([44c36cd](https://github.com/windmill-labs/windmill/commit/44c36cdeb53eeb577dc7af6c2d64b75824492e1d))
+* further restrict job api to logged in workspace users or anonymous jobs only" ([#3860](https://github.com/windmill-labs/windmill/issues/3860)) ([181cb7d](https://github.com/windmill-labs/windmill/commit/181cb7dec99d92b6e7450e4a0f5af75994c82ec3))
+
 ## [1.340.2](https://github.com/windmill-labs/windmill/compare/v1.340.1...v1.340.2) (2024-05-31)
 
 
