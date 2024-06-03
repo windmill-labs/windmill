@@ -4294,7 +4294,7 @@ pub struct RawResult {
     pub result: Option<sqlx::types::Json<Box<RawValue>>>,
     pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
     pub language: Option<ScriptLang>,
-    pub created_by: String,
+    pub created_by: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -4338,7 +4338,7 @@ async fn get_completed_job_result(
 
     let raw_result = RawResult::from_row(&result)?;
 
-    if opt_authed.is_none() && raw_result.created_by != "anonymous" {
+    if opt_authed.is_none() && raw_result.created_by.unwrap_or_default() != "anonymous" {
         match (suspended_job, resume_id, approver, secret) {
             (Some(suspended_job), Some(resume_id), approver, Some(secret)) => {
                 let mut parent_job = id;
