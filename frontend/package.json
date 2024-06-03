@@ -112,7 +112,6 @@
 		"graphql": "^16.7.1",
 		"hash-sum": "^2.0.0",
 		"highlight.js": "^11.8.0",
-		"lodash": "^4.17.21",
 		"lucide-svelte": "^0.293.0",
 		"monaco-editor": "npm:@codingame/monaco-editor-treemended@>=1.83.5 <1.84.0",
 		"monaco-graphql": "^1.5.1",

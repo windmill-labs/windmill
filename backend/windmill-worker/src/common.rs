@@ -279,10 +279,8 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$encrypted:") => {
             let encrypted = y.strip_prefix("$encrypted:").unwrap();
-            let mut tx = db.begin().await?;
-            let mc = build_crypt_with_key_suffix(&mut tx, &job.workspace_id, &job.id.to_string())
-                .await?;
-            tx.commit().await?;
+            let mc =
+                build_crypt_with_key_suffix(&db, &job.workspace_id, &job.id.to_string()).await?;
             decrypt_value_with_mc(encrypted.to_string(), mc)
                 .await
                 .and_then(|x| {

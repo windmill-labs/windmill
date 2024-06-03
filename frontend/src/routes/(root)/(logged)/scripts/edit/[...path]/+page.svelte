@@ -8,7 +8,6 @@
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cloneDeep } from 'lodash'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
@@ -81,14 +80,14 @@
 					workspace: $workspaceStore!,
 					hash
 				})
-				savedScript = cloneDeep(scriptByHash) as NewScriptWithDraft
+				savedScript = structuredClone(scriptByHash) as NewScriptWithDraft
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: $page.params.path
 				})
-				savedScript = cloneDeep(scriptWithDraft)
+				savedScript = structuredClone(scriptWithDraft)
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
 					if (!scriptWithDraft.draft_only) {
