@@ -105,7 +105,7 @@
 				</div>
 			</Alert>
 		</div>
-	{:else}
+	{:else if $mode === 'dnd'}
 		<div class="m-16">
 			<Alert title="Parsing issues" type="error" size="xs">
 				<div class="flex flex-col items-start gap-2">
