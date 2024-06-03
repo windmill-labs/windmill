@@ -150,6 +150,7 @@
 							}}
 							componentInput={action.componentInput}
 							verticalAlignment="center"
+							replaceCallback={true}
 							{controls}
 						/>
 					{:else if action.type == 'checkboxcomponent'}
@@ -207,6 +208,7 @@
 						extraQueryParams={{
 							row
 						}}
+						replaceCallback={true}
 						componentInput={action.componentInput}
 					/>
 				{:else if action.type == 'checkboxcomponent'}
