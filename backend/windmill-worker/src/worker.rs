@@ -627,7 +627,12 @@ pub async fn drop_cache() {
 
 const OUTSTANDING_WAIT_TIME_THRESHOLD_MS: i64 = 1000;
 
-async fn insert_wait_time(job_id: Uuid, root_job_id: Option<Uuid>, db: &Pool<Postgres>, wait_time: i64) -> sqlx::error::Result<()> {
+async fn insert_wait_time(
+    job_id: Uuid,
+    root_job_id: Option<Uuid>,
+    db: &Pool<Postgres>,
+    wait_time: i64,
+) -> sqlx::error::Result<()> {
     sqlx::query!(
         "INSERT INTO outstanding_wait_time(job_id, self_wait_time_ms) VALUES ($1, $2)
             ON CONFLICT (job_id) DO UPDATE SET self_wait_time_ms = EXCLUDED.self_wait_time_ms",
@@ -681,7 +686,6 @@ fn add_outstanding_wait_time(
             }
     }.in_current_span());
 }
-
 
 #[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name))]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
@@ -4021,6 +4025,26 @@ async fn lock_modules(
                         nbranches.push(b)
                     }
                     e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
+                }
+                FlowModuleValue::WhileloopFlow { modules, skip_failures } => {
+                    e.value = FlowModuleValue::WhileloopFlow {
+                        modules: lock_modules(
+                            modules,
+                            job,
+                            mem_peak,
+                            canceled_by,
+                            job_dir,
+                            db,
+                            worker_name,
+                            worker_dir,
+                            job_path,
+                            base_internal_url,
+                            token,
+                        )
+                        .await?,
+                        skip_failures,
+                    }
+                    .into()
                 }
                 FlowModuleValue::BranchOne { branches, default } => {
                     let mut nbranches = vec![];
