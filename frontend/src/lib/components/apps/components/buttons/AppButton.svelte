@@ -37,6 +37,7 @@
 	export let extraKey: string | undefined = undefined
 	export let isMenuItem: boolean = false
 	export let noInitialize = false
+	export let replaceCallback: boolean = false
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -194,6 +195,7 @@
 		}
 	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
+	{replaceCallback}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment} class="wm-button-wrapper">
 		{#if errorsMessage}
