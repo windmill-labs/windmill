@@ -653,7 +653,7 @@ async fn insert_wait_time(job_id: Uuid, root_job_id: Option<Uuid>, db: &Pool<Pos
     Ok(())
 }
 
-async fn add_outstanding_wait_time(
+fn add_outstanding_wait_time(
     queued_job: &QueuedJob,
     db: &Pool<Postgres>,
     waiting_threshold: i64,
@@ -1699,7 +1699,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .fetch_add(send_start.elapsed().as_millis() as usize, Ordering::SeqCst);
                 } else {
                     let token = create_token_for_owner_in_bg(&db, &job).await;
-                    add_outstanding_wait_time(&job, db, OUTSTANDING_WAIT_TIME_THRESHOLD_MS).await;
+                    add_outstanding_wait_time(&job, db, OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
