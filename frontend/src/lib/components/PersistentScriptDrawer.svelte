@@ -2,7 +2,7 @@
 	import { JobService, type Script } from '$lib/gen'
 	import { Badge, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate, sleep, sendUserToast } from '$lib/utils'
 	import TableCustom from './TableCustom.svelte'
@@ -60,7 +60,7 @@
 		// toggle queuedJobsLoading to false in 1 secs to let some time for the animation to play
 		setTimeout(() => {
 			queuedJobsLoading = false
-		}, 1000 - (endStart - timeStart))
+		}, 3000 - (endStart - timeStart))
 	}
 
 	async function scaleToZero() {
@@ -91,6 +91,10 @@
 		loadQueuedJobs = false
 		drawer.closeDrawer?.()
 	}
+
+	onDestroy(() => {
+		loadQueuedJobs = false
+	})
 </script>
 
 <Drawer
@@ -118,7 +122,7 @@
 				variant="border"
 				on:click={loadQueuedJobsOnce}
 			>
-				<RefreshCw class={queuedJobsLoading ? 'animate-spin' : ''} size="xs" />Refresh
+				<RefreshCw class={queuedJobsLoading ? 'animate-spin' : ''} size={14} />
 			</Button>
 		</div>
 		<TableCustom>

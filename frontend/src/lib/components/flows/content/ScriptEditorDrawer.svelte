@@ -13,7 +13,6 @@
 		orderedJsonStringify,
 		sendUserToast
 	} from '$lib/utils'
-	import { cloneDeep } from 'lodash'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 
@@ -28,7 +27,7 @@
 			workspace: $workspaceStore!,
 			hash
 		})
-		savedScript = cloneDeep(script)
+		savedScript = structuredClone(script)
 		callback = cb
 	}
 
@@ -92,7 +91,7 @@
 						lock: undefined
 					}
 				})
-				savedScript = cloneDeep(script)
+				savedScript = structuredClone(script)
 				callback?.()
 			} catch (error) {
 				sendUserToast(`Impossible to save the script: ${error.body}`, true)
@@ -229,7 +228,7 @@
 						button: {
 							text: 'Restore to saved',
 							onClick: () => {
-								script = cloneDeep(savedScript)
+								script = structuredClone(savedScript)
 								diffDrawer.closeDrawer()
 							}
 						}

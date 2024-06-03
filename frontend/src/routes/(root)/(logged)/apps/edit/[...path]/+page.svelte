@@ -8,7 +8,6 @@
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
-	import { cloneDeep } from 'lodash'
 
 	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
 	let savedApp:
@@ -38,7 +37,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_ = cloneDeep(app_w_draft)
+		const app_w_draft_ = structuredClone(app_w_draft)
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as App,

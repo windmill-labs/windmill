@@ -5712,6 +5712,22 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: suspended_job
+          in: query
+          schema:
+            type: string
+        - name: resume_id
+          in: query
+          schema:
+            type: integer
+        - name: secret
+          in: query
+          schema:
+            type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: result
@@ -5729,6 +5745,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
         - $ref: "#/components/parameters/GetStarted"
+
       responses:
         "200":
           description: result

@@ -17,7 +17,6 @@
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cloneDeep } from 'lodash'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -99,10 +98,10 @@
 				path: $page.params.path
 			})
 			savedFlow = {
-				...cloneDeep(flowWithDraft),
+				...structuredClone(flowWithDraft),
 				draft: flowWithDraft.draft
 					? {
-							...cloneDeep(flowWithDraft.draft),
+							...structuredClone(flowWithDraft.draft),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 					  }
 					: undefined
