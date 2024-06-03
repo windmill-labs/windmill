@@ -664,7 +664,7 @@
 							<div>
 								<Popover notClickable>
 									<svelte:fragment slot="text">
-										This jobs has concurrency limits enabled with the key
+										This job has concurrency limits enabled with the key
 										<a
 											href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 										>

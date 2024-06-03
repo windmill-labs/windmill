@@ -808,6 +808,8 @@
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
+								selfWaitTime={job?.self_wait_time_ms}
+								aggregateWaitTime={job?.aggregate_wait_time_ms}
 								flowDone={job?.['success'] != undefined}
 								bind:this={flowTimeline}
 								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}

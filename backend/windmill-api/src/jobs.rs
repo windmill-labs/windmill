@@ -598,20 +598,15 @@ async fn get_flow_job_debug_info(
 struct GetJobQuery {
     pub no_logs: Option<bool>,
 }
+
 async fn get_job(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetJobQuery { no_logs }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
-    let job = get_job_internal(
-        &db,
-        w_id.as_str(),
-        id,
-        no_logs.unwrap_or(false),
-        Some(&opt_authed),
-    )
-    .await?;
+    let mut job = get_job_internal(&db, w_id.as_str(), id, no_logs.unwrap_or(false), Some(&opt_authed)).await?;
+    job.fetch_outstanding_wait_time(&db).await?;
     Ok(Json(job).into_response())
 }
 
@@ -621,7 +616,6 @@ lazy_static::lazy_static! {
     static ref GET_QUEUED_JOB_QUERY_NO_LOGS: String = generate_get_job_query(true, "queue");
     static ref GET_QUEUED_JOB_QUERY: String = generate_get_job_query(false, "queue");
 }
-
 fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     let log_expr = if no_logs {
         "null".to_string()
@@ -1015,7 +1009,14 @@ pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
     lq: &ListQueueQuery,
     w_id: &str,
+    join_outstanding_wait_times: bool,
 ) -> SqlBuilder {
+    if join_outstanding_wait_times {
+        sqlb.left()
+            .join("outstanding_wait_time")
+            .on_eq("id", "outstanding_wait_time.job_id");
+    }
+
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -1118,14 +1119,19 @@ pub fn filter_list_queue_query(
     sqlb
 }
 
-pub fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
+pub fn list_queue_jobs_query(
+    w_id: &str,
+    lq: &ListQueueQuery,
+    fields: &[&str],
+    join_outstanding_wait_times: bool,
+) -> SqlBuilder {
     let sqlb = SqlBuilder::select_from("queue")
         .fields(fields)
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(1000)
         .clone();
 
-    filter_list_queue_query(sqlb, lq, w_id)
+    filter_list_queue_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
 
 #[derive(Serialize, FromRow)]
@@ -1179,6 +1185,7 @@ async fn list_queue_jobs(
             "priority",
             "workspace_id",
         ],
+        false,
     )
     .sql()?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1325,6 +1332,7 @@ async fn list_jobs(
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
+            true,
         ))
     } else {
         None
@@ -1335,6 +1343,7 @@ async fn list_jobs(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
+            true,
         );
 
         if let Some(sqlc) = sqlc {
@@ -2104,6 +2113,39 @@ impl Job {
         .fetch_optional(db)
         .await
     }
+
+    pub async fn fetch_outstanding_wait_time(
+        &mut self,
+        db: &Pool<Postgres>,
+    ) -> Result<(), sqlx::Error> {
+        let r = sqlx::query!(
+            "SELECT self_wait_time_ms, aggregate_wait_time_ms FROM outstanding_wait_time WHERE job_id = $1",
+            self.id()
+        )
+        .fetch_optional(db)
+        .await?;
+
+        let (self_wait_time, aggregate_wait_time) = r.map(|x| (x.self_wait_time_ms, x.aggregate_wait_time_ms)).unwrap_or((None, None));
+
+        match self {
+            Job::QueuedJob(job) =>
+            {
+                job.self_wait_time_ms = self_wait_time;
+                job.aggregate_wait_time_ms = aggregate_wait_time;
+            },
+            Job::CompletedJob(job) =>
+            {
+                job.self_wait_time_ms = self_wait_time;
+                job.aggregate_wait_time_ms = aggregate_wait_time;
+            },
+            Job::CompletedJobWithFormattedResult(job) =>
+            {
+                job.cj.self_wait_time_ms = self_wait_time;
+                job.cj.aggregate_wait_time_ms = aggregate_wait_time;
+            },
+        }
+        Ok(())
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -2139,6 +2181,8 @@ pub struct UnifiedJob {
     pub concurrency_time_window_s: Option<i32>,
     pub priority: Option<i16>,
     pub labels: Option<serde_json::Value>,
+    pub self_wait_time_ms: Option<i64>,
+    pub aggregate_wait_time_ms: Option<i64>,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -2174,6 +2218,8 @@ const CJ_FIELDS: &[&str] = &[
     "null as concurrency_time_window_s",
     "priority",
     "result->'wm_labels' as labels",
+    "self_wait_time_ms",
+    "aggregate_wait_time_ms",
 ];
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
@@ -2208,6 +2254,8 @@ const QJ_FIELDS: &[&str] = &[
     "concurrency_time_window_s",
     "priority",
     "null as labels",
+    "self_wait_time_ms",
+    "aggregate_wait_time_ms",
 ];
 
 impl UnifiedJob {
@@ -2255,6 +2303,8 @@ impl<'a> From<UnifiedJob> for Job {
                 tag: uj.tag,
                 priority: uj.priority,
                 labels: uj.labels,
+                self_wait_time_ms: uj.self_wait_time_ms,
+                aggregate_wait_time_ms: uj.aggregate_wait_time_ms,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -2297,6 +2347,8 @@ impl<'a> From<UnifiedJob> for Job {
                 flow_step_id: None,
                 cache_ttl: None,
                 priority: uj.priority,
+                self_wait_time_ms: uj.self_wait_time_ms,
+                aggregate_wait_time_ms: uj.aggregate_wait_time_ms,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -4049,7 +4101,14 @@ pub fn filter_list_completed_query(
     mut sqlb: SqlBuilder,
     lq: &ListCompletedQuery,
     w_id: &str,
+    join_outstanding_wait_times: bool,
 ) -> SqlBuilder {
+    if join_outstanding_wait_times {
+        sqlb.left()
+            .join("outstanding_wait_time")
+            .on_eq("id", "outstanding_wait_time.job_id");
+    }
+
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
     }
@@ -4151,6 +4210,7 @@ pub fn list_completed_jobs_query(
     offset: usize,
     lq: &ListCompletedQuery,
     fields: &[&str],
+    join_outstanding_wait_times: bool,
 ) -> SqlBuilder {
     let sqlb = SqlBuilder::select_from("completed_job")
         .fields(fields)
@@ -4159,7 +4219,7 @@ pub fn list_completed_jobs_query(
         .limit(per_page)
         .clone();
 
-    filter_list_completed_query(sqlb, lq, w_id)
+    filter_list_completed_query(sqlb, lq, w_id, join_outstanding_wait_times)
 }
 #[derive(Deserialize, Clone)]
 pub struct ListCompletedQuery {
@@ -4242,6 +4302,7 @@ async fn list_completed_jobs(
             "result->'wm_labels' as labels",
             "'CompletedJob' as type",
         ],
+        false,
     )
     .sql()?;
     let mut tx = user_db.begin(&authed).await?;
