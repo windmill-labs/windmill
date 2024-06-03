@@ -5,7 +5,10 @@
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import type { Writable } from 'svelte/store'
+	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
 
+	export let selfWaitTime: number | undefined = undefined
+	export let aggregateWaitTime: number | undefined = undefined
 	export let flowModules: string[]
 	export let durationStatuses: Writable<
 		Record<
@@ -145,6 +148,16 @@
 				</div>
 			</div>
 		</div>
+		{#if selfWaitTime}
+			<div class="px-2 py-2 grid grid-cols-6 w-full">
+				root:
+				<WaitTimeWarning
+					self_wait_time_ms={selfWaitTime}
+					aggregate_wait_time_ms={aggregateWaitTime}
+					variant="badge-self-wait"
+				/>
+			</div>
+		{/if}
 		{#each Object.values(flowModules) as k (k)}
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
 				{#if ($durationStatuses?.[k]?.iteration_from ?? 0) > 0}
