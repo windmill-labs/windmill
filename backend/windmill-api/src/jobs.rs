@@ -4344,8 +4344,9 @@ async fn get_completed_job_result(
                 let mut parent_job = id;
                 while parent_job != suspended_job {
                     let p_job = sqlx::query_scalar!(
-                        "SELECT parent_job FROM queue WHERE id = $1",
+                        "SELECT parent_job FROM queue WHERE id = $1 AND workspace_id = $2",
                         parent_job,
+                        &w_id
                     )
                     .fetch_optional(&db)
                     .await?
