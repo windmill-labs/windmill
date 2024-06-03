@@ -2845,7 +2845,7 @@ async fn run_wait_result(
 
         if result.is_none() {
             let row = sqlx::query(
-                "SELECT result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                "SELECT null as created_by, result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
             )
             .bind(uuid)
             .bind(&w_id)
