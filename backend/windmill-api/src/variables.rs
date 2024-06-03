@@ -34,7 +34,7 @@ use windmill_common::{
 use lazy_static::lazy_static;
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::Deserialize;
-use sqlx::{Postgres, Transaction};
+use sqlx::Postgres;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 lazy_static! {
