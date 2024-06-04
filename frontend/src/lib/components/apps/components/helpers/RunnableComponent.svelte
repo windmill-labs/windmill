@@ -414,7 +414,7 @@
 	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (e: any) => void }
 
 	export async function runComponent(
-		noToast = false,
+		noToast = true,
 		inlineScriptOverride?: InlineScript,
 		setRunnableJobEditorPanel?: boolean,
 		dynamicArgsOverride?: Record<string, any>,
