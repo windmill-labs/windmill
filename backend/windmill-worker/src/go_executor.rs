@@ -99,7 +99,7 @@ async fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::R
     use tokio::io::AsyncWriteExt;
 
     let mut file = File::create(main_path).await?;
-    file.write_buf(byts).await?;
+    file.write_all_buf(byts).await?;
     file.set_permissions(Permissions::from_mode(0o755)).await?;
     file.flush().await?;
     Ok(())

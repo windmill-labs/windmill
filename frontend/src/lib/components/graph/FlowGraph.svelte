@@ -54,6 +54,7 @@
 	let fullWidth: number
 	let errorHandlers: Record<string, string> = {}
 
+	let containerHeight = window.innerHeight
 	let error: string | undefined = undefined
 
 	$: showDataflow =
@@ -163,7 +164,7 @@
 
 			let hfull = Math.max(layered.height, minHeight)
 			fullWidth = layered.width
-			height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight * 1.5)
+			height = fullSize ? hfull : Math.max(hfull, maxHeight ?? containerHeight)
 
 			let useDataflow = dataflow && showDataflow
 			edges = useDataflow ? [] : createEdges(nodes)
@@ -769,6 +770,7 @@
 <!-- {JSON.stringify(flowModuleStates)} -->
 <div
 	bind:clientWidth={width}
+	bind:clientHeight={containerHeight}
 	class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}
 	id="flow-graph"
 >

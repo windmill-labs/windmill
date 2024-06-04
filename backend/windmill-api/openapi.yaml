@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.341.0
+  version: 1.341.1
   title: Windmill API
 
   contact:
@@ -7960,6 +7960,10 @@ paths:
           schema:
             type: string
         - name: storage
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
           in: query
           schema:
             type: string

@@ -6,12 +6,9 @@
 		createStoreEmpty,
 		populateSvelvetStoreFromUserInput
 	} from '../../store/controllers/storeApi'
-	import { afterUpdate, onMount, getContext } from 'svelte'
+	import { afterUpdate, onMount } from 'svelte'
 	import GraphView from './GraphView.svelte'
 	import { sanitizeUserNodesAndEdges } from '../controllers/middleware'
-	import { SVELVET_CONTEXT_KEY, type SvelvetSettingsContext } from '../models'
-
-	const settings = getContext<SvelvetSettingsContext | undefined>(SVELVET_CONTEXT_KEY)
 
 	export let nodes: UserNodeType[]
 	export let edges: UserEdgeType[]
@@ -31,7 +28,6 @@
 	export let download: boolean = false
 	export let dataflow: boolean = false
 	export let nodeSelected: boolean = false
-	const fullHeight = settings?.fullHeight ?? false
 	// generates a unique string for each svelvet component's unique store instance
 	// creates a store that uses the unique sting as the key to create and look up the corresponding store
 	// this way we can have multiple Svelvet Components on the same page and prevent overlap of information
@@ -105,7 +101,7 @@
 <!-- Now that a store has been created from the initial nodes and initial edges we drill props from the store down to the D3 GraphView along with the unique key -->
 <div
 	class="Svelvet bg-surface-secondary"
-	style={`width: ${width}px; height: ${fullHeight ? '100%' : height + 'px'};`}
+	style={`width: ${width}px; min-height: 100%; height: ${height}px;`}
 >
 	{#if error != ''}
 		<div class="error text-red-600 center-center p-4">{error}</div>
