@@ -147,6 +147,8 @@ pub fn get_vcpus() -> Option<i64> {
                 .map(|s| s.to_string().trim().parse::<i64>().ok())
                 .flatten()
         })
+        .flatten()
+        .map(|x| if x > 0 { Some(x) } else { None })
         .flatten();
 
     if vcpus.is_none() {
@@ -162,6 +164,8 @@ pub fn get_vcpus() -> Option<i64> {
                     .ok()
             })
             .flatten()
+            .map(|x| if x > 0 { Some(x) } else { None })
+            .flatten();
     }
 
     vcpus

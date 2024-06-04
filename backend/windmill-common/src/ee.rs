@@ -1,4 +1,6 @@
 use crate::ee::LicensePlan::Community;
+#[cfg(feature = "enterprise")]
+use crate::error;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -35,4 +37,12 @@ pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::d
 pub async fn renew_license_key(_http_client: &reqwest::Client, _db: &crate::db::DB) -> String {
     // Implementation is not open source
     "".to_string()
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn create_customer_portal_session(
+    _http_client: &reqwest::Client,
+) -> error::Result<String> {
+    // Implementation is not open source
+    Ok("".to_string())
 }

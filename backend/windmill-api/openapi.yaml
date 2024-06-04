@@ -805,6 +805,20 @@ paths:
               schema:
                 type: string
 
+  /settings/customer_portal:
+    post:
+      summary: create customer portal session
+      operationId: createCustomerPortalSession
+      tags:
+        - setting
+      responses:
+        "200":
+          description: url to portal
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /saml/test_metadata:
     post:
       summary: test metadata
