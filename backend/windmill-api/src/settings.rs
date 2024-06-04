@@ -47,7 +47,8 @@ pub fn global_service() -> Router {
             "/latest_key_renewal_attempt",
             get(get_latest_key_renewal_attempt),
         )
-        .route("/renew_license_key", post(renew_license_key));
+        .route("/renew_license_key", post(renew_license_key))
+        .route("/customer_portal", post(create_customer_portal_session));
 
     #[cfg(feature = "parquet")]
     {
@@ -324,4 +325,18 @@ pub async fn renew_license_key(Extension(db): Extension<DB>, authed: ApiAuthed) 
     } else {
         return Ok("Renewed license key".to_string());
     }
+}
+
+#[cfg(not(feature = "enterprise"))]
+pub async fn create_customer_portal_session() -> Result<String> {
+    return Err(error::Error::BadRequest(
+        "Customer portal is not available on community edition".to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
+pub async fn create_customer_portal_session() -> Result<String> {
+    let url = windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT).await?;
+
+    return Ok(url);
 }
