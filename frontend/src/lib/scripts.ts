@@ -119,6 +119,7 @@ export async function getScriptByPath(path: string): Promise<{
 	concurrent_limit: number | undefined
 	concurrency_time_window_s: number | undefined
 	lock?: string
+	created_at?: string
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema, lockfile } = await ScriptService.getHubScriptByPath({ path })
@@ -146,7 +147,8 @@ export async function getScriptByPath(path: string): Promise<{
 			tag: script.tag,
 			concurrent_limit: script.concurrent_limit,
 			concurrency_time_window_s: script.concurrency_time_window_s,
-			lock: script.lock
+			lock: script.lock,
+			created_at: script.created_at
 		}
 	}
 }

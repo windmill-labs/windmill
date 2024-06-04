@@ -375,7 +375,7 @@
 							{/if}
 							<div class="flex flex-row gap-x-2 flex-wrap items-center">
 								<span class="text-sm text-tertiary">
-									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+									Edited <TimeAgo withDate date={flow.edited_at ?? ''} /> by {flow.edited_by}
 								</span>
 
 								{#if flow.archived}
