@@ -3659,7 +3659,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				whereClause: {
 					type: 'static',
 					fieldType: 'text',
-					value: ''
+					value: '',
+					allowTypeChange: false
 				},
 				flex: {
 					type: 'static',
