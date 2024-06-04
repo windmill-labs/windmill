@@ -13,6 +13,7 @@
 	export let selectedJobStep: string | undefined = undefined
 
 	export let isOwner = false
+	export let wideResults = false
 
 	let lastJobId: string = jobId
 
@@ -57,4 +58,5 @@
 	{jobId}
 	{workspaceId}
 	{isOwner}
+	{wideResults}
 />
