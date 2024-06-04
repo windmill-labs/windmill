@@ -13,7 +13,7 @@
 	export let externalJobs: Job[] = []
 	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
-	export let selectedId: string | undefined = undefined
+	export let selectedIds: string[] = []
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
 	// const loadMoreQuantity: number = 100
@@ -138,7 +138,7 @@
 
 	function jobCountString(jobCount: number) {
 		const jc = jobCount
-		const isTruncated = jc == 1000
+		const isTruncated = jc >= 1000
 
 		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
 	}
@@ -213,10 +213,10 @@
 							<RunRow
 								{containsLabel}
 								job={jobOrDate.job}
-								{selectedId}
+								selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
 								on:select={() => {
 									selectedWorkspace = jobOrDate.job.workspace_id
-									selectedId = jobOrDate.job.id
+									selectedIds = [jobOrDate.job.id]
 									dispatch('select')
 								}}
 								{activeLabel}

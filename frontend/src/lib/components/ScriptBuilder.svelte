@@ -51,7 +51,6 @@
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
 	import type DiffDrawer from './DiffDrawer.svelte'
-	import { cloneDeep } from 'lodash'
 	import type Editor from './Editor.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import MetadataGen from './copilot/MetadataGen.svelte'
@@ -288,7 +287,7 @@
 				await createSchedule(script.path)
 			}
 
-			savedScript = cloneDeep(script) as NewScriptWithDraft
+			savedScript = structuredClone(script) as NewScriptWithDraft
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
@@ -387,9 +386,9 @@
 
 			savedScript = {
 				...(initialPath == '' || savedScript?.draft_only
-					? { ...cloneDeep(script), draft_only: true }
+					? { ...structuredClone(script), draft_only: true }
 					: savedScript),
-				draft: cloneDeep(script)
+				draft: structuredClone(script)
 			} as NewScriptWithDraft
 
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {

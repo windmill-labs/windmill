@@ -103,6 +103,13 @@ pub struct QueuedJob {
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(skip)]
+    pub self_wait_time_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(skip)]
+    pub aggregate_wait_time_ms: Option<i64>,
 }
 
 impl QueuedJob {
@@ -194,6 +201,8 @@ impl Default for QueuedJob {
             flow_step_id: None,
             cache_ttl: None,
             priority: None,
+            self_wait_time_ms: None,
+            aggregate_wait_time_ms: None,
         }
     }
 }
@@ -247,6 +256,13 @@ pub struct CompletedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(skip)]
+    pub self_wait_time_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(skip)]
+    pub aggregate_wait_time_ms: Option<i64>,
 }
 
 impl CompletedJob {

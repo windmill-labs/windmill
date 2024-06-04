@@ -75,7 +75,7 @@
 				</Badge>
 			{/if}
 			{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-				<DurationMs duration_ms={job.duration_ms} />
+				<DurationMs duration_ms={job.duration_ms} self_wait_time_ms={job?.self_wait_time_ms} aggregate_wait_time_ms={job?.aggregate_wait_time_ms} />
 			{/if}
 			{#if job?.['mem_peak']}
 				<Badge large>

@@ -458,30 +458,27 @@
 						Show
 					</Button>
 				</div>
-
-				{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
-					<Toggle
-						bind:checked={componentSettings.item[12].fullHeight}
-						size="xs"
-						options={{
-							right: 'Desktop full height',
-							rightTooltip:
-								'When enabled, the component will take the full height of the parent container.'
-						}}
-					/>
-				{/if}
-				{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
-					<Toggle
-						bind:checked={componentSettings.item[3].fullHeight}
-						size="xs"
-						options={{
-							right: 'Mobile full height',
-							rightTooltip:
-								'When enabled, the component will take the full height of the parent container.'
-						}}
-					/>
-				{/if}
-
+				<div class="flex gap-2 items-center">
+					<div class="!text-2xs">Full height</div>
+					{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
+						<Toggle
+							bind:checked={componentSettings.item[12].fullHeight}
+							size="xs"
+							options={{
+								right: 'Desktop'
+							}}
+						/>
+					{/if}
+					{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
+						<Toggle
+							bind:checked={componentSettings.item[3].fullHeight}
+							size="xs"
+							options={{
+								right: 'Mobile'
+							}}
+						/>
+					{/if}
+				</div>
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">

@@ -2626,8 +2626,7 @@ async fn compute_next_flow_transform(
                     if modules.is_empty() {
                         return Ok(NextFlowTransform::EmptyInnerFlows);
                     } else {
-                        let inner_path =
-                            Some(format!("{}/loop-parrallel", flow_job.script_path(),));
+                        let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
                         let value = &modules[0].get_value()?;
                         let continue_payload = if is_simple {
                             let payload =

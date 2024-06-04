@@ -75,7 +75,7 @@
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
 				<div class="flex items-center">
-					<span class="text-xs font-semibold truncate text-primary">
+					<span class="!text-2xs font-semibold text-ellipsis text-primary">
 						{customTitle
 							? customTitle
 							: shouldCapitalize

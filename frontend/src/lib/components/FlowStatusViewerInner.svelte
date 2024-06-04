@@ -31,6 +31,7 @@
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
 	import { writable, type Writable } from 'svelte/store'
+	import Alert from './common/alert/Alert.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -139,12 +140,15 @@
 			$retryStatus[jobId ?? ''] = count
 		} else if ($retryStatus[jobId ?? ''] != undefined) {
 			delete $retryStatus[jobId ?? '']
+			$retryStatus = $retryStatus
 		}
 		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
+
 		if (jobStatus && jobStatus.count != undefined) {
 			$suspendStatus[jobId ?? ''] = { nb: jobStatus.count, job: job! }
 		} else if ($suspendStatus[jobId ?? ''] != undefined) {
 			delete $suspendStatus[jobId ?? '']
+			$suspendStatus = $suspendStatus
 		}
 	}
 
@@ -186,6 +190,7 @@
 	}
 
 	let errorCount = 0
+	let notAnonynmous = false
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
@@ -200,9 +205,16 @@
 					dispatch('jobsLoaded', job)
 				}
 				errorCount = 0
+				notAnonynmous = false
 			} catch (e) {
-				errorCount += 1
-				console.error(e)
+				if (
+					e?.body?.includes('As a non logged in user, you can only see jobs ran by anonymous users')
+				) {
+					notAnonynmous = true
+				} else {
+					errorCount += 1
+					console.error(e)
+				}
 			}
 		}
 		if (job?.type !== 'CompletedJob' && errorCount < 4 && !destroyed) {
@@ -439,7 +451,11 @@
 	}
 </script>
 
-{#if job}
+{#if notAnonynmous}
+	<Alert type="error" title="Required Auth">
+		As a non logged in user, you can only see jobs ran by anonymous users like you
+	</Alert>
+{:else if job}
 	<div class="flow-root w-full space-y-4">
 		<!-- {#if innerModules.length > 0 && true}
 			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
@@ -792,6 +808,8 @@
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
+								selfWaitTime={job?.self_wait_time_ms}
+								aggregateWaitTime={job?.aggregate_wait_time_ms}
 								flowDone={job?.['success'] != undefined}
 								bind:this={flowTimeline}
 								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}

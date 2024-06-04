@@ -5,12 +5,14 @@ import httpx
 
 
 class S3BufferedReader(BufferedReader):
-    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: str | None):
+    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: str | None, storage: str | None):
         params = {
             "file_key": file_key,
         }
         if s3_resource_path is not None:
             params["s3_resource_path"] = s3_resource_path
+        if storage is not None:
+            params["storage"] = storage
         self._context_manager = windmill_client.stream(
             "GET",
             f"/w/{workspace}/job_helpers/download_s3_file",

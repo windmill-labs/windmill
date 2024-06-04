@@ -72,7 +72,6 @@
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import { cloneDeep } from 'lodash'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
@@ -332,7 +331,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: cloneDeep($app),
+				value: structuredClone($app),
 				path: path,
 				policy: policy
 			}
@@ -364,7 +363,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: cloneDeep($app),
+			value: structuredClone($app),
 			path: npath,
 			policy
 		}
@@ -447,13 +446,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: cloneDeep($app),
+				value: structuredClone($app),
 				path: newPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: cloneDeep($app),
+					value: structuredClone($app),
 					path: newPath,
 					policy
 				}
@@ -532,14 +531,14 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: cloneDeep($app),
+							value: structuredClone($app),
 							path: savedApp.draft_only ? newPath || path : path,
 							policy
 					  }
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: cloneDeep($app),
+					value: structuredClone($app),
 					path: newPath || path,
 					policy
 				}
@@ -742,7 +741,6 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-
 <UnsavedConfirmationModal
 	{diffDrawer}
 	savedValue={savedApp}

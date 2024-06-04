@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.341.0](https://github.com/windmill-labs/windmill/compare/v1.340.2...v1.341.0) (2024-06-03)
+
+
+### Features
+
+* **frontend:** Fix how runnable tied to a table actions are triggered + Display the sync columnDef error only in the editor ([#3862](https://github.com/windmill-labs/windmill/issues/3862)) ([76b6577](https://github.com/windmill-labs/windmill/commit/76b65771a03e35b6d489731f210e24640efda54b))
+* warn when jobs spent a long time waiting in queue ([#3856](https://github.com/windmill-labs/windmill/issues/3856)) ([203264b](https://github.com/windmill-labs/windmill/commit/203264b87174b9774819bcf008bc4c41b866ccd9))
+
+
+### Bug Fixes
+
+* fix python client for S3Object ([44c36cd](https://github.com/windmill-labs/windmill/commit/44c36cdeb53eeb577dc7af6c2d64b75824492e1d))
+* further restrict job api to logged in workspace users or anonymous jobs only" ([#3860](https://github.com/windmill-labs/windmill/issues/3860)) ([181cb7d](https://github.com/windmill-labs/windmill/commit/181cb7dec99d92b6e7450e4a0f5af75994c82ec3))
+
+## [1.340.2](https://github.com/windmill-labs/windmill/compare/v1.340.1...v1.340.2) (2024-05-31)
+
+
+### Bug Fixes
+
+* add audit log exception to schedules ([2359cdc](https://github.com/windmill-labs/windmill/commit/2359cdc128ebfdd3fc2eff97877ae9957def9270))
+* fix csv preview for storage renderer ([326446e](https://github.com/windmill-labs/windmill/commit/326446e5cefb8e99142d13ea030d51c5d317eaf9))
+
+## [1.340.1](https://github.com/windmill-labs/windmill/compare/v1.340.0...v1.340.1) (2024-05-31)
+
+
+### Bug Fixes
+
+* typescript file upload supports arbitrary storage ([9e822d4](https://github.com/windmill-labs/windmill/commit/9e822d4c75152e7a651f31c74ee0d2c9783cd993))
+
+## [1.340.0](https://github.com/windmill-labs/windmill/compare/v1.339.2...v1.340.0) (2024-05-31)
+
+
+### Features
+
+* chart interactivity: click points on the graph to select the corresponding jobs ([#3851](https://github.com/windmill-labs/windmill/issues/3851)) ([5156e29](https://github.com/windmill-labs/windmill/commit/5156e291fa818388bcf5734cb05a3095f6bf1b11))
+* replace polars with datafusion for data preview ([e07c262](https://github.com/windmill-labs/windmill/commit/e07c2621e91a44fa6de7244469aa80e20b562b01))
+* support multiple object storage + parquet_csv + polars -&gt; datafusion" ([#3853](https://github.com/windmill-labs/windmill/issues/3853)) ([a22dc98](https://github.com/windmill-labs/windmill/commit/a22dc985fa6f1b49e56fa0f3d4f5152a50e16a04))
+
+
+### Bug Fixes
+
+* simple subflow approval step triggering timeouts ([be160f6](https://github.com/windmill-labs/windmill/commit/be160f6e46d766bbdc0dd2f60b5fb5e6222809d7))
+* wait for api to be read to load explorer table ([96246cd](https://github.com/windmill-labs/windmill/commit/96246cd697bfa82d0890f37a3708c7a376a5de28))
+
+## [1.339.2](https://github.com/windmill-labs/windmill/compare/v1.339.1...v1.339.2) (2024-05-29)
+
+
+### Bug Fixes
+
+* worker memory usage ([#3845](https://github.com/windmill-labs/windmill/issues/3845)) ([e052dd5](https://github.com/windmill-labs/windmill/commit/e052dd5f6e7d8f1f7799204dab2f98e023efaec1))
+
+## [1.339.1](https://github.com/windmill-labs/windmill/compare/v1.339.0...v1.339.1) (2024-05-29)
+
+
+### Bug Fixes
+
+* allow_user_resoruces default deserialization ([7238274](https://github.com/windmill-labs/windmill/commit/7238274d1c7b80e831aa91eac3a6577d9ab462d4))
+
+## [1.339.0](https://github.com/windmill-labs/windmill/compare/v1.338.3...v1.339.0) (2024-05-29)
+
+
+### Features
+
+* display last key renewal attempt ([#3839](https://github.com/windmill-labs/windmill/issues/3839)) ([dc2d7e1](https://github.com/windmill-labs/windmill/commit/dc2d7e1c8f5f7c50be04cfea6986ce03a3e33c7b))
+
 ## [1.338.3](https://github.com/windmill-labs/windmill/compare/v1.338.2...v1.338.3) (2024-05-29)
 
 

@@ -56,6 +56,7 @@
 	export let noInitialize = false
 	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
 	export let overrideAutoRefresh: boolean = false
+	export let replaceCallback: boolean = false
 
 	const {
 		worldStore,
@@ -84,8 +85,6 @@
 	const groupContext = getContext<GroupContext>('GroupContext')
 
 	const dispatch = createEventDispatcher()
-
-	let donePromise: ((v: any) => void) | undefined = undefined
 
 	$runnableComponents = $runnableComponents
 
@@ -257,6 +256,7 @@
 		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
+			callbacks?.done({})
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
 			return
 		}
@@ -269,6 +269,7 @@
 				job = generateNextFrontendJobId()
 				addJob(job)
 			}
+			console.log('Frontend job started', id)
 
 			let r: any
 			try {
@@ -295,7 +296,7 @@
 				await setResult(r, job)
 			}
 			loading = false
-			donePromise?.(r)
+			callbacks?.done(r)
 			if (setRunnableJobEditorPanel && editorContext) {
 				editorContext.runnableJobEditorPanel.update((p) => {
 					return {
@@ -309,15 +310,17 @@
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}
-			donePromise?.(undefined)
+			callbacks?.done({})
 			return
 		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
+			callbacks?.done({})
 			return
 		}
 
 		if (!resultJobLoader) {
 			console.warn('No test job loader')
+			callbacks?.done({})
 			return
 		}
 
@@ -403,12 +406,12 @@
 			updateResult({ error })
 			$errorByComponent[id] = { error }
 
-			donePromise?.({ error })
+			callbacks?.done({ error })
 			sendUserToast(error, true)
 			loading = false
 		}
 	}
-	type Callbacks = { done: (x: any[]) => void; cancel: () => void; error: () => void }
+	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (e: any) => void }
 
 	export async function runComponent(
 		noToast = false,
@@ -421,7 +424,7 @@
 			if (cancellableRun && !dynamicArgsOverride) {
 				await cancellableRun()
 			} else {
-				console.log('Run component')
+				console.log('Run component', id)
 				return await executeComponent(
 					noToast,
 					inlineScriptOverride,
@@ -534,7 +537,7 @@
 			recordJob(jobId, errors, errors, transformerResult)
 			updateResult(res)
 			dispatch('handleError', errors)
-			donePromise?.(res)
+			// callbacks?.done(res)
 			return
 		}
 
@@ -553,7 +556,7 @@
 			recordJob(jobId, res, undefined, transformerResult)
 			updateResult(transformerResult)
 			dispatch('handleError', transformerResult.error)
-			donePromise?.(res)
+			// callbacks?.done(res)
 			return
 		}
 
@@ -562,7 +565,7 @@
 		delete $errorByComponent[id]
 
 		dispatch('success', result)
-		donePromise?.(result)
+		// callbacks?.done(res)
 	}
 
 	function handleInputClick(e: CustomEvent) {
@@ -581,8 +584,18 @@
 				let rejectCb: (err: Error) => void
 				let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
 					rejectCb = reject
-					donePromise = resolve
-					executeComponent(true, inlineScript, setRunnableJobEditorPanel).catch(reject)
+					executeComponent(true, inlineScript, setRunnableJobEditorPanel, undefined, {
+						done: (x) => {
+							resolve(x)
+						},
+						cancel: () => {
+							reject()
+						},
+						error: (e) => {
+							console.error(e)
+							reject()
+						}
+					}).catch(reject)
 				})
 				p.cancel = () => {
 					resultJobLoader?.cancelJob()
@@ -594,10 +607,18 @@
 			}
 		}
 
-		$runnableComponents[id] = {
-			autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
-			refreshOnStart: refreshOnStart,
-			cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
+		if (replaceCallback) {
+			$runnableComponents[id] = {
+				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				refreshOnStart: refreshOnStart,
+				cb: [cancellableRun]
+			}
+		} else {
+			$runnableComponents[id] = {
+				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				refreshOnStart: refreshOnStart,
+				cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
+			}
 		}
 
 		if (!noInitialize && !$initialized.initializedComponents.includes(id)) {

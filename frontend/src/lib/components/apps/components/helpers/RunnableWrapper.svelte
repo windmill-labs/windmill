@@ -15,6 +15,7 @@
 	export let hideRefreshButton: boolean | undefined = undefined
 	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
 	export let overrideAutoRefresh: boolean = false
+	export let replaceCallback: boolean = false
 
 	type SideEffectAction =
 		| {
@@ -252,6 +253,7 @@
 		{refreshOnStart}
 		{extraKey}
 		{hasChildrens}
+		{replaceCallback}
 		bind:loading
 		bind:this={runnableComponent}
 		fields={componentInput.fields}

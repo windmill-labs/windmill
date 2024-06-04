@@ -563,6 +563,9 @@ export async function loadS3FileStream(
   if (s3ResourcePath !== undefined) {
     params["s3_resource_path"] = s3ResourcePath;
   }
+  if (s3object.storage !== undefined) {
+    params["storage"] = s3object.storage;
+  }
   const queryParams = new URLSearchParams(params);
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
@@ -609,6 +612,7 @@ export async function writeS3File(
     fileExtension: undefined,
     s3ResourcePath: s3ResourcePath,
     requestBody: fileContentBlob,
+    storage: s3object?.storage,
   });
   return {
     s3: response.file_key,

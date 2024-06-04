@@ -12,7 +12,6 @@ import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Script } from './gen'
-import { cloneDeep } from 'lodash'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -750,7 +749,7 @@ export function cleanValueProperties(obj: Value) {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
 			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
-				newObj[key] = cloneDeep(obj[key])
+				newObj[key] = structuredClone(obj[key])
 			}
 		}
 		return newObj

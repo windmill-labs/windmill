@@ -8,7 +8,6 @@
 
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
 
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 
@@ -65,10 +64,7 @@ pub struct CreateVariable {
     pub is_oauth: Option<bool>,
 }
 
-pub async fn build_crypt<'c>(
-    db: &mut Transaction<'c, Postgres>,
-    w_id: &str,
-) -> crate::error::Result<MagicCrypt256> {
+pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {
     let key = get_workspace_key(w_id, db).await?;
     let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
         format!("{}{}", key, salt)
@@ -78,8 +74,8 @@ pub async fn build_crypt<'c>(
     Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
 }
 
-pub async fn build_crypt_with_key_suffix<'c>(
-    db: &mut Transaction<'c, Postgres>,
+pub async fn build_crypt_with_key_suffix(
+    db: &DB,
     w_id: &str,
     key_suffix: &str,
 ) -> crate::error::Result<MagicCrypt256> {
@@ -92,15 +88,12 @@ pub async fn build_crypt_with_key_suffix<'c>(
     Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
 }
 
-pub async fn get_workspace_key<'c>(
-    w_id: &str,
-    db: &mut Transaction<'c, Postgres>,
-) -> crate::error::Result<String> {
+pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<String> {
     let key = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
         w_id
     )
-    .fetch_one(&mut **db)
+    .fetch_one(db)
     .await
     .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e:#}")))?;
     Ok(key)
@@ -129,9 +122,7 @@ pub async fn get_secret_value_as_admin(
     let r = if variable.is_secret {
         let value = variable.value;
         if !value.is_empty() {
-            let mut tx = db.begin().await?;
-            let mc = build_crypt(&mut tx, &w_id).await?;
-            tx.commit().await?;
+            let mc = build_crypt(&db, &w_id).await?;
             decrypt_value_with_mc(value, mc).await?
         } else {
             "".to_string()

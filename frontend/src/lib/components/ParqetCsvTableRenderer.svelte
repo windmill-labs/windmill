@@ -7,44 +7,50 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { Download } from 'lucide-svelte'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	let selectedRowIndex = -1
 	export let s3resource: string
+	export let storage: string | undefined
+	export let workspaceId: string | undefined
+	export let disable_download: boolean = false
 
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
 			try {
 				const searchCol = params.filterModel ? Object.keys(params.filterModel)?.[0] : undefined
-				const res = (await HelpersService.loadParquetPreview({
-					workspace: $workspaceStore!,
+				const requestBody = {
+					workspace: workspaceId ?? $workspaceStore!,
 					path: s3resource,
 					offset: params.startRow,
 					limit: params.endRow - params.startRow,
 					sortCol: params.sortModel?.[0]?.colId,
 					sortDesc: params.sortModel?.[0]?.sort == 'desc',
 					searchCol: searchCol,
-					searchTerm: searchCol ? params.filterModel?.[searchCol]?.filter : undefined
-				})) as any
+					searchTerm: searchCol ? params.filterModel?.[searchCol]?.filter : undefined,
+					storage: storage
+				}
+				const csv = s3resource.endsWith('.csv')
+				const res = (
+					csv
+						? await HelpersService.loadCsvPreview(requestBody)
+						: await HelpersService.loadParquetPreview(requestBody)
+				) as any
+				for (let i = 0; i < res.rows.length; i++) {
+					res.rows[i]['__index'] = i + params.startRow
+					if (!$enterpriseLicense) {
+						Object.keys(res.rows[i]).forEach((key) => {
+							if (key != '__index') {
+								res.rows[i][key] = 'Require EE'
+							}
+						})
+					}
+				}
 
-				const data: any[] = []
-
-				res?.columns?.forEach((c) => {
-					c.values.forEach((v, i) => {
-						if (data[i] == undefined) {
-							data.push({ __index: params.startRow + i })
-						}
-						if (!$enterpriseLicense && params.startRow + i > 3) {
-							data[i][c.name] = 'Require EE'
-						} else {
-							data[i][c.name] = v
-						}
-					})
-				})
-
-				params.successCallback(data)
+				params.successCallback(res.rows)
 			} catch (e) {
 				console.error(e)
 				params.failCallback()
@@ -73,11 +79,21 @@
 
 	async function mountGrid() {
 		if (eGui) {
-			const res = await HelpersService.loadParquetPreview({
-				workspace: $workspaceStore!,
-				path: s3resource,
-				limit: 0
-			})
+			const csv = s3resource.endsWith('.csv')
+
+			const res = csv
+				? await HelpersService.loadCsvPreview({
+						workspace: $workspaceStore!,
+						path: s3resource,
+						limit: 0,
+						storage: storage
+				  })
+				: await HelpersService.loadParquetPreview({
+						workspace: $workspaceStore!,
+						path: s3resource,
+						limit: 0,
+						storage: storage
+				  })
 
 			createGrid(
 				eGui,
@@ -87,7 +103,7 @@
 					// @ts-ignore
 					columnDefs: res.columns.map((c) => {
 						return {
-							field: c.name,
+							field: c,
 							sortable: true,
 							filter: true,
 							filterParams: {
@@ -129,8 +145,23 @@
 
 <DarkModeObserver bind:darkMode />
 
-<div class={twMerge('mt-4 border shadow-sm divide-y flex flex-col h-full min-h-[600px]')}>
-	<div class="ag-theme-alpine h-full" class:ag-theme-alpine-dark={darkMode} style="height: 600px;">
+<div class={twMerge('mt-2  flex flex-col h-full min-h-[600px]')}>
+	{#if !disable_download && !s3resource.endsWith('.csv')}
+		<a
+			target="_blank"
+			href="/api/w/{workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key={s3resource}{storage
+				? `&storage=${storage}`
+				: ''}"
+			class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
+			><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
+		>
+	{/if}
+
+	<div
+		class="ag-theme-alpine shadow-sm h-full"
+		class:ag-theme-alpine-dark={darkMode}
+		style="height: 600px;"
+	>
 		<div bind:this={eGui} style="height:100%; " />
 	</div>
 </div>
