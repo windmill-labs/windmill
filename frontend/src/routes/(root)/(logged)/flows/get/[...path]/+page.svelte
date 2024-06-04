@@ -451,7 +451,7 @@
 
 		<svelte:fragment slot="flow_step">
 			{#if stepDetail}
-				<FlowGraphViewerStep {flow} {stepDetail} />
+				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
 			{/if}
 		</svelte:fragment>
 	</DetailPageLayout>

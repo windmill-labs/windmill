@@ -2,7 +2,7 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import InputTransformsViewer from './InputTransformsViewer.svelte'
 	import IconedPath from './IconedPath.svelte'
-	import type { FlowModule, FlowValue } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import { Highlight } from 'svelte-highlight'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -17,12 +17,7 @@
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { Copy } from 'lucide-svelte'
 
-	export let flow: {
-		summary: string
-		description?: string
-		value: FlowValue
-		schema?: any
-	}
+	export let schema: any | undefined = undefined
 
 	export let stepDetail: FlowModule | string | undefined = undefined
 	let codeViewer: Drawer
@@ -42,7 +37,7 @@
 						<IconedPath path={stepDetail?.value?.path ?? ''} />
 					</a>
 				</div>
-				<div class="text-2xs mb-4">
+				<div class="text-2xs mb-4 mt-2">
 					<h3 class="mb-2">Step Inputs</h3>
 
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
@@ -59,7 +54,7 @@
 					</div>
 				{/if}
 			{:else if stepDetail.value.type == 'rawscript'}
-				<div class="text-2xs mb-4">
+				<div class="text-2xs mb-4 mt-2">
 					<h3 class="mb-2">Step Inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
@@ -68,6 +63,16 @@
 				<span class="!text-xs">
 					<HighlightCode language={stepDetail.value.language} code={stepDetail.value.content} />
 				</span>
+				<h3 class="mb-2">Lockfile</h3>
+				<div>
+					{#if stepDetail.value.lock}
+						<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
+							>{stepDetail.value.lock}</pre
+						>
+					{:else}
+						<p class="bg-surface-secondary text-sm p-2"> There is no lock file for this script </p>
+					{/if}
+				</div>
 			{/if}
 		{/if}
 	</DrawerContent>
@@ -79,11 +84,17 @@
 			<p class="font-medium text-secondary text-center pt-4 pb-8">
 				Click on a step to see its details
 			</p>
-			<h3 class="mb-2 font-semibold">Flow Inputs</h3>
-			<SchemaViewer schema={flow?.schema} />
+			{#if schema}
+				<h3 class="mb-2 font-semibold">Flow Inputs</h3>
+				<SchemaViewer {schema} />
+			{/if}
 		</div>
 	{:else if stepDetail == 'Input'}
-		<SchemaViewer schema={flow?.schema} />
+		{#if schema}
+			<SchemaViewer {schema} />
+		{:else}
+			<p class="font-medium text-secondary text-center pt-4 pb-8"> No input schema </p>
+		{/if}
 	{:else if stepDetail == 'Result'}
 		<p class="font-medium text-secondary text-center pt-4 pb-8"> End of the flow </p>
 	{:else if typeof stepDetail != 'string' && stepDetail.value}
@@ -132,12 +143,12 @@
 			</p>
 		{:else if stepDetail.value.type == 'rawscript'}
 			<div class="text-xs">
-				<h3 class="mb-2 font-semibold">Step Inputs</h3>
+				<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
 				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 			</div>
 
 			<div>
-				<div class="mb-2 flex justify-between items-center">
+				<div class="mb-2 mt-4 flex justify-between items-center">
 					<h3 class="font-semibold">Code</h3>
 					<Button size="xs2" color="light" variant="contained" on:click={codeViewer.openDrawer}>
 						Expand
@@ -150,10 +161,22 @@
 						class="whitespace-pre-wrap"
 					/>
 				</div>
+				<h3 class="mb-2 mt-4">Lockfile</h3>
+				<div>
+					{#if stepDetail.value.lock}
+						<pre class="bg-surface-secondary text-xs p-2 h-full overflow-auto w-full"
+							>{stepDetail.value.lock}</pre
+						>
+					{:else}
+						<p class="bg-surface-secondary text-sm p-2">
+							There is no lockfile for this inline script
+						</p>
+					{/if}
+				</div>
 			</div>
 		{:else if stepDetail.value.type == 'script'}
 			<div class="text-2xs">
-				<h3 class="mb-2 font-semibold">Step Inputs</h3>
+				<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
 				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 			</div>
 			{#if stepDetail.value.path.startsWith('hub/')}

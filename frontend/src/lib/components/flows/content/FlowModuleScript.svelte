@@ -10,6 +10,7 @@
 
 	let code: string
 	let language: SupportedLanguage
+	let lock: string | undefined = undefined
 
 	let notFound = false
 	async function loadCode(path: string, hash: string | undefined) {
@@ -20,6 +21,7 @@
 				: await getScriptByPath(path!)
 			code = script.content
 			language = script.language
+			lock = script.lock
 		} catch (e) {
 			notFound = true
 			console.error(e)
@@ -34,5 +36,10 @@
 		<div class="text-red-400">script not found at {path} in workspace {$workspaceStore}</div>
 	{:else}
 		<HighlightCode {language} {code} />
+	{/if}
+
+	{#if lock}
+		<h3 class="mb-2 mt-6">Lock</h3>
+		<pre class="bg-surface-secondary text-xs p-2 overflow-auto w-full">{lock}</pre>
 	{/if}
 </div>
