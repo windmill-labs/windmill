@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
+	import { base } from '$app/paths'
 	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
 		AppService,
@@ -536,7 +537,7 @@
 	>
 {:else}
 	<Alert type="info" title="Shareable page"
-		>Share this <a href="/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
+		>Share this <a href="{base}/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
 		user do the deployment</Alert
 	>
 

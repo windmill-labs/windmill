@@ -4,6 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { base } from '$app/paths'
 	import Toggle from './Toggle.svelte'
 	import { ListOrdered, Calendar, PenBox } from 'lucide-svelte'
 	import JobArgs from './JobArgs.svelte'
@@ -129,7 +130,7 @@
 					}}
 					size="xs"
 				/>
-				<Button size="xs" variant="border" color="light" href={`/runs/${path}`}>
+				<Button size="xs" variant="border" color="light" href={`${base}/runs/${path}`}>
 					<div class="flex flex-row gap-2">
 						<ListOrdered size={14} />
 						Runs

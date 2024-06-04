@@ -13,7 +13,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { page } from '$app/stores'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
 	import Version from './Version.svelte'

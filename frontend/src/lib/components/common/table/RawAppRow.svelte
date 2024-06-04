@@ -11,7 +11,7 @@
 	import Drawer from '../drawer/Drawer.svelte'
 	import DrawerContent from '../drawer/DrawerContent.svelte'
 	import FileInput from '../fileInput/FileInput.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { FileUp, Globe, Pen, Share, Trash } from 'lucide-svelte'
 

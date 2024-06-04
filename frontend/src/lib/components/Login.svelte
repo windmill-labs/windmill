@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import Github from '$lib/components/icons/brands/Github.svelte'
 	import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
 	import Google from '$lib/components/icons/brands/Google.svelte'
@@ -9,6 +9,7 @@
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	import { base } from '$app/paths'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
@@ -167,7 +168,7 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
-		window.location.href = window.location.origin + '/api/oauth/login/' + provider
+		window.location.href = base + '/api/oauth/login/' + provider
 	}
 
 	$: error && sendUserToast(error, true)

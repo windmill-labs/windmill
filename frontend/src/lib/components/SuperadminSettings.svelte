@@ -4,9 +4,10 @@
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import { base } from '$app/paths'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import Version from './Version.svelte'
 	import Uptodate from './Uptodate.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
@@ -96,7 +97,7 @@
 					variant="border"
 					color="dark"
 					target="_blank"
-					href="/?workspace=admins"
+					href="{base}/?workspace=admins"
 					endIcon={{ icon: ExternalLink }}
 				>
 					Admins workspace

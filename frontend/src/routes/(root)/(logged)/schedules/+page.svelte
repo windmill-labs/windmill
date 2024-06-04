@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -24,7 +25,7 @@
 		Share,
 		Trash
 	} from 'lucide-svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -448,7 +449,7 @@
 									{/if}
 									{#each jobs ?? [] as job}
 										{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-										<a href="/run/{job.id}?workspace={$workspaceStore}">
+										<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
 											<JobPreview id={job.id}>
 												<div>
 													<div

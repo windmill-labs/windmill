@@ -2,6 +2,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import JobLogs from './JobLogs.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$app/paths'
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
 
@@ -20,7 +21,7 @@
 							class="text-xs"
 							rel="noreferrer"
 							target="_blank"
-							href="/run/{job}?workspace={$workspaceStore}"
+							href="{base}/run/{job}?workspace={$workspaceStore}"
 						>
 							{job}
 						</a><JobLogs jobId={job} /></div

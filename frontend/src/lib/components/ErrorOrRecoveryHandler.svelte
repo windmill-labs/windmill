@@ -4,6 +4,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
+	import { base } from '$app/paths'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString, sendUserToast, tryEvery } from '$lib/utils'
 	import {
@@ -279,7 +280,7 @@
 					<p class="text-clip grow min-w-0">
 						The workspace needs to be connected to Slack to use this feature. You can <a
 							target="_blank"
-							href="/workspace_settings?tab=slack">configure it here</a
+							href="{base}/workspace_settings?tab=slack">configure it here</a
 						>.
 					</p>
 					<Button
@@ -310,7 +311,7 @@
 					Message sent via Windmill job
 					<a
 						target="_blank"
-						href={`/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}
+						href={`${base}/run/${slackConnectionTestJob.uuid}?workspace=${$workspaceStore}`}
 					>
 						{slackConnectionTestJob.uuid}
 					</a>

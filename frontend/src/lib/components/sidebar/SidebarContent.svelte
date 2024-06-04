@@ -29,7 +29,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clearStores } from '$lib/storeUtils'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'

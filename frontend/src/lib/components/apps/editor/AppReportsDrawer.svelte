@@ -16,6 +16,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$app/paths'
 	import { emptyString, formatCron, sendUserToast, tryEvery } from '$lib/utils'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -615,7 +616,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 									<p class="text-clip grow min-w-0">
 										The workspace needs to be connected to Slack to use this feature. You can <a
 											target="_blank"
-											href="/workspace_settings?tab=slack">configure it here</a
+											href="{base}/workspace_settings?tab=slack">configure it here</a
 										>.
 									</p>
 									<Button

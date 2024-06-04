@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Popup, Skeleton } from '$lib/components/common'
@@ -387,7 +388,7 @@
 									{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 										<Cell>
 											{#if current_job_id}
-												<a href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}>
+												<a href={`${base}/run/${current_job_id}?workspace=${current_job_workspace_id}`}>
 													View job
 												</a>
 												<br />

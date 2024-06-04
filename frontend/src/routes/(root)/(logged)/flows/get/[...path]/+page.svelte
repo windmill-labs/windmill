@@ -5,7 +5,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { Alert, Button, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'

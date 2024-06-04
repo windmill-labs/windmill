@@ -28,7 +28,8 @@
 		hubBaseUrlStore
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
+	import { afterNavigate, beforeNavigate } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'

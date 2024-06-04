@@ -2,6 +2,7 @@
 	import { AppService, FlowService, ResourceService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { clickOutside } from '$lib/utils'
+	import { base } from '$app/paths'
 	import { Boxes, Code2, Edit, LayoutDashboard, Loader2, X } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'
@@ -273,7 +274,7 @@
 									{#each filteredScriptItems ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
-												><a href="/scripts/get/{item.path}">Script: {item.path}</a></div
+												><a href="{base}/scripts/get/{item.path}">Script: {item.path}</a></div
 											>
 											<div class="flex gap-2 justify-between">
 												<pre class="text-xs border p-2 overflow-auto max-h-40 w-full max-w-2xl"
@@ -315,7 +316,7 @@
 									{#each filteredFlowItems ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
-												><a href="/flows/get/{item.path}">Flow: {item.path}</a></div
+												><a href="{base}/flows/get/{item.path}">Flow: {item.path}</a></div
 											>
 											<div class="flex gap-2 justify-between">
 												<pre class="text-xs border p-2 overflow-auto max-h-40 w-full max-w-2xl"
@@ -343,7 +344,7 @@
 									{#each filteredAppItems ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
-												><a href="/apps/get/{item.path}">App: {item.path}</a></div
+												><a href="{base}/apps/get/{item.path}">App: {item.path}</a></div
 											>
 											<div class="flex gap-2 justify-between">
 												<pre class="text-xs border p-2 overflow-auto max-h-40 w-full max-w-2xl"

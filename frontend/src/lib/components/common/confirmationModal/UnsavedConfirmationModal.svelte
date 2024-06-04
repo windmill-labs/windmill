@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
-	import { beforeNavigate, goto } from '$app/navigation'
+	import { beforeNavigate } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import Button from '../button/Button.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'

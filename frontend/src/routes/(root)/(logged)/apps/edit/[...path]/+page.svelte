@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'

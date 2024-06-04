@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
+	import { base } from '$app/paths'
 	import {
 		JobService,
 		type Job,
@@ -69,7 +70,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
@@ -621,7 +622,7 @@
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
 						{#if job.script_hash}
-							<a href="/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+							<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
 								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 							>
 						{/if}

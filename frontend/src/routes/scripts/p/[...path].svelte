@@ -9,7 +9,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { ScriptService } from '$lib/gen'

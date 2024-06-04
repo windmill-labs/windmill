@@ -2,6 +2,7 @@
 	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$app/paths'
 	import { createEventDispatcher } from 'svelte'
 
 	import Select from './apps/svelte-select/lib/index'
@@ -132,7 +133,7 @@
 					color="light"
 					size="xs"
 					variant="border"
-					href="/flows/edit/{scriptPath}">Edit</Button
+					href="{base}/flows/edit/{scriptPath}">Edit</Button
 				>
 				<Button
 					color="light"
@@ -152,7 +153,7 @@
 					target="_blank"
 					color="light"
 					size="xs"
-					href="/apps/edit/{scriptPath}"
+					href="{base}/apps/edit/{scriptPath}"
 					variant="border"
 				>
 					Edit
@@ -163,7 +164,7 @@
 					variant="border"
 					target="_blank"
 					startIcon={{ icon: Code }}
-					href="/apps/get/{scriptPath}"
+					href="{base}/apps/get/{scriptPath}"
 				>
 					View
 				</Button>
@@ -175,7 +176,7 @@
 					target="_blank"
 					color="light"
 					size="xs"
-					href="/scripts/edit/{scriptPath}"
+					href="{base}/scripts/edit/{scriptPath}"
 					variant="border"
 				>
 					Edit

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { msToSec } from '$lib/utils'
+	import { base } from '$app/paths'
 	import { ExternalLink } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 
@@ -31,7 +32,7 @@
 			: 'rounded-sm'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
 	>
 		<svelte:fragment slot="text"
-			><a href="/run/{id}" class="inline-flex items-center gap-1" target="_blank"
+			><a href="{base}/run/{id}" class="inline-flex items-center gap-1" target="_blank"
 				>{id} <ExternalLink size={14} /></a
 			></svelte:fragment
 		>

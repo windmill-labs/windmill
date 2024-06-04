@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 	import { page } from '$app/stores'
+	import { base } from '$app/paths'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
 
@@ -92,7 +93,7 @@
 {#if notExists}
 	<div class="px-4 mt-20"
 		><Alert type="error" title="Not found"
-			>There was an error loading the app, is the url correct? <a href="/">Go to Windmill</a>
+			>There was an error loading the app, is the url correct? <a href="{base}/">Go to Windmill</a>
 		</Alert></div
 	>
 {:else if noPermission}

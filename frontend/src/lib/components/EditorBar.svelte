@@ -6,6 +6,7 @@
 	import { ResourceService, VariableService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$app/paths'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
@@ -477,7 +478,7 @@ $res = json_decode(curl_exec($ch));`)
 			variant="border"
 			color="blue"
 			size="sm"
-			href="/resources?connect_app=undefined"
+			href="{base}/resources?connect_app=undefined"
 		>
 			Add Resource
 		</Button>

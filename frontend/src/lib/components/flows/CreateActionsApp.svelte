@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 
 	import { Button, FileInput } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { base } from '$app/paths'
+	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
 	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
 	import { Badge, Button } from '../common'
@@ -159,13 +160,13 @@
 								{/if}
 							</div>
 						{:else if 'job_kind' in job && job.job_kind == 'preview'}
-							<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
+							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
 						{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-							<a href="/run/{job.id}?workspace={job.workspace_id}">
+							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">
 								lock deps of {truncateHash(job.script_hash ?? '')}
 							</a>
 						{:else if 'job_kind' in job && job.job_kind == 'identity'}
-							<a href="/run/{job.id}?workspace={job.workspace_id}">no op</a>
+							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">no op</a>
 						{/if}
 					</div>
 				</div>
@@ -177,7 +178,7 @@
 				<div class="flex flex-row gap-1 items-center">
 					<BarsStaggered class="text-secondary" size={14} />
 					<span class="mx-1 text-xs">
-						Step of flow <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+						Step of flow <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 							{truncateRev(job.parent_job, 6)}
 						</a>
 					</span>
@@ -185,7 +186,7 @@
 			{:else}
 				<div class="flex flex-row gap-1 items-center">
 					<span class="text-2xs text-tertiary truncate">
-						parent <a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+						parent <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 							{truncateRev(job.parent_job, 10)}
 						</a>
 					</span>

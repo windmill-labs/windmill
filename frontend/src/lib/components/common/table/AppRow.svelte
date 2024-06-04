@@ -24,7 +24,7 @@
 		Trash,
 		Clipboard
 	} from 'lucide-svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE, copyToClipboard } from '$lib/utils'

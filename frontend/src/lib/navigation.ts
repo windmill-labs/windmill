@@ -1,4 +1,10 @@
-import { goto } from '$app/navigation'
+import { goto as svelteGoto } from '$app/navigation'
+import { base } from '$app/paths'
+
+export function goto(path, options = {}) {
+	const fullPath = `${base}${path}`;
+	return svelteGoto(fullPath, options);
+}
 
 export async function setQuery(
 	url: URL,

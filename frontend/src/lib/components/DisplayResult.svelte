@@ -2,6 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
+	import { base } from '$app/paths'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -676,7 +677,7 @@
 							><a
 								download="{filename ?? 'result'}.json"
 								href={workspaceId && jobId
-									? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									? `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 							>
 								Download {filename ? '' : 'as JSON'}
@@ -740,7 +741,7 @@
 					<Button
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
-							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							? `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 						startIcon={{ icon: Download }}
 						color="light"

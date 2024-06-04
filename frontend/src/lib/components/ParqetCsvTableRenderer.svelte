@@ -6,6 +6,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
+	import { base } from '$app/paths'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
 
@@ -149,7 +150,7 @@
 	{#if !disable_download && !s3resource.endsWith('.csv')}
 		<a
 			target="_blank"
-			href="/api/w/{workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key={s3resource}{storage
+			href="{base}/api/w/{workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key={s3resource}{storage
 				? `&storage=${storage}`
 				: ''}"
 			class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
