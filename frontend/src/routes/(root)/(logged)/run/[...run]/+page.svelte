@@ -49,7 +49,6 @@
 		userWorkspaces,
 		workspaceStore
 	} from '$lib/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
@@ -327,7 +326,7 @@
 </Portal>
 
 {#if notfound}
-	<CenteredPage>
+	<div class="max-w-7xl px-4 sm:px-0 mx-auto w-full">
 		<div class="flex flex-col gap-6">
 			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
 			<h2>Are you in the right workspace?</h2>
@@ -349,14 +348,14 @@
 				</div>
 			</div>
 		</div>
-	</CenteredPage>
+	</div>
 {:else}
 	<Skeleton
-		class="!max-w-7xl !px-4 sm:!px-6 md:!px-8"
+		class="max-w-7xl px-4 sm:px-0 mx-auto w-full"
 		loading={!job}
 		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
 	/>
-	<ActionRow applyPageWidth>
+	<ActionRow class="max-w-7xl px-4 sm:px-0 mx-auto w-full">
 		<svelte:fragment slot="left">
 			{@const isScript = job?.job_kind === 'script'}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
@@ -598,8 +597,10 @@
 			{/if}
 		</svelte:fragment>
 	</ActionRow>
-	<CenteredPage>
-		<h1 class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6">
+	<div class="w-full">
+		<h1
+			class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6 max-w-7xl mx-auto px-4 sm:px-0"
+		>
 			<div class="flex flex-row flex-wrap gap-6 items-center">
 				{#if job}
 					{#if 'success' in job && job.success}
@@ -691,7 +692,9 @@
 		{/if}
 
 		<!-- Arguments and actions -->
-		<div class="flex flex-col gap-y-8 mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-10">
+		<div
+			class="flex flex-col gap-y-8 sm:grid sm:grid-cols-3 sm:gap-10 max-w-7xl mx-auto w-full px-4 sm:px-0"
+		>
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
 			</div>
@@ -702,74 +705,82 @@
 		</div>
 
 		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
-			<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
-			<div class="w-full pt-8">
-				<LogViewer
-					jobId={job.id}
-					isLoading={!(job && 'logs' in job && job.logs)}
-					content={job?.logs}
-					tag={job?.tag}
-				/>
+			<div class="max-w-7xl mx-auto w-full px-4 sm:px-0">
+				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
+				<div class="w-full pt-8">
+					<LogViewer
+						jobId={job.id}
+						isLoading={!(job && 'logs' in job && job.logs)}
+						content={job?.logs}
+						tag={job?.tag}
+					/>
+				</div>
 			</div>
 		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
-			{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
-				<div class="mt-10" />
-				<WorkflowTimeline
-					flow_status={asWorkflowStatus(job.flow_status)}
-					flowDone={job.type == 'CompletedJob'}
-				/>
-			{/if}
-			<!-- Logs and outputs-->
-			<div class="mr-2 sm:mr-0 mt-12">
-				<Tabs bind:selected={viewTab}>
-					<Tab value="result">Result</Tab>
-					<Tab value="logs">Logs</Tab>
-					<Tab value="stats">Metrics</Tab>
-					{#if job?.job_kind == 'preview'}
-						<Tab value="code">Code</Tab>
-					{/if}
-				</Tabs>
-
-				<Skeleton loading={!job} layout={[[5]]} />
-				{#if job}
-					<div class="flex flex-row border rounded-md p-2 mt-2 overflow-auto min-h-[600px]">
-						{#if viewTab == 'logs'}
-							<div class="w-full">
-								<LogViewer
-									jobId={job.id}
-									duration={job?.['duration_ms']}
-									mem={job?.['mem_peak']}
-									isLoading={!(job && 'logs' in job && job.logs)}
-									content={job?.logs}
-									tag={job?.tag}
-								/>
-							</div>
-						{:else if viewTab == 'code'}
-							{#if job && 'raw_code' in job && job.raw_code}
-								<div class="text-xs">
-									<HighlightCode lines language={job.language} code={job.raw_code} />
-								</div>
-							{:else if job}
-								No code is available
-							{:else}
-								<Skeleton layout={[[5]]} />
-							{/if}
-						{:else if viewTab == 'stats'}
-							<div class="w-full">
-								<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
-							</div>
-						{:else if job !== undefined && 'result' in job && job.result !== undefined}
-							<DisplayResult workspaceId={job?.workspace_id} jobId={job?.id} result={job.result} />
-						{:else if job}
-							No output is available yet
-						{/if}
-					</div>
+			<div class="max-w-7xl mx-auto w-full px-4 sm:px-0 mb-10">
+				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
+					<div class="mt-10" />
+					<WorkflowTimeline
+						flow_status={asWorkflowStatus(job.flow_status)}
+						flowDone={job.type == 'CompletedJob'}
+					/>
 				{/if}
+				<!-- Logs and outputs-->
+				<div class="mr-2 sm:mr-0 mt-12">
+					<Tabs bind:selected={viewTab}>
+						<Tab value="result">Result</Tab>
+						<Tab value="logs">Logs</Tab>
+						<Tab value="stats">Metrics</Tab>
+						{#if job?.job_kind == 'preview'}
+							<Tab value="code">Code</Tab>
+						{/if}
+					</Tabs>
+
+					<Skeleton loading={!job} layout={[[5]]} />
+					{#if job}
+						<div class="flex flex-row border rounded-md p-2 mt-2 overflow-auto min-h-[600px]">
+							{#if viewTab == 'logs'}
+								<div class="w-full">
+									<LogViewer
+										jobId={job.id}
+										duration={job?.['duration_ms']}
+										mem={job?.['mem_peak']}
+										isLoading={!(job && 'logs' in job && job.logs)}
+										content={job?.logs}
+										tag={job?.tag}
+									/>
+								</div>
+							{:else if viewTab == 'code'}
+								{#if job && 'raw_code' in job && job.raw_code}
+									<div class="text-xs">
+										<HighlightCode lines language={job.language} code={job.raw_code} />
+									</div>
+								{:else if job}
+									No code is available
+								{:else}
+									<Skeleton layout={[[5]]} />
+								{/if}
+							{:else if viewTab == 'stats'}
+								<div class="w-full">
+									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
+								</div>
+							{:else if job !== undefined && 'result' in job && job.result !== undefined}
+								<DisplayResult
+									workspaceId={job?.workspace_id}
+									jobId={job?.id}
+									result={job.result}
+								/>
+							{:else if job}
+								No output is available yet
+							{/if}
+						</div>
+					{/if}
+				</div>
 			</div>
 		{:else if !job?.['deleted']}
 			<div class="mt-10" />
-			<FlowProgressBar {job} class="py-4" />
-			<div class="w-full mt-10 mb-20">
+			<FlowProgressBar {job} class="py-4 max-w-7xl mx-auto px-4 sm:px-0" />
+			<div class="w-full mt-10">
 				<FlowStatusViewer
 					jobId={job.id}
 					on:jobsLoaded={({ detail }) => {
@@ -780,5 +791,5 @@
 				/>
 			</div>
 		{/if}
-	</CenteredPage>
+	</div>
 {/if}

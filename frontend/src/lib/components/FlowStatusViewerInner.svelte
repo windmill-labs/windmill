@@ -456,7 +456,7 @@
 		As a non logged in user, you can only see jobs ran by anonymous users like you
 	</Alert>
 {:else if job}
-	<div class="flow-root w-full space-y-4">
+	<div class="flow-root w-full space-y-4 max-w-7xl mx-auto">
 		<!-- {#if innerModules.length > 0 && true}
 			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
 		{:else}
@@ -490,7 +490,7 @@
 				</p>
 			{/if}
 			{#if render}
-				<div class="w-full h-full border border-secondary bg-surface p-1 overflow-auto">
+				<div class="w-full h-full border rounded-sm bg-surface p-1 overflow-auto">
 					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
 				</div>
 			{/if}
@@ -561,13 +561,13 @@
 		{/if}
 		{#if render}
 			{#if innerModules.length > 0 && !isListJob}
-				<Tabs bind:selected>
+				<Tabs class="mx-auto max-w-7xl" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{/if}
 		{/if}
-		<div class={selected != 'sequence' ? 'hidden' : ''}>
+		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
 			{#if isListJob}
 				{@const lenToAdd = Math.min(
 					20,
