@@ -600,12 +600,14 @@
 							{/if}
 						</div>
 						{#if typeof result?.s3 == 'string' && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
-							<ParqetTableRenderer
-								disable_download={result?.disable_download}
-								{workspaceId}
-								s3resource={result?.s3}
-								storage={result?.storage}
-							/>
+							{#key result.s3}
+								<ParqetTableRenderer
+									disable_download={result?.disable_download}
+									{workspaceId}
+									s3resource={result?.s3}
+									storage={result?.storage}
+								/>
+							{/key}
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind == 's3object-list'}
