@@ -829,7 +829,7 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							<div class="pt-2 min-h-[80vh]">
+							<div class="pt-2 max-h-[80vh]">
 								{#if selectedNode}
 									{@const node = $localModuleStates[selectedNode]}
 
