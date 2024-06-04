@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.342.0](https://github.com/windmill-labs/windmill/compare/v1.341.1...v1.342.0) (2024-06-04)
+
+
+### Features
+
+* customer portal link ([#3868](https://github.com/windmill-labs/windmill/issues/3868)) ([14bd5fe](https://github.com/windmill-labs/windmill/commit/14bd5fe0515bb2e746656cf3d6ee5bbd5c727510))
+
+
+### Bug Fixes
+
+* handle csv with different separators in csv preview ([b756a3b](https://github.com/windmill-labs/windmill/commit/b756a3b31ef62cbfacd20bcffb0da8482dd57565))
+
 ## [1.341.1](https://github.com/windmill-labs/windmill/compare/v1.341.0...v1.341.1) (2024-06-04)
 
 
