@@ -2,9 +2,7 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { initCss } from '../../utils'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
@@ -14,10 +12,8 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
-	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'jobidlogcomponent'> | undefined = undefined
-	export let render: boolean
 	export let configuration: RichConfigurations
 
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
@@ -42,6 +38,7 @@
 	let testJob: Job | undefined = undefined
 
 	$: if (resolvedConfig.jobId) {
+		outputs.loading.set(true)
 		testJobLoader?.watchJob(resolvedConfig?.['jobId'])
 	}
 </script>
@@ -70,31 +67,34 @@
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
+	on:done={(e) => {
+		outputs.loading.set(false)
+		outputs.jobId.set(e.detail.id)
+		outputs.result.set(e.detail.result)
+	}}
 />
 
-<RunnableWrapper {outputs} {render} {componentInput} {id}>
-	<div class="flex flex-col w-full h-full component-wrapper">
-		<div
-			class={twMerge(
-				'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
-				css?.header?.class
-			)}
-			style={css?.header?.style}
-		>
-			Logs
-		</div>
-		<div
-			style={css?.container?.style}
-			class={twMerge('grow overflow-auto', css?.container?.class, 'wm-log-container')}
-		>
-			<LogViewer
-				jobId={testJob?.id}
-				duration={testJob?.['duration_ms']}
-				mem={testJob?.['mem_peak']}
-				content={testJob?.logs}
-				isLoading={testIsLoading}
-				tag={testJob?.tag}
-			/>
-		</div>
+<div class="flex flex-col w-full h-full component-wrapper">
+	<div
+		class={twMerge(
+			'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
+			css?.header?.class
+		)}
+		style={css?.header?.style}
+	>
+		Logs
 	</div>
-</RunnableWrapper>
+	<div
+		style={css?.container?.style}
+		class={twMerge('grow overflow-auto', css?.container?.class, 'wm-log-container')}
+	>
+		<LogViewer
+			jobId={testJob?.id}
+			duration={testJob?.['duration_ms']}
+			mem={testJob?.['mem_peak']}
+			content={testJob?.logs}
+			isLoading={testIsLoading}
+			tag={testJob?.tag}
+		/>
+	</div>
+</div>

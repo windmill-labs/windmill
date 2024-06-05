@@ -191,29 +191,17 @@
 				{render}
 			/>
 		{:else if component.type === 'logcomponent'}
-			<AppLogsComponent
-				id={component.id}
-				customCss={component.customCss}
-				bind:initializing
-				componentInput={component.componentInput}
-				{render}
-			/>
+			<AppLogsComponent />
 		{:else if component.type === 'jobidlogcomponent'}
 			<AppJobIdLogComponent
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
 				configuration={component.configuration}
-				componentInput={component.componentInput}
-				{render}
 			/>
 		{:else if component.type === 'flowstatuscomponent'}
 			<AppFlowStatusComponent
-				id={component.id}
-				customCss={component.customCss}
-				bind:initializing
-				componentInput={component.componentInput}
-				{render}
+				
 			/>
 		{:else if component.type === 'jobidflowstatuscomponent'}
 			<AppJobIdFlowStatus
@@ -221,8 +209,6 @@
 				customCss={component.customCss}
 				bind:initializing
 				configuration={component.configuration}
-				componentInput={component.componentInput}
-				{render}
 			/>
 		{:else if component.type === 'barchartcomponent'}
 			<AppBarChart

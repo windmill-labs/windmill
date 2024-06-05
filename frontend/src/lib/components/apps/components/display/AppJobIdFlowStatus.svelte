@@ -2,9 +2,7 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { initCss } from '../../utils'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import { components } from '../../editor/component'
@@ -12,22 +10,21 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
-	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'jobidflowstatuscomponent'> | undefined = undefined
-	export let render: boolean
 	export let configuration: RichConfigurations
 
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
+	const resolvedConfig = initConfig(
 		components['jobidlogcomponent'].initialData.configuration,
 		configuration
 	)
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
-		loading: false
+		loading: false,
+		jobId: undefined as string | undefined
 	})
 
 	initializing = false
@@ -56,33 +53,42 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id}>
-	<div class="flex flex-col w-full h-full component-wrapper">
-		<div
-			class={twMerge(
-				'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
-				css?.header?.class
-			)}
-			style={css?.header?.style}
-		>
-			Flow Status
-		</div>
-		<div
-			style={twMerge(
-				$app.css?.['flowstatuscomponent']?.['container']?.style,
-				customCss?.container?.style
-			)}
-			class={twMerge(
-				'p-2 grow overflow-auto',
-				$app.css?.['flowstatuscomponent']?.['container']?.class,
-				customCss?.container?.class
-			)}
-		>
-			{#if jobId}
-				<FlowStatusViewer workspaceId={workspace} {jobId} />
-			{:else}
-				<span class="text-secondary text-xs">No flow</span>
-			{/if}
-		</div>
+<div class="flex flex-col w-full h-full component-wrapper">
+	<div
+		class={twMerge(
+			'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
+			css?.header?.class
+		)}
+		style={css?.header?.style}
+	>
+		Flow Status
 	</div>
-</RunnableWrapper>
+	<div
+		style={twMerge(
+			$app.css?.['flowstatuscomponent']?.['container']?.style,
+			customCss?.container?.style
+		)}
+		class={twMerge(
+			'p-2 grow overflow-auto',
+			$app.css?.['flowstatuscomponent']?.['container']?.class,
+			customCss?.container?.class
+		)}
+	>
+		{#if jobId}
+			<FlowStatusViewer
+				workspaceId={workspace}
+				{jobId}
+				on:start={() => {
+					outputs?.jobId.set(jobId)
+					outputs?.loading.set(true)
+				}}
+				on:done={(e) => {
+					outputs?.loading.set(false)
+					outputs?.result.set(e?.detail?.result)
+				}}
+			/>
+		{:else}
+			<span class="text-secondary text-xs">No flow</span>
+		{/if}
+	</div>
+</div>
