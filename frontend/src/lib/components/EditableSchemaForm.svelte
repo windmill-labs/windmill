@@ -2,7 +2,6 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -14,25 +13,21 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
 	import Section from './Section.svelte'
+	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
+	import PropertyEditor from './schema/PropertyEditor.svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
-	export let schemaFieldTooltip: Record<string, string> = {}
 	export let args: Record<string, any> = {}
 
-	export let autofocus = false
-
 	export let shouldHideNoInputs: boolean = false
-	export let compact = false
 	export let noVariablePicker = false
 	export let flexWrap = false
 	export let noDelete = false
-	export let prettifyHeader = false
-	export let disablePortal = false
 	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
 	export let offset = 48 + 31 + 31 + 16 + 1
-
 	export let uiOnly: boolean = false
+	export let isFlowInput: boolean = false
 
 	function changePosition(i: number, up: boolean): any {
 		const entries = Object.entries(schema.properties)
@@ -51,8 +46,6 @@
 
 	let clazz: string = ''
 	export { clazz as class }
-
-	let inputCheck: { [id: string]: boolean } = {}
 
 	$: if (args == undefined || typeof args !== 'object') {
 		args = {}
@@ -184,8 +177,8 @@
 											on:click={() => {}}
 											startIcon={{ icon: Trash }}
 										>
-											Delete</Button
-										>
+											Delete
+										</Button>
 									</div>
 								{/if}
 							</div>
@@ -193,42 +186,42 @@
 								<div class="p-4 border-t" transition:slide>
 									{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 										{#if typeof args == 'object' && schema?.properties[argName]}
-											<ArgInput
-												displayHeader={false}
-												previewEnabled={false}
-												{disablePortal}
-												{resourceTypes}
-												{prettifyHeader}
-												autofocus={i == 0 && autofocus}
-												label={argName}
+											<PropertyEditor
 												bind:description={schema.properties[argName].description}
-												bind:value={args[argName]}
 												type={schema.properties[argName].type}
-												required={schema.required?.includes(argName) ?? false}
 												bind:pattern={schema.properties[argName].pattern}
-												bind:valid={inputCheck[argName]}
-												defaultValue={schema.properties[argName].default}
 												bind:enum_={schema.properties[argName].enum}
 												bind:format={schema.properties[argName].format}
 												bind:contentEncoding={schema.properties[argName].contentEncoding}
 												bind:customErrorMessage={schema.properties[argName].customErrorMessage}
-												properties={schema.properties[argName].properties}
-												nestedRequired={schema.properties[argName].required}
 												bind:itemsType={schema.properties[argName].items}
 												editableSchema={{ i, total: keys.length }}
 												on:changePosition={(event) =>
 													changePosition(event.detail.i, event.detail.up)}
-												{compact}
-												{variableEditor}
-												{itemPicker}
-												bind:pickForField
 												bind:extra={schema.properties[argName]}
-												simpleTooltip={schemaFieldTooltip[argName]}
-												nullable={schema.properties[argName].nullable}
 												bind:title={schema.properties[argName].title}
 												bind:placeholder={schema.properties[argName].placeholder}
-												{uiOnly}
-											/>
+											>
+												{#if isFlowInput}
+													<FlowPropertyEditor
+														bind:defaultValue={schema.properties[argName].default}
+														{variableEditor}
+														{itemPicker}
+														nullable={schema.properties[argName].nullable}
+														type={schema.properties[argName].type}
+														format={schema.properties[argName].format}
+														contentEncoding={schema.properties[argName].contentEncoding}
+														required={schema.required?.includes(argName) ?? false}
+														pattern={schema.properties[argName].pattern}
+														password={schema.properties[argName].password}
+														propsNames={schema.properties[argName].propsNames}
+														showExpr={schema.properties[argName].showExpr}
+														extra={schema.properties[argName]}
+														customErrorMessage={schema.properties[argName].customErrorMessage}
+														itemsType={schema.properties[argName].items}
+													/>
+												{/if}
+											</PropertyEditor>
 										{/if}
 									{/if}
 								</div>

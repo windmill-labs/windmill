@@ -30,6 +30,7 @@
 		on:change={(e) => {
 			value = e.detail.value
 		}}
+		initialValue={value}
 		{disabled}
 		pips
 		float

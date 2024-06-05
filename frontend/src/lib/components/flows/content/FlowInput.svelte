@@ -89,7 +89,7 @@
 			}}
 		/>
 	</div>
-	<EditableSchemaForm bind:schema={$flowStore.schema} />
+	<EditableSchemaForm bind:schema={$flowStore.schema} isFlowInput={true} />
 </FlowCard>
 
 <Drawer bind:this={jsonPayload} size="800px">

@@ -3,7 +3,6 @@
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, computeShow } from '$lib/utils'
-	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -11,6 +10,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
+	import PropertyPreview from './schema/PropertyPreview.svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -129,7 +129,7 @@
 				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
-							<ArgInput
+							<PropertyPreview
 								{dndEnabled}
 								{disablePortal}
 								{resourceTypes}
@@ -193,7 +193,7 @@
 											</ToggleButtonGroup>
 										</div>{/if}</svelte:fragment
 								>
-							</ArgInput>
+							</PropertyPreview>
 						{/if}
 					{/if}
 				</div>
