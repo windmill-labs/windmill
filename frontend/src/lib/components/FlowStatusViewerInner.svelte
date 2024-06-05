@@ -196,6 +196,7 @@
 	let errorCount = 0
 	let notAnonynmous = false
 	async function loadJobInProgress() {
+		dispatch('start')
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
 				const newJob = await JobService.getJob({
@@ -223,6 +224,8 @@
 		}
 		if (job?.type !== 'CompletedJob' && errorCount < 4 && !destroyed) {
 			timeout = setTimeout(() => loadJobInProgress(), reducedPolling ? 5000 : 1000)
+		} else {
+			dispatch('done', job)
 		}
 	}
 
