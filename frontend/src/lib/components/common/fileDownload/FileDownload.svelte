@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
+	import { base } from '$app/paths'
 
 	export let s3object: any
 </script>
@@ -10,7 +11,7 @@
 border border-dashed border-gray-400 hover:border-blue-500
 focus-within:border-blue-500 hover:bg-blue-50 dark:hover:bg-frost-900 focus-within:bg-blue-50
 duration-200 rounded-lg p-1 gap-2"
-	href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${s3object?.s3}${
+	href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${s3object?.s3}${
 		s3object?.storage ? `&storage=${s3object.storage}` : ''
 	}`}
 	download={s3object?.s3.split('/').pop() ?? 'unnamed_download.file'}

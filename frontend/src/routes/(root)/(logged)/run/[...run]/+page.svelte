@@ -668,13 +668,13 @@
 									<svelte:fragment slot="text">
 										This job has concurrency limits enabled with the key
 										<a
-											href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+											href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 										>
 											{concurrencyKey}
 										</a>
 									</svelte:fragment>
 									<a
-										href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 									>
 										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
 									>

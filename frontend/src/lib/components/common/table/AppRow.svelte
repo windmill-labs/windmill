@@ -67,7 +67,7 @@
 {/if}
 
 <Row
-	href={`/apps/get/${app.path}`}
+	href={`${base}/apps/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={app.path}
