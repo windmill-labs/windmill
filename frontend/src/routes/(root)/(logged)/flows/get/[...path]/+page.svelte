@@ -5,7 +5,7 @@
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/base'
+	import { base } from '$app/paths'
 	import { Alert, Button, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
