@@ -92,6 +92,7 @@
 	$: slicedData = data.slice((currentPage - 1) * perPage, currentPage * perPage)
 
 	let selection = [] as Array<number>
+	let colSelection = [] as Array<string>
 
 	// Function to handle individual row checkbox change
 	function handleCheckboxChange(rowId: number) {
@@ -106,14 +107,19 @@
 
 	// Function to handle select all checkbox change
 	function handleSelectAllChange() {
-		if (selection.length === 0 || selection.length < slicedData.length) {
+		if (
+			selection.length === 0 ||
+			(selection.length < slicedData.length &&
+				(colSelection.length === 0 || colSelection.length < headers.length))
+		) {
 			// Select all rows
 			selection = slicedData.map((row) => row._id)
+			colSelection = [...headers]
 		} else {
 			// Deselect all rows
 			selection = []
+			colSelection = []
 		}
-		selection = [...selection]
 	}
 
 	let renderCount = 0
@@ -134,6 +140,16 @@
 	// 	let typof = typeof value
 	// 	return (value != undefined && typof === 'string') || typof === 'number' || typof === 'boolean'
 	// }
+
+	function handleColumnSelected(key: string) {
+		if (colSelection.includes(key)) {
+			// Remove the id from the colSelection array
+			colSelection = colSelection.filter((id) => id !== key)
+		} else {
+			// Add the id to the colSelection array
+			colSelection = [...colSelection, key]
+		}
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -156,11 +172,27 @@
 							selection.length > 0
 								? structuredObjects
 										.filter(({ _id }) => selection.includes(_id))
-										.map((obj) => obj.rowData)
-								: objects
+										.map((obj) =>
+											colSelection.length == 0
+												? obj.rowData
+												: Object.fromEntries(
+														Object.entries(obj.rowData).filter(([key, _]) =>
+															colSelection.includes(key)
+														)
+												  )
+										)
+								: colSelection.length == 0
+								? objects
+								: objects.map((obj) =>
+										Object.fromEntries(
+											Object.entries(obj).filter(([key, _]) => colSelection.includes(key))
+										)
+								  )
 						)
 					}}
-					customText={selection.length > 0 ? 'Download selected as CSV' : undefined}
+					customText={selection.length > 0 || colSelection.length > 0
+						? 'Download selected as CSV'
+						: undefined}
 				/>
 				<Dropdown
 					items={() => {
@@ -190,6 +222,7 @@
 								displayName: 'Clear selection',
 								icon: Columns,
 								action: () => {
+									colSelection = []
 									selection = []
 									renderCount++
 								}
@@ -273,6 +306,12 @@
 												<MoveVertical size="16" class=" hover:text-gray-600 text-gray-400" />
 											</button>
 										{/if}
+										<input
+											type="checkbox"
+											class="!w-4 !h-4"
+											checked={colSelection.includes(key)}
+											on:change={() => handleColumnSelected(key)}
+										/>
 									</div>
 								</Cell>
 							{/each}
@@ -280,7 +319,7 @@
 					</Head>
 					<tbody class="divide-y">
 						{#each slicedData as { _id, rowData }, index (index)}
-							<Row dividable selected={selection.includes(_id)}>
+							<Row dividable selected={selection.includes(_id) && colSelection.length == 0}>
 								<Cell first={true} last={false} class="w-6">
 									<input
 										type="checkbox"
@@ -291,7 +330,11 @@
 								</Cell>
 								{#each headers as key, index}
 									{@const value = rowData[key]}
-									<Cell last={index == Object.values(rowData ?? {}).length - 1}>
+									<Cell
+										selected={colSelection.includes(key) &&
+											(selection.length == 0 || selection.includes(_id))}
+										last={index == Object.values(rowData ?? {}).length - 1}
+									>
 										{#if Array.isArray(value) && value.length === 0}
 											<div />
 										{:else if Array.isArray(value) && typeof value?.[0] === 'string'}
