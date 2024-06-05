@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.341.0
+  version: 1.342.0
   title: Windmill API
 
   contact:
@@ -800,6 +800,20 @@ paths:
       responses:
         "200":
           description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/customer_portal:
+    post:
+      summary: create customer portal session
+      operationId: createCustomerPortalSession
+      tags:
+        - setting
+      responses:
+        "200":
+          description: url to portal
           content:
             text/plain:
               schema:
@@ -7946,6 +7960,10 @@ paths:
           schema:
             type: string
         - name: storage
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
           in: query
           schema:
             type: string

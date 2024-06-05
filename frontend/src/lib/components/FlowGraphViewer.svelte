@@ -50,7 +50,7 @@
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep {flow} {stepDetail} />
+			<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
 		</div>
 	{/if}
 </div>

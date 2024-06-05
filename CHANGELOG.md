@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.342.0](https://github.com/windmill-labs/windmill/compare/v1.341.1...v1.342.0) (2024-06-04)
+
+
+### Features
+
+* customer portal link ([#3868](https://github.com/windmill-labs/windmill/issues/3868)) ([14bd5fe](https://github.com/windmill-labs/windmill/commit/14bd5fe0515bb2e746656cf3d6ee5bbd5c727510))
+
+
+### Bug Fixes
+
+* handle csv with different separators in csv preview ([b756a3b](https://github.com/windmill-labs/windmill/commit/b756a3b31ef62cbfacd20bcffb0da8482dd57565))
+
+## [1.341.1](https://github.com/windmill-labs/windmill/compare/v1.341.0...v1.341.1) (2024-06-04)
+
+
+### Bug Fixes
+
+* Filter on path not working ([#3863](https://github.com/windmill-labs/windmill/issues/3863)) ([98869ef](https://github.com/windmill-labs/windmill/commit/98869efdabfd5e275c76fd811b8337c00c9574a5))
+* fix writing binary file from global cache in go ([ef9ad1a](https://github.com/windmill-labs/windmill/commit/ef9ad1af49d9d22a790cba4edb21dbbfa6df0b31))
+* flow status viewer takes all the width on the runs page ([b6016ab](https://github.com/windmill-labs/windmill/commit/b6016abb222481a16dfb684a782c763cf3966856))
+* improve flow status viewer to display the step details on third tab ([f54cfd3](https://github.com/windmill-labs/windmill/commit/f54cfd3640a2be0bb25eacea979d9ea056e190ad))
+* lock steps inside whileloops for flows ([439ab8a](https://github.com/windmill-labs/windmill/commit/439ab8ab14547991bb4e60e0b377d61e81d4b1b9))
+* make typescript client compatible with cf workers ([#3807](https://github.com/windmill-labs/windmill/issues/3807)) ([a9bf5a4](https://github.com/windmill-labs/windmill/commit/a9bf5a46831cf3b3e262167af99af1ebb9336f36))
+
 ## [1.341.0](https://github.com/windmill-labs/windmill/compare/v1.340.2...v1.341.0) (2024-06-03)
 
 

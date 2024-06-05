@@ -675,17 +675,18 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         tracing::info!("Received killpill, exiting");
         return Ok(());
     }
-    let instance_name = gethostname()
+    let hostname = gethostname()
         .to_str()
-        .map(|x| {
-            x.replace(" ", "")
-                .split("-")
-                .last()
-                .unwrap()
-                .to_ascii_lowercase()
-                .to_string()
-        })
+        .map(|x| x.to_string())
         .unwrap_or_else(|| rd_string(5));
+    let instance_name = hostname
+        .clone()
+        .replace(" ", "")
+        .split("-")
+        .last()
+        .unwrap()
+        .to_ascii_lowercase()
+        .to_string();
 
     // #[cfg(tokio_unstable)]
     // let monitor = tokio_metrics::TaskMonitor::new();
@@ -729,13 +730,14 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
         let rsmq2 = rsmq.clone();
+        let hostname = hostname.clone();
 
         handles.push(tokio::spawn(async move {
             tracing::info!(worker = %worker_name, "starting worker");
 
             let f = windmill_worker::run_worker(
                 &db1,
-                &instance_name,
+                &hostname,
                 worker_name,
                 i as u64,
                 num_workers as u32,
