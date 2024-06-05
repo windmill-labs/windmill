@@ -10,7 +10,7 @@
 		tooltip="See documentation of the new component:"
 		type="error"
 	>
-		This component is deprecated and will be removed in the future. Please use the Flow status by
-		Job Id component instead.
+		This component is deprecated and hase been removed. Please use the Flow status by Job Id
+		component instead.
 	</Alert>
 </AlignWrapper>
