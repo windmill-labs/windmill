@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { base } from '$app/paths'
 	import { ResourceService, SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
@@ -230,7 +231,7 @@
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-		<Button variant="border" size="sm" href="/user/workspaces"
+		<Button variant="border" size="sm" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button
