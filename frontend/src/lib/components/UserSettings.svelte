@@ -13,7 +13,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { page } from '$app/stores'
-	import { goto } from '$lib/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import Tooltip from './Tooltip.svelte'
 	import Version from './Version.svelte'
@@ -22,7 +22,6 @@
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
-	import {base} from "$app/paths";
 
 	export let scopes: string[] | undefined = undefined
 	export let newTokenLabel: string | undefined = undefined
@@ -53,8 +52,7 @@
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
-		const baseRemoved = hashRemoved.slice(base.length)
-		goto(baseRemoved)
+		gotoUrl(hashRemoved)
 	}
 	async function setPassword(): Promise<void> {
 		if (newPassword) {

@@ -7,7 +7,7 @@
 	import { base } from '$app/paths'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
-	import { goto } from '$lib/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import Version from './Version.svelte'
 	import Uptodate from './Uptodate.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
@@ -39,8 +39,7 @@
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
-		const baseRemoved = hashRemoved.slice(base.length)
-		goto(baseRemoved)
+		gotoUrl(hashRemoved)
 	}
 
 	let users: GlobalUserInfo[] = []
