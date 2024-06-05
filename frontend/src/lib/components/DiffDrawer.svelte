@@ -5,7 +5,6 @@
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
-	import { cloneDeep } from 'lodash'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -57,7 +56,7 @@
 	}
 
 	function prepareDiff(data: Value) {
-		const metadata = cloneDeep(cleanValueProperties(data))
+		const metadata = structuredClone(cleanValueProperties(data))
 		const content = metadata['content']
 		if (metadata['content'] !== undefined) {
 			metadata['content'] = 'check content diff'

@@ -311,6 +311,9 @@
 		>
 		{#each groupedWorkers as worker_group (worker_group[0])}
 			{@const config = (workerGroups ?? {})[worker_group[0]]}
+			{@const activeWorkers = worker_group?.[1].flatMap((x) =>
+				x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+			)}
 			<WorkspaceGroup
 				{customTags}
 				name={worker_group[0]}
@@ -318,9 +321,7 @@
 				on:reload={() => {
 					loadWorkerGroups()
 				}}
-				activeWorkers={worker_group?.[1].flatMap((x) =>
-					x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
-				)?.length ?? 0}
+				activeWorkers={activeWorkers?.length ?? 0}
 				{defaultTagPerWorkspace}
 			/>
 
@@ -340,11 +341,13 @@
 						</Cell>
 						<Cell head>Last ping</Cell>
 						<Cell head>Worker start</Cell>
-						<Cell head>Nb of jobs executed</Cell>
+						<Cell head>Jobs ran</Cell>
 						{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
 							<Cell head>Current job</Cell>
 							<Cell head>Occupancy rate</Cell>
 						{/if}
+						<Cell head>Memory usage<br />(Windmill)</Cell>
+						<Cell head>Limits</Cell>
 						<Cell head>Version</Cell>
 						<Cell head last>Liveness</Cell>
 					</tr>
@@ -354,7 +357,7 @@
 						<tr class="border-t">
 							<Cell
 								first
-								colspan={(!config || config?.dedicated_worker == undefined) && $superadmin ? 9 : 7}
+								colspan={(!config || config?.dedicated_worker == undefined) && $superadmin ? 11 : 9}
 								scope="colgroup"
 								class="bg-surface-secondary/60 py-2 border-b"
 							>
@@ -367,7 +370,7 @@
 						</tr>
 
 						{#if workers}
-							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version }}
+							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 								<tr>
 									<Cell first>{worker}</Cell>
 									<Cell>
@@ -387,6 +390,7 @@
 												<a href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}>
 													View job
 												</a>
+												<br />
 												(workspace {current_job_workspace_id})
 											{/if}
 										</Cell>
@@ -395,10 +399,20 @@
 										</Cell>
 									{/if}
 									<Cell
-										><div class="!text-2xs"
-											>{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip></div
-										></Cell
+										>{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}<br
+										/>({wm_memory_usage
+											? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
+											: '--'})</Cell
 									>
+									<Cell>
+										{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
+										/ {memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
+									</Cell>
+									<Cell>
+										<div class="!text-2xs">
+											{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
+										</div>
+									</Cell>
 									<Cell last>
 										<Badge
 											color={last_ping != undefined ? (last_ping < 60 ? 'green' : 'red') : 'gray'}

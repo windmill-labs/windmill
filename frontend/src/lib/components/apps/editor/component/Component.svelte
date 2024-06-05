@@ -712,6 +712,8 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onOpenRecomputeIds={component.onOpenRecomputeIds}
+				onCloseRecomputeIds={component.onCloseRecomputeIds}
 				{render}
 			/>
 		{:else if component.type === 'mapcomponent'}
@@ -735,6 +737,8 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onOpenRecomputeIds={component.onOpenRecomputeIds}
+				onCloseRecomputeIds={component.onCloseRecomputeIds}
 				{render}
 			/>
 		{:else if component.type === 'schemaformcomponent'}

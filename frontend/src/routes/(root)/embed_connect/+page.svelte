@@ -11,7 +11,7 @@
 	let step = 1
 	let disabled = false
 	let isGoogleSignin = false
-	let manual = false
+	let manual = true
 
 	let appConnect: AppConnectInner | undefined = undefined
 

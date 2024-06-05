@@ -64,9 +64,7 @@
 </Drawer>
 <div
 	class:border={!noBorder}
-	class="grid {!col
-		? 'grid-cols-2'
-		: 'grid-rows-2'} shadow border border-tertiary-inverse h-full max-h-[70vh]"
+	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow border border-tertiary-inverse h-full"
 >
 	<div class="bg-surface {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>

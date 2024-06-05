@@ -339,7 +339,7 @@
 		}
 	}
 
-	$: resolvedConfig && updateOptions()
+	$: api && resolvedConfig && updateOptions()
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {

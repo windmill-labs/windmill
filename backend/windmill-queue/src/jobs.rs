@@ -203,6 +203,7 @@ pub async fn cancel_job<'c>(
     db: &Pool<Postgres>,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     force_cancel: bool,
+    require_anonymous: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
 
@@ -210,6 +211,11 @@ pub async fn cancel_job<'c>(
         return Ok((tx, None));
     }
 
+    if require_anonymous && job.as_ref().unwrap().created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
+        ));
+    }
     let job = job.unwrap();
 
     // get all children
@@ -377,6 +383,7 @@ async fn cancel_persistent_script_jobs_internal<'c>(
             tx,
             db,
             rsmq.clone(),
+            false,
             false,
         )
         .await?;
@@ -666,7 +673,7 @@ pub async fn add_completed_job<
                 ).fetch_optional(&mut tx).await?;
                 if r.is_some() {
                     tracing::info!(
-                        "parallel flow is done, setting parallel monitor last ping lock for job {}",
+                        "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
                         &queued_job.id
                     );
                 }
@@ -2118,7 +2125,8 @@ fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
                 .get(arg_name)
                 .or(args.extra.get(arg_name))
                 .map(|x| x.get())
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .trim_matches('"');
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }

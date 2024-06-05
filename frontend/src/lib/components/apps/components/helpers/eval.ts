@@ -1,4 +1,3 @@
-import { isPlainObject } from 'lodash'
 import type { World } from '../../rx'
 import { sendUserToast } from '$lib/toast'
 
@@ -76,38 +75,6 @@ function make_context_evaluator(eval_string, contextKeys: string[], noReturn: bo
 	return r
 }
 
-function isSerializable(obj) {
-	var isNestedSerializable
-	function isPlain(val) {
-		return (
-			val == null ||
-			typeof val === 'undefined' ||
-			typeof val === 'string' ||
-			typeof val === 'boolean' ||
-			typeof val === 'number' ||
-			Array.isArray(val) ||
-			isPlainObject(val)
-		)
-	}
-	if (!isPlain(obj)) {
-		return false
-	}
-	for (var property in obj) {
-		if (obj.hasOwnProperty(property)) {
-			if (!isPlain(obj[property])) {
-				return false
-			}
-			if (typeof obj[property] == 'object') {
-				isNestedSerializable = isSerializable(obj[property])
-				if (!isNestedSerializable) {
-					return false
-				}
-			}
-		}
-	}
-	return true
-}
-
 function hashCode(s: string): number {
 	var hash = 0,
 		i,
@@ -154,11 +121,8 @@ export async function eval_like(
 			}
 			target[key] = value
 			let o = worldStore?.newOutput('state', key, value)
-			if (isSerializable(value)) {
-				o?.set(value, true)
-			} else {
-				o?.set('Not serializable object usable only by frontend scripts', true)
-			}
+			o?.set(value, true)
+
 			return true
 		}
 	})

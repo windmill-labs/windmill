@@ -126,7 +126,7 @@ struct ExtendedJobsParams {
 pub fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
     if let Some(key) = concurrency_key {
         sqlb.join("concurrency_key")
-            .on_eq("id", "job_id")
+            .on_eq("id", "concurrency_key.job_id")
             .and_where_eq("key", "?".bind(key));
     }
 
@@ -220,23 +220,25 @@ async fn get_concurrent_intervals(
     // the workspace.
     // To avoid infering information through filtering, don't return obscured
     // jobs if the filters are too specific
-    if should_fetch_obscured_jobs && w_id != "admins"{
+    if should_fetch_obscured_jobs && w_id != "admins" {
         // Get the obscured jobs from all workspaces (concurrency key could be global)
         let (sqlb_q, sqlb_c) = (
             filter_list_queue_query(
                 sqlb_q,
                 &ListQueueQuery { all_workspaces: Some(true), ..lqq.clone() },
                 "admins",
+                true,
             ),
             filter_list_completed_query(
                 sqlb_c,
                 &ListCompletedQuery { all_workspaces: Some(true), ..lq.clone() },
                 "admins",
+                true,
             ),
         );
 
-        sqlb_q_user = filter_list_queue_query(sqlb_q_user, &lqq, w_id.as_str());
-        sqlb_c_user = filter_list_completed_query(sqlb_c_user, &lq, w_id.as_str());
+        sqlb_q_user = filter_list_queue_query(sqlb_q_user, &lqq, w_id.as_str(), true);
+        sqlb_c_user = filter_list_completed_query(sqlb_c_user, &lq, w_id.as_str(), true);
 
         let sql_q_user = sqlb_q_user.query()?;
         let sql_c_user = sqlb_c_user.query()?;
@@ -302,8 +304,8 @@ async fn get_concurrent_intervals(
             omitted_obscured_jobs: !should_fetch_obscured_jobs,
         }))
     } else {
-        sqlb_q = filter_list_queue_query(sqlb_q, &lqq, w_id.as_str());
-        sqlb_c = filter_list_completed_query(sqlb_c, &lq, w_id.as_str());
+        sqlb_q = filter_list_queue_query(sqlb_q, &lqq, w_id.as_str(), true);
+        sqlb_c = filter_list_completed_query(sqlb_c, &lq, w_id.as_str(), true);
         let sql_q = sqlb_q.query()?;
         let sql_c = sqlb_c.query()?;
 

@@ -6,7 +6,8 @@
 		type FlowStatus,
 		type CompletedJob,
 		type QueuedJob,
-		type FlowModuleValue
+		type FlowModuleValue,
+		type FlowModule
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
@@ -31,6 +32,8 @@
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
 	import { writable, type Writable } from 'svelte/store'
+	import Alert from './common/alert/Alert.svelte'
+	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -61,6 +64,8 @@
 	export let globalDurationStatuses: Writable<Record<string, DurationStatus>>[]
 	export let childFlow: boolean = false
 	export let reducedPolling = false
+
+	export let wideResults = false
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
@@ -139,12 +144,15 @@
 			$retryStatus[jobId ?? ''] = count
 		} else if ($retryStatus[jobId ?? ''] != undefined) {
 			delete $retryStatus[jobId ?? '']
+			$retryStatus = $retryStatus
 		}
 		let jobStatus = job?.flow_status?.modules?.[job?.flow_status.step]
+
 		if (jobStatus && jobStatus.count != undefined) {
 			$suspendStatus[jobId ?? ''] = { nb: jobStatus.count, job: job! }
 		} else if ($suspendStatus[jobId ?? ''] != undefined) {
 			delete $suspendStatus[jobId ?? '']
+			$suspendStatus = $suspendStatus
 		}
 	}
 
@@ -186,6 +194,7 @@
 	}
 
 	let errorCount = 0
+	let notAnonynmous = false
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
@@ -200,9 +209,16 @@
 					dispatch('jobsLoaded', job)
 				}
 				errorCount = 0
+				notAnonynmous = false
 			} catch (e) {
-				errorCount += 1
-				console.error(e)
+				if (
+					e?.body?.includes('As a non logged in user, you can only see jobs ran by anonymous users')
+				) {
+					notAnonynmous = true
+				} else {
+					errorCount += 1
+					console.error(e)
+				}
 			}
 		}
 		if (job?.type !== 'CompletedJob' && errorCount < 4 && !destroyed) {
@@ -411,7 +427,7 @@
 
 	let flowTimeline: FlowTimeline
 
-	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
+	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' = 'timeline'
 
 	let slicedListJobIds: string[] = []
 
@@ -437,10 +453,16 @@
 		jobResults = [...new Array(lenToAdd), ...jobResults]
 		updateSlicedListJobIds()
 	}
+
+	let stepDetail: FlowModule | string | undefined = undefined
 </script>
 
-{#if job}
-	<div class="flow-root w-full space-y-4">
+{#if notAnonynmous}
+	<Alert type="error" title="Required Auth">
+		As a non logged in user, you can only see jobs ran by anonymous users like you
+	</Alert>
+{:else if job}
+	<div class="flow-root w-full space-y-4 {wideResults ? '' : 'max-w-7xl'} mx-auto">
 		<!-- {#if innerModules.length > 0 && true}
 			<h3 class="text-md leading-6 font-bold text-primay border-b pb-2">Flow result</h3>
 		{:else}
@@ -474,7 +496,7 @@
 				</p>
 			{/if}
 			{#if render}
-				<div class="w-full h-full border border-secondary bg-surface p-1 overflow-auto">
+				<div class="w-full h-full border rounded-sm bg-surface p-1 overflow-auto">
 					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
 				</div>
 			{/if}
@@ -545,13 +567,13 @@
 		{/if}
 		{#if render}
 			{#if innerModules.length > 0 && !isListJob}
-				<Tabs bind:selected>
+				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{/if}
 		{/if}
-		<div class={selected != 'sequence' ? 'hidden' : ''}>
+		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
 			{#if isListJob}
 				{@const lenToAdd = Math.min(
 					20,
@@ -738,8 +760,8 @@
 	</div>
 	{#if render}
 		{#if job.raw_flow && !isListJob}
-			<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
-				<div class="grid grid-cols-3 border">
+			<div class="{selected != 'graph' ? 'hidden' : ''} grow mt-4">
+				<div class="grid grid-cols-3 border h-full">
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
 							{#each Object.values($retryStatus) as count}
@@ -763,16 +785,22 @@
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
 							on:select={(e) => {
-								rightColumnSelect = 'detail'
+								if (rightColumnSelect != 'node_definition') {
+									rightColumnSelect = 'node_status'
+								}
 								if (typeof e.detail == 'string') {
 									if (e.detail == 'Input') {
 										selectedNode = 'start'
+										stepDetail = undefined
 									} else if (e.detail == 'Result') {
 										selectedNode = 'end'
+										stepDetail = 'end'
 									} else {
 										selectedNode = e.detail
+										stepDetail = e.detail
 									}
 								} else {
+									stepDetail = e.detail
 									selectedNode = e.detail.id
 								}
 							}}
@@ -785,20 +813,23 @@
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
-							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
+							<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab>
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
 							{/if}
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
+								selfWaitTime={job?.self_wait_time_ms}
+								aggregateWaitTime={job?.aggregate_wait_time_ms}
 								flowDone={job?.['success'] != undefined}
 								bind:this={flowTimeline}
 								flowModules={dfs(job.raw_flow?.modules ?? [], (x) => x.id)}
 								durationStatuses={localDurationStatuses}
 							/>
-						{:else if rightColumnSelect == 'detail'}
-							<div class="pt-2 h-full">
+						{:else if rightColumnSelect == 'node_status'}
+							<div class="pt-2 max-h-[80vh]">
 								{#if selectedNode}
 									{@const node = $localModuleStates[selectedNode]}
 
@@ -869,6 +900,8 @@
 								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
 									>{/if}
 							</div>
+						{:else if rightColumnSelect == 'node_definition'}
+							<FlowGraphViewerStep {stepDetail} />
 						{:else if rightColumnSelect == 'user_states'}
 							<div class="p-2">
 								<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />

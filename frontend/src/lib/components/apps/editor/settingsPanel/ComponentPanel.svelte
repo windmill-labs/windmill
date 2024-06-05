@@ -408,6 +408,22 @@
 				ownId={component.id}
 			/>
 		{/if}
+		{#if (`onOpenRecomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.onOpenRecomputeIds)) || componentSettings.item.data.type === 'modalcomponent' || componentSettings.item.data.type === 'drawercomponent'}
+			<Recompute
+				bind:recomputeIds={componentSettings.item.data.onOpenRecomputeIds}
+				ownId={component.id}
+				title="Trigger runnables on open"
+				tooltip="Select components to recompute after this component was opened"
+			/>
+		{/if}
+		{#if (`onCloseRecomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.onCloseRecomputeIds)) || componentSettings.item.data.type === 'modalcomponent' || componentSettings.item.data.type === 'drawercomponent'}
+			<Recompute
+				bind:recomputeIds={componentSettings.item.data.onCloseRecomputeIds}
+				ownId={component.id}
+				title="Trigger runnables on close"
+				tooltip="Select components to recompute after this component was closed"
+			/>
+		{/if}
 		{#if componentSettings.item.data.type === 'checkboxcomponent'}
 			<Recompute
 				title="Recompute on toggle"
@@ -442,30 +458,27 @@
 						Show
 					</Button>
 				</div>
-
-				{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
-					<Toggle
-						bind:checked={componentSettings.item[12].fullHeight}
-						size="xs"
-						options={{
-							right: 'Desktop full height',
-							rightTooltip:
-								'When enabled, the component will take the full height of the parent container.'
-						}}
-					/>
-				{/if}
-				{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
-					<Toggle
-						bind:checked={componentSettings.item[3].fullHeight}
-						size="xs"
-						options={{
-							right: 'Mobile full height',
-							rightTooltip:
-								'When enabled, the component will take the full height of the parent container.'
-						}}
-					/>
-				{/if}
-
+				<div class="flex gap-2 items-center">
+					<div class="!text-2xs">Full height</div>
+					{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
+						<Toggle
+							bind:checked={componentSettings.item[12].fullHeight}
+							size="xs"
+							options={{
+								right: 'Desktop'
+							}}
+						/>
+					{/if}
+					{#if componentSettings?.item?.[3]?.fullHeight !== undefined}
+						<Toggle
+							bind:checked={componentSettings.item[3].fullHeight}
+							size="xs"
+							options={{
+								right: 'Mobile'
+							}}
+						/>
+					{/if}
+				</div>
 				<AlignmentEditor bind:component={componentSettings.item.data} />
 				{#if viewCssOptions}
 					<div transition:slide|local class="w-full">

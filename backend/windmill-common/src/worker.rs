@@ -132,16 +132,7 @@ fn process_custom_tags(tags: Vec<String>) -> (Vec<String>, HashMap<String, Vec<S
     (global, specific)
 }
 
-pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
-    let (tags, dw) = {
-        let wc = WORKER_CONFIG.read().await.clone();
-        (
-            wc.worker_tags,
-            wc.dedicated_worker
-                .as_ref()
-                .map(|x| format!("{}:{}", x.workspace_id, x.path)),
-        )
-    };
+pub fn get_vcpus() -> Option<i64> {
     let mut vcpus = std::process::Command::new("cat")
         .args(["/sys/fs/cgroup/cpu.max"])
         .output()
@@ -153,8 +144,11 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
                 .map(|s| s.to_string())
                 .collect::<Vec<String>>()
                 .get(0)
-                .map(|s| s.to_string())
+                .map(|s| s.to_string().trim().parse::<i64>().ok())
+                .flatten()
         })
+        .flatten()
+        .map(|x| if x > 0 { Some(x) } else { None })
         .flatten();
 
     if vcpus.is_none() {
@@ -162,22 +156,172 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
             .args(["/sys/fs/cgroup/cpu/cpu.cfs_quota_us"])
             .output()
             .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_string()
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+            })
+            .flatten()
+            .map(|x| if x > 0 { Some(x) } else { None })
+            .flatten();
     }
 
+    vcpus
+}
+
+pub fn get_memory() -> Option<i64> {
     let mut memory = std::process::Command::new("cat")
         .args(["/sys/fs/cgroup/memory.max"])
         .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_string()
+                .trim()
+                .parse::<i64>()
+                .ok()
+        })
+        .flatten();
 
     if memory.is_none() {
         memory = std::process::Command::new("cat")
             .args(["/sys/fs/cgroup/memory/memory.limit_in_bytes"])
             .output()
             .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_string()
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+            })
+            .flatten()
     }
+
+    memory
+}
+
+pub fn get_worker_memory_usage() -> Option<i64> {
+    let mut total_memory_usage = std::process::Command::new("cat")
+        .args(["/sys/fs/cgroup/memory.current"])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_string()
+                .trim()
+                .parse::<i64>()
+                .ok()
+        })
+        .flatten();
+
+    if total_memory_usage.is_none() {
+        total_memory_usage = std::process::Command::new("cat")
+            .args(["/sys/fs/cgroup/memory/memory.usage_in_bytes"])
+            .output()
+            .ok()
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_string()
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+            })
+            .flatten()
+    }
+
+    match total_memory_usage {
+        Some(total_memory_usage) => {
+            let mut inactive_file = std::process::Command::new("cat")
+                .args(["/sys/fs/cgroup/memory.stat"])
+                .output()
+                .ok()
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .to_string()
+                        .split("\n")
+                        .find(|s| s.starts_with("inactive_file"))
+                        .map(|s| {
+                            s.split(" ")
+                                .collect::<Vec<&str>>()
+                                .get(1)
+                                .map(|s| s.trim().parse::<i64>().ok())
+                                .flatten()
+                        })
+                        .flatten()
+                })
+                .flatten();
+
+            if inactive_file.is_none() {
+                inactive_file = std::process::Command::new("cat")
+                    .args(["/sys/fs/cgroup/memory/memory.stat"])
+                    .output()
+                    .ok()
+                    .map(|o| {
+                        String::from_utf8_lossy(&o.stdout)
+                            .to_string()
+                            .split("\n")
+                            .find(|s| s.starts_with("total_inactive_file"))
+                            .map(|s| {
+                                s.split(" ")
+                                    .collect::<Vec<&str>>()
+                                    .get(1)
+                                    .map(|s| s.trim().parse::<i64>().ok())
+                                    .flatten()
+                            })
+                            .flatten()
+                    })
+                    .flatten();
+            }
+
+            match inactive_file {
+                Some(inactive_file) => Some(total_memory_usage - inactive_file),
+                None => None,
+            }
+        }
+        None => None,
+    }
+}
+
+pub fn get_windmill_memory_usage() -> Option<i64> {
+    #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+    {
+        match tikv_jemalloc_ctl::epoch::advance() {
+            Ok(_) => match tikv_jemalloc_ctl::stats::resident::read() {
+                Ok(resident) => i64::try_from(resident).ok(),
+                Err(e) => {
+                    tracing::error!("jemalloc resident memory read failed: {:?}", e);
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::error!("jemalloc epoch advance failed: {:?}", e);
+                None
+            }
+        }
+    }
+
+    #[cfg(any(target_env = "msvc", not(feature = "jemalloc")))]
+    {
+        None
+    }
+}
+
+pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
+    let (tags, dw) = {
+        let wc = WORKER_CONFIG.read().await.clone();
+        (
+            wc.worker_tags,
+            wc.dedicated_worker
+                .as_ref()
+                .map(|x| format!("{}:{}", x.workspace_id, x.path)),
+        )
+    };
+
+    let vcpus = get_vcpus();
+    let memory = get_memory();
 
     sqlx::query!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
@@ -188,8 +332,8 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
         *WORKER_GROUP,
         dw,
         crate::utils::GIT_VERSION,
-        vcpus.map(|x| x.parse::<i64>().ok()).flatten(),
-        memory.map(|x| x.parse::<i64>().ok()).flatten()
+        vcpus,
+        memory
     )
     .execute(db)
     .await

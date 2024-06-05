@@ -1,5 +1,6 @@
 class S3Object(dict):
     s3: str
+    storage: str | None
 
     def __getattr__(self, attr):
         return self[attr]

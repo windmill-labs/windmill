@@ -116,7 +116,8 @@
 			workspace: $workspaceStore!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
-			prefix: filter.trim() != '' ? filter : undefined
+			prefix: filter.trim() != '' ? filter : undefined,
+			storage: storage
 		})
 		if (
 			availableFiles.restricted_access === null ||
@@ -195,7 +196,8 @@
 		fileInfoLoading = true
 		let fileMetadataRaw = await HelpersService.loadFileMetadata({
 			workspace: $workspaceStore!,
-			fileKey: fileKey
+			fileKey: fileKey,
+			storage: storage
 		})
 
 		if (fileMetadataRaw !== undefined) {
@@ -221,7 +223,8 @@
 			csvSeparator: csvSeparatorChar,
 			csvHasHeader: csvHasHeader,
 			readBytesFrom: 0,
-			readBytesLength: 128 * 1024 // For now static limit of 128Kb per file
+			readBytesLength: 128 * 1024, // For now static limit of 128Kb per file,
+			storage: storage
 		})
 
 		let filePreviewContent = filePreviewRaw.content
@@ -254,7 +257,8 @@
 		try {
 			await HelpersService.deleteS3File({
 				workspace: $workspaceStore!,
-				fileKey: fileKey
+				fileKey: fileKey,
+				storage: storage
 			})
 		} finally {
 			fileDeletionInProgress = false
@@ -279,7 +283,8 @@
 			await HelpersService.moveS3File({
 				workspace: $workspaceStore!,
 				srcFileKey: srcFileKey,
-				destFileKey: destFileKey!
+				destFileKey: destFileKey!,
+				storage: storage
 			})
 		} finally {
 			fileMoveInProgress = false
@@ -291,7 +296,11 @@
 		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
 
-	export async function open(preSelectedFileKey: { s3: string } | undefined = undefined) {
+	let storage: string | undefined = undefined
+	export async function open(
+		preSelectedFileKey: { s3: string; storage: string | undefined } | undefined = undefined
+	) {
+		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {
 			initialFileKey = { ...preSelectedFileKey }
 			selectedFileKey = { ...preSelectedFileKey }
@@ -313,10 +322,13 @@
 			initialFileKeyInternalCopy = { ...initialFileKey }
 		}
 		try {
-			await HelpersService.datasetStorageTestConnection({ workspace: $workspaceStore! })
+			await HelpersService.datasetStorageTestConnection({
+				workspace: $workspaceStore!,
+				storage: storage
+			})
 			workspaceSettingsInitialized = true
 		} catch (e) {
-			console.error('Workspace not connected to S3 bucket: ', e)
+			console.error('Workspace not connected to object storage: ', e)
 			workspaceSettingsInitialized = false
 			return
 		}
@@ -438,7 +450,7 @@
 						</p>
 						<p>
 							More info in <a
-								href="https://www.windmill.dev/docs/core_concepts/persistent_storage#connect-your-windmill-workspace-to-your-s3-bucket"
+								href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
 								target="_blank">Windmill's documentation</a
 							></p
 						></Alert
@@ -555,7 +567,9 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${fileMetadata?.fileKey}`}
+											href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${
+												fileMetadata?.fileKey
+											}${storage ? `&storage=${storage}` : ''}`}
 											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 											startIcon={{ icon: Download }}
 											iconOnly={true}

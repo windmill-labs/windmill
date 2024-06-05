@@ -108,12 +108,13 @@
 {#if kind == 'pattern'}
 	<label for="input" class="mb-2 text-secondary text-xs">
 		Pattern (Regex)
-		<div class="flex flex-row items-center gap-0.5">
+		<div class="flex flex-row gap-1">
 			<input
 				id="input"
 				type="text"
 				placeholder="^(\\([0-9]{3}\\))?[0-9]{3}-[0-9]{4}$"
 				bind:value={patternStr}
+				class="text-sm"
 			/>
 			<RegexGen
 				on:gen={(e) => {
@@ -126,7 +127,6 @@
 				variant="border"
 				color="blue"
 				size="sm"
-				btnClasses="mx-2 mb-1"
 				on:click={() => {
 					patternStr = ''
 				}}
@@ -238,7 +238,7 @@
 		title="S3 Object recommended"
 		collapsible
 		size="xs"
-		documentationLink="Pattern (Regex) https://www.windmill.dev/docs/core_concepts/persistent_storage#large-data-files-s3-r2-minio-azure-blob"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
 	>
 		For large files, we recommend using the S3 Object type instead of the base64 string type.
 	</Alert>

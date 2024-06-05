@@ -161,6 +161,7 @@ pub enum ExecutionMode {
 pub struct PolicyTriggerableInputs {
     static_inputs: StaticFields,
     one_of_inputs: OneOfFields,
+    #[serde(default)]
     allow_user_resources: AllowUserResources,
 }
 
@@ -430,9 +431,7 @@ async fn get_public_app_by_secret(
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
-    let mut tx = db.begin().await?;
-
-    let mc = build_crypt(&mut tx, &w_id).await?;
+    let mc = build_crypt(&db, &w_id).await?;
 
     let decrypted = mc
         .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
@@ -448,9 +447,8 @@ async fn get_public_app_by_secret(
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
         .bind(&w_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await?;
-    tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", id.to_string())?;
 
@@ -511,6 +509,7 @@ async fn get_public_resource(
 async fn get_secret_id(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -524,14 +523,13 @@ async fn get_secret_id(
     )
     .fetch_optional(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     let id = not_found_if_none(id_o, "App", path.to_string())?;
 
-    let mc = build_crypt(&mut tx, &w_id).await?;
+    let mc = build_crypt(&db, &w_id).await?;
 
     let hx = hex::encode(mc.encrypt_str_to_bytes(id.to_string()));
-
-    tx.commit().await?;
 
     Ok(hx)
 }
@@ -1304,11 +1302,8 @@ async fn build_args(
                         job_id = Some(ulid::Ulid::new().into());
                         job_id.unwrap()
                     };
-                    let mut tx = db.begin().await?;
-                    let mc =
-                        build_crypt_with_key_suffix(&mut tx, &w_id, &job_id.to_string()).await?;
+                    let mc = build_crypt_with_key_suffix(&db, &w_id, &job_id.to_string()).await?;
                     let encrypted = encrypt(&mc, to_raw_value(&res.unwrap()).get());
-                    tx.commit().await?;
                     safe_args.insert(
                         k.to_string(),
                         to_raw_value(&format!("$encrypted:{encrypted}")),

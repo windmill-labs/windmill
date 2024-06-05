@@ -147,6 +147,7 @@ pub async fn _refresh_token<'c>(
     _path: &str,
     _w_id: &str,
     _id: i32,
+    _db: &DB,
 ) -> error::Result<String> {
     // Implementation is not open source
     Err(error::Error::BadRequest(

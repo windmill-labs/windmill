@@ -536,7 +536,9 @@ pub async fn update_flow_status_after_job_completion_internal<
                         .fetch_optional(&mut tx)
                         .await
                         .map_err(|e| {
-                            Error::InternalErr(format!("error while getting retry from step: {e:#}"))
+                            Error::InternalErr(format!(
+                                "error while getting retry from step: {e:#}"
+                            ))
                         })?
                         .flatten();
 
@@ -986,7 +988,11 @@ async fn compute_skip_branchall_failure<'c>(
     .fetch_one(db)
     .await
     .map(|(v,)| v)
-    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e:#}")))
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error during retrieval of skip_loop_failures: {e:#}"
+        ))
+    })
 }
 
 async fn has_failure_module<'c>(
@@ -1001,7 +1007,11 @@ async fn has_failure_module<'c>(
     .bind(flow)
     .fetch_one(&mut **tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("error during retrieval of has_failure_module: {e:#}")))
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "error during retrieval of has_failure_module: {e:#}"
+        ))
+    })
     .map(|v| v.unwrap_or(false))
 }
 
@@ -2151,8 +2161,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         }
 
         if payload_tag.delete_after_use {
-            let uuid_singleton_json = serde_json::to_value(&[uuid])
-                .map_err(|e| error::Error::InternalErr(format!("Unable to serialize uuid: {e:#}")))?;
+            let uuid_singleton_json = serde_json::to_value(&[uuid]).map_err(|e| {
+                error::Error::InternalErr(format!("Unable to serialize uuid: {e:#}"))
+            })?;
 
             sqlx::query(
                 "UPDATE queue
@@ -2615,8 +2626,7 @@ async fn compute_next_flow_transform(
                     if modules.is_empty() {
                         return Ok(NextFlowTransform::EmptyInnerFlows);
                     } else {
-                        let inner_path =
-                            Some(format!("{}/loop-parrallel", flow_job.script_path(),));
+                        let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
                         let value = &modules[0].get_value()?;
                         let continue_payload = if is_simple {
                             let payload =
@@ -2950,6 +2960,7 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].sleep.is_none()
         && modules[0].suspend.is_none()
         && modules[0].cache_ttl.is_none()
+        && modules[0].retry.is_none()
         && modules[0].stop_after_if.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
         && flow.failure_module.is_none();

@@ -6,11 +6,8 @@
 	import Popup from '../common/popup/Popup.svelte'
 	import { copilotInfo } from '$lib/stores'
 
-	import { WindmillIcon } from '../icons'
-
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, HistoryIcon, Wand2 } from 'lucide-svelte'
-	import { fade } from 'svelte/transition'
 	import { createEventDispatcher } from 'svelte'
 
 	// state
@@ -19,17 +16,15 @@
 	let input: HTMLInputElement | undefined
 	let abortController: AbortController | undefined = undefined
 
-	let button: HTMLButtonElement | undefined
-
 	const dispatch = createEventDispatcher()
-	async function onGenerate(closePopup: () => void) {
+	async function onGenerate() {
 		if (funcDesc.length <= 0) {
 			return
 		}
 		savePrompt()
+		genLoading = true
+		abortController = new AbortController()
 		try {
-			genLoading = true
-			abortController = new AbortController()
 			const res = await getNonStreamingCompletion(
 				[
 					{
@@ -45,14 +40,10 @@
 				abortController
 			)
 			dispatch('gen', { res: res, prompt: funcDesc })
-			closePopup()
 			funcDesc = ''
 		} catch (err) {
-			if (err?.message) {
-				sendUserToast('Failed to generate regex: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to generate regex', true)
-				console.error(err)
+			if (!abortController.signal.aborted) {
+				sendUserToast('Failed to generate regex: ' + err, true)
 			}
 		} finally {
 			genLoading = false
@@ -97,10 +88,6 @@
 	}
 </script>
 
-{#if genLoading}
-	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75" />
-{/if}
-
 <Popup
 	floatingConfig={{
 		middleware: [
@@ -114,28 +101,16 @@
 	<svelte:fragment slot="button">
 		<Button
 			title="Generate regexes from prompt"
-			btnClasses={'!font-medium ' + (genLoading ? 'z-[5000]' : '')}
-			size="xs"
+			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+			size="sm"
 			color={genLoading ? 'red' : 'light'}
 			spacingSize="md"
-			startIcon={genLoading ? undefined : { icon: Wand2 }}
+			startIcon={{ icon: Wand2 }}
+			loading={genLoading}
 			propagateEvent
+			clickableWhileLoading
 			on:click={genLoading ? () => abortController?.abort() : () => {}}
-			bind:element={button}
-		>
-			{#if genLoading}
-				<WindmillIcon
-					white={true}
-					class="mr-1 text-white"
-					height="16px"
-					width="20px"
-					spin="veryfast"
-				/>
-				Stop
-			{:else}
-				AI
-			{/if}
-		</Button>
+		/>
 	</svelte:fragment>
 	<div class="block text-primary z-[2000]">
 		{#if $copilotInfo.exists_openai_resource_path}
@@ -147,19 +122,21 @@
 						bind:value={funcDesc}
 						on:keypress={({ key }) => {
 							if (key === 'Enter' && funcDesc.length > 0) {
-								onGenerate(() => close(input || null))
+								close(input || null)
+								onGenerate()
 							}
 						}}
 						placeholder={'Describe what the regex should do'}
 					/>
 					<Button
 						size="xs"
-						color="blue"
+						color="light"
 						buttonType="button"
-						btnClasses="!p-1 !w-[38px] !ml-2"
+						btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 						aria-label="Generate"
 						on:click={() => {
-							onGenerate(() => close(input || null))
+							close(input || null)
+							onGenerate()
 						}}
 						disabled={funcDesc.length <= 0}
 						iconOnly

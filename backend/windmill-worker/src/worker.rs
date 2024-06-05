@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_common::worker::TMP_DIR;
+use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR};
 
 use anyhow::Result;
 use const_format::concatcp;
@@ -623,6 +623,68 @@ pub async fn drop_cache() {
             tracing::warn!("Failed to open /proc/sys/vm/drop_caches (expected to not work in not in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer):: {}", e);
         }
     }
+}
+
+const OUTSTANDING_WAIT_TIME_THRESHOLD_MS: i64 = 1000;
+
+async fn insert_wait_time(
+    job_id: Uuid,
+    root_job_id: Option<Uuid>,
+    db: &Pool<Postgres>,
+    wait_time: i64,
+) -> sqlx::error::Result<()> {
+    sqlx::query!(
+        "INSERT INTO outstanding_wait_time(job_id, self_wait_time_ms) VALUES ($1, $2)
+            ON CONFLICT (job_id) DO UPDATE SET self_wait_time_ms = EXCLUDED.self_wait_time_ms",
+        job_id,
+        wait_time
+    )
+    .execute(db)
+    .await?;
+
+    if let Some(root_id) = root_job_id {
+        // TODO: queued_job.root_job is not guaranteed to be the true root job (e.g. parallel flow
+        // subflows). So this is currently incorrect for those cases
+        sqlx::query!(
+            "INSERT INTO outstanding_wait_time(job_id, aggregate_wait_time_ms) VALUES ($1, $2)
+                ON CONFLICT (job_id) DO UPDATE SET aggregate_wait_time_ms =
+                COALESCE(outstanding_wait_time.aggregate_wait_time_ms, 0) + EXCLUDED.aggregate_wait_time_ms",
+            root_id,
+            wait_time
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+fn add_outstanding_wait_time(
+    queued_job: &QueuedJob,
+    db: &Pool<Postgres>,
+    waiting_threshold: i64,
+) -> () {
+    let wait_time;
+
+    if let Some(started_time) = queued_job.started_at {
+        wait_time = (started_time - queued_job.scheduled_for).num_milliseconds();
+    } else {
+        return;
+    }
+
+    if wait_time < waiting_threshold {
+        return;
+    }
+
+    let job_id = queued_job.id;
+    let root_job_id = queued_job.root_job;
+    let db = db.clone();
+
+    tokio::spawn(async move {
+            match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
+                Ok(()) => tracing::warn!("This job waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
+                Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
+            }
+    }.in_current_span());
 }
 
 #[tracing::instrument(name = "worker", level = "info", skip_all, fields(worker = %worker_name))]
@@ -1426,17 +1488,26 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         if last_ping.elapsed().as_secs() > NUM_SECS_PING {
             let tags = WORKER_CONFIG.read().await.worker_tags.clone();
 
+            let memory_usage = get_worker_memory_usage();
+            let wm_memory_usage = get_windmill_memory_usage();
+
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $4",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
                 worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
+                memory_usage,
+                wm_memory_usage,
                 &worker_name
             ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
             }
-            tracing::info!("updating last ping");
+            tracing::info!(
+                "ping update and worker memory snapshot {}kB/{}kB",
+                memory_usage.unwrap_or_default() / 1024,
+                wm_memory_usage.unwrap_or_default() / 1024
+            );
 
             last_ping = Instant::now();
         }
@@ -1632,6 +1703,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         .fetch_add(send_start.elapsed().as_millis() as usize, Ordering::SeqCst);
                 } else {
                     let token = create_token_for_owner_in_bg(&db, &job).await;
+                    add_outstanding_wait_time(&job, db, OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
 
                     #[cfg(feature = "prometheus")]
                     register_metric(
@@ -3953,6 +4025,26 @@ async fn lock_modules(
                         nbranches.push(b)
                     }
                     e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
+                }
+                FlowModuleValue::WhileloopFlow { modules, skip_failures } => {
+                    e.value = FlowModuleValue::WhileloopFlow {
+                        modules: lock_modules(
+                            modules,
+                            job,
+                            mem_peak,
+                            canceled_by,
+                            job_dir,
+                            db,
+                            worker_name,
+                            worker_dir,
+                            job_path,
+                            base_internal_url,
+                            token,
+                        )
+                        .await?,
+                        skip_failures,
+                    }
+                    .into()
                 }
                 FlowModuleValue::BranchOne { branches, default } => {
                     let mut nbranches = vec![];

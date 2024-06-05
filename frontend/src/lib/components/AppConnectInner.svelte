@@ -29,7 +29,7 @@
 	export let resourceType = ''
 	export let isGoogleSignin = false
 	export let disabled = false
-	export let manual = false
+	export let manual = true
 
 	let isValid = true
 
@@ -75,24 +75,18 @@
 	let pathError = ''
 
 	export async function open(rt?: string) {
+		if (!rt) {
+			loadResourceTypes()
+		}
 		step = 1
 		value = ''
 		description = ''
 		resourceType = rt ?? ''
 		valueToken = undefined
 		await loadConnects()
-
-		const isConnect = connects?.includes(resourceType)
-		if (isConnect) {
-			manual = false
+		manual = !connects?.includes(resourceType)
+		if (rt) {
 			next()
-		} else {
-			manual = true
-			if (rt) {
-				next()
-			} else {
-				loadResourceTypes()
-			}
 		}
 	}
 
@@ -178,7 +172,7 @@
 	async function getScopesAndParams() {
 		const connect = await OauthService.getOauthConnect({ client: resourceType })
 		scopes = connect.scopes ?? []
-		extra_params = Object.entries(connect.extra_params ?? {})
+		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 	}
 
 	async function getResourceTypeInfo() {
@@ -190,10 +184,11 @@
 	export async function next() {
 		if (step == 1) {
 			if (manual) {
-				await getResourceTypeInfo()
+				getResourceTypeInfo()
 				args = {}
 			} else {
-				await Promise.all([getScopesAndParams(), getResourceTypeInfo()])
+				getResourceTypeInfo()
+				getScopesAndParams()
 			}
 			step += 1
 		} else if (step == 2 && !manual) {
@@ -297,7 +292,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let filteredConnects: string[] = []
+	let filteredConnects: { key: string }[] = []
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
 		[]
 
@@ -306,9 +301,15 @@
 
 <SearchItems
 	{filter}
-	items={connects ? connects.sort((a, b) => a.localeCompare(b)) : undefined}
+	items={connects
+		? connects
+				.sort((a, b) => a.localeCompare(b))
+				.map((key) => ({
+					key
+				}))
+		: undefined}
 	bind:filteredItems={filteredConnects}
-	f={(x) => x}
+	f={(x) => x.key}
 />
 <SearchItems
 	{filter}
@@ -330,7 +331,7 @@
 	<h2 class="mb-4">OAuth APIs</h2>
 	<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 		{#if filteredConnects}
-			{#each filteredConnects as key}
+			{#each filteredConnects as { key }}
 				<Button
 					size="sm"
 					variant="border"
