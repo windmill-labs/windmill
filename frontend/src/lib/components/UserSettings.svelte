@@ -22,6 +22,7 @@
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
+	import {base} from "$app/paths";
 
 	export let scopes: string[] | undefined = undefined
 	export let newTokenLabel: string | undefined = undefined
@@ -52,7 +53,8 @@
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
-		goto(hashRemoved)
+		const baseRemoved = hashRemoved.slice(base.length)
+		goto(baseRemoved)
 	}
 	async function setPassword(): Promise<void> {
 		if (newPassword) {

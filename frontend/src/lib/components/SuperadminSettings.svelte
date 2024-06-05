@@ -39,7 +39,8 @@
 		const index = $page.url.href.lastIndexOf('#')
 		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
-		goto(hashRemoved)
+		const baseRemoved = hashRemoved.slice(base.length)
+		goto(baseRemoved)
 	}
 
 	let users: GlobalUserInfo[] = []
