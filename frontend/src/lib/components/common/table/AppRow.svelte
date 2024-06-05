@@ -160,7 +160,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/apps/add?template=${path}`,
+						href: `${base}/apps/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{

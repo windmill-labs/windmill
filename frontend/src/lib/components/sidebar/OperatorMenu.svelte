@@ -37,9 +37,9 @@
 	}[]
 
 	const mainMenuLinks = [
-		{ label: 'Home', href: '/', icon: Home },
-		{ label: 'Runs', href: '/runs', icon: Play },
-		{ label: 'Schedules', href: '/schedules', icon: Calendar }
+		{ label: 'Home', href: `${base}/`, icon: Home },
+		{ label: 'Runs', href: `${base}/runs`, icon: Play },
+		{ label: 'Schedules', href: `${base}/schedules`, icon: Calendar }
 	]
 </script>
 

@@ -33,16 +33,17 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'
+	import { base } from '$app/paths'
 	import { type Changelog, changelogs } from './changelogs'
 
 	$: mainMenuLinks = [
-		{ label: 'Home', href: '/', icon: Home },
-		{ label: 'Runs', href: '/runs', icon: Play },
-		{ label: 'Variables', href: '/variables', icon: DollarSign, disabled: $userStore?.operator },
-		{ label: 'Resources', href: '/resources', icon: Boxes, disabled: $userStore?.operator },
+		{ label: 'Home', href: `${base}/`, icon: Home },
+		{ label: 'Runs', href: `${base}/runs`, icon: Play },
+		{ label: 'Variables', href: `${base}/variables`, icon: DollarSign, disabled: $userStore?.operator },
+		{ label: 'Resources', href: `${base}/resources`, icon: Boxes, disabled: $userStore?.operator },
 		{
 			label: 'Schedules',
-			href: '/schedules',
+			href: `${base}/schedules`,
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
 		}
@@ -76,7 +77,7 @@
 					? [
 							{
 								label: 'Workspace',
-								href: '/workspace_settings',
+								href: `${base}/workspace_settings`,
 								icon: FolderCog,
 								faIcon: undefined
 							}
@@ -108,21 +109,21 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Workers', href: '/workers', icon: Bot, disabled: $userStore?.operator },
+		{ label: 'Workers', href: `${base}/workers`, icon: Bot, disabled: $userStore?.operator },
 		{
 			label: 'Folders & Groups',
 			icon: FolderOpen,
 			subItems: [
 				{
 					label: 'Folders',
-					href: '/folders',
+					href: `${base}/folders`,
 					icon: FolderOpen,
 					disabled: $userStore?.operator,
 					faIcon: undefined
 				},
 				{
 					label: 'Groups',
-					href: '/groups',
+					href: `${base}/groups`,
 					icon: UserCog,
 					disabled: $userStore?.operator,
 					faIcon: undefined
@@ -130,7 +131,7 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Audit Logs', href: '/audit_logs', icon: Eye, disabled: $userStore?.operator }
+		{ label: 'Audit Logs', href: `${base}/audit_logs`, icon: Eye, disabled: $userStore?.operator }
 	]
 
 	let hasNewChangelogs = false

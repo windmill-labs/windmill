@@ -156,18 +156,18 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/flows/add?template=${path}`,
+						href: `${base}/flows/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `/runs/${path}`
+						href: `${base}/runs/${path}`
 					},
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `/audit_logs?resource=${path}`,
+						href: `${base}/audit_logs?resource=${path}`,
 						hide: $userStore?.operator
 					},
 					{

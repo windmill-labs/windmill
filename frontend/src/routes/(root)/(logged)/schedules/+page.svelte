@@ -411,12 +411,12 @@
 										{
 											displayName: 'View Runs',
 											icon: List,
-											href: '/runs/?schedule_path=' + path
+											href: base + '/runs/?schedule_path=' + path
 										},
 										{
 											displayName: 'Audit logs',
 											icon: Eye,
-											href: `/audit_logs?resource=${path}`
+											href: `${base}/audit_logs?resource=${path}`
 										},
 										{
 											displayName: 'Run now',

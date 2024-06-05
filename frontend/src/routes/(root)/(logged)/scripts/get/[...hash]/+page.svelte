@@ -232,7 +232,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `/scripts/add?template=${script.path}`,
+					href: `${base}/scripts/add?template=${script.path}`,
 					size: 'xs',
 					color: 'light',
 					startIcon: GitFork
@@ -247,7 +247,7 @@
 		buttons.push({
 			label: `View runs`,
 			buttonProps: {
-				href: `/runs/${script.path}`,
+				href: `${base}/runs/${script.path}`,
 				size: 'xs',
 				color: 'light',
 				startIcon: Play
@@ -308,7 +308,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+						href: `${base}/scripts/edit/${script.path}?args=${encodeState(args)}${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
 						size: 'xs',

@@ -12,6 +12,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { classNames } from '$lib/utils'
+	import { base } from '$app/paths'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {
@@ -154,22 +155,22 @@
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `/scripts/get/${s.hash}`,
+				href: `${base}/scripts/get/${s.hash}`,
 				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `/flows/get/${f.path}`,
+				href: `${base}/flows/get/${f.path}`,
 				kind: 'flow' as 'flow'
 			})),
 			...apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `/apps/get/${f.path}`,
+				href: `${base}/apps/get/${f.path}`,
 				kind: 'app' as 'app'
 			})),
 			...raw_apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `/apps/get_raw/${f.version}/${f.path}`,
+				href: `${base}/apps/get_raw/${f.version}/${f.path}`,
 				kind: 'raw_app' as 'raw_app'
 			}))
 		]
