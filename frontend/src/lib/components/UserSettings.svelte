@@ -86,8 +86,9 @@
 		displayCreateToken = false
 	}
 
+	let tokenPage = 1
 	async function listTokens(): Promise<void> {
-		tokens = await UserService.listTokens({ excludeEphemeral: true })
+		tokens = await UserService.listTokens({ excludeEphemeral: true, page: tokenPage, perPage: 100 })
 	}
 
 	async function deleteToken(tokenPrefix: string) {
@@ -343,6 +344,28 @@
 							{/if}
 						</tbody>
 					</TableCustom>
+					<div class="flex flex-row-reverse gap-2 w-full">
+						{#if tokens?.length == 100}
+							<button
+								class=" p-1 underline text-sm whitespace-nowrap text-center"
+								on:click={() => {
+									tokenPage += 1
+									listTokens()
+								}}
+								>Next
+							</button>
+						{/if}
+						{#if tokenPage > 1}
+							<button
+								class="p-1 underline text-sm whitespace-nowrap text-center"
+								on:click={() => {
+									tokenPage -= 1
+									listTokens()
+								}}
+								>Previous
+							</button>
+						{/if}
+					</div>
 				</div>
 			</div>
 		</div>
