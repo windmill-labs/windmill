@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { base } from '$app/paths'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import { Button } from '$lib/components/common'
@@ -28,7 +29,7 @@
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: BarsStaggered }}
-		href="/flows/add?nodraft=true"
+		href="{base}/flows/add?nodraft=true"
 		color="marine"
 		dropdownItems={[
 			{

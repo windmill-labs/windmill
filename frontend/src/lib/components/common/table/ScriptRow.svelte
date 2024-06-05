@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { base } from '$app/paths'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
@@ -136,7 +137,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/scripts/edit/{script.path}"
+							href="{base}/scripts/edit/{script.path}"
 						>
 							Edit
 						</Button>
@@ -148,7 +149,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/scripts/add?template={script.path}"
+							href="{base}/scripts/add?template={script.path}"
 						>
 							Fork
 						</Button>

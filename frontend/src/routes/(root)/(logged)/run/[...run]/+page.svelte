@@ -345,7 +345,7 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="/runs">Go to runs page</Button>
+					<Button href="{base}/runs">Go to runs page</Button>
 				</div>
 			</div>
 		</div>

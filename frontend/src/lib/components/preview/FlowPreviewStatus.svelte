@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
+	import { base } from '$app/paths'
 
 	import JobStatus from '../JobStatus.svelte'
 	export let job: QueuedJob | CompletedJob
@@ -11,7 +12,7 @@
 		<div>
 			<div class="text-primary whitespace-nowrap truncate text-sm">
 				<span class="font-semibold mr-1">Flow's job Id:</span>
-				<a rel="noreferrer" target="_blank" href="/run/{job?.id}?workspace={job?.workspace_id}">
+				<a rel="noreferrer" target="_blank" href="{base}/run/{job?.id}?workspace={job?.workspace_id}">
 					{job?.id}
 				</a>
 			</div>

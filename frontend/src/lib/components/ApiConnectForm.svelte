@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$app/paths'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -159,7 +160,7 @@
 		{#if resourceType == 'postgresql' && supabaseWizard}
 			<a
 				target="_blank"
-				href="/api/oauth/connect/supabase_wizard"
+				href="{base}/api/oauth/connect/supabase_wizard"
 				class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
 			>
 				<SupabaseIcon height="16px" width="16px" />

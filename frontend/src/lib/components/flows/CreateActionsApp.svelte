@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { base } from '$app/paths'
 
 	import { Button, FileInput } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -49,7 +50,7 @@
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
-		href="/apps/add?nodraft=true"
+		href="{base}/apps/add?nodraft=true"
 		color="marine"
 		dropdownItems={[
 			{

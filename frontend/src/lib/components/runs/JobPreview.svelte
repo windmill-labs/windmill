@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
@@ -122,7 +123,7 @@
 			{/if}
 		</div>
 		<a
-			href="/run/{job?.id}?workspace={job?.workspace_id}"
+			href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
 			class="flex flex-row gap-1 items-center"
 			target={blankLink ? '_blank' : undefined}
 		>

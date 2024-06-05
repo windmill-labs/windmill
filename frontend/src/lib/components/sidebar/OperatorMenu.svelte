@@ -12,6 +12,7 @@
 		Building,
 		Calendar
 	} from 'lucide-svelte'
+	import { base } from '$app/paths'
 
 	import Menu from '../common/menu/MenuV2.svelte'
 
@@ -112,7 +113,7 @@
 				Switch theme
 			</button>
 			<a
-				href="/user/workspaces"
+				href="{base}/user/workspaces"
 				on:click={() => {
 					localStorage.removeItem('workspace')
 				}}

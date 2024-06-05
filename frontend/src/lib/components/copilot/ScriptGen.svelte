@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import { Button } from '../common'
 
 	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
@@ -486,7 +487,7 @@
 			{:else}
 				<p class="text-sm">
 					Enable Windmill AI in the <a
-						href="/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=openai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

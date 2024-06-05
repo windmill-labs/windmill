@@ -129,7 +129,7 @@
 									<span class="w-30 justify-center">-</span>
 								{:else}
 									<a
-										href="/run/{job.id}?workspace={job.workspace_id}"
+										href="{base}/run/{job.id}?workspace={job.workspace_id}"
 										class="truncate w-30 dark:text-blue-400"
 									>
 										{job.script_path}

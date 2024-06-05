@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
 	import { page } from '$app/stores'
+	import { base } from '$app/paths'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -269,7 +270,7 @@
 		{/if}
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between">
-			<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
+			<a target="_blank" rel="noreferrer" href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
 				>Flow run details (require auth)</a
 			>
 		</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -52,7 +53,7 @@
 	</Drawer>
 {/if}
 <Row
-	href="/apps/get_raw/{app.version}/{app.path}"
+	href="{base}/apps/get_raw/{app.version}/{app.path}"
 	kind="raw_app"
 	{marked}
 	path={app.path}

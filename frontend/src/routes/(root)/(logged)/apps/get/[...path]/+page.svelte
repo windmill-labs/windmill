@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
+	import { base } from '$app/paths'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
@@ -63,7 +64,7 @@
 						size="sm"
 						startIcon={{ icon: Pen }}
 						variant="border"
-						href="/apps/edit/{app.path}?nodraft=true">Edit</Button
+						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
 					>
 				</div>
 			{/if}

@@ -26,6 +26,7 @@
 		hubBaseUrlStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { base } from '$app/paths'
 	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
 	import {
 		Code2,
@@ -706,11 +707,11 @@
 						<Button
 							size="sm"
 							endIcon={{ icon: Code2 }}
-							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+							href="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands
 						</Button>
-						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="/flows/add?hub=28">
+						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="{base}/flows/add?hub=28">
 							Create a flow to handle slack commands
 						</Button>
 					</div>
@@ -719,7 +720,7 @@
 						<Button
 							size="xs"
 							color="dark"
-							href="/api/oauth/connect_slack"
+							href="{base}/api/oauth/connect_slack"
 							startIcon={{ icon: Slack }}
 						>
 							Connect to Slack
@@ -787,7 +788,7 @@
 			<div class="flex justify-start">
 				<Button
 					size="sm"
-					href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+					href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
 					target="_blank"
 				>
 					Export workspace as zip file

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import YAML from 'yaml'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils'
@@ -56,14 +57,14 @@
 				results: pickableProperties?.priorIds,
 				flow_input: pickableProperties?.flow_input
 			}
-			const user = `I'm building a workflow which is a DAG of script steps. 
+			const user = `I'm building a workflow which is a DAG of script steps.
 The current step is ${selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
 Determine for all the inputs "${argNames.join(
 				'", "'
-			)}", what to pass either from the previous results of the flow inputs. 
-All possibles inputs either start with results. or flow_input. and are followed by the key of the input.			
+			)}", what to pass either from the previous results of the flow inputs.
+All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
 When the step is in a loop, the iterator value is accessible as flow_input.iter.value
 Here's a summary of the available data:
 <available>
@@ -233,7 +234,7 @@ input_name2: expression2
 				{#if !$copilotInfo.exists_openai_resource_path}
 					Enable Windmill AI in the{' '}
 					<a
-						href="/workspace_settings?tab=openai"
+						href="{base}/workspace_settings?tab=openai"
 						target="_blank"
 						class="inline-flex flex-row items-center gap-1"
 					>

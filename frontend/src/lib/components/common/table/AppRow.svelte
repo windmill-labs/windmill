@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -100,7 +101,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/apps/edit/{app.path}?nodraft=true"
+							href="{base}/apps/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -112,7 +113,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/apps/add?template={app.path}"
+							href="{base}/apps/add?template={app.path}"
 						>
 							Fork
 						</Button>
