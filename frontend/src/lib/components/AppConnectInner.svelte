@@ -19,6 +19,7 @@
 	import OauthScopes from './OauthScopes.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
+	import { base } from '$app/paths'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen } from 'lucide-svelte'
@@ -369,11 +370,11 @@
 			add a schedule to do daily):
 			<p class="mt-4"
 				>1. Go to the "admins" workspaces:
-				<img src="/sync_resource_types.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}/sync_resource_types.png" alt="sync resource types" class="mt-2" />
 			</p>
 			<p class="mt-4">
 				2: Run the synchronization script:
-				<img src="/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
 			</p>
 		</div>
 	{/if}

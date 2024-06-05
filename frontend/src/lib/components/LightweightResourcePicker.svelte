@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
+	import { base } from '$app/paths'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'
@@ -80,7 +81,7 @@
 		<iframe
 			title="App connection"
 			class="w-full h-full"
-			src="/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
+			src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
 				$workspaceStore}"
 		/>
 	</DrawerContent>

@@ -272,7 +272,7 @@
 												<img
 													class="shadow-lg border rounded"
 													alt="static button"
-													src="/trigger_button.png"
+													src="{base}/trigger_button.png"
 												/>
 											</li></ul
 										>
