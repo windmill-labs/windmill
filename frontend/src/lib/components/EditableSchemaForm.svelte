@@ -18,6 +18,10 @@
 	import { schemaToModal } from './schema/utils'
 	import { createEventDispatcher } from 'svelte'
 
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import Label from './Label.svelte'
+
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
 	export let args: Record<string, any> = {}
@@ -216,12 +220,24 @@
 												bind:title={schema.properties[argName].title}
 												bind:placeholder={schema.properties[argName].placeholder}
 											>
+												<svelte:fragment slot="typeeditor">
+													{#if isFlowInput}
+														<Label label="Type">
+															<ToggleButtonGroup bind:selected={schema.properties[argName].type}>
+																{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 's3']] as x}
+																	<ToggleButton value={x[1]} label={x[0]} />
+																{/each}
+															</ToggleButtonGroup>
+														</Label>
+													{/if}
+												</svelte:fragment>
+
 												{#if isFlowInput}
 													<FlowPropertyEditor
 														bind:defaultValue={schema.properties[argName].default}
 														{variableEditor}
 														{itemPicker}
-														nullable={schema.properties[argName].nullable}
+														bind:nullable={schema.properties[argName].nullable}
 														type={schema.properties[argName].type}
 														format={schema.properties[argName].format}
 														contentEncoding={schema.properties[argName].contentEncoding}
@@ -229,10 +245,18 @@
 														pattern={schema.properties[argName].pattern}
 														password={schema.properties[argName].password}
 														propsNames={schema.properties[argName].propsNames}
-														showExpr={schema.properties[argName].showExpr}
+														bind:showExpr={schema.properties[argName].showExpr}
 														extra={schema.properties[argName]}
 														customErrorMessage={schema.properties[argName].customErrorMessage}
 														itemsType={schema.properties[argName].items}
+														on:requiredChange={(event) => {
+															if (event.detail.required) {
+																schema.required = schema.required ?? []
+																schema.required.push(argName)
+															} else {
+																schema.required = schema.required?.filter((x) => x !== argName)
+															}
+														}}
 													/>
 												{/if}
 											</PropertyEditor>

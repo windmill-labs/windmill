@@ -18,7 +18,7 @@
 </script>
 
 {#if min != undefined && max != undefined}
-	<Range bind:value {min} {max} initialValue={Number(defaultValue)} />
+	<Range bind:value {min} {max} />
 {:else if seconds !== undefined}
 	<SecondsInput bind:seconds={value} on:focus />
 {:else if currency}

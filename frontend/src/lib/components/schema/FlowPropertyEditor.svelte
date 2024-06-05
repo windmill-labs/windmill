@@ -6,6 +6,7 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import type ItemPicker from '../ItemPicker.svelte'
 	import type VariableEditor from '../VariableEditor.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -29,6 +30,8 @@
 				multiselect?: string[]
 		  }
 		| undefined = undefined
+
+	const dispatch = createEventDispatcher()
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
 		if (format?.startsWith('resource-')) {
@@ -66,7 +69,11 @@
 	<Toggle
 		options={{ right: 'Required' }}
 		size="xs"
-		bind:checked={required}
+		disabled={type === 'boolean'}
+		on:change={(event) => {
+			dispatch('requiredChange', { required: event?.detail })
+		}}
+		checked={required}
 		on:change={(event) => {
 			if (event?.detail) {
 				nullable = false

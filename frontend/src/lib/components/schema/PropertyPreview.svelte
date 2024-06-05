@@ -22,6 +22,7 @@
 	import NumberProperty from './display/NumberProperty.svelte'
 	import S3FileProperty from './display/S3FileProperty.svelte'
 	import StringProperty from './display/StringProperty.svelte'
+	import SchemaForm from '../SchemaForm.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -218,7 +219,7 @@
 					currencyLocale={extra?.['currencyLocale']}
 					min={extra?.['min']}
 					max={extra?.['max']}
-					bind:value={defaultValue}
+					bind:value
 					bind:ignoreValueUndefined
 				/>
 			{:else if inputCat == 'boolean'}
