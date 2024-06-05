@@ -218,7 +218,7 @@
 			class="!text-xs !rounded-xs"
 		/>
 	</div>
-	<div class="w-full">
+	<div class="w-full grow overflow-y-auto">
 		{#key $stateId}
 			{#if notFound}
 				<div class="text-red-400"

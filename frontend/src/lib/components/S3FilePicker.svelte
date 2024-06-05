@@ -568,7 +568,9 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${fileMetadata?.fileKey}`}
+											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${
+												fileMetadata?.fileKey
+											}${storage ? `&storage=${storage}` : ''}`}
 											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 											startIcon={{ icon: Download }}
 											iconOnly={true}

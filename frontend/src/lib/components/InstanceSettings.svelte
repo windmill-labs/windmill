@@ -187,7 +187,9 @@
 
 	let licenseKeyChanged = false
 
+	let renewing = false
 	export async function renewLicenseKey() {
+		renewing = true
 		try {
 			await SettingService.renewLicenseKey()
 			sendUserToast('Key renewal successful')
@@ -195,6 +197,19 @@
 		} catch (err) {
 			latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 			throw err
+		} finally {
+			renewing = false
+		}
+	}
+
+	let opening = false
+	export async function openCustomerPortal() {
+		opening = true
+		try {
+			const url = await SettingService.createCustomerPortalSession()
+			window.open(url, '_blank')
+		} finally {
+			opening = false
 		}
 	}
 </script>
@@ -498,9 +513,6 @@
 													>
 														Test Key
 													</Button>
-													{#if $enterpriseLicense}
-														<Button on:click={renewLicenseKey} size="xs">Renew key</Button>
-													{/if}
 												</div>
 												<div class="mt-1 flex flex-col gap-1 items-start">
 													{#if values[setting.key]?.length > 0}
@@ -566,6 +578,26 @@
 																Refresh page after setting and saving license key to unlock all
 																features
 															</span>
+														</div>
+													{/if}
+
+													{#if $enterpriseLicense}
+														<div class="flex flex-row gap-2 mt-1">
+															<Button
+																on:click={renewLicenseKey}
+																loading={renewing}
+																size="xs"
+																color="dark"
+																>Renew key
+															</Button>
+															<Button
+																color="dark"
+																size="xs"
+																loading={opening}
+																on:click={openCustomerPortal}
+															>
+																Open customer portal
+															</Button>
 														</div>
 													{/if}
 												</div>

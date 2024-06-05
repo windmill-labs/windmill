@@ -708,16 +708,9 @@
 		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
 			<div class="max-w-7xl mx-auto w-full px-4 sm:px-0">
 				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
-				<div class="w-full pt-8">
-					<LogViewer
-						jobId={job.id}
-						isLoading={!(job && 'logs' in job && job.logs)}
-						content={job?.logs}
-						tag={job?.tag}
-					/>
-				</div>
 			</div>
-		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
+		{/if}
+		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
 			<div class="max-w-7xl mx-auto w-full px-4 sm:px-0 mb-10">
 				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
 					<div class="mt-10" />

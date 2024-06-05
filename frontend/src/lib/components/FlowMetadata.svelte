@@ -26,7 +26,7 @@
 			{#if job['success'] != undefined}
 				Received job: {displayDate(job.created_at ?? '')}
 			{:else}
-				Received job <TimeAgo date={job.created_at ?? ''} />
+				Received job <TimeAgo withDate date={job.created_at ?? ''} />
 			{/if}
 			<Tooltip small>{job?.created_at}</Tooltip>
 		</span>

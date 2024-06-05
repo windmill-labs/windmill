@@ -2,7 +2,6 @@
 	import { page } from '$app/stores'
 	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
 	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
@@ -34,7 +33,6 @@
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
 	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
@@ -334,76 +332,70 @@
 			</DetailPageHeader>
 		</svelte:fragment>
 		<svelte:fragment slot="form">
-			<SplitPanesWrapper>
-				<Splitpanes horizontal>
-					<Pane size={60} minSize={20}>
-						<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
-							<div class="flex flex-col gap-2 mb-8">
-								{#if !emptyString(flow?.description)}
-									<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
-								{/if}
-							</div>
+			<div class="flex-col flex h-full justify-between">
+				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
+					<div class="flex flex-col gap-2 mb-8">
+						{#if !emptyString(flow?.description)}
+							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
+						{/if}
+					</div>
 
-							{#if deploymentInProgress}
-								<Badge color="yellow">
-									<Loader2 size={12} class="inline animate-spin mr-1" />
-									Deployment in progress
-								</Badge>
-							{/if}
+					{#if deploymentInProgress}
+						<Badge color="yellow">
+							<Loader2 size={12} class="inline animate-spin mr-1" />
+							Deployment in progress
+						</Badge>
+					{/if}
 
-							<RunForm
-								bind:scheduledForStr
-								bind:invisible_to_owner
-								bind:overrideTag
-								viewKeybinding
-								{loading}
-								autofocus
-								detailed={false}
-								bind:isValid
-								runnable={flow}
-								runAction={runFlow}
-								bind:args
-								isFlow
-								bind:this={runForm}
-							/>
-							<div class="py-10" />
+					<RunForm
+						bind:scheduledForStr
+						bind:invisible_to_owner
+						bind:overrideTag
+						viewKeybinding
+						{loading}
+						autofocus
+						detailed={false}
+						bind:isValid
+						runnable={flow}
+						runAction={runFlow}
+						bind:args
+						isFlow
+						bind:this={runForm}
+					/>
+					<div class="py-10" />
 
-							{#if !emptyString(flow.summary)}
-								<div class="mb-2">
-									<span class="!text-tertiary">{flow.path}</span>
-								</div>
-							{/if}
-							<div class="flex flex-row gap-x-2 flex-wrap items-center">
-								<span class="text-sm text-tertiary">
-									Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-								</span>
-
-								{#if flow.archived}
-									<div class="" />
-									<Alert type="error" title="Archived">This flow was archived</Alert>
-								{/if}
-							</div>
+					{#if !emptyString(flow.summary)}
+						<div class="mb-2">
+							<span class="!text-tertiary">{flow.path}</span>
 						</div>
-					</Pane>
-					<Pane size={40} minSize={20}>
-						<div class="!bg-surface-secondary h-full">
-							<FlowGraphViewer
-								download
-								{flow}
-								overflowAuto
-								noSide={true}
-								on:select={(e) => {
-									if (e.detail.id) {
-										stepDetail = e.detail
-									} else {
-										stepDetail = undefined
-									}
-								}}
-							/>
-						</div>
-					</Pane>
-				</Splitpanes>
-			</SplitPanesWrapper>
+					{/if}
+					<div class="flex flex-row gap-x-2 flex-wrap items-center">
+						<span class="text-sm text-tertiary">
+							Edited <TimeAgo withDate date={flow.edited_at ?? ''} /> by {flow.edited_by}
+						</span>
+
+						{#if flow.archived}
+							<div class="" />
+							<Alert type="error" title="Archived">This flow was archived</Alert>
+						{/if}
+					</div>
+				</div>
+				<div class="mt-8">
+					<FlowGraphViewer
+						download
+						{flow}
+						overflowAuto
+						noSide={true}
+						on:select={(e) => {
+							if (e.detail.id) {
+								stepDetail = e.detail
+							} else {
+								stepDetail = undefined
+							}
+						}}
+					/>
+				</div>
+			</div>
 		</svelte:fragment>
 		<svelte:fragment slot="save_inputs">
 			<SavedInputs
@@ -451,7 +443,7 @@
 
 		<svelte:fragment slot="flow_step">
 			{#if stepDetail}
-				<FlowGraphViewerStep {flow} {stepDetail} />
+				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
 			{/if}
 		</svelte:fragment>
 	</DetailPageLayout>
