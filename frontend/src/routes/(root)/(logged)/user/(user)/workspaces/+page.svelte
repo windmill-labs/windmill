@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
@@ -212,7 +213,7 @@
 				size="sm"
 				btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
 				color={noWorkspaces ? 'dark' : 'blue'}
-				href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+				href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
 				variant={noWorkspaces ? 'contained' : 'border'}
 				>+&nbsp;Create a new workspace
 			</Button>
