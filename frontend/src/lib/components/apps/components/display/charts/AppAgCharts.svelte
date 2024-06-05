@@ -8,7 +8,7 @@
 		RichConfigurations
 	} from '../../../types'
 	import { initCss } from '../../../utils'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import { initConfig, initOutput } from '../../../editor/appUtils'
 	import { components } from '../../../editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
@@ -246,22 +246,34 @@
 		}
 	}
 
-	onMount(() => {
-		loadLibrary().then(() => {
-			try {
-				// Chart Options
-				const options: AgChartOptions = {
-					container: document.getElementById(`agchart-${id}`) as HTMLElement,
-					data: [],
-					series: []
-				}
-
-				chartInstance = AgChartsInstance?.create(options)
-			} catch (error) {
-				console.error(error)
+	function initChart() {
+		try {
+			// Chart Options
+			const options: AgChartOptions = {
+				container: document.getElementById(`agchart-${id}`) as HTMLElement,
+				data: [],
+				series: []
 			}
+
+			chartInstance = AgChartsInstance?.create(options)
+		} catch (error) {
+			console.error(error)
+		}
+	}
+
+	function destroyChart() {
+		if (chartInstance) {
+			chartInstance.destroy()
+			chartInstance = undefined
+		}
+	}
+
+	$: if (render) {
+		destroyChart()
+		loadLibrary().then(() => {
+			initChart()
 		})
-	})
+	}
 </script>
 
 {#if datasets}
