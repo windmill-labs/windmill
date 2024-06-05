@@ -1313,7 +1313,7 @@ async fn cancel_filtered(
     sqlb.and_where_le("scheduled_for", "now()")
         .and_where_is_null("schedule_path");
 
-    sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str());
+    sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str(), false);
 
     let sql = sqlb.query()?;
     let jobs = sqlx::query_as(sql.as_str()).fetch_all(&db).await?;

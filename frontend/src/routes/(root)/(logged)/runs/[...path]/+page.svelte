@@ -36,6 +36,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -380,19 +381,30 @@
 			on:click={() => (cancelVisibleJobs = true)}
 			color="red"
 			disabled={!cancelableJobs || cancelableJobs.length === 0}
-			>Cancel {cancelableJobs?.length} visible jobs <Tooltip disabled={false}
-				>There are many things in the life</Tooltip
-			>
+			>Cancel {cancelableJobs?.length} visible jobs
+			{#if cancelableJobs?.length !== 0}
+				<Tooltip>Cancel the running jobs visible and listed on this page</Tooltip>
+			{/if}
 		</Button>
-		<Button on:click={() => (cancelFilteredJobs = true)} color="red"
-			>Cancel all jobs based on the selected filters<Tooltip
-				>There are many things in the life</Tooltip
-			></Button
-		>
-		<Button on:click={() => (cancelAllJobs = true)} color="red"
-			>Cancel all jobs from this workspace<Tooltip>There are many things in the life</Tooltip
-			></Button
-		>
+		<Button on:click={() => (cancelFilteredJobs = true)} color="red">
+			<Popover notClickable>
+				<svelte:fragment slot="text">
+					Send a request to cancel all the jobs that match the filters. Double check your filter
+					selection before proceeding.
+				</svelte:fragment>
+				<AlertTriangle size={14} />
+			</Popover>
+			Cancel all jobs based on the selected filters
+		</Button>
+		<Button on:click={() => (cancelAllJobs = true)} color="red">
+			<Popover notClickable>
+				<svelte:fragment slot="text">
+					Send a request to cancel ALL the running jobs in this workspace.
+				</svelte:fragment>
+				<AlertTriangle size={14} />
+			</Popover>
+			Cancel all jobs from this workspace
+		</Button>
 	</div>
 </Modal>
 
@@ -443,7 +455,7 @@
 					? resultFilter
 					: undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
-			concurrencyKey: concurrencyKey ?? undefined,
+			concurrencyKey: concurrencyKey ?? undefined
 		})
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
@@ -462,7 +474,10 @@
 		isCancelModalOpen = false
 		cancelVisibleJobs = false
 		console.log(cancelableJobs?.map((x) => x.id))
-		let uuids = await JobService.cancelSelection({ workspace: $workspaceStore ?? '', requestBody: cancelableJobs?.map((x) => x.id) ?? []})
+		let uuids = await JobService.cancelSelection({
+			workspace: $workspaceStore ?? '',
+			requestBody: cancelableJobs?.map((x) => x.id) ?? []
+		})
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}}
