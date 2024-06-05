@@ -23,6 +23,7 @@
 	let inputLibraryDrawer: Drawer
 	let jsonPayload: Drawer
 	let pendingJson: string
+	let schemaEditor: SchemaEditor | undefined = undefined
 
 	function importJson() {
 		const parsed = JSON.parse(pendingJson)
@@ -84,12 +85,22 @@
 		<SchemaEditor
 			isFlowInput
 			bind:schema={$flowStore.schema}
+			bind:this={schemaEditor}
 			on:change={() => {
 				$flowStore = $flowStore
 			}}
 		/>
 	</div>
-	<EditableSchemaForm bind:schema={$flowStore.schema} isFlowInput={true} />
+	<EditableSchemaForm
+		bind:schema={$flowStore.schema}
+		isFlowInput
+		on:edit={(e) => {
+			schemaEditor?.openDrawer(e.detail)
+		}}
+		on:delete={(e) => {
+			schemaEditor?.handleDeleteArgument([e.detail])
+		}}
+	/>
 </FlowCard>
 
 <Drawer bind:this={jsonPayload} size="800px">

@@ -15,6 +15,8 @@
 	import Section from './Section.svelte'
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
+	import { schemaToModal } from './schema/utils'
+	import { createEventDispatcher } from 'svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -28,6 +30,8 @@
 	export let offset = 48 + 31 + 31 + 16 + 1
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
+
+	const dispatch = createEventDispatcher()
 
 	function changePosition(i: number, up: boolean): any {
 		const entries = Object.entries(schema.properties)
@@ -167,14 +171,24 @@
 											size="xs"
 											color="light"
 											variant="border"
-											on:click={() => {}}
+											on:click={() => {
+												const modalProperty = schemaToModal(
+													schema.properties[argName],
+													argName,
+													schema.required.includes(argName)
+												)
+
+												dispatch('edit', modalProperty)
+											}}
 											startIcon={{ icon: Pen }}>Edit</Button
 										>
 										<Button
 											size="xs"
 											color="red"
 											variant="border"
-											on:click={() => {}}
+											on:click={() => {
+												dispatch('delete', argName)
+											}}
 											startIcon={{ icon: Trash }}
 										>
 											Delete

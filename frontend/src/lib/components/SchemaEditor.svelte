@@ -162,11 +162,7 @@
 		}
 	}
 
-	function handleDeleteEvent(event: CustomEvent): void {
-		handleDeleteArgument(event.detail)
-	}
-
-	function handleDeleteArgument(argPath: string[]): void {
+	export function handleDeleteArgument(argPath: string[]): void {
 		try {
 			let modifiedObject: Schema | SchemaProperty = schema
 			let modifiedProperties = modifiedObject.properties as object
@@ -264,6 +260,10 @@
 				}
 			})
 			.flat()
+	}
+
+	export function openDrawer(property: ModalSchemaProperty): void {
+		schemaModal.openDrawer(property)
 	}
 </script>
 
