@@ -198,17 +198,17 @@
 				customCss={component.customCss}
 				bind:initializing
 				configuration={component.configuration}
+				{render}
 			/>
 		{:else if component.type === 'flowstatuscomponent'}
-			<AppFlowStatusComponent
-				
-			/>
+			<AppFlowStatusComponent />
 		{:else if component.type === 'jobidflowstatuscomponent'}
 			<AppJobIdFlowStatus
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing
 				configuration={component.configuration}
+				{render}
 			/>
 		{:else if component.type === 'barchartcomponent'}
 			<AppBarChart

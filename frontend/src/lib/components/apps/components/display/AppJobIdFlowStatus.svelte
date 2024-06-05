@@ -13,6 +13,7 @@
 	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'jobidflowstatuscomponent'> | undefined = undefined
 	export let configuration: RichConfigurations
+	export let render: boolean
 
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -53,42 +54,44 @@
 	/>
 {/each}
 
-<div class="flex flex-col w-full h-full component-wrapper">
-	<div
-		class={twMerge(
-			'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
-			css?.header?.class
-		)}
-		style={css?.header?.style}
-	>
-		Flow Status
+{#if render}
+	<div class="flex flex-col w-full h-full component-wrapper">
+		<div
+			class={twMerge(
+				'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
+				css?.header?.class
+			)}
+			style={css?.header?.style}
+		>
+			Flow Status
+		</div>
+		<div
+			style={twMerge(
+				$app.css?.['flowstatuscomponent']?.['container']?.style,
+				customCss?.container?.style
+			)}
+			class={twMerge(
+				'p-2 grow overflow-auto',
+				$app.css?.['flowstatuscomponent']?.['container']?.class,
+				customCss?.container?.class
+			)}
+		>
+			{#if jobId}
+				<FlowStatusViewer
+					workspaceId={workspace}
+					{jobId}
+					on:start={() => {
+						outputs?.jobId.set(jobId)
+						outputs?.loading.set(true)
+					}}
+					on:done={(e) => {
+						outputs?.loading.set(false)
+						outputs?.result.set(e?.detail?.result)
+					}}
+				/>
+			{:else}
+				<span class="text-secondary text-xs">No flow</span>
+			{/if}
+		</div>
 	</div>
-	<div
-		style={twMerge(
-			$app.css?.['flowstatuscomponent']?.['container']?.style,
-			customCss?.container?.style
-		)}
-		class={twMerge(
-			'p-2 grow overflow-auto',
-			$app.css?.['flowstatuscomponent']?.['container']?.class,
-			customCss?.container?.class
-		)}
-	>
-		{#if jobId}
-			<FlowStatusViewer
-				workspaceId={workspace}
-				{jobId}
-				on:start={() => {
-					outputs?.jobId.set(jobId)
-					outputs?.loading.set(true)
-				}}
-				on:done={(e) => {
-					outputs?.loading.set(false)
-					outputs?.result.set(e?.detail?.result)
-				}}
-			/>
-		{:else}
-			<span class="text-secondary text-xs">No flow</span>
-		{/if}
-	</div>
-</div>
+{/if}

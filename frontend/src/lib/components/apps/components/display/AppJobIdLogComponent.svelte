@@ -15,6 +15,7 @@
 	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'jobidlogcomponent'> | undefined = undefined
 	export let configuration: RichConfigurations
+	export let render: boolean
 
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -74,27 +75,29 @@
 	}}
 />
 
-<div class="flex flex-col w-full h-full component-wrapper">
-	<div
-		class={twMerge(
-			'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
-			css?.header?.class
-		)}
-		style={css?.header?.style}
-	>
-		Logs
+{#if render}
+	<div class="flex flex-col w-full h-full component-wrapper">
+		<div
+			class={twMerge(
+				'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
+				css?.header?.class
+			)}
+			style={css?.header?.style}
+		>
+			Logs
+		</div>
+		<div
+			style={css?.container?.style}
+			class={twMerge('grow overflow-auto', css?.container?.class, 'wm-log-container')}
+		>
+			<LogViewer
+				jobId={testJob?.id}
+				duration={testJob?.['duration_ms']}
+				mem={testJob?.['mem_peak']}
+				content={testJob?.logs}
+				isLoading={testIsLoading}
+				tag={testJob?.tag}
+			/>
+		</div>
 	</div>
-	<div
-		style={css?.container?.style}
-		class={twMerge('grow overflow-auto', css?.container?.class, 'wm-log-container')}
-	>
-		<LogViewer
-			jobId={testJob?.id}
-			duration={testJob?.['duration_ms']}
-			mem={testJob?.['mem_peak']}
-			content={testJob?.logs}
-			isLoading={testIsLoading}
-			tag={testJob?.tag}
-		/>
-	</div>
-</div>
+{/if}
