@@ -240,7 +240,7 @@
 			<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
 				<a
 					class="font-bold p-1"
-					href="/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
+					href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
 						? `&rd=${encodeURIComponent(rd)}`
 						: ''}"
 				>
