@@ -23,7 +23,7 @@ jobs:
   build:
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -31,7 +31,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -85,7 +85,7 @@ jobs:
   build_ee:
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -93,7 +93,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubicloud
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -156,7 +156,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -226,7 +226,7 @@ jobs:
   #         --health-timeout 5s
   #         --health-retries 5
   #   steps:
-  #     - uses: actions/checkout@v3
+  #     - uses: actions/checkout@v4
   #     - name: "Docker"
   #       run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
   #       id: docker-container
@@ -247,7 +247,7 @@ jobs:
     env:
       ARCH: amd64
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - run: |
           # pulling docker image with desired arch so that actions-docker-extract doesn't do it
@@ -291,7 +291,7 @@ jobs:
   #   env:
   #     ARCH: arm64
   #   steps:
-  #     - uses: actions/checkout@v3
+  #     - uses: actions/checkout@v4
 
   #     - run: |
   #         # pulling docker image with desired arch so that actions-docker-extract doesn't do it
@@ -332,7 +332,7 @@ jobs:
     runs-on: ubicloud
     needs: [build_ee]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Prepare test run
@@ -356,7 +356,7 @@ jobs:
     runs-on: ubicloud
     needs: [run_integration_test, build]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Login to registry
@@ -374,7 +374,7 @@ jobs:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Login to registry
@@ -434,7 +434,7 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -482,7 +482,7 @@ jobs:
     needs: [build_ee_nsjail]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       # - name: Set up Docker Buildx
@@ -532,7 +532,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -577,7 +577,7 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
