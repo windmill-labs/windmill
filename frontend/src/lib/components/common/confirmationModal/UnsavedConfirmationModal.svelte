@@ -2,6 +2,7 @@
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import Button from '../button/Button.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
@@ -32,7 +33,7 @@
 				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
 				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 					bypassBeforeNavigate = true
-					goto(goingTo)
+					gotoUrl(goingTo)
 				} else {
 					open = true
 				}
@@ -55,7 +56,7 @@
 	on:confirmed={() => {
 		if (goingTo) {
 			bypassBeforeNavigate = true
-			goto(goingTo)
+			gotoUrl(goingTo)
 		}
 	}}
 >
