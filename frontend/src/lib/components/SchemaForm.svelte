@@ -199,7 +199,7 @@
 		{#each items as item, i (item.id)}
 			{@const argName = item.value}
 			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-				<div class="flex flex-row gap-2 items-center bg-surface">
+				<div class="flex flex-row items-center bg-surface">
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
 							<ArgInput
@@ -272,7 +272,7 @@
 							{#if dndEnabled}
 								<div
 									tabindex={dragDisabled ? 0 : -1}
-									class="w-4 h-4 cursor-move"
+									class="w-4 h-4 cursor-move ml-2"
 									on:mousedown={startDrag}
 									on:touchstart={startDrag}
 									on:keydown={handleKeyDown}

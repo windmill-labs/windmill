@@ -97,8 +97,8 @@
 			}
 		}}
 	>
-		{#each [['None', 'none'], ['File (base64)', 'base64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
-			<ToggleButton value={x[1]} label={x[0]} tooltip="ads" showTooltipIcon />
+		{#each [['None', 'none'], ['File', 'base64', 'Encoded as Base 64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
+			<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
 		{/each}
 	</ToggleButtonGroup>
 	{#if kind == 'pattern'}
