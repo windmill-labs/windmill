@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { Button, DrawerContent } from '$lib/components/common'
-
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { copyFirstStepSchema } from '../flowStore'
@@ -13,6 +11,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
+	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
 	export let noEditor: boolean
 
@@ -23,7 +22,7 @@
 	let inputLibraryDrawer: Drawer
 	let jsonPayload: Drawer
 	let pendingJson: string
-	let schemaEditor: SchemaEditor | undefined = undefined
+	let schemaEditor: AddProperty | undefined = undefined
 
 	function importJson() {
 		const parsed = JSON.parse(pendingJson)
@@ -81,8 +80,8 @@
 			First step's inputs
 		</Button>
 	</div>
-	<div class="pt-6">
-		<SchemaEditor
+	<div class="pt-6 px-4">
+		<AddProperty
 			isFlowInput
 			bind:schema={$flowStore.schema}
 			bind:this={schemaEditor}

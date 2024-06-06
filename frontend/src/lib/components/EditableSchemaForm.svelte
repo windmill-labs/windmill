@@ -9,13 +9,13 @@
 	import { slide } from 'svelte/transition'
 
 	import { getResourceTypes } from './resourceTypesStore'
-	import { Pen, Plus, Trash } from 'lucide-svelte'
+	import { Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
 	import Section from './Section.svelte'
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
-	import { schemaToModal } from './schema/utils'
+
 	import { createEventDispatcher } from 'svelte'
 
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -136,7 +136,7 @@
 					label="Form preview"
 					tooltip={'Preview of the form that will be rendered based on the schema.'}
 				>
-					<SchemaForm {schema} bind:args dndEnabled />
+					<SchemaForm {schema} bind:args />
 				</Section>
 			</div>
 		</Pane>
@@ -170,33 +170,17 @@
 									<span class="text-red-500 text-xs"> Required </span>
 								{/if}
 								{#if !uiOnly}
-									<div class="flex flex-row gap-1">
-										<Button
-											size="xs"
-											color="light"
-											variant="border"
-											on:click={() => {
-												const modalProperty = schemaToModal(
-													schema.properties[argName],
-													argName,
-													schema.required.includes(argName)
-												)
-
-												dispatch('edit', modalProperty)
-											}}
-											startIcon={{ icon: Pen }}>Edit</Button
-										>
-										<Button
-											size="xs"
-											color="red"
-											variant="border"
+									<div class="flex flex-row gap-1 items-center justify-center">
+										<button
+											class="rounded-full p-1 text-gray-500 bg-white
+			duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white"
+											aria-label="Clear"
 											on:click={() => {
 												dispatch('delete', argName)
 											}}
-											startIcon={{ icon: Trash }}
 										>
-											Delete
-										</Button>
+											<X size={16} />
+										</button>
 									</div>
 								{/if}
 							</div>
