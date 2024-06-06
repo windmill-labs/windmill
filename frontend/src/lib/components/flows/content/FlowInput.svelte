@@ -80,7 +80,7 @@
 			First step's inputs
 		</Button>
 	</div>
-	<div class="pt-6 px-4">
+	<div class="pt-6 px-4 border-b pb-4">
 		<AddProperty
 			isFlowInput
 			bind:schema={$flowStore.schema}

@@ -134,9 +134,9 @@
 			<div class="p-4" style={`height: ${wrapperHeight}px; overflow-y: auto;`}>
 				<Section
 					label="Form preview"
-					tooltip={'Preview of the form that will be rendered based on the schema.'}
+					tooltip={'Preview of the form that will be rendered based on the schema. Drag and drop to reorder the fields.'}
 				>
-					<SchemaForm {schema} bind:args />
+					<SchemaForm {schema} bind:args dndEnabled />
 				</Section>
 			</div>
 		</Pane>
@@ -251,7 +251,7 @@
 						</div>
 					{/each}
 				{:else if !shouldHideNoInputs}
-					<div class="text-secondary text-sm">No inputs</div>
+					<div class="text-secondary text-sm p-2">No inputs</div>
 				{/if}
 			</div>
 		</Pane>

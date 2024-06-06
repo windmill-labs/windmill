@@ -78,6 +78,7 @@
 	export let nullable: boolean = false
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+	export let dndEnabled: boolean = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -601,6 +602,8 @@
 							{disabled}
 							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
 							bind:args={value}
+							dndType={`nested-${title}`}
+							{dndEnabled}
 						/>
 					</div>
 				{:else if disabled}

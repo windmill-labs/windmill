@@ -2,15 +2,16 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow } from '$lib/utils'
+	import { allTrue, computeShow, generateRandomString } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
-	import { Plus } from 'lucide-svelte'
+	import { GripVertical, Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
+	import { SOURCES, TRIGGERS, dndzone } from 'svelte-dnd-action'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -34,6 +35,12 @@
 	export let showSchemaExplorer = false
 	export let showReset = false
 	export let onlyMaskPassword = false
+	export let dndType: string | undefined = undefined
+	export let dndEnabled: boolean = false
+
+	let dragDisabled: boolean = false
+
+	const flipDurationMs = 200
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -70,11 +77,19 @@
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
+	let items: Array<{
+		value: string
+		id: string
+	}> = []
 
 	$: {
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
+
+			items = keys.map((item, index) => {
+				return { value: item, id: generateRandomString() }
+			})
 			if (!noDelete) {
 				removeExtraKey()
 			}
@@ -112,6 +127,56 @@
 			keys = Object.keys(schema.properties ?? {})
 		}
 	}
+
+	let dragging = false
+
+	function handleConsider(e) {
+		const {
+			items: newItems,
+			info: { source, trigger }
+		} = e.detail
+		items = newItems
+		// Ensure dragging is stopped on drag finish via keyboard
+		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
+			dragDisabled = true
+		}
+	}
+
+	function handleFinalize(e) {
+		const {
+			items: newItems,
+			info: { source }
+		} = e.detail
+
+		items = newItems
+
+		// Ensure dragging is stopped on drag finish via pointer (mouse, touch)
+		if (source === SOURCES.POINTER) {
+			dragDisabled = true
+		}
+
+		// DO THE ACTUAL REORDERING
+
+		keys = items.map((item) => item.value)
+
+		schema.properties = keys.reduce((acc, key) => {
+			acc[key] = schema.properties[key]
+			return acc
+		}, {})
+
+		schema.order = keys
+		dragging = false
+	}
+	function startDrag(e) {
+		dragging = true
+		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
+		e.preventDefault()
+		dragDisabled = false
+	}
+
+	function handleKeyDown(e) {
+		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
+	}
 </script>
 
 {#if showReset}
@@ -121,11 +186,24 @@
 		>
 	</div>
 {/if}
-<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}">
-	{#if keys.length > 0}
-		{#each keys as argName, i (argName)}
+
+<section
+	class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
+	use:dndzone={{
+		items,
+		dragDisabled: dragDisabled || !dndEnabled,
+		flipDurationMs,
+		dropTargetStyle: {},
+		type: dndType
+	}}
+	on:consider={handleConsider}
+	on:finalize={handleFinalize}
+>
+	{#if items.length > 0}
+		{#each items as item, i (item.id)}
+			{@const argName = item.value}
 			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-				<div>
+				<div class="flex flex-row gap-2 items-center bg-surface">
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
 							<ArgInput
@@ -161,6 +239,7 @@
 								nullable={schema.properties[argName].nullable}
 								title={schema.properties[argName].title}
 								placeholder={schema.properties[argName].placeholder}
+								{dndEnabled}
 							>
 								<svelte:fragment slot="actions">
 									{#if linkedSecretCandidates?.includes(argName)}
@@ -192,6 +271,19 @@
 										</div>{/if}</svelte:fragment
 								>
 							</ArgInput>
+							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							{#if dndEnabled}
+								<div
+									tabindex={dragDisabled ? 0 : -1}
+									class="w-4 h-4 cursor-move"
+									on:mousedown={startDrag}
+									on:touchstart={startDrag}
+									on:keydown={handleKeyDown}
+								>
+									<GripVertical size={16} />
+								</div>
+							{/if}
 						{/if}
 					{/if}
 				</div>
@@ -200,8 +292,7 @@
 	{:else if !shouldHideNoInputs}
 		<div class="text-secondary text-sm">No inputs</div>
 	{/if}
-</div>
-
+</section>
 {#if !noVariablePicker}
 	<ItemPicker
 		bind:this={itemPicker}
