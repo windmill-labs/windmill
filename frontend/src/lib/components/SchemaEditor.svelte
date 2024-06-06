@@ -10,9 +10,12 @@
 	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
+	import PropertyRow from './PropertyRow.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import TableCustom from './TableCustom.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { flip } from 'svelte/animate'
 	import Portal from 'svelte-portal'
 	import { Plus } from 'lucide-svelte'
 	import type VariableEditor from './VariableEditor.svelte'
@@ -162,7 +165,11 @@
 		}
 	}
 
-	export function handleDeleteArgument(argPath: string[]): void {
+	function handleDeleteEvent(event: CustomEvent): void {
+		handleDeleteArgument(event.detail)
+	}
+
+	function handleDeleteArgument(argPath: string[]): void {
 		try {
 			let modifiedObject: Schema | SchemaProperty = schema
 			let modifiedProperties = modifiedObject.properties as object
@@ -262,12 +269,14 @@
 			.flat()
 	}
 
-	export function openDrawer(property: ModalSchemaProperty): void {
-		schemaModal.openDrawer(property)
+	/* Small hash function to generate a unique key for each property */
+	function displayInfoKey(displayInfo: PropertyDisplayInfo): string {
+		const pathLengthString = displayInfo.path.length.toString()
+		return pathLengthString + [...displayInfo.path, displayInfo.name].join(pathLengthString)
 	}
 </script>
 
-<div class="flex flex-col px-4 mb-2">
+<div class="flex flex-col">
 	<div class="flex justify-between items-center gap-x-2">
 		<div>
 			<Button
@@ -304,7 +313,41 @@
 
 	<!--json schema or table view-->
 	<div class="h-full">
-		{#if viewJsonSchema}
+		{#if !viewJsonSchema}
+			<div class="h-full overflow-auto">
+				{#if schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
+					<TableCustom wFull>
+						<tr slot="header-row">
+							<th>Name</th>
+							<th>Type</th>
+							{#if !lightMode}
+								<th>Default</th>
+								<th>Description</th>
+							{/if}
+							<th />
+						</tr>
+						<tbody slot="body">
+							{#key schema.required}
+								{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfoKey(displayInfo))}
+									<tr class="w-full" animate:flip={{ duration: moveAnimationDuration }}>
+										<PropertyRow
+											{displayInfo}
+											{isAnimated}
+											{lightMode}
+											on:startEditArgument={handleStartEditEvent}
+											on:deleteArgument={handleDeleteEvent}
+											on:changePosition={handleChangePositionEvent}
+										/>
+									</tr>
+								{/each}
+							{/key}
+						</tbody>
+					</TableCustom>
+				{:else}
+					<div class="text-secondary text-xs italic mt-2">This schema has no arguments.</div>
+				{/if}
+			</div>
+		{:else}
 			<div class="border rounded p-2">
 				<SimpleEditor
 					small
