@@ -117,15 +117,9 @@
 
 	let wrapperHeight: number | undefined = undefined
 
-	let opened = keys?.[0] as string | undefined
+	$: opened = keys?.[0] as string | undefined
 
-	$: selected = opened
-		? schema.properties[opened].type !== 'object'
-			? schema.properties[opened].type
-			: schema.properties[opened].format === 'resource-s3_object'
-			? 'S3'
-			: 'object'
-		: ''
+	let selected = ''
 </script>
 
 <div style={`height: calc(100vh - ${offset}px);`} bind:clientHeight={wrapperHeight}>

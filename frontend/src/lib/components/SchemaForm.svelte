@@ -150,7 +150,6 @@
 
 		items = newItems
 
-		// Ensure dragging is stopped on drag finish via pointer (mouse, touch)
 		if (source === SOURCES.POINTER) {
 			dragDisabled = true
 		}
@@ -163,6 +162,8 @@
 		}, {})
 
 		schema.order = keys
+
+		schema = { ...schema }
 	}
 	function startDrag(e) {
 		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
