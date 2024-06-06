@@ -30,6 +30,10 @@
 			  }
 			: undefined
 
+	$: if (value === undefined && initialValue) {
+		value = initialValue
+	}
+
 	let collection = valueSelect ? [valueSelect] : []
 
 	async function loadResources(resourceType: string | undefined) {

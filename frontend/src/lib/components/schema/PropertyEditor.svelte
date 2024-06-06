@@ -5,7 +5,6 @@
 	import ArrayTypeNarrowing from '../ArrayTypeNarrowing.svelte'
 	import Label from '../Label.svelte'
 	import NumberTypeNarrowing from '../NumberTypeNarrowing.svelte'
-	import Section from '../Section.svelte'
 	import StringTypeNarrowing from '../StringTypeNarrowing.svelte'
 	import Tooltip from '../Tooltip.svelte'
 
@@ -63,7 +62,7 @@
 
 <div class="flex flex-row items-center justify-between w-full gap-2">
 	<!-- svelte-ignore a11y-autofocus -->
-	<div class={twMerge('flex flex-col w-full', 'gap-1', minW ? 'min-w-[250px]' : '')}>
+	<div class={twMerge('flex flex-col w-full', 'gap-4', minW ? 'min-w-[250px]' : '')}>
 		{#if editableSchema}
 			<Label label="Description">
 				<textarea
@@ -103,9 +102,9 @@
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
 			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
-				<div class="mt-4">
-					<Section label="Field settings" small>
-						<div class="mt-2">
+				<div>
+					<Label label="Field settings">
+						<div>
 							{#if type == 'string'}
 								<StringTypeNarrowing
 									bind:customErrorMessage
@@ -132,7 +131,7 @@
 								</div>
 							{/if}
 						</div>
-					</Section>
+					</Label>
 				</div>
 			{/if}
 

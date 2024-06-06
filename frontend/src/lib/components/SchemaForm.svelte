@@ -203,7 +203,9 @@
 			{@const argName = item.value}
 
 			<div animate:flip={{ duration: 200 }}>
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
 						class="flex flex-row items-center bg-surface"
 						on:click={() => {

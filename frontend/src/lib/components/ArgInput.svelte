@@ -539,7 +539,14 @@
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-				<ObjectResourceInput selectFirst {disablePortal} {format} bind:value {showSchemaExplorer} />
+				<ObjectResourceInput
+					{defaultValue}
+					selectFirst
+					{disablePortal}
+					{format}
+					bind:value
+					{showSchemaExplorer}
+				/>
 			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
 					.replace('resource-', '')
 					.replace('_', '')
@@ -685,6 +692,7 @@
 					selectFirst
 					{disablePortal}
 					bind:value
+					initialValue={defaultValue}
 					resourceType={format && format.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}

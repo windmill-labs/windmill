@@ -31,7 +31,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType } from '$lib/gen'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
-	import {  userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
 	import { convert } from '@redocly/json-to-json-schema'
@@ -50,6 +50,8 @@
 	} from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from '$lib/autosize'
+	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
+	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -324,6 +326,8 @@
 			types: false
 		}
 	}
+
+	let addProperty: AddProperty | undefined = undefined
 </script>
 
 <ConfirmationModal
@@ -479,7 +483,28 @@
 						</Button>
 					</div>
 				</div>
-				<SchemaEditor bind:schema={newResourceType.schema} />
+
+				<div class="border-b pb-4">
+					<AddProperty
+						isFlowInput
+						bind:schema={newResourceType.schema}
+						bind:this={addProperty}
+						on:change={() => {
+							//$flowStore = $flowStore
+						}}
+					/>
+				</div>
+				<EditableSchemaForm
+					bind:schema={newResourceType.schema}
+					isFlowInput
+					on:edit={(e) => {
+						addProperty?.openDrawer(e.detail)
+					}}
+					on:delete={(e) => {
+						addProperty?.handleDeleteArgument([e.detail])
+					}}
+					offset={201}
+				/>
 			</div>
 		</div>
 	</DrawerContent>
