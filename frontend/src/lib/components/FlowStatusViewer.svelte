@@ -55,6 +55,8 @@
 	globalDurationStatuses={[]}
 	globalModuleStates={[]}
 	bind:selectedNode={selectedJobStep}
+	on:start
+	on:done
 	{jobId}
 	{workspaceId}
 	{isOwner}

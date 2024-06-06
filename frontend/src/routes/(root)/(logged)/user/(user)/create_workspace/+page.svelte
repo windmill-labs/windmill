@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
-	import { ResourceService, SettingService, UserService, WorkspaceService } from '$lib/gen'
+	import {
+		ResourceService,
+		SettingService,
+		UserService,
+		VariableService,
+		WorkspaceService
+	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
@@ -71,12 +77,21 @@
 				actualUsername = user.username
 			}
 			let path = `u/${actualUsername}/openai_windmill_codegen`
+			await VariableService.createVariable({
+				workspace: id,
+				requestBody: {
+					path,
+					value: openAiKey,
+					is_secret: true,
+					description: 'Token for openai'
+				}
+			})
 			await ResourceService.createResource({
 				workspace: id,
 				requestBody: {
 					path,
 					value: {
-						api_key: openAiKey
+						api_key: '$var:' + path
 					},
 					resource_type: 'openai'
 				}
