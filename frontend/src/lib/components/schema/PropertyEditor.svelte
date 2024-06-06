@@ -102,7 +102,7 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
-			{:else if type == 'string' || (['number', 'integer', 'object'].includes(type ?? '') && !format.startsWith('resource-'))}
+			{:else if type == 'string' || (['number', 'integer', 'object'].includes(type ?? '') && !format?.startsWith('resource-'))}
 				<div class="mt-4">
 					<Section label="Field settings" small>
 						<div class="mt-2">
@@ -126,9 +126,9 @@
 									bind:currency={extra['currency']}
 									bind:currencyLocale={extra['currencyLocale']}
 								/>
-							{:else if type == 'object' && !format.startsWith('resource-')}
+							{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput}
 								<div class="border max-h-96 overflow-y-scroll">
-									<EditableSchemaForm noPreview uiOnly={!isFlowInput} {isFlowInput} bind:schema />
+									<EditableSchemaForm noPreview bind:schema uiOnly offset={600} />
 								</div>
 							{/if}
 						</div>

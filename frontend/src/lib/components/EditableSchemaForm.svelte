@@ -102,7 +102,7 @@
 
 			;(schema.order as string[]).forEach((x) => {
 				if (schema.properties && schema.properties[x] != undefined) {
-					n[x] = schema.properties[x]
+					n[x] = schema?.properties[x]
 				}
 			})
 
