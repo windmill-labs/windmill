@@ -5496,16 +5496,8 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: jobs
-          description: uuids of the jobs to cancel
-          in: body
-          required: true
-          schema:
-            type: array
-            items:
-              type: string
       requestBody:
-        description: create group
+        description: uuids of the jobs to cancel
         required: true
         content:
           application/json:
