@@ -2206,7 +2206,7 @@ pub async fn create_session_token<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
 ) -> Result<String> {
-    let token = rd_string(30);
+    let token = rd_string(32);
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
@@ -2239,7 +2239,7 @@ async fn create_token(
     authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
-    let token = rd_string(30);
+    let token = rd_string(32);
     let mut tx = db.begin().await?;
 
     let is_super_admin = sqlx::query_scalar!(
@@ -2283,7 +2283,7 @@ async fn impersonate(
     authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
-    let token = rd_string(30);
+    let token = rd_string(32);
     require_super_admin(&db, &authed.email).await?;
 
     if new_token.impersonate_email.is_none() {
