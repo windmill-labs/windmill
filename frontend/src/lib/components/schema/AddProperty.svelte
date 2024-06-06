@@ -134,6 +134,11 @@
 		schema = schema
 		schemaString = JSON.stringify(schema, null, '\t')
 		jsonEditor?.setCode(schemaString)
+
+		if (argError !== '') {
+			sendUserToast(argError, true)
+		}
+
 		dispatch('change', schema)
 	}
 
