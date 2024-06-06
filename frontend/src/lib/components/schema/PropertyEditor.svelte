@@ -102,7 +102,7 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
-			{:else if type == 'string' || (['number', 'integer', 'object'].includes(type ?? '') && !format?.startsWith('resource-'))}
+			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 				<div class="mt-4">
 					<Section label="Field settings" small>
 						<div class="mt-2">

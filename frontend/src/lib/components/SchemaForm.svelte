@@ -13,6 +13,7 @@
 	import ArgInput from './ArgInput.svelte'
 	import { SOURCES, TRIGGERS, dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
+	import { createEventDispatcher } from 'svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -42,6 +43,7 @@
 	let dragDisabled: boolean = false
 
 	const flipDurationMs = 200
+	const dispatch = createEventDispatcher()
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -202,7 +204,12 @@
 
 			<div animate:flip={{ duration: 200 }}>
 				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-					<div class="flex flex-row items-center bg-surface">
+					<div
+						class="flex flex-row items-center bg-surface"
+						on:click={() => {
+							dispatch('click', argName)
+						}}
+					>
 						{#if typeof args == 'object' && schema?.properties[argName]}
 							{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
 								<ArgInput

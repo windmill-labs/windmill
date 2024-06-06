@@ -131,7 +131,14 @@
 						label="Form preview"
 						tooltip={'Preview of the form that will be rendered based on the schema. Drag and drop to reorder the fields.'}
 					>
-						<SchemaForm {schema} bind:args dndEnabled />
+						<SchemaForm
+							{schema}
+							bind:args
+							dndEnabled
+							on:click={(e) => {
+								opened = e.detail
+							}}
+						/>
 					</Section>
 				</div>
 			</Pane>
