@@ -6,7 +6,6 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { slide } from 'svelte/transition'
 
 	import { Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -33,6 +32,7 @@
 	export let offset = 48 + 31 + 31 + 16 + 1
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
+	export let noPreview: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -117,22 +117,32 @@
 
 	let wrapperHeight: number | undefined = undefined
 
-	$: opened = keys?.[0] as string | undefined
+	let opened = keys?.[0] as string | undefined
+
+	$: selected = opened
+		? schema.properties[opened].type !== 'object'
+			? schema.properties[opened].type
+			: schema.properties[opened].format === 'resource-s3_object'
+			? 'S3'
+			: 'object'
+		: ''
 </script>
 
 <div style={`height: calc(100vh - ${offset}px);`} bind:clientHeight={wrapperHeight}>
 	<Splitpanes>
-		<Pane size={50} minSize={20}>
-			<div class="p-4" style={`height: ${wrapperHeight}px; overflow-y: auto;`}>
-				<Section
-					label="Form preview"
-					tooltip={'Preview of the form that will be rendered based on the schema. Drag and drop to reorder the fields.'}
-				>
-					<SchemaForm {schema} bind:args dndEnabled />
-				</Section>
-			</div>
-		</Pane>
-		<Pane size={50} minSize={20}>
+		{#if !noPreview}
+			<Pane size={50} minSize={20}>
+				<div class="p-4" style={`height: ${wrapperHeight}px; overflow-y: auto;`}>
+					<Section
+						label="Form preview"
+						tooltip={'Preview of the form that will be rendered based on the schema. Drag and drop to reorder the fields.'}
+					>
+						<SchemaForm {schema} bind:args dndEnabled />
+					</Section>
+				</div>
+			</Pane>
+		{/if}
+		<Pane size={noPreview ? 100 : 50} minSize={noPreview ? 100 : 20}>
 			<div
 				class="w-full {clazz} {flexWrap
 					? 'flex flex-row flex-wrap gap-x-6 '
@@ -177,7 +187,7 @@
 								{/if}
 							</div>
 							{#if opened === argName}
-								<div class="p-4 border-t" transition:slide>
+								<div class="p-4 border-t">
 									{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 										{#if typeof args == 'object' && schema?.properties[argName]}
 											<PropertyEditor
@@ -196,12 +206,52 @@
 												bind:title={schema.properties[argName].title}
 												bind:placeholder={schema.properties[argName].placeholder}
 												bind:properties={schema.properties[argName].properties}
+												{isFlowInput}
 											>
 												<svelte:fragment slot="typeeditor">
 													{#if isFlowInput}
 														<Label label="Type">
-															<ToggleButtonGroup bind:selected={schema.properties[argName].type}>
-																{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 's3']] as x}
+															<ToggleButtonGroup
+																bind:selected
+																on:selected={(e) => {
+																	const isS3 = e.detail == 'S3'
+
+																	selected = e.detail
+
+																	const emptyProperty = {
+																		contentEncoding: undefined,
+																		enum_: undefined,
+																		pattern: undefined,
+																		default: undefined,
+																		min: undefined,
+																		max: undefined,
+																		currency: undefined,
+																		currencyLocale: undefined,
+																		multiselect: undefined,
+																		password: undefined,
+																		dateFormat: undefined,
+																		...(e.detail == 'array' ? { items: { type: 'string' } } : {}),
+																		showExpr: undefined,
+																		nullable: undefined,
+																		required: undefined
+																	}
+
+																	if (isS3) {
+																		schema.properties[argName] = {
+																			...emptyProperty,
+																			type: 'object',
+																			format: 'resource-s3_object'
+																		}
+																	} else {
+																		schema.properties[argName] = {
+																			...emptyProperty,
+																			format: undefined,
+																			type: e.detail
+																		}
+																	}
+																}}
+															>
+																{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
 																	<ToggleButton value={x[1]} label={x[0]} />
 																{/each}
 															</ToggleButtonGroup>
@@ -216,7 +266,7 @@
 														{itemPicker}
 														bind:nullable={schema.properties[argName].nullable}
 														type={schema.properties[argName].type}
-														format={schema.properties[argName].format}
+														bind:format={schema.properties[argName].format}
 														contentEncoding={schema.properties[argName].contentEncoding}
 														required={schema.required?.includes(argName) ?? false}
 														pattern={schema.properties[argName].pattern}
@@ -226,6 +276,7 @@
 														extra={schema.properties[argName]}
 														customErrorMessage={schema.properties[argName].customErrorMessage}
 														itemsType={schema.properties[argName].items}
+														bind:properties={schema.properties[argName].properties}
 														on:requiredChange={(event) => {
 															if (event.detail.required) {
 																schema.required = schema.required ?? []

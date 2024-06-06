@@ -12,6 +12,7 @@
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { SOURCES, TRIGGERS, dndzone } from 'svelte-dnd-action'
+	import { flip } from 'svelte/animate'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -133,6 +134,7 @@
 			items: newItems,
 			info: { source, trigger }
 		} = e.detail
+
 		items = newItems
 		// Ensure dragging is stopped on drag finish via keyboard
 		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
@@ -152,8 +154,6 @@
 		if (source === SOURCES.POINTER) {
 			dragDisabled = true
 		}
-
-		// DO THE ACTUAL REORDERING
 
 		keys = items.map((item) => item.value)
 
@@ -190,7 +190,7 @@
 		dragDisabled: dragDisabled || !dndEnabled,
 		flipDurationMs,
 		dropTargetStyle: {},
-		type: dndType
+		type: dndEnabled ? dndType ?? 'top-level' : 'dnd-disabled'
 	}}
 	on:consider={handleConsider}
 	on:finalize={handleFinalize}
@@ -198,92 +198,95 @@
 	{#if items.length > 0}
 		{#each items as item, i (item.id)}
 			{@const argName = item.value}
-			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-				<div class="flex flex-row items-center bg-surface">
-					{#if typeof args == 'object' && schema?.properties[argName]}
-						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
-							<ArgInput
-								{disablePortal}
-								{resourceTypes}
-								{prettifyHeader}
-								autofocus={i == 0 && autofocus ? true : null}
-								label={argName}
-								description={schema.properties[argName].description}
-								bind:value={args[argName]}
-								type={schema.properties[argName].type}
-								required={schema.required.includes(argName)}
-								pattern={schema.properties[argName].pattern}
-								bind:valid={inputCheck[argName]}
-								defaultValue={schema.properties[argName].default}
-								enum_={schema.properties[argName].enum}
-								format={schema.properties[argName].format}
-								contentEncoding={schema.properties[argName].contentEncoding}
-								customErrorMessage={schema.properties[argName].customErrorMessage}
-								properties={schema.properties[argName].properties}
-								nestedRequired={schema.properties[argName].required}
-								itemsType={schema.properties[argName].items}
-								disabled={disabledArgs.includes(argName) || disabled}
-								{compact}
-								{variableEditor}
-								{itemPicker}
-								bind:pickForField
-								password={linkedSecret == argName}
-								extra={schema.properties[argName]}
-								{showSchemaExplorer}
-								simpleTooltip={schemaFieldTooltip[argName]}
-								{onlyMaskPassword}
-								nullable={schema.properties[argName].nullable}
-								title={schema.properties[argName].title}
-								placeholder={schema.properties[argName].placeholder}
-								{dndEnabled}
-							>
-								<svelte:fragment slot="actions">
-									{#if linkedSecretCandidates?.includes(argName)}
-										<div>
-											<ToggleButtonGroup
-												selected={linkedSecret == argName}
-												on:selected={(e) => {
-													if (e.detail) {
-														linkedSecret = argName
-													} else if (linkedSecret == argName) {
-														linkedSecret = undefined
-													}
-												}}
-											>
-												<ToggleButton
-													value={false}
-													size="sm"
-													label="Inlined"
-													tooltip="The value is inlined in the resource and thus has no special treatment."
-												/>
-												<ToggleButton
-													position="right"
-													value={true}
-													size="sm"
-													label="Secret"
-													tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
-												/>
-											</ToggleButtonGroup>
-										</div>{/if}</svelte:fragment
+
+			<div animate:flip={{ duration: 200 }}>
+				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+					<div class="flex flex-row items-center bg-surface">
+						{#if typeof args == 'object' && schema?.properties[argName]}
+							{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
+								<ArgInput
+									{disablePortal}
+									{resourceTypes}
+									{prettifyHeader}
+									autofocus={i == 0 && autofocus ? true : null}
+									label={argName}
+									description={schema.properties[argName].description}
+									bind:value={args[argName]}
+									type={schema.properties[argName].type}
+									required={schema.required.includes(argName)}
+									pattern={schema.properties[argName].pattern}
+									bind:valid={inputCheck[argName]}
+									defaultValue={schema.properties[argName].default}
+									enum_={schema.properties[argName].enum}
+									format={schema.properties[argName].format}
+									contentEncoding={schema.properties[argName].contentEncoding}
+									customErrorMessage={schema.properties[argName].customErrorMessage}
+									properties={schema.properties[argName].properties}
+									nestedRequired={schema.properties[argName].required}
+									itemsType={schema.properties[argName].items}
+									disabled={disabledArgs.includes(argName) || disabled}
+									{compact}
+									{variableEditor}
+									{itemPicker}
+									bind:pickForField
+									password={linkedSecret == argName}
+									extra={schema.properties[argName]}
+									{showSchemaExplorer}
+									simpleTooltip={schemaFieldTooltip[argName]}
+									{onlyMaskPassword}
+									nullable={schema.properties[argName].nullable}
+									title={schema.properties[argName].title}
+									placeholder={schema.properties[argName].placeholder}
+									{dndEnabled}
 								>
-							</ArgInput>
-							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							{#if dndEnabled}
-								<div
-									tabindex={dragDisabled ? 0 : -1}
-									class="w-4 h-4 cursor-move ml-2"
-									on:mousedown={startDrag}
-									on:touchstart={startDrag}
-									on:keydown={handleKeyDown}
-								>
-									<GripVertical size={16} />
-								</div>
+									<svelte:fragment slot="actions">
+										{#if linkedSecretCandidates?.includes(argName)}
+											<div>
+												<ToggleButtonGroup
+													selected={linkedSecret == argName}
+													on:selected={(e) => {
+														if (e.detail) {
+															linkedSecret = argName
+														} else if (linkedSecret == argName) {
+															linkedSecret = undefined
+														}
+													}}
+												>
+													<ToggleButton
+														value={false}
+														size="sm"
+														label="Inlined"
+														tooltip="The value is inlined in the resource and thus has no special treatment."
+													/>
+													<ToggleButton
+														position="right"
+														value={true}
+														size="sm"
+														label="Secret"
+														tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+													/>
+												</ToggleButtonGroup>
+											</div>{/if}</svelte:fragment
+									>
+								</ArgInput>
+								<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								{#if dndEnabled}
+									<div
+										tabindex={dragDisabled ? 0 : -1}
+										class="w-4 h-4 cursor-move ml-2"
+										on:mousedown={startDrag}
+										on:touchstart={startDrag}
+										on:keydown={handleKeyDown}
+									>
+										<GripVertical size={16} />
+									</div>
+								{/if}
 							{/if}
 						{/if}
-					{/if}
-				</div>
-			{/if}
+					</div>
+				{/if}
+			</div>
 		{/each}
 	{:else if !shouldHideNoInputs}
 		<div class="text-secondary text-sm">No inputs</div>

@@ -48,7 +48,7 @@
 				on:click={() => onClick(undefined)}
 				disabled={notPickable || value === undefined}
 			>
-				Clear resource type
+				Clear
 			</Button>
 			<Popup
 				floatingConfig={{
@@ -56,54 +56,58 @@
 					placement: 'left-end',
 					middleware: [offset(8), flip(), shift()]
 				}}
-				containerClasses="border rounded-lg shadow-lg bg-surface p-4 max-w-md max-h-96 overflow-y-auto"
+				containerClasses="border rounded-lg shadow-lg bg-surface p-4 w-[500px] h-[500px] "
 				let:close
 			>
 				<svelte:fragment slot="button">
 					<Button nonCaptureEvent size="xs" color="dark">Select resource type</Button>
 				</svelte:fragment>
 
-				<div class="fixed bg-surface">
+				<div class="flex flex-col gap-2 h-full">
 					<ClearableInput bind:value={search} placeholder="Search resource..." />
-				</div>
 
-				<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2 mt-16">
-					{#if nonePickable && search === ''}
-						{@const isPicked = value === undefined}
-						<Button
-							size="sm"
-							variant="border"
-							color={isPicked ? 'blue' : 'dark'}
-							btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
-							disabled={notPickable}
-							on:click={() => {
-								onClick(undefined)
-								close(null)
-							}}
+					<div class="overflow-y-scroll h-full">
+						<div
+							class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center overflow-x-hidden"
 						>
-							None
-						</Button>
-					{/if}
-					{#each filteredResources as r}
-						{@const isPicked = value === r}
-						<Button
-							size="sm"
-							variant="border"
-							color={isPicked ? 'blue' : 'light'}
-							btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
-							disabled={notPickable}
-							on:click={() => {
-								onClick(r)
-								close(null)
-							}}
-						>
-							<IconedResourceType name={r} after={true} width="20px" height="20px" />
-						</Button>
-					{/each}
+							{#if nonePickable && search === ''}
+								{@const isPicked = value === undefined}
+								<Button
+									size="sm"
+									variant="border"
+									color={isPicked ? 'blue' : 'dark'}
+									btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
+									disabled={notPickable}
+									on:click={() => {
+										onClick(undefined)
+										close(null)
+									}}
+								>
+									None
+								</Button>
+							{/if}
+							{#each filteredResources as r}
+								{@const isPicked = value === r}
+								<Button
+									size="sm"
+									variant="border"
+									color={isPicked ? 'blue' : 'light'}
+									btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
+									disabled={notPickable}
+									on:click={() => {
+										onClick(r)
+										close(null)
+									}}
+								>
+									<IconedResourceType name={r} after={true} width="20px" height="20px" />
+								</Button>
+							{/each}
 
-					{#if filteredResources.length === 0 && search !== ''}
-						<div class="text-tertiary text-sm">No resources found</div>
-					{/if}
+							{#if filteredResources.length === 0 && search !== ''}
+								<div class="text-tertiary text-sm">No resources found</div>
+							{/if}
+						</div>
+					</div>
 				</div>
 			</Popup>
 		</div>

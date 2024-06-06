@@ -5,12 +5,11 @@
 	import ArrayTypeNarrowing from '../ArrayTypeNarrowing.svelte'
 	import Label from '../Label.svelte'
 	import NumberTypeNarrowing from '../NumberTypeNarrowing.svelte'
-	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
 	import Section from '../Section.svelte'
 	import StringTypeNarrowing from '../StringTypeNarrowing.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import SchemaEditor from '../SchemaEditor.svelte'
-	import { Tabs, TabContent, Tab } from '../common'
+
+	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 
 	export let description: string = ''
 	export let format: string = ''
@@ -33,6 +32,7 @@
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
 	export let properties: Record<string, any> = {}
+	export let isFlowInput: boolean = false
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -49,6 +49,15 @@
 			return
 		}
 		e.stopPropagation()
+	}
+
+	let schema = {
+		properties
+	}
+
+	// When shema changes we need to update the properties
+	$: {
+		properties = schema.properties
 	}
 </script>
 
@@ -93,7 +102,7 @@
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
-			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
+			{:else if type == 'string' || ['number', 'integer'].includes(type ?? '')}
 				<div class="mt-4">
 					<Section label="Field settings" small>
 						<div class="mt-2">
@@ -118,32 +127,7 @@
 									bind:currencyLocale={extra['currencyLocale']}
 								/>
 							{:else if type == 'object' && format !== 'resource-s3'}
-								<Tabs selected="resource">
-									<Tab value="resource">Resource</Tab>
-									<Tab value="custom-object">Custom Object</Tab>
-									<svelte:fragment slot="content">
-										<div class="pt-2">
-											<TabContent value="custom-object">
-												<SchemaEditor
-													schema={{
-														properties: properties,
-														order: Object.keys(properties),
-														required: properties.required ?? []
-													}}
-													lightMode
-													on:change={(e) => {
-														properties = e.detail.properties
-													}}
-												/>
-											</TabContent>
-
-											<TabContent value="resource">
-												<h3 class="mb-2 font-bold mt-4">Resource type</h3>
-												<ObjectTypeNarrowing bind:format />
-											</TabContent>
-										</div>
-									</svelte:fragment>
-								</Tabs>
+								salut
 							{/if}
 						</div>
 					</Section>

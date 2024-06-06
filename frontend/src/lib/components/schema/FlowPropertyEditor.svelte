@@ -7,6 +7,10 @@
 	import type VariableEditor from '../VariableEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import ArgInput from '../ArgInput.svelte'
+	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
+	import Tabs from '../common/tabs/Tabs.svelte'
+	import { Tab, TabContent } from '../common'
+	import SchemaEditor from '../SchemaEditor.svelte'
 
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -30,6 +34,7 @@
 				multiselect?: string[]
 		  }
 		| undefined = undefined
+	export let properties: Record<string, any> = {}
 
 	const dispatch = createEventDispatcher()
 
@@ -40,9 +45,40 @@
 
 		return []
 	}
+
+	let schema = { properties }
+
+	$: if (schema) {
+		properties = schema.properties
+	}
 </script>
 
 <div class="flex flex-col gap-2">
+	{#if type === 'object' && format !== 'resource-s3_object'}
+		<Tabs
+			selected="resource"
+			on:selected={(e) => {
+				if (e.detail === 'custom-object') {
+					format = ''
+				}
+			}}
+		>
+			<Tab value="resource">Resource</Tab>
+			<Tab value="custom-object">Custom Object</Tab>
+			<svelte:fragment slot="content">
+				<div class="pt-2">
+					<TabContent value="custom-object">
+						<SchemaEditor bind:schema lightMode />
+					</TabContent>
+
+					<TabContent value="resource">
+						<ObjectTypeNarrowing bind:format />
+					</TabContent>
+				</div>
+			</svelte:fragment>
+		</Tabs>
+	{/if}
+
 	<Label label="Default">
 		<ArgInput
 			{itemPicker}
