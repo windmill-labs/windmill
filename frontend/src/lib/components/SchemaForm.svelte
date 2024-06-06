@@ -128,8 +128,6 @@
 		}
 	}
 
-	let dragging = false
-
 	function handleConsider(e) {
 		const {
 			items: newItems,
@@ -165,10 +163,8 @@
 		}, {})
 
 		schema.order = keys
-		dragging = false
 	}
 	function startDrag(e) {
-		dragging = true
 		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
 		e.preventDefault()
 		dragDisabled = false
@@ -187,7 +183,7 @@
 	</div>
 {/if}
 
-<section
+<div
 	class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
 	use:dndzone={{
 		items,
@@ -292,7 +288,7 @@
 	{:else if !shouldHideNoInputs}
 		<div class="text-secondary text-sm">No inputs</div>
 	{/if}
-</section>
+</div>
 {#if !noVariablePicker}
 	<ItemPicker
 		bind:this={itemPicker}

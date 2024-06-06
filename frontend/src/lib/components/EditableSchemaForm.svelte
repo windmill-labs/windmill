@@ -8,7 +8,6 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { slide } from 'svelte/transition'
 
-	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
@@ -95,14 +94,7 @@
 		}
 	}
 
-	let resourceTypes: string[] | undefined = undefined
-
-	async function loadResourceTypes() {
-		resourceTypes = await getResourceTypes()
-	}
-
 	reorder()
-	loadResourceTypes()
 
 	function reorder() {
 		if (schema?.order && Array.isArray(schema.order)) {
