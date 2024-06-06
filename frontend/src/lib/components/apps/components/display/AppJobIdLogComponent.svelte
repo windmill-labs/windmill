@@ -10,6 +10,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let initializing: boolean | undefined = false
@@ -74,6 +75,8 @@
 		outputs.result.set(e.detail.result)
 	}}
 />
+
+<InitializeComponent {id} />
 
 {#if render}
 	<div class="flex flex-col w-full h-full component-wrapper">
