@@ -10,6 +10,7 @@
 	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { ScriptService } from '$lib/gen'
@@ -22,7 +23,7 @@
 			})
 			const url = new URL($page.url.origin + '/scripts/get/' + script.hash)
 			$page.url.searchParams.forEach((v, k) => url.searchParams.append(k, v))
-			await goto(url)
+			await gotoUrl(url)
 		} else {
 			await goto('/user/workspaces')
 		}

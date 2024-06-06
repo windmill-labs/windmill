@@ -25,7 +25,7 @@
 		Trash,
 		Clipboard
 	} from 'lucide-svelte'
-	import { goto } from '$lib/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE, copyToClipboard } from '$lib/utils'
@@ -222,7 +222,7 @@
 											$page.url.protocol +
 											'//' +
 											`${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
-										goto(url)
+										gotoUrl(url)
 									}
 								}
 						  ]
