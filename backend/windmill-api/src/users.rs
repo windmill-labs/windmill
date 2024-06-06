@@ -44,7 +44,7 @@ use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::users::truncate_token;
-use windmill_common::utils::send_email;
+use windmill_common::utils::{paginate, send_email};
 use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
     db::UserDB,
@@ -2206,7 +2206,7 @@ pub async fn create_session_token<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
 ) -> Result<String> {
-    let token = rd_string(30);
+    let token = rd_string(32);
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
@@ -2239,7 +2239,7 @@ async fn create_token(
     authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
-    let token = rd_string(30);
+    let token = rd_string(32);
     let mut tx = db.begin().await?;
 
     let is_super_admin = sqlx::query_scalar!(
@@ -2283,7 +2283,7 @@ async fn impersonate(
     authed: ApiAuthed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
-    let token = rd_string(30);
+    let token = rd_string(32);
     require_super_admin(&db, &authed.email).await?;
 
     if new_token.impersonate_email.is_none() {
@@ -2340,14 +2340,18 @@ async fn list_tokens(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
     Query(query): Query<ListTokenQuery>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<TruncatedToken>> {
+    let (per_page, offset) = paginate(pagination);
     let rows = if query.exclude_ephemeral.unwrap_or(false) {
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
              last_used_at, scopes FROM token WHERE email = $1 AND label != 'ephemeral-script'
-             ORDER BY created_at DESC",
+             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
+            per_page as i64,
+            offset as i64,
         )
         .fetch_all(&db)
         .await?
@@ -2356,8 +2360,10 @@ async fn list_tokens(
             TruncatedToken,
             "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
             last_used_at, scopes FROM token WHERE email = $1
-            ORDER BY created_at DESC",
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
+            per_page as i64,
+            offset as i64,
         )
         .fetch_all(&db)
         .await?

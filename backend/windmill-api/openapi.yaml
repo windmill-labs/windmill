@@ -2172,6 +2172,8 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: truncated token
