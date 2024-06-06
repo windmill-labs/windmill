@@ -329,7 +329,7 @@
 								<ObjectTypeNarrowing bind:format />
 							{/if}
 						</div>
-						{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern)}
+						{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
 							<Label label="Placeholder" class="pt-2">
 								<textarea placeholder="Enter a placeholder" rows="1" bind:value={placeholder} />
 							</Label>
