@@ -10,7 +10,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
-	import PropertyPreview from './schema/PropertyPreview.svelte'
+	import ArgInput from './ArgInput.svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -129,7 +129,7 @@
 				<div>
 					{#if typeof args == 'object' && schema?.properties[argName]}
 						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
-							<PropertyPreview
+							<ArgInput
 								{dndEnabled}
 								{disablePortal}
 								{resourceTypes}
@@ -193,7 +193,7 @@
 											</ToggleButtonGroup>
 										</div>{/if}</svelte:fragment
 								>
-							</PropertyPreview>
+							</ArgInput>
 						{/if}
 					{/if}
 				</div>

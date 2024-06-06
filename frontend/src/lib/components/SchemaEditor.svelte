@@ -267,7 +267,7 @@
 	}
 </script>
 
-<div class="flex flex-col px-4">
+<div class="flex flex-col px-4 mb-2">
 	<div class="flex justify-between items-center gap-x-2">
 		<div>
 			<Button

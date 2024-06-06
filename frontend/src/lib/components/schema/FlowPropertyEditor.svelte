@@ -1,5 +1,4 @@
 <script lang="ts">
-	import PropertyPreview from './PropertyPreview.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Label from '../Label.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -7,6 +6,7 @@
 	import type ItemPicker from '../ItemPicker.svelte'
 	import type VariableEditor from '../VariableEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import ArgInput from '../ArgInput.svelte'
 
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -44,7 +44,7 @@
 
 <div class="flex flex-col gap-2">
 	<Label label="Default">
-		<PropertyPreview
+		<ArgInput
 			{itemPicker}
 			resourceTypes={getResourceTypesFromFormat(format)}
 			bind:value={defaultValue}
