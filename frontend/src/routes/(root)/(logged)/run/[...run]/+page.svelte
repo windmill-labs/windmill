@@ -326,7 +326,7 @@
 </Portal>
 
 {#if notfound}
-	<div class="max-w-7xl px-4 sm:px-0 mx-auto w-full">
+	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
 			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
 			<h2>Are you in the right workspace?</h2>
@@ -351,11 +351,11 @@
 	</div>
 {:else}
 	<Skeleton
-		class="max-w-7xl px-4 sm:px-0 mx-auto w-full"
+		class="max-w-7xl px-4 mx-auto w-full"
 		loading={!job}
 		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
 	/>
-	<ActionRow class="max-w-7xl px-4 sm:px-0 mx-auto w-full">
+	<ActionRow class="max-w-7xl px-4 mx-auto w-full">
 		<svelte:fragment slot="left">
 			{@const isScript = job?.job_kind === 'script'}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
@@ -599,7 +599,7 @@
 	</ActionRow>
 	<div class="w-full">
 		<h1
-			class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6 max-w-7xl mx-auto px-4 sm:px-0"
+			class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6 max-w-7xl mx-auto px-4"
 		>
 			<div class="flex flex-row flex-wrap gap-6 items-center">
 				{#if job}
@@ -693,7 +693,7 @@
 
 		<!-- Arguments and actions -->
 		<div
-			class="flex flex-col gap-y-8 sm:grid sm:grid-cols-3 sm:gap-10 max-w-7xl mx-auto w-full px-4 sm:px-0"
+			class="flex flex-col gap-y-8 sm:grid sm:grid-cols-3 sm:gap-10 max-w-7xl mx-auto w-full px-4"
 		>
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
@@ -705,12 +705,12 @@
 		</div>
 
 		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
-			<div class="max-w-7xl mx-auto w-full px-4 sm:px-0">
+			<div class="max-w-7xl mx-auto w-full px-4">
 				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
 			</div>
 		{/if}
 		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview' && job?.job_kind !== 'singlescriptflow'}
-			<div class="max-w-7xl mx-auto w-full px-4 sm:px-0 mb-10">
+			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
 					<div class="mt-10" />
 					<WorkflowTimeline
@@ -772,7 +772,7 @@
 			</div>
 		{:else if !job?.['deleted']}
 			<div class="mt-10" />
-			<FlowProgressBar {job} class="py-4 max-w-7xl mx-auto px-4 sm:px-0" />
+			<FlowProgressBar {job} class="py-4 max-w-7xl mx-auto px-4" />
 			<div class="w-full mt-10">
 				<FlowStatusViewer
 					jobId={job.id}
