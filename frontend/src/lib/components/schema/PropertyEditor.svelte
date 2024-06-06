@@ -9,6 +9,8 @@
 	import Section from '../Section.svelte'
 	import StringTypeNarrowing from '../StringTypeNarrowing.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import SchemaEditor from '../SchemaEditor.svelte'
+	import { Tabs, TabContent, Tab } from '../common'
 
 	export let description: string = ''
 	export let format: string = ''
@@ -30,6 +32,7 @@
 	export let customErrorMessage: string | undefined = undefined
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+	export let properties: Record<string, any> = {}
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -114,8 +117,33 @@
 									bind:currency={extra['currency']}
 									bind:currencyLocale={extra['currencyLocale']}
 								/>
-							{:else if type == 'object'}
-								<ObjectTypeNarrowing bind:format />
+							{:else if type == 'object' && format !== 'resource-s3'}
+								<Tabs selected="resource">
+									<Tab value="resource">Resource</Tab>
+									<Tab value="custom-object">Custom Object</Tab>
+									<svelte:fragment slot="content">
+										<div class="pt-2">
+											<TabContent value="custom-object">
+												<SchemaEditor
+													schema={{
+														properties: properties,
+														order: Object.keys(properties),
+														required: properties.required ?? []
+													}}
+													lightMode
+													on:change={(e) => {
+														properties = e.detail.properties
+													}}
+												/>
+											</TabContent>
+
+											<TabContent value="resource">
+												<h3 class="mb-2 font-bold mt-4">Resource type</h3>
+												<ObjectTypeNarrowing bind:format />
+											</TabContent>
+										</div>
+									</svelte:fragment>
+								</Tabs>
 							{/if}
 						</div>
 					</Section>

@@ -146,7 +146,7 @@
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<div
 								class={twMerge(
-									'w-full flex bg-gray-50 px-4 py-1 justify-between items-center hover:bg-gray-100 cursor-pointer',
+									'w-full flex bg-gray-50 dark:bg-gray-800 px-4 py-1 justify-between items-center hover:bg-gray-100 cursor-pointer',
 									opened === argName ? 'bg-gray-100 hover:bg-gray-200' : ''
 								)}
 								on:click={() => {
@@ -195,6 +195,7 @@
 												bind:extra={schema.properties[argName]}
 												bind:title={schema.properties[argName].title}
 												bind:placeholder={schema.properties[argName].placeholder}
+												bind:properties={schema.properties[argName].properties}
 											>
 												<svelte:fragment slot="typeeditor">
 													{#if isFlowInput}
