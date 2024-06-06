@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat, emptyString, shouldDisplayPlaceholder } from '$lib/utils'
-	import { DollarSign, GripVertical, Pipette, Plus, X } from 'lucide-svelte'
+	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { Alert, Button, SecondsInput } from './common'
+	import { Badge, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
@@ -32,12 +32,11 @@
 	import Password from './Password.svelte'
 	import Label from './Label.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import Section from './Section.svelte'
-	import { testRegex } from './schema/utils'
 
 	export let label: string = ''
 	export let value: any
-	export let previewEnabled: boolean = true
+
+	export let defaultValue: any = undefined
 
 	export let description: string = ''
 	export let format: string = ''
@@ -79,25 +78,26 @@
 	export let nullable: boolean = false
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
-	export let editor: SimpleEditor | undefined = undefined
-	export let dndEnabled: boolean = false
-	export let defaultValue: any = undefined
-	export let propsNames: any = []
-	export let showExpr: string | undefined = undefined
-	export let uiOnly: boolean = false
 
+	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
 	let ignoreValueUndefined = false
+
 	let error: string = ''
+
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode: false
 	let isListJson = false
+
 	let el: HTMLTextAreaElement | undefined = undefined
-	let rawValue: string | undefined = undefined
+
+	export let editor: SimpleEditor | undefined = undefined
+
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+	let rawValue: string | undefined = undefined
 
 	function computeDefaultValue(
 		nvalue?: any,
@@ -195,6 +195,15 @@
 		}
 	}
 
+	function testRegex(pattern: string, value: any): boolean {
+		try {
+			const regex = new RegExp(pattern)
+			return regex.test(value)
+		} catch (err) {
+			return false
+		}
+	}
+
 	function onKeyDown(e: KeyboardEvent) {
 		if ((e.ctrlKey || e.metaKey) && e.key == 'Enter') {
 			return
@@ -207,12 +216,8 @@
 
 	$: validateInput(pattern, value, required)
 
-	function getResourceTypesFromFormat(format: string | undefined): string[] {
-		if (format?.startsWith('resource-')) {
-			return [format.split('-')[1]]
-		}
-
-		return []
+	function changePosition(i: number, up: boolean) {
+		dispatch('changePosition', { i, up })
 	}
 </script>
 
@@ -225,31 +230,43 @@
 	}}
 	readOnlyMode={false}
 />
-<div class="flex flex-row items-center justify-between w-full gap-2">
-	<!-- svelte-ignore a11y-autofocus -->
-	<div class={twMerge('flex flex-col w-full', 'gap-1', minW ? 'min-w-[250px]' : '')}>
-		<div>
-			{#if displayHeader}
-				<FieldHeader
-					prettify={prettifyHeader}
-					label={title && !emptyString(title) ? title : label}
-					{disabled}
-					{required}
-					{type}
-					{contentEncoding}
-					{format}
-					{simpleTooltip}
-				/>
-			{/if}{#if description && previewEnabled}
-				<div class="text-xs italic text-secondary">
-					<pre class="font-main whitespace-normal">{description}</pre>
-				</div>
-			{/if}
-		</div>
+<!-- svelte-ignore a11y-autofocus -->
+<div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
+	<div>
+		{#if displayHeader}
+			<FieldHeader
+				prettify={prettifyHeader}
+				label={title && !emptyString(title) ? title : label}
+				{disabled}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{simpleTooltip}
+			/>
 
+			{#if editableSchema}
+				<span class="mx-8" />
+				{#if editableSchema.i > 0}
+					<button
+						on:click={() => changePosition(editableSchema?.i ?? 0, true)}
+						class="text-lg mr-2"
+					>
+						&uparrow;</button
+					>
+				{/if}
+				{#if editableSchema.i < editableSchema.total - 1}
+					<button
+						on:click={() => changePosition(editableSchema?.i ?? 0, false)}
+						class="text-lg mr-2">&downarrow;</button
+					>
+				{/if}
+			{/if}
+		{/if}
 		{#if editableSchema}
 			<Label label="Description">
 				<textarea
+					class="mb-1"
 					use:autosize
 					rows="1"
 					bind:value={description}
@@ -257,398 +274,283 @@
 					placeholder="Field description"
 				/>
 			</Label>
-
-			<Label label="Custom Title" class="w-full">
-				<svelte:fragment slot="header">
-					<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
-				</svelte:fragment>
-
-				<input bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
-			</Label>
-
-			<Label label="Placeholder">
-				<svelte:fragment slot="header">
-					<Tooltip light>
-						Will be displayed in the input field when the field is empty. If not set, the default
-						value will be used. The placeholder is disabled depending on the field typ, format, etc.
-					</Tooltip>
-				</svelte:fragment>
-
-				<textarea
-					placeholder="Enter a placeholder"
-					rows="1"
-					bind:value={placeholder}
-					disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
-				/>
-			</Label>
+			<div class="flex flex-row gap-2 w-full">
+				<Label label="Custom Title" class="w-full">
+					<svelte:fragment slot="header">
+						<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
+					</svelte:fragment>
+					<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
+				</Label>
+			</div>
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />
 			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
-				<Section label="Field settings" small>
-					<div class="mt-2">
-						{#if type == 'string'}
-							<StringTypeNarrowing
-								bind:customErrorMessage
-								bind:format
-								bind:pattern
-								bind:enum_
-								bind:contentEncoding
-								bind:password={extra['password']}
-								bind:minRows={extra['minRows']}
-								bind:disableCreate={extra['disableCreate']}
-								bind:disableVariablePicker={extra['disableVariablePicker']}
-								bind:dateFormat={extra['dateFormat']}
-							/>
-						{:else if type == 'number' || type == 'integer'}
-							<NumberTypeNarrowing
-								bind:min={extra['min']}
-								bind:max={extra['max']}
-								bind:currency={extra['currency']}
-								bind:currencyLocale={extra['currencyLocale']}
-							/>
-						{:else if type == 'object'}
-							<ObjectTypeNarrowing bind:format />
-						{/if}
-					</div>
-				</Section>
-			{/if}
-
-			{#if !uiOnly}
-				<div class="flex flex-col gap-2">
-					<Label label="Default">
-						<svelte:self
-							{itemPicker}
-							resourceTypes={getResourceTypesFromFormat(format)}
-							bind:value={defaultValue}
-							type={password ? 'string' : type}
-							displayHeader={false}
-							{pattern}
-							{customErrorMessage}
-							{itemsType}
-							{contentEncoding}
-							{format}
-							{extra}
-							{nullable}
-							{variableEditor}
-						/>
-					</Label>
-					<Alert type="info" title="Default not used by webhooks" size="xs" collapsible>
-						If this flow is triggered by a webhook, the default value will not replace a missing
-						value from the payload. It will only be used as the default value in the autogenerated
-						UI. We recommend using default values in the signature of the steps where this value is
-						used (using `x=default`) to have the desired behavior.
-					</Alert>
-					<Toggle
-						options={{ right: 'Required' }}
-						size="xs"
-						bind:checked={required}
-						on:change={(event) => {
-							if (event?.detail) {
-								nullable = false
-							}
-						}}
-					/>
-					{#if type === 'string'}
-						<Toggle
-							options={{
-								right: 'Nullable',
-								rightTooltip: 'If enabled, the default value will be null and not an empty string.'
+				<div class="p-2 my-2 mv-1 text-xs border-solid border rounded-lg">
+					<div class="w-min">
+						<Button
+							on:click={() => {
+								seeEditable = !seeEditable
 							}}
+							endIcon={{
+								icon: ChevronDown,
+								classes: twMerge('rotate-0 duration-300', seeEditable ? '!rotate-180' : '')
+							}}
+							color="light"
 							size="xs"
-							bind:checked={nullable}
-							disabled={required}
-						/>
-					{/if}
-				</div>
-				<div>
-					<Toggle
-						size="xs"
-						options={{ right: 'Show this field only when conditions are met' }}
-						checked={Boolean(showExpr)}
-						on:change={() => {
-							showExpr = showExpr ? undefined : 'true //fields.foo == 42'
-						}}
-					/>
-					{#if showExpr != undefined}
-						<div class="border">
-							<SimpleEditor
-								extraLib={`declare const fields: Record<${propsNames
-									.filter((x) => x != name)
-									.map((x) => `"${x}"`)
-									.join(' | ')}, any>;\n`}
-								lang="javascript"
-								bind:code={showExpr}
-								shouldBindKey={false}
-								fixedOverflowWidgets={false}
-								autoHeight
-							/>
-						</div>
-						<div class="flex flex-row-reverse text-2xs text-tertiary"
-							><div
-								>Other fields are available under <code>fields</code> (e.g:
-								<code>fields.foo == 42</code>)</div
-							></div
 						>
-					{/if}
-				</div>
-			{/if}
+							Customize
+						</Button>
+					</div>
 
-			{#if previewEnabled}
-				<span class="text-2xs font-semibold">Preview:</span>
-			{/if}
-		{/if}
-
-		{#if previewEnabled}
-			<div class="flex space-x-1">
-				{#if inputCat == 'number'}
-					{#if extra['min'] != undefined && extra['max'] != undefined}
-						<Range bind:value min={extra['min']} max={extra['max']} />
-					{:else if extra['seconds'] !== undefined}
-						<SecondsInput bind:seconds={value} on:focus />
-					{:else if extra?.currency}
-						<CurrencyInput
-							inputClasses={{
-								formatted: 'px-2 w-full py-1.5 text-black dark:text-white',
-								wrapper: 'w-full windmillapp',
-								formattedZero: 'text-black dark:text-white'
-							}}
-							noColor
-							bind:value
-							currency={extra?.currency}
-							locale={extra?.currencyLocale ?? 'en-US'}
-						/>
-					{:else}
-						<div class="relative w-full">
-							<input
-								{autofocus}
-								on:focus
-								on:blur
-								{disabled}
-								type="number"
-								on:keydown={() => {
-									ignoreValueUndefined = true
-								}}
-								class={valid
-									? ''
-									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-								placeholder={placeholder ?? defaultValue ?? ''}
-								bind:value
-								min={extra['min']}
-								max={extra['max']}
-							/>
-						</div>
-					{/if}
-				{:else if inputCat == 'boolean'}
-					<Toggle
-						on:pointerdown={(e) => {
-							e?.stopPropagation()
-						}}
-						{disabled}
-						class={valid
-							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-						bind:checked={value}
-					/>
-					{#if type == 'boolean' && value == undefined}
-						<span>&nbsp; Not set</span>
-					{/if}
-				{:else if inputCat == 'list' && !isListJson}
-					<div class="w-full flex gap-4">
-						<div class="w-full">
-							{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
-								<div class="items-start">
-									<Multiselect
-										ulOptionsClass={'p-2 !bg-surface-secondary'}
-										{disabled}
-										bind:selected={value}
-										options={itemsType?.multiselect ?? []}
-										selectedOptionsDraggable={true}
-									/>
-								</div>
-							{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
-								<div class="items-start">
-									<Multiselect
-										ulOptionsClass={'p-2 !bg-surface-secondary'}
-										{disabled}
-										bind:selected={value}
-										options={itemsType?.enum ?? []}
-										selectedOptionsDraggable={true}
-									/>
-								</div>
-							{:else}
-								<div class="w-full">
-									{#key redraw}
-										{#if Array.isArray(value)}
-											{#each value ?? [] as v, i}
-												{#if i < itemsLimit}
-													<div class="flex max-w-md mt-1 w-full items-center">
-														{#if itemsType?.type == 'number'}
-															<input type="number" bind:value={v} id="arg-input-number-array" />
-														{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-															<input
-																type="file"
-																class="my-6"
-																on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-																multiple={false}
-															/>
-														{:else if itemsType?.type == 'object'}
-															<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
-														{:else if Array.isArray(itemsType?.enum)}
-															<ArgEnum
-																required
-																create={extra['disableCreate'] != true}
-																on:focus={() => {
-																	dispatch('focus')
-																}}
-																on:blur={(e) => {
-																	dispatch('blur')
-																}}
-																{defaultValue}
-																{valid}
-																{disabled}
-																{autofocus}
-																bind:value={v}
-																enum_={itemsType?.enum ?? []}
-															/>
-														{:else}
-															<input type="text" bind:value={v} id="arg-input-array" />
-														{/if}
-														<button
-															transition:fade|local={{ duration: 100 }}
-															class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-															aria-label="Clear"
-															on:click={() => {
-																value.splice(i, 1)
-																redraw += 1
-															}}
-														>
-															<X size={14} />
-														</button>
-													</div>
-												{/if}
-											{/each}
-											{#if value.length > itemsLimit}
-												<button
-													on:click={() => (itemsLimit += 50)}
-													class="text-xs py-2 text-blue-600"
-													>{itemsLimit}/{value.length}: Load 50 more...</button
-												>
-											{/if}
-										{/if}
-									{/key}
-								</div>
-								<div class="flex mt-2 gap-20 items-baseline">
-									<Button
-										variant="border"
-										color="light"
-										size="xs"
-										btnClasses="mt-1"
-										on:click={() => {
-											if (value == undefined || !Array.isArray(value)) {
-												value = []
-											}
-											value = value.concat('')
-										}}
-										id="arg-input-add-item"
-										startIcon={{ icon: Plus }}
-									>
-										Add item
-									</Button>
-								</div>
+					{#if seeEditable}
+						<div class="mt-2">
+							{#if type == 'string'}
+								<StringTypeNarrowing
+									bind:customErrorMessage
+									bind:format
+									bind:pattern
+									bind:enum_
+									bind:contentEncoding
+									bind:password={extra['password']}
+									bind:minRows={extra['minRows']}
+									bind:disableCreate={extra['disableCreate']}
+									bind:disableVariablePicker={extra['disableVariablePicker']}
+									bind:dateFormat={extra['dateFormat']}
+								/>
+							{:else if type == 'number' || type == 'integer'}
+								<NumberTypeNarrowing
+									bind:min={extra['min']}
+									bind:max={extra['max']}
+									bind:currency={extra['currency']}
+									bind:currencyLocale={extra['currencyLocale']}
+								/>
+							{:else if type == 'object'}
+								<ObjectTypeNarrowing bind:format />
 							{/if}
 						</div>
-						<div class="mt-2 mr-4">
-							<Toggle
-								on:change={(e) => {
-									evalValueToRaw()
-									isListJson = !isListJson
-								}}
-								checked={isListJson}
-								textClass="text-secondary"
-								size="xs"
-								options={{ right: 'json' }}
-							/>
+						{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern)}
+							<Label label="Placeholder" class="pt-2">
+								<textarea placeholder="Enter a placeholder" rows="1" bind:value={placeholder} />
+							</Label>
+						{/if}
+						{#if !required && type === 'string'}
+							<div class="mt-2 border-t pt-4">
+								<Toggle
+									options={{
+										right: 'Nullable',
+										rightTooltip:
+											'If enabled, the default value will be null and not an empty string.'
+									}}
+									size="xs"
+									bind:checked={extra.nullable}
+								/>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			{/if}
+			<span class="text-2xs font-semibold">Preview:</span>
+		{/if}
+		{#if description}
+			<div class="text-xs italic pb-1 text-secondary">
+				<pre class="font-main whitespace-normal">{description}</pre>
+			</div>
+		{/if}
+
+		<div class="flex space-x-1">
+			{#if inputCat == 'number'}
+				{#if extra['min'] != undefined && extra['max'] != undefined}
+					<div class="flex w-full gap-1">
+						<span>{extra['min']}</span>
+
+						<div class="grow">
+							<Range bind:value min={extra['min']} max={extra['max']} />
 						</div>
+						<span>{extra['max']}</span>
+						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
 					</div>
-				{:else if inputCat == 'resource-object' && resourceTypes == undefined}
-					<span class="text-2xs text-tertiary">Loading resource types...</span>
-				{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-					<ObjectResourceInput
-						selectFirst
-						{disablePortal}
-						{format}
+				{:else if extra['seconds'] !== undefined}
+					<SecondsInput bind:seconds={value} on:focus />
+				{:else if extra?.currency}
+					<CurrencyInput
+						inputClasses={{
+							formatted: 'px-2 w-full py-1.5 text-black dark:text-white',
+							wrapper: 'w-full windmillapp',
+							formattedZero: 'text-black dark:text-white'
+						}}
+						noColor
 						bind:value
-						{showSchemaExplorer}
+						currency={extra?.currency}
+						locale={extra?.currencyLocale ?? 'en-US'}
 					/>
-				{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
-						.replace('resource-', '')
-						.replace('_', '')
-						.toLowerCase() == 's3object'}
-					<div class="flex flex-col w-full gap-1">
-						<Toggle
-							class="flex justify-end"
-							bind:checked={s3FileUploadRawMode}
-							size="xs"
-							options={{ left: 'Raw S3 object input' }}
+				{:else}
+					<div class="relative w-full">
+						<input
+							{autofocus}
+							on:focus
+							on:blur
+							{disabled}
+							type="number"
+							on:keydown={() => {
+								ignoreValueUndefined = true
+							}}
+							class={valid
+								? ''
+								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+							placeholder={placeholder ?? defaultValue ?? ''}
+							bind:value
+							min={extra['min']}
+							max={extra['max']}
 						/>
-						{#if s3FileUploadRawMode}
-							<JsonEditor
-								bind:editor
-								on:focus={(e) => {
-									dispatch('focus')
-								}}
-								on:blur={(e) => {
-									dispatch('blur')
-								}}
-								code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
-								bind:value
-							/>
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									s3FilePicker?.open?.(value)
-								}}
-								startIcon={{ icon: Pipette }}
-							>
-								Choose an object from the catalog
-							</Button>
+					</div>
+				{/if}
+			{:else if inputCat == 'boolean'}
+				<Toggle
+					on:pointerdown={(e) => {
+						e?.stopPropagation()
+					}}
+					{disabled}
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+					bind:checked={value}
+				/>
+				{#if type == 'boolean' && value == undefined}
+					<span>&nbsp; Not set</span>
+				{/if}
+			{:else if inputCat == 'list' && !isListJson}
+				<div class="w-full flex gap-4">
+					<div class="w-full">
+						{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
+							<div class="items-start">
+								<Multiselect
+									ulOptionsClass={'p-2 !bg-surface-secondary'}
+									{disabled}
+									bind:selected={value}
+									options={itemsType?.multiselect ?? []}
+									selectedOptionsDraggable={true}
+								/>
+							</div>
+						{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
+							<div class="items-start">
+								<Multiselect
+									ulOptionsClass={'p-2 !bg-surface-secondary'}
+									{disabled}
+									bind:selected={value}
+									options={itemsType?.enum ?? []}
+									selectedOptionsDraggable={true}
+								/>
+							</div>
 						{:else}
-							<FileUpload
-								allowMultiple={false}
-								randomFileKey={true}
-								on:addition={(evt) => {
-									value = {
-										s3: evt.detail?.path ?? ''
-									}
-								}}
-								on:deletion={(evt) => {
-									value = {
-										s3: ''
-									}
-								}}
-								defaultValue={defaultValue?.s3}
-							/>
+							<div class="w-full">
+								{#key redraw}
+									{#if Array.isArray(value)}
+										{#each value ?? [] as v, i}
+											{#if i < itemsLimit}
+												<div class="flex max-w-md mt-1 w-full items-center">
+													{#if itemsType?.type == 'number'}
+														<input type="number" bind:value={v} id="arg-input-number-array" />
+													{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+														<input
+															type="file"
+															class="my-6"
+															on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+															multiple={false}
+														/>
+													{:else if itemsType?.type == 'object'}
+														<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+													{:else if Array.isArray(itemsType?.enum)}
+														<ArgEnum
+															required
+															create={extra['disableCreate'] != true}
+															on:focus={() => {
+																dispatch('focus')
+															}}
+															on:blur={(e) => {
+																dispatch('blur')
+															}}
+															{defaultValue}
+															{valid}
+															{disabled}
+															{autofocus}
+															bind:value={v}
+															enum_={itemsType?.enum ?? []}
+														/>
+													{:else}
+														<input type="text" bind:value={v} id="arg-input-array" />
+													{/if}
+													<button
+														transition:fade|local={{ duration: 100 }}
+														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+														aria-label="Clear"
+														on:click={() => {
+															value.splice(i, 1)
+															redraw += 1
+														}}
+													>
+														<X size={14} />
+													</button>
+												</div>
+											{/if}
+										{/each}
+										{#if value.length > itemsLimit}
+											<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
+												>{itemsLimit}/{value.length}: Load 50 more...</button
+											>
+										{/if}
+									{/if}
+								{/key}
+							</div>
+							<div class="flex mt-2 gap-20 items-baseline">
+								<Button
+									variant="border"
+									color="light"
+									size="xs"
+									btnClasses="mt-1"
+									on:click={() => {
+										if (value == undefined || !Array.isArray(value)) {
+											value = []
+										}
+										value = value.concat('')
+									}}
+									id="arg-input-add-item"
+									startIcon={{ icon: Plus }}
+								>
+									Add item
+								</Button>
+							</div>
 						{/if}
 					</div>
-				{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
-					{#if properties && Object.keys(properties).length > 0}
-						<div class="p-4 pl-8 border rounded w-full">
-							<SchemaForm
-								{onlyMaskPassword}
-								{disablePortal}
-								{disabled}
-								{dndEnabled}
-								schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
-								bind:args={value}
-							/>
-						</div>
-					{:else if disabled}
-						<textarea disabled />
-					{:else}
+					<div class="mt-2 mr-4">
+						<Toggle
+							on:change={(e) => {
+								evalValueToRaw()
+								isListJson = !isListJson
+							}}
+							checked={isListJson}
+							textClass="text-secondary"
+							size="xs"
+							options={{ right: 'json' }}
+						/>
+					</div>
+				</div>
+			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
+				<span class="text-2xs text-tertiary">Loading resource types...</span>
+			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
+				<ObjectResourceInput selectFirst {disablePortal} {format} bind:value {showSchemaExplorer} />
+			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
+					.replace('resource-', '')
+					.replace('_', '')
+					.toLowerCase() == 's3object'}
+				<div class="flex flex-col w-full gap-1">
+					<Toggle
+						class="flex justify-end"
+						bind:checked={s3FileUploadRawMode}
+						size="xs"
+						options={{ left: 'Raw S3 object input' }}
+					/>
+					{#if s3FileUploadRawMode}
 						<JsonEditor
 							bind:editor
 							on:focus={(e) => {
@@ -657,176 +559,227 @@
 							on:blur={(e) => {
 								dispatch('blur')
 							}}
-							code={rawValue}
+							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
 							bind:value
 						/>
-					{/if}
-					{#if inputCat == 'list'}
-						<div class="block">
-							<Toggle
-								on:change={(e) => {
-									isListJson = !isListJson
-								}}
-								checked={isListJson}
-								textClass="text-secondary"
-								size="xs"
-								options={{ right: 'json' }}
-							/>
-						</div>
-					{/if}
-				{:else if inputCat == 'enum'}
-					<div class="flex flex-row w-full gap-1">
-						<ArgEnum
-							{required}
-							create={extra['disableCreate'] != true}
-							{defaultValue}
-							{valid}
-							{disabled}
-							bind:value
-							{enum_}
-							{autofocus}
-						/>
-					</div>
-				{:else if inputCat == 'date'}
-					{#if format === 'date'}
-						<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+						<Button
+							variant="border"
+							color="light"
+							size="xs"
+							btnClasses="mt-1"
+							on:click={() => {
+								s3FilePicker?.open?.(value)
+							}}
+							startIcon={{ icon: Pipette }}
+						>
+							Choose an object from the catalog
+						</Button>
 					{:else}
-						<DateTimeInput useDropdown {autofocus} bind:value />
+						<FileUpload
+							allowMultiple={false}
+							randomFileKey={true}
+							on:addition={(evt) => {
+								value = {
+									s3: evt.detail?.path ?? ''
+								}
+							}}
+							on:deletion={(evt) => {
+								value = {
+									s3: ''
+								}
+							}}
+							defaultValue={defaultValue?.s3}
+						/>
 					{/if}
-				{:else if inputCat == 'sql' || inputCat == 'yaml'}
-					<div class="border my-1 mb-4 w-full border-primary">
-						<SimpleEditor
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
-							on:blur={(e) => {
-								dispatch('blur')
-							}}
-							bind:this={editor}
-							lang={inputCat}
-							bind:code={value}
-							autoHeight
+				</div>
+			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
+				{#if properties && Object.keys(properties).length > 0}
+					<div class="p-4 pl-8 border rounded w-full">
+						<SchemaForm
+							{onlyMaskPassword}
+							{disablePortal}
+							{disabled}
+							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
+							bind:args={value}
 						/>
 					</div>
-				{:else if inputCat == 'base64'}
-					<div class="flex flex-col w-full">
-						<input
-							{autofocus}
-							type="file"
-							on:change={(x) => fileChanged(x, (val) => (value = val))}
-							multiple={false}
+				{:else if disabled}
+					<textarea disabled />
+				{:else}
+					<JsonEditor
+						bind:editor
+						on:focus={(e) => {
+							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
+						code={rawValue}
+						bind:value
+					/>
+				{/if}
+				{#if inputCat == 'list'}
+					<div class="block">
+						<Toggle
+							on:change={(e) => {
+								isListJson = !isListJson
+							}}
+							checked={isListJson}
+							textClass="text-secondary"
+							size="xs"
+							options={{ right: 'json' }}
 						/>
-						{#if value?.length}
-							<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div
-							>
-						{/if}
-					</div>
-				{:else if inputCat == 'resource-string'}
-					<ResourcePicker
-						selectFirst
-						{disablePortal}
-						bind:value
-						resourceType={format && format.split('-').length > 1
-							? format.substring('resource-'.length)
-							: undefined}
-						{showSchemaExplorer}
-					/>
-				{:else if inputCat == 'email'}
-					<input
-						{autofocus}
-						on:focus
-						on:blur
-						{disabled}
-						type="email"
-						class={valid
-							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
-						placeholder={placeholder ?? defaultValue ?? ''}
-						bind:value
-					/>
-				{:else if inputCat == 'string'}
-					<div class="flex flex-col w-full">
-						<div class="flex flex-row w-full items-center justify-between relative">
-							{#if password || extra?.['password'] == true}
-								{#if onlyMaskPassword}
-									<Password
-										{disabled}
-										bind:password={value}
-										placeholder={placeholder ?? defaultValue ?? ''}
-									/>
-								{:else}
-									<PasswordArgInput {disabled} bind:value />
-								{/if}
-							{:else}
-								{#key extra?.['minRows']}
-									<textarea
-										{autofocus}
-										rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
-										bind:this={el}
-										on:focus={(e) => {
-											dispatch('focus')
-										}}
-										on:blur={(e) => {
-											dispatch('blur')
-										}}
-										use:autosize
-										on:keydown={onKeyDown}
-										{disabled}
-										class={twMerge(
-											'w-full',
-											valid
-												? ''
-												: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
-										)}
-										placeholder={placeholder ?? defaultValue ?? ''}
-										bind:value
-									/>
-								{/key}
-								{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<button
-										class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
-										on:click={() => {
-											pickForField = label
-											itemPicker?.openDrawer?.()
-										}}
-										title="Insert a Variable"
-									>
-										<DollarSign class="!text-tertiary" size={14} />
-									</button>
-								{/if}
-							{/if}
-						</div>
-						{#if variableEditor}
-							<div class="text-sm text-tertiary">
-								{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-									Linked to variable <button
-										class="text-blue-500 underline"
-										on:click={() => variableEditor?.editVariable?.(value.slice(5))}
-									>
-										{value.slice(5)}</button
-									>
-								{/if}
-							</div>
-						{/if}
 					</div>
 				{/if}
-				<slot name="actions" />
-			</div>
-		{/if}
-		{#if (!compact || (error && error != '')) && previewEnabled}
-			{#if disabled || error === ''}
-				<div class="text-right text-xs text-red-600 dark:text-red-400"> &nbsp; </div>
-			{:else}
-				<div class="text-right text-xs text-red-600 dark:text-red-400">{error}</div>
+			{:else if inputCat == 'enum'}
+				<div class="flex flex-row w-full gap-1">
+					<ArgEnum
+						{required}
+						create={extra['disableCreate'] != true}
+						{defaultValue}
+						{valid}
+						{disabled}
+						bind:value
+						{enum_}
+						{autofocus}
+					/>
+				</div>
+			{:else if inputCat == 'date'}
+				{#if format === 'date'}
+					<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+				{:else}
+					<DateTimeInput useDropdown {autofocus} bind:value />
+				{/if}
+			{:else if inputCat == 'sql' || inputCat == 'yaml'}
+				<div class="border my-1 mb-4 w-full border-primary">
+					<SimpleEditor
+						on:focus={(e) => {
+							dispatch('focus')
+						}}
+						on:blur={(e) => {
+							dispatch('blur')
+						}}
+						bind:this={editor}
+						lang={inputCat}
+						bind:code={value}
+						autoHeight
+					/>
+				</div>
+			{:else if inputCat == 'base64'}
+				<div class="flex flex-col my-6 w-full">
+					<input
+						{autofocus}
+						type="file"
+						on:change={(x) => fileChanged(x, (val) => (value = val))}
+						multiple={false}
+					/>
+					{#if value?.length}
+						<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div>
+					{/if}
+				</div>
+			{:else if inputCat == 'resource-string'}
+				<ResourcePicker
+					selectFirst
+					{disablePortal}
+					bind:value
+					resourceType={format && format.split('-').length > 1
+						? format.substring('resource-'.length)
+						: undefined}
+					{showSchemaExplorer}
+				/>
+			{:else if inputCat == 'email'}
+				<input
+					{autofocus}
+					on:focus
+					on:blur
+					{disabled}
+					type="email"
+					class={valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'}
+					placeholder={placeholder ?? defaultValue ?? ''}
+					bind:value
+				/>
+			{:else if inputCat == 'string'}
+				<div class="flex flex-col w-full">
+					<div class="flex flex-row w-full items-center justify-between relative">
+						{#if password || extra?.['password'] == true}
+							{#if onlyMaskPassword}
+								<Password
+									{disabled}
+									bind:password={value}
+									placeholder={placeholder ?? defaultValue ?? ''}
+								/>
+							{:else}
+								<PasswordArgInput {disabled} bind:value />
+							{/if}
+						{:else}
+							{#key extra?.['minRows']}
+								<textarea
+									{autofocus}
+									rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
+									bind:this={el}
+									on:focus={(e) => {
+										dispatch('focus')
+									}}
+									on:blur={(e) => {
+										dispatch('blur')
+									}}
+									use:autosize
+									on:keydown={onKeyDown}
+									{disabled}
+									class={twMerge(
+										'w-full',
+										valid
+											? ''
+											: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
+									)}
+									placeholder={placeholder ?? defaultValue ?? ''}
+									bind:value
+								/>
+							{/key}
+							{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<button
+									class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+									on:click={() => {
+										pickForField = label
+										itemPicker?.openDrawer?.()
+									}}
+									title="Insert a Variable"
+								>
+									<DollarSign class="!text-tertiary" size={14} />
+								</button>
+							{/if}
+						{/if}
+					</div>
+					{#if variableEditor}
+						<div class="text-sm text-tertiary">
+							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+								Linked to variable <button
+									class="text-blue-500 underline"
+									on:click={() => variableEditor?.editVariable?.(value.slice(5))}
+									>{value.slice(5)}</button
+								>
+							{/if}
+						</div>
+					{/if}
+				</div>
 			{/if}
+			<slot name="actions" />
+		</div>
+		{#if !compact || (error && error != '')}
+			<div class="text-right text-xs text-red-600 dark:text-red-400">
+				{#if disabled || error === ''}
+					&nbsp;
+				{:else}
+					{error}
+				{/if}
+			</div>
 		{:else if !noMargin}
 			<div class="mb-2" />
 		{/if}
 	</div>
-	{#if dndEnabled}
-		<GripVertical class="w-4 h-4 text-gray-500 cursor-move" />
-	{/if}
 </div>
 
 <style>
