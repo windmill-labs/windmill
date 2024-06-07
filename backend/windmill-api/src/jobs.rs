@@ -1307,7 +1307,6 @@ async fn cancel_selection(
 async fn list_filtered_uuids(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
 
     Path(w_id): Path<String>,
     Query(lq): Query<ListQueueQuery>,
