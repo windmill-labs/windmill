@@ -1,5 +1,4 @@
 <script lang="ts">
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
@@ -16,6 +15,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
+	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
@@ -228,7 +228,11 @@
 						right: 'Hide cancel button on approval page'
 					}}
 				/>
-				<SchemaEditor bind:schema={flowModule.suspend.resume_form.schema} />
+				<EditableSchemaWrapper
+					bind:schema={flowModule.suspend.resume_form.schema}
+					noPreview
+					fullHeight={false}
+				/>
 			{/if}
 		</div>
 	{/if}

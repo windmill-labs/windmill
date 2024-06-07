@@ -7,7 +7,6 @@
 	export let offset: number = 0
 	export let uiOnly: boolean = false
 	export let noPreview: boolean = false
-	export let hideJsonToggle: boolean = false
 	export let fullHeight: boolean = true
 
 	let addProperty: AddProperty | undefined = undefined
@@ -15,7 +14,7 @@
 
 <div class="border h-80 overflow-y-scroll">
 	<div class="pt-6 px-4 border-b pb-4">
-		<AddProperty isFlowInput bind:schema bind:this={addProperty} {hideJsonToggle} />
+		<AddProperty bind:schema bind:this={addProperty} />
 	</div>
 	<EditableSchemaForm
 		bind:schema

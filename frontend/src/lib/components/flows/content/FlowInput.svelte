@@ -22,7 +22,7 @@
 	let inputLibraryDrawer: Drawer
 	let jsonPayload: Drawer
 	let pendingJson: string
-	let schemaEditor: AddProperty | undefined = undefined
+	let addProperty: AddProperty | undefined = undefined
 
 	function importJson() {
 		const parsed = JSON.parse(pendingJson)
@@ -82,9 +82,8 @@
 	</div>
 	<div class="pt-6 px-4 border-b pb-4">
 		<AddProperty
-			isFlowInput
 			bind:schema={$flowStore.schema}
-			bind:this={schemaEditor}
+			bind:this={addProperty}
 			on:change={() => {
 				$flowStore = $flowStore
 			}}
@@ -94,11 +93,12 @@
 		bind:schema={$flowStore.schema}
 		isFlowInput
 		on:edit={(e) => {
-			schemaEditor?.openDrawer(e.detail)
+			addProperty?.openDrawer(e.detail)
 		}}
 		on:delete={(e) => {
-			schemaEditor?.handleDeleteArgument([e.detail])
+			addProperty?.handleDeleteArgument([e.detail])
 		}}
+		offset={201}
 	/>
 </FlowCard>
 

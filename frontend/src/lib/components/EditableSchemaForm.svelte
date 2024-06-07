@@ -13,13 +13,15 @@
 	import Section from './Section.svelte'
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
-
+	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import Toggle from './Toggle.svelte'
+	import { emptyString } from '$lib/utils'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -29,9 +31,12 @@
 	export let noVariablePicker = false
 	export let flexWrap = false
 	export let noDelete = false
+	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
+	export let offset = 48 + 31 + 31 + 16 + 1
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
+	export let fullHeight: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -115,11 +120,13 @@
 		}
 	}
 
-	let wrapperHeight: number | undefined = undefined
-
 	let opened: string | undefined = undefined
 
 	let selected = ''
+
+	export function openField(key: string) {
+		opened = key
+	}
 
 	$: if (opened === undefined && keys.length > 0) {
 		opened = keys[0]
@@ -164,9 +171,13 @@
 			sendUserToast('Argument renamed successfully')
 		}
 	}
+
+	let jsonView: boolean = false
+	let schemaString: string = ''
+	let error: string | undefined = undefined
 </script>
 
-<div bind:clientHeight={wrapperHeight}>
+<div style={fullHeight ? `height: calc(100vh - ${offset}px);` : ''}>
 	<Splitpanes>
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
@@ -188,175 +199,224 @@
 			</Pane>
 		{/if}
 		<Pane size={noPreview ? 100 : 50} minSize={noPreview ? 100 : 20}>
-			<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} divide-y">
-				{#if keys.length > 0}
-					{#each keys as argName, i (argName)}
-						<div>
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<div
-								class={twMerge(
-									'w-full flex bg-gray-50 dark:bg-gray-800 px-4 py-1 justify-between items-center hover:bg-gray-100 cursor-pointer',
-									opened === argName ? 'bg-gray-100 hover:bg-gray-200' : ''
-								)}
-								on:click={() => {
-									if (opened === argName) {
-										opened = undefined
-									} else {
-										opened = argName
-									}
-								}}
-							>
-								{argName}
-								{#if schema.required?.includes(argName)}
-									<span class="text-red-500 text-xs"> Required </span>
-								{/if}
-								{#if !uiOnly}
-									<div class="flex flex-row gap-1 items-center justify-center">
-										<button
-											class="rounded-full p-1 text-gray-500 bg-white
+			<div class="w-full p-1">
+				<Toggle
+					bind:checked={jsonView}
+					label="JSON View"
+					size="xs"
+					options={{
+						left: 'Rich Editor',
+						leftTooltip: 'View the schema in a rich editor',
+						right: 'JSON Editor',
+						rightTooltip:
+							'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+					}}
+					lightMode
+					on:change={() => {
+						if (jsonView) {
+							schemaString = JSON.stringify(schema, null, '\t')
+						}
+					}}
+				/>
+			</div>
+
+			{#if !jsonView}
+				<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} divide-y">
+					{#if keys.length > 0}
+						{#each keys as argName, i (argName)}
+							<div>
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<div
+									class={twMerge(
+										'w-full flex bg-gray-50 dark:bg-gray-800 px-4 py-1 justify-between items-center hover:bg-gray-100 cursor-pointer',
+										opened === argName ? 'bg-gray-100 hover:bg-gray-200' : ''
+									)}
+									on:click={() => {
+										if (opened === argName) {
+											opened = undefined
+										} else {
+											opened = argName
+										}
+									}}
+								>
+									{argName}
+									{#if schema.required?.includes(argName)}
+										<span class="text-red-500 text-xs"> Required </span>
+									{/if}
+									{#if !uiOnly}
+										<div class="flex flex-row gap-1 items-center justify-center">
+											<button
+												class="rounded-full p-1 text-gray-500 bg-white
 			duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white"
-											aria-label="Clear"
-											on:click={() => {
-												dispatch('delete', argName)
-											}}
-										>
-											<X size={16} />
-										</button>
+												aria-label="Clear"
+												on:click={() => {
+													dispatch('delete', argName)
+												}}
+											>
+												<X size={16} />
+											</button>
+										</div>
+									{/if}
+								</div>
+								{#if opened === argName}
+									<div class="p-4 border-t">
+										{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+											{#if typeof args == 'object' && schema?.properties[argName]}
+												<PropertyEditor
+													bind:description={schema.properties[argName].description}
+													type={schema.properties[argName].type}
+													bind:pattern={schema.properties[argName].pattern}
+													bind:enum_={schema.properties[argName].enum}
+													bind:format={schema.properties[argName].format}
+													bind:contentEncoding={schema.properties[argName].contentEncoding}
+													bind:customErrorMessage={schema.properties[argName].customErrorMessage}
+													bind:itemsType={schema.properties[argName].items}
+													on:changePosition={(event) =>
+														changePosition(event.detail.i, event.detail.up)}
+													bind:extra={schema.properties[argName]}
+													bind:title={schema.properties[argName].title}
+													bind:placeholder={schema.properties[argName].placeholder}
+													bind:properties={schema.properties[argName].properties}
+													{isFlowInput}
+												>
+													<svelte:fragment slot="typeeditor">
+														{#if isFlowInput}
+															<Label label="Type">
+																<ToggleButtonGroup
+																	bind:selected
+																	on:selected={(e) => {
+																		const isS3 = e.detail == 'S3'
+
+																		selected = e.detail
+
+																		const emptyProperty = {
+																			contentEncoding: undefined,
+																			enum_: undefined,
+																			pattern: undefined,
+																			default: undefined,
+																			min: undefined,
+																			max: undefined,
+																			currency: undefined,
+																			currencyLocale: undefined,
+																			multiselect: undefined,
+																			password: undefined,
+																			dateFormat: undefined,
+																			...(e.detail == 'array' ? { items: { type: 'string' } } : {}),
+																			showExpr: undefined,
+																			nullable: undefined,
+																			required: undefined
+																		}
+
+																		if (isS3) {
+																			schema.properties[argName] = {
+																				...emptyProperty,
+																				type: 'object',
+																				format: 'resource-s3_object'
+																			}
+																		} else {
+																			schema.properties[argName] = {
+																				...emptyProperty,
+																				format: undefined,
+																				type: e.detail
+																			}
+																		}
+																	}}
+																>
+																	{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
+																		<ToggleButton value={x[1]} label={x[0]} />
+																	{/each}
+																</ToggleButtonGroup>
+															</Label>
+															<Label label="Name">
+																<div class="flex flex-row gap-2">
+																	<input
+																		type="text"
+																		class="w-full"
+																		value={argName}
+																		id={argName + i}
+																	/>
+																	<Button
+																		variant="border"
+																		color="light"
+																		size="xs"
+																		on:click={() => {
+																			renameProperty(argName, argName + i)
+																		}}
+																	>
+																		Rename
+																	</Button>
+																</div>
+															</Label>
+														{/if}
+													</svelte:fragment>
+
+													{#if isFlowInput}
+														<FlowPropertyEditor
+															bind:defaultValue={schema.properties[argName].default}
+															{variableEditor}
+															{itemPicker}
+															bind:nullable={schema.properties[argName].nullable}
+															type={schema.properties[argName].type}
+															bind:format={schema.properties[argName].format}
+															contentEncoding={schema.properties[argName].contentEncoding}
+															required={schema.required?.includes(argName) ?? false}
+															pattern={schema.properties[argName].pattern}
+															password={schema.properties[argName].password}
+															propsNames={schema.properties[argName].propsNames}
+															bind:showExpr={schema.properties[argName].showExpr}
+															extra={schema.properties[argName]}
+															customErrorMessage={schema.properties[argName].customErrorMessage}
+															itemsType={schema.properties[argName].items}
+															bind:properties={schema.properties[argName].properties}
+															on:requiredChange={(event) => {
+																if (event.detail.required) {
+																	schema.required = schema.required ?? []
+																	schema.required.push(argName)
+																} else {
+																	schema.required = schema.required?.filter((x) => x !== argName)
+																}
+															}}
+														/>
+													{/if}
+												</PropertyEditor>
+											{/if}
+										{/if}
 									</div>
 								{/if}
 							</div>
-							{#if opened === argName}
-								<div class="p-4 border-t">
-									{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-										{#if typeof args == 'object' && schema?.properties[argName]}
-											<PropertyEditor
-												bind:description={schema.properties[argName].description}
-												type={schema.properties[argName].type}
-												bind:pattern={schema.properties[argName].pattern}
-												bind:enum_={schema.properties[argName].enum}
-												bind:format={schema.properties[argName].format}
-												bind:contentEncoding={schema.properties[argName].contentEncoding}
-												bind:customErrorMessage={schema.properties[argName].customErrorMessage}
-												bind:itemsType={schema.properties[argName].items}
-												on:changePosition={(event) =>
-													changePosition(event.detail.i, event.detail.up)}
-												bind:extra={schema.properties[argName]}
-												bind:title={schema.properties[argName].title}
-												bind:placeholder={schema.properties[argName].placeholder}
-												bind:properties={schema.properties[argName].properties}
-												{isFlowInput}
-											>
-												<svelte:fragment slot="typeeditor">
-													{#if isFlowInput}
-														<Label label="Type">
-															<ToggleButtonGroup
-																bind:selected
-																on:selected={(e) => {
-																	const isS3 = e.detail == 'S3'
-
-																	selected = e.detail
-
-																	const emptyProperty = {
-																		contentEncoding: undefined,
-																		enum_: undefined,
-																		pattern: undefined,
-																		default: undefined,
-																		min: undefined,
-																		max: undefined,
-																		currency: undefined,
-																		currencyLocale: undefined,
-																		multiselect: undefined,
-																		password: undefined,
-																		dateFormat: undefined,
-																		...(e.detail == 'array' ? { items: { type: 'string' } } : {}),
-																		showExpr: undefined,
-																		nullable: undefined,
-																		required: undefined
-																	}
-
-																	if (isS3) {
-																		schema.properties[argName] = {
-																			...emptyProperty,
-																			type: 'object',
-																			format: 'resource-s3_object'
-																		}
-																	} else {
-																		schema.properties[argName] = {
-																			...emptyProperty,
-																			format: undefined,
-																			type: e.detail
-																		}
-																	}
-																}}
-															>
-																{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
-																	<ToggleButton value={x[1]} label={x[0]} />
-																{/each}
-															</ToggleButtonGroup>
-														</Label>
-														<Label label="Name">
-															<div class="flex flex-row gap-2">
-																<input
-																	type="text"
-																	class="w-full"
-																	value={argName}
-																	id={argName + i}
-																/>
-																<Button
-																	variant="border"
-																	color="light"
-																	size="xs"
-																	on:click={() => {
-																		renameProperty(argName, argName + i)
-																	}}
-																>
-																	Rename
-																</Button>
-															</div>
-														</Label>
-													{/if}
-												</svelte:fragment>
-
-												{#if isFlowInput}
-													<FlowPropertyEditor
-														bind:defaultValue={schema.properties[argName].default}
-														{variableEditor}
-														{itemPicker}
-														bind:nullable={schema.properties[argName].nullable}
-														type={schema.properties[argName].type}
-														bind:format={schema.properties[argName].format}
-														contentEncoding={schema.properties[argName].contentEncoding}
-														required={schema.required?.includes(argName) ?? false}
-														pattern={schema.properties[argName].pattern}
-														password={schema.properties[argName].password}
-														propsNames={schema.properties[argName].propsNames}
-														bind:showExpr={schema.properties[argName].showExpr}
-														extra={schema.properties[argName]}
-														customErrorMessage={schema.properties[argName].customErrorMessage}
-														itemsType={schema.properties[argName].items}
-														bind:properties={schema.properties[argName].properties}
-														on:requiredChange={(event) => {
-															if (event.detail.required) {
-																schema.required = schema.required ?? []
-																schema.required.push(argName)
-															} else {
-																schema.required = schema.required?.filter((x) => x !== argName)
-															}
-														}}
-													/>
-												{/if}
-											</PropertyEditor>
-										{/if}
-									{/if}
-								</div>
-							{/if}
-						</div>
-					{/each}
-				{:else if !shouldHideNoInputs}
-					<div class="text-secondary text-sm p-2">No inputs</div>
-				{/if}
-			</div>
+						{/each}
+					{:else if !shouldHideNoInputs}
+						<div class="text-secondary text-sm p-2">No inputs</div>
+					{/if}
+				</div>
+			{:else}
+				<div class="p-2">
+					<div class="border rounded h-full">
+						<SimpleEditor
+							small
+							fixedOverflowWidgets={false}
+							on:change={() => {
+								try {
+									schema = JSON.parse(schemaString)
+									error = ''
+								} catch (err) {
+									error = err.message
+								}
+							}}
+							bind:code={schemaString}
+							lang="json"
+							autoHeight
+							automaticLayout
+						/>
+					</div>
+					{#if !emptyString(error)}
+						<div class="text-red-400 text-xs">{error}</div>
+					{:else}
+						<div><br /> </div>
+					{/if}
+				</div>
+			{/if}
 		</Pane>
 	</Splitpanes>
 </div>

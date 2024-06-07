@@ -68,7 +68,7 @@
 			<svelte:fragment slot="content">
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<EditableSchemaWrapper bind:schema noPreview hideJsonToggle fullHeight={false} />
+						<EditableSchemaWrapper bind:schema noPreview fullHeight={false} />
 					</TabContent>
 
 					<TabContent value="resource">

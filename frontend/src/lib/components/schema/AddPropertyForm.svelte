@@ -10,7 +10,7 @@
 </script>
 
 <div class="flex flex-row gap-2">
-	<input bind:value={name} placeholder="Argument name" />
+	<input bind:value={name} placeholder="Field name" />
 	<Button
 		variant="contained"
 		color="dark"
@@ -23,6 +23,6 @@
 		}}
 		disabled={!name}
 	>
-		Add Argument
+		Add field
 	</Button>
 </div>

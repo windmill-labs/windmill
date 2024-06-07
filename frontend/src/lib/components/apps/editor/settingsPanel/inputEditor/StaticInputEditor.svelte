@@ -9,7 +9,6 @@
 	import ColorInput from './ColorInput.svelte'
 	import TabSelectInput from './TabSelectInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import autosize from '$lib/autosize'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Settings } from 'lucide-svelte'
@@ -22,6 +21,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 	import DBTableSelect from './DBTableSelect.svelte'
+	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -171,7 +171,7 @@
 			<ArrayStaticInputEditor {id} {subFieldType} bind:componentInput on:deleteArrayItem />
 		{:else if fieldType === 'schema'}
 			<div class="w-full">
-				<SchemaEditor bind:schema={componentInput.value} lightMode />
+				<EditableSchemaDrawer bind:schema={componentInput.value} />
 			</div>
 		{:else if fieldType === 'ag-grid'}
 			<div class="flex flex-row rounded-md bg-surface items-center h-full">

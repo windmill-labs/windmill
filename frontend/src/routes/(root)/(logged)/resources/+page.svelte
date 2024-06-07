@@ -16,7 +16,6 @@
 	import Required from '$lib/components/Required.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -52,6 +51,7 @@
 	import autosize from '$lib/autosize'
 	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
+	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -418,7 +418,7 @@
 			>
 			<div>
 				<div class="mb-1 font-semibold text-secondary">Schema</div>
-				<SchemaEditor bind:schema={editResourceType.schema} />
+				<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview fullHeight={false} />
 			</div>
 		</div>
 	</DrawerContent>
@@ -486,7 +486,6 @@
 
 				<div class="border-b pb-4">
 					<AddProperty
-						isFlowInput
 						bind:schema={newResourceType.schema}
 						bind:this={addProperty}
 						on:change={() => {
@@ -503,6 +502,7 @@
 					on:delete={(e) => {
 						addProperty?.handleDeleteArgument([e.detail])
 					}}
+					fullHeight={false}
 				/>
 			</div>
 		</div>

@@ -5,21 +5,19 @@
 		modalToSchema,
 		type ModalSchemaProperty
 	} from '$lib/common'
-	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import SchemaModal, { DEFAULT_PROPERTY } from '../SchemaModal.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
-	import Toggle from '../Toggle.svelte'
-	import Tooltip from '../Tooltip.svelte'
-	import Portal from 'svelte-portal'
-	import type VariableEditor from '../VariableEditor.svelte'
 	import AddPropertyForm from './AddPropertyForm.svelte'
 
-	export let isFlowInput = false
-	export let variableEditor: VariableEditor | undefined = undefined
 	export let schema: Schema | any = emptySchema()
-	export let lightMode: boolean = false
-	export let hideJsonToggle: boolean = false
+
+	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
+		selectedType: 'string',
+		description: '',
+		name: '',
+		required: false
+	}
 
 	const dispatch = createEventDispatcher()
 
@@ -27,31 +25,13 @@
 		schema = emptySchema()
 	}
 
-	let schemaModal: SchemaModal
 	let schemaString: string = ''
 
 	// Internal state: bound to args builder modal
 	let argError = ''
 	let editing = false
 	let oldArgName: string | undefined // when editing argument and changing name
-
-	let viewJsonSchema = false
 	let jsonEditor: SimpleEditor
-
-	// Binding is not enough because monaco Editor does not support two-way binding
-	export function getSchema(): Schema {
-		try {
-			if (viewJsonSchema) {
-				schema = JSON.parse(schemaString)
-				return schema
-			} else {
-				schemaString = JSON.stringify(schema, null, '\t')
-				return schema
-			}
-		} catch (err) {
-			throw Error(`Error: input is not a valid schema: ${err}`)
-		}
-	}
 
 	reorder()
 
@@ -127,8 +107,6 @@
 			modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 			editing = false
 			oldArgName = undefined
-
-			schemaModal.closeDrawer()
 		}
 
 		schema = schema
@@ -175,99 +153,20 @@
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}
 	}
-
-	function switchTab(): void {
-		if (viewJsonSchema) {
-			if (schemaString === '') {
-				schemaString = JSON.stringify(emptySchema(), null, 4)
-			}
-			viewJsonSchema = false
-		} else {
-			schemaString = JSON.stringify(schema, null, '\t')
-			viewJsonSchema = true
-		}
-	}
-
-	let error = ''
 </script>
 
-<div class="flex flex-col">
-	<div class="flex justify-between items-center gap-x-2">
-		<div>
-			<AddPropertyForm
-				on:add={(e) => {
-					try {
-						handleAddOrEditArgument({
-							...DEFAULT_PROPERTY,
-							selectedType: 'string',
-							name: e.detail.name
-						})
-					} catch (err) {
-						sendUserToast(`Could not add argument: ${err}`, true)
-					}
-				}}
-			/>
-		</div>
-
-		{#if !hideJsonToggle}
-			<div class="flex items-center">
-				<Toggle
-					size={lightMode ? 'xs' : 'sm'}
-					on:change={() => switchTab()}
-					options={{
-						right: 'As JSON'
-					}}
-				/>
-				<div class="ml-2">
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing#script-parameters-to-json-schema"
-					>
-						Arguments can be edited either using the wizard, or by editing their JSON Schema.
-					</Tooltip>
-				</div>
-			</div>
-		{/if}
-	</div>
-
-	<!--json schema or table view-->
-	<div class="h-full">
-		{#if viewJsonSchema}
-			<div class="border rounded p-2">
-				<SimpleEditor
-					small
-					bind:this={jsonEditor}
-					fixedOverflowWidgets={false}
-					on:change={() => {
-						try {
-							schema = JSON.parse(schemaString)
-							error = ''
-						} catch (err) {
-							error = err.message
-						}
-					}}
-					bind:code={schemaString}
-					lang="json"
-					class="small-editor"
-				/>
-			</div>
-			{#if !emptyString(error)}
-				<div class="text-red-400">{error}</div>
-			{:else}
-				<div><br /></div>
-			{/if}
-		{/if}
-	</div>
-</div>
-
-<Portal>
-	<SchemaModal
-		{isFlowInput}
-		bind:this={schemaModal}
-		bind:error={argError}
-		on:save={(e) => handleAddOrEditArgument(e.detail)}
-		bind:editing
-		bind:oldArgName
-		propsNames={Object.keys(schema.properties ?? {})}
-		{variableEditor}
+<div class="flex">
+	<AddPropertyForm
+		on:add={(e) => {
+			try {
+				handleAddOrEditArgument({
+					...DEFAULT_PROPERTY,
+					selectedType: 'string',
+					name: e.detail.name
+				})
+			} catch (err) {
+				sendUserToast(`Could not add argument: ${err}`, true)
+			}
+		}}
 	/>
-</Portal>
+</div>
