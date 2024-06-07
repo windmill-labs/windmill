@@ -123,22 +123,21 @@ pub async fn add_webhook_allowed_origin(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if let Some(webhook_request_origin) = req.headers().get("Webhook-Request-Origin") {
-        let webhook_request_origin = webhook_request_origin.clone();
-        let mut response = next.run(req).await;
+    if req.method() == http::Method::OPTIONS {
+        if let Some(webhook_request_origin) = req.headers().get("Webhook-Request-Origin") {
+            let webhook_request_origin = webhook_request_origin.clone();
+            let mut response = next.run(req).await;
 
-        response.headers_mut().insert(
-            "Webhook-Allowed-Origin",
-            webhook_request_origin,
-        );
-        response.headers_mut().insert(
-            "Webhook-Allowed-Rate",
-            HeaderValue::from_static("*"),
-        );
-        response
-    } else {
-        next.run(req).await
+            response
+                .headers_mut()
+                .insert("Webhook-Allowed-Origin", webhook_request_origin);
+            response
+                .headers_mut()
+                .insert("Webhook-Allowed-Rate", HeaderValue::from_static("*"));
+            return response;
+        }
     }
+    next.run(req).await
 }
 
 pub async fn run_server(
