@@ -179,8 +179,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
-        .route("/queue/cancel_all", post(cancel_all))
-        .route("/queue/cancel_filtered", post(cancel_filtered))
+        .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
         .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route(
@@ -608,7 +607,14 @@ async fn get_job(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetJobQuery { no_logs }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
-    let mut job = get_job_internal(&db, w_id.as_str(), id, no_logs.unwrap_or(false), Some(&opt_authed)).await?;
+    let mut job = get_job_internal(
+        &db,
+        w_id.as_str(),
+        id,
+        no_logs.unwrap_or(false),
+        Some(&opt_authed),
+    )
+    .await?;
     job.fetch_outstanding_wait_time(&db).await?;
     Ok(Json(job).into_response())
 }
@@ -1270,6 +1276,7 @@ async fn cancel_jobs(
 async fn cancel_selection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
 
     Path(w_id): Path<String>,
@@ -1277,13 +1284,16 @@ async fn cancel_selection(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    let mut tx = user_db.begin(&authed).await?;
     let jobs_to_cancel = sqlx::query_as!(
         JobToCancel,
-        "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1)",
+        "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
         &jobs
     )
-    .fetch_all(&db)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
+
     cancel_jobs(
         jobs_to_cancel,
         &db,
@@ -1294,7 +1304,7 @@ async fn cancel_selection(
     .await
 }
 
-async fn cancel_filtered(
+async fn list_filtered_uuids(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
@@ -1305,40 +1315,19 @@ async fn cancel_filtered(
     require_admin(authed.is_admin, &authed.username)?;
 
     let mut sqlb = SqlBuilder::select_from("queue")
-        .fields(&["id", "running, is_flow_step"])
+        .fields(&["id"])
         .clone();
 
     sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
 
-    sqlb.and_where_le("scheduled_for", "now()")
-        .and_where_is_null("schedule_path");
+    sqlb.and_where_is_null("schedule_path");
 
     sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str(), false);
 
     let sql = sqlb.query()?;
-    let jobs = sqlx::query_as(sql.as_str()).fetch_all(&db).await?;
+    let jobs = sqlx::query_scalar(sql.as_str()).fetch_all(&db).await?;
 
-    cancel_jobs(jobs, &db, authed.username.as_str(), w_id.as_str(), rsmq).await
-}
-
-async fn cancel_all(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
-
-    Path(w_id): Path<String>,
-) -> error::JsonResult<Vec<Uuid>> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    let jobs = sqlx::query_as!(
-        JobToCancel,
-        "SELECT id, running, is_flow_step FROM queue WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL",
-        w_id,
-    )
-    .fetch_all(&db)
-    .await?;
-
-    cancel_jobs(jobs, &db, authed.username.as_str(), w_id.as_str(), rsmq).await
+    Ok(Json(jobs))
 }
 
 #[derive(Serialize, Debug, FromRow)]
@@ -2201,24 +2190,23 @@ impl Job {
         .fetch_optional(db)
         .await?;
 
-        let (self_wait_time, aggregate_wait_time) = r.map(|x| (x.self_wait_time_ms, x.aggregate_wait_time_ms)).unwrap_or((None, None));
+        let (self_wait_time, aggregate_wait_time) = r
+            .map(|x| (x.self_wait_time_ms, x.aggregate_wait_time_ms))
+            .unwrap_or((None, None));
 
         match self {
-            Job::QueuedJob(job) =>
-            {
+            Job::QueuedJob(job) => {
                 job.self_wait_time_ms = self_wait_time;
                 job.aggregate_wait_time_ms = aggregate_wait_time;
-            },
-            Job::CompletedJob(job) =>
-            {
+            }
+            Job::CompletedJob(job) => {
                 job.self_wait_time_ms = self_wait_time;
                 job.aggregate_wait_time_ms = aggregate_wait_time;
-            },
-            Job::CompletedJobWithFormattedResult(job) =>
-            {
+            }
+            Job::CompletedJobWithFormattedResult(job) => {
                 job.cj.self_wait_time_ms = self_wait_time;
                 job.cj.aggregate_wait_time_ms = aggregate_wait_time;
-            },
+            }
         }
         Ok(())
     }

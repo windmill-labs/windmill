@@ -5418,28 +5418,10 @@ paths:
                 required:
                   - database_length
 
-  /w/{workspace}/jobs/queue/cancel_all:
-    post:
-      summary: cancel all jobs
-      operationId: cancelAll
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: uuids of canceled jobs
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: string
-
-  /w/{workspace}/jobs/queue/cancel_filtered:
-    post:
-      summary: cancel all jobs matching the given filters
-      operationId: cancelFiltered
+  /w/{workspace}/jobs/queue/list_filtered_uuids:
+    get:
+      summary: get the ids of all jobs matching the given filters
+      operationId: listFilteredUuids
       tags:
         - job
       parameters:
@@ -5480,7 +5462,7 @@ paths:
             type: boolean
       responses:
         "200":
-          description: uuids of canceled jobs
+          description: uuids of jobs
           content:
             application/json:
               schema:
