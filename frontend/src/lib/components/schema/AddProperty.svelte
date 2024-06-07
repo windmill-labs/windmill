@@ -19,6 +19,7 @@
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let schema: Schema | any = emptySchema()
 	export let lightMode: boolean = false
+	export let hideJsonToggle: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -198,7 +199,7 @@
 					try {
 						handleAddOrEditArgument({
 							...DEFAULT_PROPERTY,
-							selectedType: e.detail.type,
+							selectedType: 'string',
 							name: e.detail.name
 						})
 					} catch (err) {
@@ -208,22 +209,24 @@
 			/>
 		</div>
 
-		<div class="flex items-center">
-			<Toggle
-				size={lightMode ? 'xs' : 'sm'}
-				on:change={() => switchTab()}
-				options={{
-					right: 'As JSON'
-				}}
-			/>
-			<div class="ml-2">
-				<Tooltip
-					documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing#script-parameters-to-json-schema"
-				>
-					Arguments can be edited either using the wizard, or by editing their JSON Schema.
-				</Tooltip>
+		{#if !hideJsonToggle}
+			<div class="flex items-center">
+				<Toggle
+					size={lightMode ? 'xs' : 'sm'}
+					on:change={() => switchTab()}
+					options={{
+						right: 'As JSON'
+					}}
+				/>
+				<div class="ml-2">
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing#script-parameters-to-json-schema"
+					>
+						Arguments can be edited either using the wizard, or by editing their JSON Schema.
+					</Tooltip>
+				</div>
 			</div>
-		</div>
+		{/if}
 	</div>
 
 	<!--json schema or table view-->

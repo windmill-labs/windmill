@@ -19,6 +19,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -33,6 +34,7 @@
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
+	export let fullHeight: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -84,6 +86,7 @@
 	let variableEditor: VariableEditor | undefined = undefined
 
 	let keys: string[] = []
+
 	$: {
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
@@ -134,9 +137,42 @@
 				: 'object'
 			: ''
 	}
+
+	function renameProperty(oldName: string, key: string) {
+		const el = document.getElementById(key) as HTMLInputElement
+		const newName = el.value
+		if (oldName === newName) {
+			return
+		}
+
+		if (Object.keys(schema.properties ?? {}).includes(newName)) {
+			sendUserToast('There is already an argument with this name', true)
+
+			// clear the input
+			el.value = oldName
+		} else {
+			args[newName] = args[oldName]
+			delete args[oldName]
+
+			schema.properties[newName] = schema.properties[oldName]
+			delete schema.properties[oldName]
+
+			if (schema.required?.includes(oldName)) {
+				schema.required = schema.required?.map((x) => (x === oldName ? newName : x))
+			}
+
+			opened = newName
+
+			schema = { ...schema }
+			sendUserToast('Argument renamed successfully')
+		}
+	}
 </script>
 
-<div style={`height: calc(100vh - ${offset}px);`} bind:clientHeight={wrapperHeight}>
+<div
+	style={fullHeight ? `height: calc(100vh - ${offset}px);` : ''}
+	bind:clientHeight={wrapperHeight}
+>
 	<Splitpanes>
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
@@ -214,7 +250,6 @@
 												bind:contentEncoding={schema.properties[argName].contentEncoding}
 												bind:customErrorMessage={schema.properties[argName].customErrorMessage}
 												bind:itemsType={schema.properties[argName].items}
-												editableSchema={{ i, total: keys.length }}
 												on:changePosition={(event) =>
 													changePosition(event.detail.i, event.detail.up)}
 												bind:extra={schema.properties[argName]}
@@ -270,6 +305,26 @@
 																	<ToggleButton value={x[1]} label={x[0]} />
 																{/each}
 															</ToggleButtonGroup>
+														</Label>
+														<Label label="Name">
+															<div class="flex flex-row gap-2">
+																<input
+																	type="text"
+																	class="w-full"
+																	value={argName}
+																	id={argName + i}
+																/>
+																<Button
+																	variant="border"
+																	color="light"
+																	size="xs"
+																	on:click={() => {
+																		renameProperty(argName, argName + i)
+																	}}
+																>
+																	Rename
+																</Button>
+															</div>
 														</Label>
 													{/if}
 												</svelte:fragment>

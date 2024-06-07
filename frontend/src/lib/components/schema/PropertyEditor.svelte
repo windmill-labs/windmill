@@ -16,7 +16,6 @@
 	export let type: string | undefined = undefined
 	export let pattern: undefined | string = undefined
 	export let enum_: string[] | undefined = undefined
-	export let editableSchema: { i: number; total: number } | undefined = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -65,78 +64,76 @@
 	<div class={twMerge('flex flex-col w-full', 'gap-4', minW ? 'min-w-[250px]' : '')}>
 		<slot name="typeeditor" />
 
-		{#if editableSchema}
-			<Label label="Description">
-				<textarea
-					use:autosize
-					rows="1"
-					bind:value={description}
-					on:keydown={onKeyDown}
-					placeholder="Field description"
-				/>
-			</Label>
+		<Label label="Description">
+			<textarea
+				use:autosize
+				rows="2"
+				bind:value={description}
+				on:keydown={onKeyDown}
+				placeholder="Field description"
+			/>
+		</Label>
 
-			<Label label="Custom Title" class="w-full">
-				<svelte:fragment slot="header">
-					<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
-				</svelte:fragment>
-				<input bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
-			</Label>
+		<Label label="Custom Title" class="w-full">
+			<svelte:fragment slot="header">
+				<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
+			</svelte:fragment>
+			<input bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
+		</Label>
 
-			<Label label="Placeholder">
-				<svelte:fragment slot="header">
-					<Tooltip light>
-						Will be displayed in the input field when the field is empty. If not set, the default
-						value will be used. The placeholder is disabled depending on the field typ, format, etc.
-					</Tooltip>
-				</svelte:fragment>
+		<Label label="Placeholder">
+			<svelte:fragment slot="header">
+				<Tooltip light>
+					Will be displayed in the input field when the field is empty. If not set, the default
+					value will be used. The placeholder is disabled depending on the field typ, format, etc.
+				</Tooltip>
+			</svelte:fragment>
 
-				<textarea
-					placeholder="Enter a placeholder"
-					rows="1"
-					bind:value={placeholder}
-					disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
-				/>
-			</Label>
+			<textarea
+				placeholder="Enter a placeholder"
+				rows="1"
+				bind:value={placeholder}
+				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
+			/>
+		</Label>
 
-			{#if type == 'array'}
-				<ArrayTypeNarrowing bind:itemsType />
-			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
-				<div>
-					<Label label="Field settings">
-						<div>
-							{#if type == 'string'}
-								<StringTypeNarrowing
-									bind:customErrorMessage
-									bind:format
-									bind:pattern
-									bind:enum_
-									bind:contentEncoding
-									bind:password={extra['password']}
-									bind:minRows={extra['minRows']}
-									bind:disableCreate={extra['disableCreate']}
-									bind:disableVariablePicker={extra['disableVariablePicker']}
-									bind:dateFormat={extra['dateFormat']}
-								/>
-							{:else if type == 'number' || type == 'integer'}
-								<NumberTypeNarrowing
-									bind:min={extra['min']}
-									bind:max={extra['max']}
-									bind:currency={extra['currency']}
-									bind:currencyLocale={extra['currencyLocale']}
-								/>
-							{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput}
-								<div class="border max-h-96 overflow-y-scroll">
-									<EditableSchemaForm noPreview bind:schema uiOnly offset={600} />
-								</div>
-							{/if}
-						</div>
-					</Label>
-				</div>
-			{/if}
-
-			<slot />
+		{#if type == 'array'}
+			<ArrayTypeNarrowing bind:itemsType />
+		{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
+			<div>
+				<Label label="Field settings">
+					<div>
+						{#if type == 'string'}
+							<StringTypeNarrowing
+								bind:customErrorMessage
+								bind:format
+								bind:pattern
+								bind:enum_
+								bind:contentEncoding
+								bind:password={extra['password']}
+								bind:minRows={extra['minRows']}
+								bind:disableCreate={extra['disableCreate']}
+								bind:disableVariablePicker={extra['disableVariablePicker']}
+								bind:dateFormat={extra['dateFormat']}
+							/>
+						{:else if type == 'number' || type == 'integer'}
+							<NumberTypeNarrowing
+								bind:min={extra['min']}
+								bind:max={extra['max']}
+								bind:currency={extra['currency']}
+								bind:currencyLocale={extra['currencyLocale']}
+							/>
+						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput}
+							<div class="border">
+								<EditableSchemaForm noPreview bind:schema uiOnly fullHeight={false} />
+							</div>
+						{/if}
+					</div>
+				</Label>
+			</div>
 		{/if}
+
+		<slot />
 	</div>
 </div>
 

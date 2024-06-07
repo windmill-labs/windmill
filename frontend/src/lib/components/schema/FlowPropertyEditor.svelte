@@ -10,7 +10,7 @@
 	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import { Tab, TabContent } from '../common'
-	import SchemaEditor from '../SchemaEditor.svelte'
+	import EditableSchemaWrapper from './EditableSchemaWrapper.svelte'
 
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -68,7 +68,7 @@
 			<svelte:fragment slot="content">
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<SchemaEditor bind:schema lightMode />
+						<EditableSchemaWrapper bind:schema noPreview hideJsonToggle fullHeight={false} />
 					</TabContent>
 
 					<TabContent value="resource">
