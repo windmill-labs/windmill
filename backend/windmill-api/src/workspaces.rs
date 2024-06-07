@@ -2942,14 +2942,6 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE dependency_map SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
         "UPDATE deployment_metadata SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
