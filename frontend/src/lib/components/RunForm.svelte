@@ -89,7 +89,7 @@
 						<div class="flex items-center gap-2">
 							<span class="text-sm text-tertiary">
 								{#if runnable}
-									Edited <TimeAgo date={runnable.created_at || ''} /> by {runnable.created_by ||
+									Edited <TimeAgo withDate date={runnable.created_at || ''} /> by {runnable.created_by ||
 										'unknown'}
 								{/if}
 							</span>

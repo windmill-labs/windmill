@@ -13,6 +13,7 @@
 	export let selectedJobStep: string | undefined = undefined
 
 	export let isOwner = false
+	export let wideResults = false
 
 	let lastJobId: string = jobId
 
@@ -54,7 +55,10 @@
 	globalDurationStatuses={[]}
 	globalModuleStates={[]}
 	bind:selectedNode={selectedJobStep}
+	on:start
+	on:done
 	{jobId}
 	{workspaceId}
 	{isOwner}
+	{wideResults}
 />

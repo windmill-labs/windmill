@@ -7,18 +7,10 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import { copyToClipboard } from '../utils'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
-	import { setContext } from 'svelte'
-	import {
-		SVELVET_CONTEXT_KEY,
-		type SvelvetSettingsContext
-	} from './graph/svelvet/container/models'
+
 	import { Clipboard } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
-
-	setContext<SvelvetSettingsContext>(SVELVET_CONTEXT_KEY, {
-		fullHeight: true
-	})
 
 	export let flow: {
 		summary: string

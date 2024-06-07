@@ -440,7 +440,7 @@ class Windmill:
             print(file_reader.read())
         '''
         """
-        reader = S3BufferedReader(f"{self.workspace}", self.client, s3object["s3"], s3_resource_path, s3object["storage"])
+        reader = S3BufferedReader(f"{self.workspace}", self.client, s3object["s3"], s3_resource_path, s3object["storage"] if "storage" in s3object else None)
         return reader
 
     def write_s3_file(
@@ -479,7 +479,7 @@ class Windmill:
             query_params["file_key"] = s3object["s3"]
         if s3_resource_path is not None and s3_resource_path != "":
             query_params["s3_resource_path"] = s3_resource_path
-        if s3object is not None and s3object["storage"] is not None:
+        if s3object is not None and  "storage" in s3object and s3object["storage"] is not None:
             query_params["storage"] = s3object["storage"]
 
         try:

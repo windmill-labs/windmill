@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes FROM token WHERE email = $1 AND label != 'ephemeral-script'\n             ORDER BY created_at DESC",
+  "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at, scopes FROM token WHERE email = $1\n            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -36,7 +36,9 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -48,5 +50,5 @@
       true
     ]
   },
-  "hash": "bc1f2f169b4960dae02f62e37bb4ae081146e598109860ee1f42cd3778c5ebaf"
+  "hash": "3b746f73abbaea3570b9c79af21d4d0f60232098d69b71c21fd3da985f7a5905"
 }

@@ -168,7 +168,7 @@
 								</button>
 							{/if}
 						</span>
-						<FlowModuleScript path={scriptPath} hash={selectedVersion.script_hash} />
+						<FlowModuleScript showDate path={scriptPath} hash={selectedVersion.script_hash} />
 					</div>
 				{/key}
 			{:else}
