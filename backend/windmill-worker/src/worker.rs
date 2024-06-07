@@ -27,6 +27,7 @@ use sqlx::{types::Json, Pool, Postgres};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::Hash,
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -35,6 +36,7 @@ use std::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_py_imports::parse_relative_imports;
+use windmill_parser_ts::parse_expr_for_imports;
 
 use uuid::Uuid;
 
@@ -3586,6 +3588,51 @@ mount {{
     result
 }
 
+fn try_normalize(path: &Path) -> Option<PathBuf> {
+    let mut ret = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(..) | Component::RootDir => return None,
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !ret.pop() {
+                    return None;
+                }
+            }
+            Component::Normal(c) => {
+                ret.push(c);
+            }
+        }
+    }
+
+    Some(ret)
+}
+
+fn parse_bun_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
+    let mut relative_imports = vec![];
+    let r = parse_expr_for_imports(raw_code)?;
+    for import in r {
+        let import = import.trim_end_matches(".ts");
+        if import.starts_with("/") {
+            relative_imports.push(import.trim_start_matches("/").to_string());
+        } else if import.starts_with(".") {
+            let normalized = try_normalize(std::path::Path::new(&format!(
+                "{}/../{}",
+                script_path, import
+            )));
+            if let Some(normalized) = normalized {
+                let normalized = normalized.to_str().unwrap().to_string();
+                relative_imports.push(normalized);
+            } else {
+                tracing::error!("error canonicalizing path: {:?}", normalized);
+            }
+        }
+    }
+
+    Ok(relative_imports)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: &QueuedJob,
@@ -3685,24 +3732,44 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                 tracing::error!(%e, "error handling deployment metadata");
             }
 
-            if &job.language == &Some(ScriptLang::Python3) {
-                if let Ok(relative_imports) = parse_relative_imports(&raw_code, script_path) {
+            let relative_imports = match job.language {
+                Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
+                Some(ScriptLang::Bun) => parse_bun_relative_imports(&raw_code, script_path).ok(),
+                _ => None,
+            };
+            if let Some(relative_imports) = relative_imports {
+                if !relative_imports.is_empty() {
                     let mut logs = "".to_string();
                     logs.push_str("\n--- RELATIVE IMPORTS ---\n\n");
                     logs.push_str(&relative_imports.join("\n"));
-                    if !relative_imports.is_empty() {
-                        let mut tx = db.begin().await?;
+
+                    let mut tx = db.begin().await?;
+                    sqlx::query!(
+                        "DELETE FROM dependency_map
+                             WHERE importer_path = $1 AND importer_kind = 'script'
+                             AND workspace_id = $2",
+                        script_path,
+                        w_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                    if parent_path
+                        .as_ref()
+                        .is_some_and(|x| !x.is_empty() && x != script_path)
+                    {
                         sqlx::query!(
                             "DELETE FROM dependency_map
                              WHERE importer_path = $1 AND importer_kind = 'script'
                              AND workspace_id = $2",
-                            script_path,
+                            parent_path.clone().unwrap(),
                             w_id
                         )
                         .execute(&mut *tx)
                         .await?;
-                        for import in relative_imports {
-                            sqlx::query!(
+                    }
+
+                    for import in relative_imports {
+                        sqlx::query!(
                                 "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path)
                                  VALUES ($1, $2, 'script', $3)",
                                 w_id,
@@ -3711,28 +3778,29 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
                             )
                             .execute(&mut *tx)
                             .await?;
-                            logs.push_str(&format!("{}\n", import));
-                        }
-                        tx.commit().await?;
+                        logs.push_str(&format!("{}\n", import));
                     }
+                    tx.commit().await?;
                     append_logs(job.id, job.workspace_id.clone(), logs, db).await;
-                    if let Err(e) = trigger_python_dependents_to_recompute_dependencies(
-                        w_id,
-                        script_path,
-                        deployment_message,
-                        parent_path,
-                        &job.email,
-                        &job.created_by,
-                        &job.permissioned_as,
-                        db,
-                        rsmq,
-                    )
-                    .await
-                    {
-                        tracing::error!(%e, "error triggering python dependents to recompute dependencies");
-                    }
+                }
+
+                if let Err(e) = trigger_dependents_to_recompute_dependencies(
+                    w_id,
+                    script_path,
+                    deployment_message,
+                    parent_path,
+                    &job.email,
+                    &job.created_by,
+                    &job.permissioned_as,
+                    db,
+                    rsmq,
+                )
+                .await
+                {
+                    tracing::error!(%e, "error triggering dependents to recompute dependencies");
                 }
             }
+
             Ok(to_raw_value_owned(
                 json!({ "success": "Successful lock file generation", "lock": content }),
             ))
@@ -3760,7 +3828,7 @@ async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync + Clo
     }
 }
 
-async fn trigger_python_dependents_to_recompute_dependencies<
+async fn trigger_dependents_to_recompute_dependencies<
     R: rsmq_async::RsmqConnection + Send + Sync + Clone,
 >(
     w_id: &str,
