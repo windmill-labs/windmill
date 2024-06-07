@@ -779,6 +779,7 @@
 			{/if}
 			<slot name="actions" />
 		</div>
+
 		{#if !compact || (error && error != '')}
 			<div class="text-right text-xs text-red-600 dark:text-red-400">
 				{#if disabled || error === ''}

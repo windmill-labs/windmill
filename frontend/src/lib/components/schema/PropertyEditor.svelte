@@ -63,6 +63,8 @@
 <div class="flex flex-row items-center justify-between w-full gap-2">
 	<!-- svelte-ignore a11y-autofocus -->
 	<div class={twMerge('flex flex-col w-full', 'gap-4', minW ? 'min-w-[250px]' : '')}>
+		<slot name="typeeditor" />
+
 		{#if editableSchema}
 			<Label label="Description">
 				<textarea
@@ -96,8 +98,6 @@
 					disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
 				/>
 			</Label>
-
-			<slot name="typeeditor" />
 
 			{#if type == 'array'}
 				<ArrayTypeNarrowing bind:itemsType />

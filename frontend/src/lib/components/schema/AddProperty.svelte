@@ -6,15 +6,14 @@
 		type ModalSchemaProperty
 	} from '$lib/common'
 	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
-	import { Button } from '../common'
 	import { createEventDispatcher } from 'svelte'
 	import SchemaModal, { DEFAULT_PROPERTY } from '../SchemaModal.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import Portal from 'svelte-portal'
-	import { Plus } from 'lucide-svelte'
 	import type VariableEditor from '../VariableEditor.svelte'
+	import AddPropertyForm from './AddPropertyForm.svelte'
 
 	export let isFlowInput = false
 	export let variableEditor: VariableEditor | undefined = undefined
@@ -194,18 +193,19 @@
 <div class="flex flex-col">
 	<div class="flex justify-between items-center gap-x-2">
 		<div>
-			<Button
-				variant="contained"
-				color="dark"
-				size="xs"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					schemaModal.openDrawer(Object.assign({}, DEFAULT_PROPERTY))
+			<AddPropertyForm
+				on:add={(e) => {
+					try {
+						handleAddOrEditArgument({
+							...DEFAULT_PROPERTY,
+							selectedType: e.detail.type,
+							name: e.detail.name
+						})
+					} catch (err) {
+						sendUserToast(`Could not add argument: ${err}`, true)
+					}
 				}}
-				id="flow-editor-add-property"
-			>
-				Add Argument
-			</Button>
+			/>
 		</div>
 
 		<div class="flex items-center">

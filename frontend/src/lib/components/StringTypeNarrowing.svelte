@@ -79,7 +79,7 @@
 	]
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-2">
 	<ToggleButtonGroup
 		bind:selected={kind}
 		on:selected={(e) => {
@@ -275,6 +275,5 @@
 				password = e.detail
 			}}
 		/>
-		<div class="mb-4" />
 	{/if}
 </div>

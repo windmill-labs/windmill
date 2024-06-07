@@ -219,6 +219,8 @@
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
+			debugger
+
 			const newHash = await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
