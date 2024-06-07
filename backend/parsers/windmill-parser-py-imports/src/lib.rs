@@ -55,7 +55,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "github" => "PyGithub",
     "ldap" => "python-ldap",
     "opensearchpy" => "opensearch-py",
-    
+
 };
 
 fn replace_import(x: String) -> String {
@@ -111,9 +111,25 @@ pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<Strin
 }
 
 fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
-    let code = code.split(DEF_MAIN).next().unwrap_or("");
-    let ast = Suite::parse(code, "main.py").map_err(|e| {
-        error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
+    let mut code = code.split(DEF_MAIN).next().unwrap_or("").to_string();
+
+    // remove main function decorator if it exists
+    if code
+        .lines()
+        .last()
+        .map(|x| x.starts_with("@"))
+        .unwrap_or(false)
+    {
+        code = code
+            .lines()
+            .take(code.lines().count() - 1)
+            .collect::<Vec<&str>>()
+            .join("\n")
+            + "\n";
+    }
+
+    let ast = Suite::parse(&code, "main.py").map_err(|e| {
+        error::Error::ExecutionErr(format!("Error parsing code for imports: {}", e.to_string()))
     })?;
     let nimports: Vec<String> = ast
         .into_iter()
