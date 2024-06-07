@@ -99,7 +99,6 @@
 		on:delete={(e) => {
 			schemaEditor?.handleDeleteArgument([e.detail])
 		}}
-		offset={201}
 	/>
 </FlowCard>
 

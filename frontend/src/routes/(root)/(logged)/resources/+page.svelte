@@ -503,7 +503,6 @@
 					on:delete={(e) => {
 						addProperty?.handleDeleteArgument([e.detail])
 					}}
-					offset={201}
 				/>
 			</div>
 		</div>

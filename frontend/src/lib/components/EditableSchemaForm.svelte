@@ -29,12 +29,9 @@
 	export let noVariablePicker = false
 	export let flexWrap = false
 	export let noDelete = false
-	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
-	export let offset = 48 + 31 + 31 + 16 + 1
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
-	export let fullHeight: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -169,14 +166,11 @@
 	}
 </script>
 
-<div
-	style={fullHeight ? `height: calc(100vh - ${offset}px);` : ''}
-	bind:clientHeight={wrapperHeight}
->
+<div bind:clientHeight={wrapperHeight}>
 	<Splitpanes>
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
-				<div class="p-4" style={`height: ${wrapperHeight}px; overflow-y: auto;`}>
+				<div class="p-4">
 					<Section
 						label="Form preview"
 						tooltip={'Preview of the form that will be rendered based on the schema. Drag and drop to reorder the fields.'}
@@ -194,12 +188,7 @@
 			</Pane>
 		{/if}
 		<Pane size={noPreview ? 100 : 50} minSize={noPreview ? 100 : 20}>
-			<div
-				class="w-full {clazz} {flexWrap
-					? 'flex flex-row flex-wrap gap-x-6 '
-					: ''} divide-y overflow-y-auto"
-				style={`height: ${wrapperHeight}px;`}
-			>
+			<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} divide-y">
 				{#if keys.length > 0}
 					{#each keys as argName, i (argName)}
 						<div>
