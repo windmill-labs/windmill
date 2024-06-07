@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1)",
+  "query": "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
   "describe": {
     "columns": [
       {
@@ -30,5 +30,5 @@
       false
     ]
   },
-  "hash": "26319811262e60127f264c51b73d93b354088eb33cbd954f4c48ba278c634f96"
+  "hash": "4c529e29a0eb084a92f4e952506d701592bc707fd8a8cb3311bf146be6078f26"
 }
