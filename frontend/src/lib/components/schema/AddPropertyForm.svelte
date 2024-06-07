@@ -5,7 +5,6 @@
 	import { Plus } from 'lucide-svelte'
 
 	let name: string = ''
-	let type: string = 'string'
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -19,7 +18,8 @@
 		startIcon={{ icon: Plus }}
 		id="flow-editor-add-property"
 		on:click={() => {
-			dispatch('add', { name, type })
+			dispatch('add', { name })
+			name = ''
 		}}
 		disabled={!name}
 	>
