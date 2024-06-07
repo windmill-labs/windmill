@@ -10,6 +10,7 @@ use axum::body::Body;
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use sqlx::Pool;
+use tower::ServiceBuilder;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
@@ -27,6 +28,7 @@ use windmill_common::worker::TMP_DIR;
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
+use crate::add_webhook_allowed_origin;
 use crate::db::ApiAuthed;
 
 use crate::{
@@ -113,6 +115,10 @@ pub fn workspaced_service() -> Router {
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
+    // Cloud events abuse control headers
+    let ce_headers =
+        ServiceBuilder::new().layer(axum::middleware::from_fn(add_webhook_allowed_origin));
+
     let api_list_jobs_query_duration = setup_list_jobs_debug_metrics();
 
     Router::new()
@@ -120,13 +126,15 @@ pub fn workspaced_service() -> Router {
             "/run/f/*script_path",
             post(run_flow_by_path)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run/workflow_as_code/:job_id/:entrypoint",
             post(run_workflow_as_code)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/restart/f/:job_id/from/:step_id",
@@ -140,33 +148,38 @@ pub fn workspaced_service() -> Router {
             "/run/p/*script_path",
             post(run_script_by_path)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run_wait_result/p/*script_path",
             post(run_wait_result_script_by_path)
                 .get(run_wait_result_job_by_path_get)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run_wait_result/h/:hash",
             post(run_wait_result_script_by_hash)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run_wait_result/f/*script_path",
             post(run_wait_result_flow_by_path)
                 .get(run_wait_result_flow_by_path_get)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run/h/:hash",
             post(run_job_by_hash)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
         .route("/run/preview_bundle", post(run_bundle_preview_script))
@@ -605,7 +618,14 @@ async fn get_job(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetJobQuery { no_logs }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
-    let mut job = get_job_internal(&db, w_id.as_str(), id, no_logs.unwrap_or(false), Some(&opt_authed)).await?;
+    let mut job = get_job_internal(
+        &db,
+        w_id.as_str(),
+        id,
+        no_logs.unwrap_or(false),
+        Some(&opt_authed),
+    )
+    .await?;
     job.fetch_outstanding_wait_time(&db).await?;
     Ok(Json(job).into_response())
 }
@@ -2125,24 +2145,23 @@ impl Job {
         .fetch_optional(db)
         .await?;
 
-        let (self_wait_time, aggregate_wait_time) = r.map(|x| (x.self_wait_time_ms, x.aggregate_wait_time_ms)).unwrap_or((None, None));
+        let (self_wait_time, aggregate_wait_time) = r
+            .map(|x| (x.self_wait_time_ms, x.aggregate_wait_time_ms))
+            .unwrap_or((None, None));
 
         match self {
-            Job::QueuedJob(job) =>
-            {
+            Job::QueuedJob(job) => {
                 job.self_wait_time_ms = self_wait_time;
                 job.aggregate_wait_time_ms = aggregate_wait_time;
-            },
-            Job::CompletedJob(job) =>
-            {
+            }
+            Job::CompletedJob(job) => {
                 job.self_wait_time_ms = self_wait_time;
                 job.aggregate_wait_time_ms = aggregate_wait_time;
-            },
-            Job::CompletedJobWithFormattedResult(job) =>
-            {
+            }
+            Job::CompletedJobWithFormattedResult(job) => {
                 job.cj.self_wait_time_ms = self_wait_time;
                 job.cj.aggregate_wait_time_ms = aggregate_wait_time;
-            },
+            }
         }
         Ok(())
     }
