@@ -113,7 +113,7 @@ pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<Strin
 fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
     let mut code = code.split(DEF_MAIN).next().unwrap_or("").to_string();
 
-    // remove main function decorator if it exists
+    // remove main function decorator from end of file if it exists
     if code
         .lines()
         .last()
