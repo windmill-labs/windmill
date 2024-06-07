@@ -89,8 +89,8 @@
 
 <Row
 	href={script.draft_only
-		? `/scripts/edit/${script.path}`
-		: `/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
+		? `${base}/scripts/edit/${script.path}`
+		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
 	path={script.path}
