@@ -742,7 +742,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             } else {
                 "Flow job completed with error\n".to_string()
             };
-            append_logs(flow_job.id, w_id.to_string(), logs, db).await;
+            append_logs(&flow_job.id, w_id, logs, db).await;
         }
         #[cfg(feature = "enterprise")]
         if flow_job.parent_job.is_none() {
@@ -852,8 +852,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             Err(err) => {
                 let e = json!({"message": err.to_string(), "name": "InternalError"});
                 append_logs(
-                    flow_job.id,
-                    w_id.to_string(),
+                    &flow_job.id,
+                    w_id,
                     format!("Unexpected error during flow chaining:\n{:#?}", e),
                     db,
                 )
@@ -1681,7 +1681,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 let result: Value = json!({ "error": {"message": logs, "name": error_name}});
 
-                append_logs(flow_job.id, flow_job.workspace_id.clone(), logs.clone(), db).await;
+                append_logs(&flow_job.id, &flow_job.workspace_id, logs.clone(), db).await;
 
                 job_completed_tx
                     .send(SendResult::UpdateFlow {

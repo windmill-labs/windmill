@@ -163,7 +163,7 @@ pub async fn cancel_single_job<'c>(
             .unwrap_or_else(|| "unexplicited reasons".to_string());
         let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
         append_logs(
-            job_running.id,
+            &job_running.id,
             w_id.to_string(),
             format!("canceled by {username}: (force cancel: {force_cancel})"),
             db,
@@ -293,7 +293,7 @@ pub async fn cancel_job<'c>(
 /* TODO retry this? */
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn append_logs(
-    job_id: uuid::Uuid,
+    job_id: &uuid::Uuid,
     workspace: impl AsRef<str>,
     logs: impl AsRef<str>,
     db: impl Borrow<Pool<Postgres>>,
@@ -1832,7 +1832,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         let job_log_event = format!(
             "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds",
         );
-        let _ = append_logs(job_uuid, pulled_job.workspace_id, job_log_event, db).await;
+        let _ = append_logs(&job_uuid, pulled_job.workspace_id, job_log_event, db).await;
         if rsmq.is_some() {
             // if let Some(ref mut rsmq) = tx.rsmq {
             // if using redis, only one message at a time can be poped from the queue. Process only this message and move to the next elligible job

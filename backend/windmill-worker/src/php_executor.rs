@@ -155,7 +155,7 @@ pub async fn handle_php_job(
 
     let autoload_line = if let Some(composer_json) = composer_json {
         let logs1 = "\n\n--- COMPOSER INSTALL ---\n".to_string();
-        append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
         composer_install(
             mem_peak,
@@ -176,7 +176,7 @@ pub async fn handle_php_job(
 
     let init_logs = "\n\n--- PHP CODE EXECUTION ---\n".to_string();
 
-    append_logs(job.id.clone(), job.workspace_id.to_string(), init_logs, db).await;
+    append_logs(&job.id, job.workspace_id.to_string(), init_logs, db).await;
 
     let _ = write_file(job_dir, "main.php", inner_content).await?;
 
