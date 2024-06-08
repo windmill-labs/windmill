@@ -1252,7 +1252,7 @@ async fn cancel_all(
 
                 if let Some(job_running) = job_running {
                     append_logs(
-                        j.id,
+                        &j.id,
                         w_id.clone(),
                         format!("canceled by {username}: cancel_all"),
                         db.clone(),

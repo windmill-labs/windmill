@@ -172,7 +172,7 @@ pub async fn handle_deno_job(
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
-    append_logs(job.id.clone(), job.workspace_id.to_string(), logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
     let main_override = get_main_override(job.args.as_ref());
 

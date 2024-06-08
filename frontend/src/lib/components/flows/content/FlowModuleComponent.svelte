@@ -262,7 +262,7 @@
 								{#key flowModule.id}
 									<Editor
 										folding
-										path={flowModule.value.path}
+										path={$pathStore}
 										bind:websocketAlive
 										bind:this={editor}
 										class="h-full relative"

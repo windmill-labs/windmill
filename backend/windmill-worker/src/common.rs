@@ -872,7 +872,7 @@ async fn append_job_logs(
             .await;
         }
     } else {
-        append_logs(job_id, w_id, logs, db).await;
+        append_logs(&job_id, w_id, logs, db).await;
     }
 }
 
@@ -949,7 +949,7 @@ pub async fn handle_child(
     let (timeout_duration, timeout_warn_msg) =
         resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
-        append_logs(job_id, w_id.to_string(), msg.as_str(), db).await;
+        append_logs(&job_id, w_id, msg.as_str(), db).await;
     }
 
     /* a future that completes when the child process exits */
