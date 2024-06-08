@@ -1137,12 +1137,6 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
     }
 }
 
-#[derive(serde::Deserialize)]
-pub struct ErrorValue<'a> {
-    #[serde(borrow)]
-    pub error: Option<&'a RawValue>,
-}
-
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
@@ -1275,15 +1269,6 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 pub struct Iter {
     index: i32,
     value: Box<RawValue>,
-}
-
-#[derive(Serialize)]
-pub struct MergeArgs<'a> {
-    #[serde(flatten)]
-    b: &'a Iter,
-
-    #[serde(flatten)]
-    a: HashMap<String, Box<RawValue>>,
 }
 
 #[derive(FromRow)]
