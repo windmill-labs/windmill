@@ -260,7 +260,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             if job.script_hash.is_none() {
                 // it a one-off raw script dependency job, no need to update the db
                 return Ok(to_raw_value_owned(
-                    json!({ "success": "Successful lock file generation", "lock": content }),
+                    json!({ "status": "Successful lock file generation", "lock": content }),
                 ));
             }
 
@@ -326,7 +326,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             }
 
             Ok(to_raw_value_owned(
-                json!({ "success": "Successful lock file generation", "lock": content }),
+                json!({ "status": "Successful lock file generation", "lock": content }),
             ))
         }
         Err(error) => {
@@ -555,6 +555,7 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
     Ok(to_raw_value_owned(json!({
         "status": "Successful lock file generation",
         "modified_ids": modified_ids,
+        "updated_flow_value": new_flow_value,
     })))
 }
 
