@@ -571,6 +571,7 @@ async fn handle_receive_completed_job<
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct JobCompletedSender(Sender<SendResult>, Option<GGauge>, Option<Histo>);
 

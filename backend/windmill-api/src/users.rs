@@ -623,32 +623,6 @@ pub struct WorkspaceInvite {
     pub operator: bool,
 }
 
-#[derive(FromRow, Serialize)]
-pub struct InviteCode {
-    pub code: String,
-    pub seats_left: i32,
-    pub seats_given: i32,
-}
-
-#[derive(Deserialize)]
-pub struct NewInviteCode {
-    pub code: String,
-    pub seats: i32,
-}
-
-#[derive(FromRow)]
-pub struct MagicLink {
-    pub email: String,
-    pub token: String,
-    pub expiration: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Deserialize)]
-pub struct UseMagicLink {
-    pub email: String,
-    pub token: String,
-}
-
 #[derive(Deserialize)]
 pub struct NewUser {
     pub email: String,
@@ -708,19 +682,6 @@ pub struct NewToken {
 pub struct Login {
     pub email: String,
     pub password: String,
-}
-
-#[derive(Deserialize)]
-pub struct Signup {
-    pub email: String,
-    pub password: String,
-    pub name: Option<String>,
-    pub company: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct LostPassword {
-    pub email: String,
 }
 
 #[derive(Deserialize)]
@@ -857,22 +818,6 @@ async fn update_tutorial_progress(
     .await?;
     Ok("tutorial progress updated".to_string())
 }
-
-// async fn list_invite_codes(
-//     authed: ApiAuthed,
-//     Extension(db): Extension<DB>,
-//     Query(pagination): Query<Pagination>
-// ) -> JsonResult<Vec<InviteCode>> {
-//     let mut tx = db.begin().await?;
-//     require_super_admin(&mut tx, authed.email).await?;
-//     let (per_page, offset) = crate::utils::paginate(pagination);
-
-//     let rows = sqlx::query_as!(InviteCode, "SELECT * from invite_code LIMIT $1 OFFSET $2", per_page as i32, offset as i32)
-//         .fetch_all(&mut tx)
-//         .await?;
-//     tx.commit().await?;
-//     Ok(Json(rows))
-// }
 
 async fn list_usernames(
     authed: ApiAuthed,
@@ -2535,6 +2480,8 @@ async fn get_all_runnables(
     Ok(Json(runnables))
 }
 
+//used by oauth
+#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 pub struct LoginUserInfo {
     pub email: Option<String>,

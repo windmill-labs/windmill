@@ -10,13 +10,13 @@ use axum::body::Body;
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use sqlx::Pool;
-use tower::ServiceBuilder;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
+use tower::ServiceBuilder;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
@@ -4024,6 +4024,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
         ));
     }
 
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     return Err(error::Error::NotFound(format!(
         "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
         file_p

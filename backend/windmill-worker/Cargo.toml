@@ -16,6 +16,7 @@ benchmark = ["windmill-queue/benchmark"]
 flamegraph = []
 parquet = ["windmill-common/parquet", "dep:object_store", "dep:tar"]
 flow_testing = []
+cloud = []
 
 [dependencies]
 windmill-queue.workspace = true
