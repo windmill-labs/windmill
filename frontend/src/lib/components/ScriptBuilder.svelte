@@ -477,7 +477,10 @@
 				</Tab>
 				<Tab value="schedule" active={$scheduleStore.enabled}>Schedule</Tab>
 				<svelte:fragment slot="content">
-					<div class={selectedTab === 'ui' ? 'p-0' : 'p-4'}>
+					<div
+						class={selectedTab === 'ui' ? 'p-0' : 'p-4'}
+						style={selectedTab === 'ui' ? `height: calc(100% - 32px);` : ''}
+					>
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
@@ -969,7 +972,7 @@
 								{/if}
 							</div>
 						</TabContent>
-						<TabContent value="ui">
+						<TabContent value="ui" class="h-full">
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
 						<TabContent value="schedule">

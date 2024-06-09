@@ -31,12 +31,10 @@
 	export let noVariablePicker = false
 	export let flexWrap = false
 	export let noDelete = false
-	// 48: Drawer header, 31: 1st Tab header, 31: 2nd Tab header, 16: mt-4, 1: border
-	export let offset = 48 + 31 + 31 + 16 + 1
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
-	export let fullHeight: boolean = true
+	export let offset = 48 + 31 + 31 + 16 + 1
 
 	const dispatch = createEventDispatcher()
 
@@ -175,9 +173,10 @@
 	let jsonView: boolean = false
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let error: string | undefined = undefined
+	let editor: SimpleEditor | undefined = undefined
 </script>
 
-<div style={fullHeight ? `height: calc(100vh - ${offset}px);` : ''}>
+<div style={offset ? `height: calc(100vh - ${offset}px);` : 'h-full'}>
 	<Splitpanes>
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
@@ -193,6 +192,7 @@
 							on:click={(e) => {
 								opened = e.detail
 							}}
+							on:reorder={() => reorder()}
 						/>
 					</Section>
 				</div>
@@ -214,6 +214,7 @@
 					lightMode
 					on:change={() => {
 						schemaString = JSON.stringify(schema, null, '\t')
+						editor?.setCode(schemaString)
 					}}
 				/>
 			</div>
@@ -392,6 +393,7 @@
 				<div class="p-2">
 					<div class="border rounded h-full">
 						<SimpleEditor
+							bind:this={editor}
 							small
 							fixedOverflowWidgets={false}
 							on:change={() => {

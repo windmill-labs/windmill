@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { twMerge } from 'tailwind-merge'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import AddProperty from './AddProperty.svelte'
 
@@ -12,7 +13,7 @@
 	let addProperty: AddProperty | undefined = undefined
 </script>
 
-<div class="border h-80 overflow-y-scroll">
+<div class={twMerge(fullHeight ? 'h-full' : 'h-80', 'border overflow-y-auto')}>
 	<div class="pt-6 px-4 border-b pb-4">
 		<AddProperty bind:schema bind:this={addProperty} />
 	</div>
@@ -28,6 +29,5 @@
 		{offset}
 		{uiOnly}
 		{noPreview}
-		{fullHeight}
 	/>
 </div>

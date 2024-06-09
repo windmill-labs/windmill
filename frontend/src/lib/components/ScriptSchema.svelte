@@ -10,8 +10,4 @@
 	}
 </script>
 
-<div class="w-full">
-	<div>
-		<EditableSchemaForm bind:schema uiOnly />
-	</div>
-</div>
+<EditableSchemaForm bind:schema uiOnly />

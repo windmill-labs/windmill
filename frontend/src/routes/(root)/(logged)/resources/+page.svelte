@@ -49,8 +49,6 @@
 	} from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from '$lib/autosize'
-	import EditableSchemaForm from '$lib/components/EditableSchemaForm.svelte'
-	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
@@ -326,8 +324,6 @@
 			types: false
 		}
 	}
-
-	let addProperty: AddProperty | undefined = undefined
 </script>
 
 <ConfirmationModal
@@ -418,13 +414,13 @@
 			>
 			<div>
 				<div class="mb-1 font-semibold text-secondary">Schema</div>
-				<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview fullHeight={false} />
+				<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
 			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={resourceTypeDrawer} size="800px">
+<Drawer bind:this={resourceTypeDrawer} size="1200px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button startIcon={{ icon: Save }} on:click={addResourceType}>Save</Button>
@@ -483,28 +479,8 @@
 						</Button>
 					</div>
 				</div>
-
-				<div class="border-b pb-4">
-					<AddProperty
-						bind:schema={newResourceType.schema}
-						bind:this={addProperty}
-						on:change={() => {
-							//$flowStore = $flowStore
-						}}
-					/>
-				</div>
-				<EditableSchemaForm
-					bind:schema={newResourceType.schema}
-					isFlowInput
-					on:edit={(e) => {
-						addProperty?.openDrawer(e.detail)
-					}}
-					on:delete={(e) => {
-						addProperty?.handleDeleteArgument([e.detail])
-					}}
-					fullHeight={false}
-				/>
 			</div>
+			<EditableSchemaWrapper bind:schema={newResourceType.schema} fullHeight />
 		</div>
 	</DrawerContent>
 </Drawer>

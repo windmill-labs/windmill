@@ -125,7 +125,7 @@
 							/>
 						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput}
 							<div class="border">
-								<EditableSchemaForm noPreview bind:schema uiOnly fullHeight={false} />
+								<EditableSchemaForm noPreview bind:schema uiOnly />
 							</div>
 						{/if}
 					</div>

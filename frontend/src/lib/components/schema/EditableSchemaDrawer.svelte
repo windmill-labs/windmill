@@ -151,7 +151,7 @@
 			on:delete={(e) => {
 				addProperty?.handleDeleteArgument([e.detail])
 			}}
-			fullHeight
+			offset={0}
 		/>
 	</DrawerContent>
 </Drawer>

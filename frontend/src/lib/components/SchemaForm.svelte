@@ -166,6 +166,8 @@
 		schema.order = keys
 
 		schema = { ...schema }
+
+		dispatch('reorder')
 	}
 	function startDrag(e) {
 		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
