@@ -173,7 +173,7 @@
 	}
 
 	let jsonView: boolean = false
-	let schemaString: string = ''
+	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let error: string | undefined = undefined
 </script>
 
@@ -213,9 +213,7 @@
 					}}
 					lightMode
 					on:change={() => {
-						if (jsonView) {
-							schemaString = JSON.stringify(schema, null, '\t')
-						}
+						schemaString = JSON.stringify(schema, null, '\t')
 					}}
 				/>
 			</div>

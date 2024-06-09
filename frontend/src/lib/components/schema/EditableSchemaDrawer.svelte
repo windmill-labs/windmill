@@ -9,8 +9,10 @@
 	import { generateRandomString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { tick } from 'svelte'
+	import Label from '../Label.svelte'
 
 	export let schema: Schema | undefined | any
+	export let parentId: string | undefined = undefined
 
 	const flipDurationMs = 200
 
@@ -81,7 +83,7 @@
 		dragDisabled: dragDisabled,
 		flipDurationMs,
 		dropTargetStyle: {},
-		type: 'app-editor-fields'
+		type: parentId ? `app-editor-fields-${parentId}` : 'app-editor-fields'
 	}}
 	on:consider={handleConsider}
 	on:finalize={handleFinalize}
@@ -92,36 +94,46 @@
 			<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 			<div
 				animate:flip={{ duration: 200 }}
-				class="w-full flex flex-row justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
+				class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
 			>
-				{item.value}
-				<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div class="flex flex-row gap-1 item-center h-full justify-center">
-					<Button
-						iconOnly
-						size="xs2"
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => {
-							schemaFormDrawer?.openDrawer()
+				<div class="flex flex-row justify-between items-center w-full">
+					{item.value}
+					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div class="flex flex-row gap-1 item-center h-full justify-center">
+						<Button
+							iconOnly
+							size="xs2"
+							color="light"
+							startIcon={{ icon: Pen }}
+							on:click={() => {
+								schemaFormDrawer?.openDrawer()
 
-							tick().then(() => {
-								editableSchemaForm?.openField(item.value)
-							})
-						}}
-					/>
+								tick().then(() => {
+									editableSchemaForm?.openField(item.value)
+								})
+							}}
+						/>
 
-					<div
-						tabindex={dragDisabled ? 0 : -1}
-						class="cursor-move flex items-center"
-						on:mousedown={startDrag}
-						on:touchstart={startDrag}
-						on:keydown={handleKeyDown}
-					>
-						<GripVertical size={16} />
+						<div
+							tabindex={dragDisabled ? 0 : -1}
+							class="cursor-move flex items-center"
+							on:mousedown={startDrag}
+							on:touchstart={startDrag}
+							on:keydown={handleKeyDown}
+						>
+							<GripVertical size={16} />
+						</div>
 					</div>
 				</div>
+
+				{#if schema.properties[item.value].type === 'object'}
+					<div class="flex flex-col w-full mt-2">
+						<Label label="Nested Properties">
+							<svelte:self schema={schema.properties[item.value]} parentId={item.value} />
+						</Label>
+					</div>
+				{/if}
 			</div>
 		{/each}
 	{/if}
