@@ -1130,7 +1130,7 @@ mod tests {
                 None
             ],
             (0..4)
-                .map(|previous_attempts| retry.interval(previous_attempts))
+                .map(|previous_attempts| retry.interval(previous_attempts, false))
                 .collect::<Vec<_>>()
         );
 
@@ -1157,7 +1157,7 @@ mod tests {
                 None,
             ],
             (0..5)
-                .map(|previous_attempts| retry.interval(previous_attempts))
+                .map(|previous_attempts| retry.interval(previous_attempts, false))
                 .collect::<Vec<_>>()
         );
 

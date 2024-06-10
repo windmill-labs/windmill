@@ -1039,7 +1039,7 @@ async fn has_failure_module<'c>(
 fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
     (status.fail_count <= MAX_RETRY_ATTEMPTS)
         .then(|| &retry)
-        .and_then(|retry| retry.interval(status.fail_count))
+        .and_then(|retry| retry.interval(status.fail_count, false))
         .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
 }
 

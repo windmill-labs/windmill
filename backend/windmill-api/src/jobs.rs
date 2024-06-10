@@ -236,6 +236,7 @@ pub fn workspaced_service() -> Router {
             get(get_result_by_id).layer(cors.clone()),
         )
         .route("/run/dependencies", post(run_dependencies_job))
+        .route("/run/flow_dependencies", post(run_flow_dependencies_job))
 }
 
 pub fn global_service() -> Router {
@@ -3586,14 +3587,13 @@ pub struct RunDependenciesResponse {
     pub dependencies: String,
 }
 
-pub async fn run_dependencies_job(
+async fn run_dependencies_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(req): Json<RunDependenciesRequest>,
 ) -> error::Result<Response> {
-    check_scopes(&authed, || format!("runscript"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -3633,6 +3633,60 @@ pub async fn run_dependencies_job(
             language: language,
         },
         args,
+        authed.display_username(),
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    wait_result
+}
+
+#[derive(Deserialize)]
+pub struct RunFlowDependenciesRequest {
+    pub path: String,
+    pub flow_value: FlowValue,
+}
+
+#[derive(Serialize)]
+pub struct RunFlowDependenciesResponse {
+    pub dependencies: String,
+}
+
+async fn run_flow_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunFlowDependenciesRequest>,
+) -> error::Result<Response> {
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run dependencies jobs for security reasons".to_string(),
+        ));
+    }
+
+    let (uuid, tx) = push(
+        &db,
+        PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
+        &w_id,
+        JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
+        PushArgs::empty(),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
