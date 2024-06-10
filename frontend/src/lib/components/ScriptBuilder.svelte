@@ -219,8 +219,6 @@
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
-			debugger
-
 			const newHash = await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -453,7 +451,7 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'ui'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
