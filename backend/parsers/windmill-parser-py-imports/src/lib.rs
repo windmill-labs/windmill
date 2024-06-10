@@ -55,6 +55,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "github" => "PyGithub",
     "ldap" => "python-ldap",
     "opensearchpy" => "opensearch-py",
+    "lokalise" => "python-lokalise-api",
 
 };
 
