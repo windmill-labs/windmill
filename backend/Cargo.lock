@@ -442,7 +442,7 @@ dependencies = [
  "memchr",
  "num",
  "regex",
- "regex-syntax 0.8.3",
+ "regex-syntax 0.8.4",
 ]
 
 [[package]]
@@ -1626,9 +1626,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.98"
+version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41c270e7540d725e65ac7f1b212ac8ce349719624d7bcff99f8e2e488e8cf03f"
+checksum = "96c51067fd44124faa7f870b4b1c969379ad32b2ba805aa959430ceaa384f695"
 dependencies = [
  "jobserver",
  "libc",
@@ -1747,9 +1747,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.4"
+version = "4.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90bc066a67923782aa8515dbaea16946c5bcc5addbd668bb80af688e53e548a0"
+checksum = "a9689a29b593160de5bc4aacab7b5d54fb52231de70122626c178e6a368994c7"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1757,9 +1757,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.2"
+version = "4.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae129e2e766ae0ec03484e609954119f123cc1fe650337e155d03b022f24f7b4"
+checksum = "2e5387378c84f6faa26890ebf9f0a92989f8873d4d380467bcd0d8d8620424df"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1769,9 +1769,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.4"
+version = "4.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "528131438037fd55894f62d6e9f068b8f45ac57ffa77517819645d10aed04f64"
+checksum = "c780290ccf4fb26629baa7a1081e68ced113f1d3ec302fa5948f1c381ebf06c6"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -1781,9 +1781,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98cc8fbded0c607b7ba9dd60cd98df59af97e84d24e49c8557331cfc26d301ce"
+checksum = "4b82cf0babdbd58558212896d1a4272303a57bdb245c2bf1147185fb45640e70"
 
 [[package]]
 name = "cmake"
@@ -1821,7 +1821,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b34115915337defe99b2aff5c2ce6771e5fbc4079f4b506301f5cf394c8452f7"
 dependencies = [
  "strum 0.26.2",
- "strum_macros 0.26.3",
+ "strum_macros 0.26.4",
  "unicode-width",
 ]
 
@@ -2379,7 +2379,7 @@ dependencies = [
  "serde_json",
  "sqlparser",
  "strum 0.26.2",
- "strum_macros 0.26.3",
+ "strum_macros 0.26.4",
 ]
 
 [[package]]
@@ -2461,7 +2461,7 @@ dependencies = [
  "indexmap 2.2.6",
  "itertools 0.12.1",
  "log",
- "regex-syntax 0.8.3",
+ "regex-syntax 0.8.4",
 ]
 
 [[package]]
@@ -3118,18 +3118,18 @@ dependencies = [
 
 [[package]]
 name = "enumflags2"
-version = "0.7.9"
+version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3278c9d5fb675e0a51dabcf4c0d355f692b064171535ba72361be1528a9d8e8d"
+checksum = "d232db7f5956f3f14313dc2f87985c58bd2c695ce124c8cdd984e08e15ac133d"
 dependencies = [
  "enumflags2_derive",
 ]
 
 [[package]]
 name = "enumflags2_derive"
-version = "0.7.9"
+version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c785274071b1b420972453b306eeca06acf4633829db4223b58a2a8c5953bc4"
+checksum = "de0d48a183585823424a4ce1aa132d174a6a81bd540895822eb4c8373a8e49e8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4986,9 +4986,9 @@ dependencies = [
 
 [[package]]
 name = "mysql_common"
-version = "0.32.3"
+version = "0.32.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1e52cf194ab414202ead9dfda216d2a9ec59cc97ac024ba499ca686d82f040d"
+checksum = "478b0ff3f7d67b79da2b96f56f334431aef65e15ba4b29dd74a4236e29582bdc"
 dependencies = [
  "base64 0.21.7",
  "bigdecimal 0.4.3",
@@ -6397,14 +6397,14 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.10.4"
+version = "1.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c117dbdfde9c8308975b6a18d71f3f385c89461f7b3fb054288ecf2a2058ba4c"
+checksum = "b91213439dad192326a0d7c6ee3955910425f441d7038e0d6933b0aec5c4517f"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-automata 0.4.6",
- "regex-syntax 0.8.3",
+ "regex-automata 0.4.7",
+ "regex-syntax 0.8.4",
 ]
 
 [[package]]
@@ -6418,20 +6418,20 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.6"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86b83b8b9847f9bf95ef68afb0b8e6cdb80f498442f5179a29fad448fcc1eaea"
+checksum = "38caf58cc5ef2fed281f89292ef23f6365465ed9a41b7a7754eb4e26496c92df"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax 0.8.3",
+ "regex-syntax 0.8.4",
 ]
 
 [[package]]
 name = "regex-lite"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30b661b2f27137bdbc16f00eda72866a92bb28af1753ffbd56744fb6e2e9cd8e"
+checksum = "53a49587ad06b26609c52e423de037e7f57f20d53535d66e08c695f347df952a"
 
 [[package]]
 name = "regex-syntax"
@@ -6447,9 +6447,9 @@ checksum = "dbb5fb1acd8a1a18b3dd5be62d25485eb770e05afb408a9627d14d451bae12da"
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adad44e29e4c806119491a7f06f03de4d1af22c3a680dd47f1e6e179439d1f56"
+checksum = "7a66a03ae7c801facd77a29370b4faec201768915ac14a721ba36f20bc9c209b"
 
 [[package]]
 name = "regress"
@@ -8004,7 +8004,7 @@ version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d8cec3501a5194c432b2b7976db6b7d10ec95c253208b45f83f7136aa985e29"
 dependencies = [
- "strum_macros 0.26.3",
+ "strum_macros 0.26.4",
 ]
 
 [[package]]
@@ -8022,9 +8022,9 @@ dependencies = [
 
 [[package]]
 name = "strum_macros"
-version = "0.26.3"
+version = "0.26.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7993a8e3a9e88a00351486baae9522c91b123a088f76469e5bd5cc17198ea87"
+checksum = "4c6bee85a5a24955dc440386795aa378cd9cf82acd5f764469152d2270e581be"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -8960,7 +8960,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "winnow 0.6.11",
+ "winnow 0.6.13",
 ]
 
 [[package]]
@@ -9499,9 +9499,9 @@ dependencies = [
 
 [[package]]
 name = "utf8parse"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
+checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
@@ -9837,7 +9837,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -9876,7 +9876,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -9953,7 +9953,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -9971,7 +9971,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "chrono",
  "serde",
@@ -9984,7 +9984,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -10023,7 +10023,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -10038,7 +10038,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -10046,7 +10046,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10057,7 +10057,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -10069,7 +10069,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10080,7 +10080,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10094,7 +10094,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -10105,7 +10105,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10122,7 +10122,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10133,7 +10133,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10152,7 +10152,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -10171,7 +10171,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10204,7 +10204,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "serde",
  "wasm-bindgen",
@@ -10215,7 +10215,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.342.0"
+version = "1.343.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10442,9 +10442,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.6.11"
+version = "0.6.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56c52728401e1dc672a56e81e593e912aa54c78f40246869f78359a2bf24d29d"
+checksum = "59b5e5f6c299a3c7890b876a2a587f3115162487e704907d9b6cd29473052ba1"
 dependencies = [
  "memchr",
 ]
