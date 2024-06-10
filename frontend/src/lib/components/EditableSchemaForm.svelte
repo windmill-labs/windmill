@@ -37,6 +37,7 @@
 	export let noPreview: boolean = false
 	export let offset = 48 + 31 + 31 + 16 + 1
 	export let jsonEnabled: boolean = true
+	export let isAppInput: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -217,7 +218,7 @@
 						size="xs"
 						options={{
 							left: 'Rich Editor',
-							leftTooltip: 'View the schema in a rich editor',
+							leftTooltip: 'View the schema in a rich editor.',
 							right: 'JSON Editor',
 							rightTooltip:
 								'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
@@ -326,7 +327,7 @@
 													{isFlowInput}
 												>
 													<svelte:fragment slot="typeeditor">
-														{#if isFlowInput}
+														{#if isFlowInput || isAppInput}
 															<Label label="Type">
 																<ToggleButtonGroup
 																	bind:selected
@@ -376,7 +377,7 @@
 														{/if}
 													</svelte:fragment>
 
-													{#if isFlowInput}
+													{#if isFlowInput || isAppInput}
 														<FlowPropertyEditor
 															bind:defaultValue={schema.properties[argName].default}
 															{variableEditor}
@@ -395,6 +396,7 @@
 															itemsType={schema.properties[argName].items}
 															bind:properties={schema.properties[argName].properties}
 															bind:order={schema.properties[argName].order}
+															displayWebhookWarning={!isAppInput}
 															on:requiredChange={(event) => {
 																if (event.detail.required) {
 																	schema.required = schema.required ?? []

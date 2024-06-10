@@ -86,7 +86,7 @@
 	}> = []
 
 	$: {
-		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
+		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
 
@@ -227,7 +227,7 @@
 									description={schema.properties[argName].description}
 									bind:value={args[argName]}
 									type={schema.properties[argName].type}
-									required={schema.required?.includes(argName)}
+									required={schema.required.includes(argName)}
 									pattern={schema.properties[argName].pattern}
 									bind:valid={inputCheck[argName]}
 									defaultValue={schema.properties[argName].default}

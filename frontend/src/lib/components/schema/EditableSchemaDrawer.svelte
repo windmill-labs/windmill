@@ -144,7 +144,7 @@
 		<EditableSchemaForm
 			bind:this={editableSchemaForm}
 			bind:schema
-			isFlowInput
+			isAppInput
 			on:edit={(e) => {
 				addProperty?.openDrawer(e.detail)
 			}}

@@ -306,6 +306,7 @@
 		if (initialPath != '' && !savedScript) {
 			return
 		}
+
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
 			const current = cleanValueProperties(script)
