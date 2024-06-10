@@ -247,24 +247,28 @@
 										}
 									}}
 								>
-									<div class="flex flex-row gap-2">
-										<input
-											type="text"
-											class="w-full !bg-surface"
-											value={argName}
-											id={argName + i}
-										/>
-										<Button
-											variant="border"
-											color="light"
-											size="xs"
-											on:click={() => {
-												renameProperty(argName, argName + i)
-											}}
-										>
-											Rename
-										</Button>
-									</div>
+									{#if !uiOnly}
+										<div class="flex flex-row gap-2">
+											<input
+												type="text"
+												class="w-full !bg-surface"
+												value={argName}
+												id={argName + i}
+											/>
+											<Button
+												variant="border"
+												color="light"
+												size="xs"
+												on:click={() => {
+													renameProperty(argName, argName + i)
+												}}
+											>
+												Rename
+											</Button>
+										</div>
+									{:else}
+										{argName}
+									{/if}
 									{#if schema.required?.includes(argName)}
 										<span class="text-red-500 text-xs"> Required </span>
 									{/if}
