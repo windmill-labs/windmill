@@ -680,7 +680,6 @@ pub async fn eval_fetch_timeout(
             ..Default::default()
         };
 
-        tracing::error!("options");
         let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
 
         // tracing::info!("starting isolate");
@@ -920,6 +919,55 @@ multiline template`";
 
         let res = eval_timeout(code.to_string(), env, None, None, None).await?;
         assert_eq!(res.get(), "2");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_timeout_bug() -> anyhow::Result<()> {
+        let ops = vec![op_get_static_args(), op_log()];
+        let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+
+        let deno_fetch_options = if let Some(cert_path) = env::var("DENO_CERT").ok() {
+            let mut cert_store_provider = ContainerRootCertStoreProvider::new();
+            cert_store_provider.add_certificate(cert_path)?;
+
+            deno_fetch::Options {
+                root_cert_store_provider: Some(Arc::new(cert_store_provider)),
+                ..Default::default()
+            }
+        } else {
+            Default::default()
+        };
+
+        let exts: Vec<Extension> = vec![
+            deno_webidl::deno_webidl::init_ops(),
+            deno_url::deno_url::init_ops(),
+            deno_console::deno_console::init_ops(),
+            deno_web::deno_web::init_ops::<PermissionsContainer>(
+                Arc::new(BlobStore::default()),
+                None,
+            ),
+            deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(deno_fetch_options),
+            deno_net::deno_net::init_ops_and_esm::<PermissionsContainer>(None, None),
+            ext,
+        ];
+
+        // Use our snapshot to provision our new runtime
+        let options = RuntimeOptions {
+            is_main: true,
+            extensions: exts,
+            create_params: Some(
+                deno_core::v8::CreateParams::default()
+                    .heap_limits(0 as usize, 1024 * 1024 * 128 as usize),
+            ),
+            // startup_snapshot: None,
+            startup_snapshot: Some(RUNTIME_SNAPSHOT),
+            module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
+            extension_transpiler: None,
+            ..Default::default()
+        };
+
+        let mut js_runtime: JsRuntime = JsRuntime::new(options);
         Ok(())
     }
 
