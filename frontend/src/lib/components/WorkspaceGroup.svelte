@@ -750,7 +750,7 @@
 								dirtyCode = true
 								const code = e.detail
 								if (code != '') {
-									nconfig.init_bash = code
+									nconfig.init_bash = code?.replace(/\r\n/g, '\n')
 								} else {
 									nconfig.init_bash = undefined
 								}
