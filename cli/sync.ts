@@ -36,6 +36,8 @@ import {
 import { downloadZip } from "./pull.ts";
 
 import {
+  exts,
+  findContentFile,
   findGlobalDeps,
   handleScriptMetadata,
   removeExtensionToPath,
@@ -46,6 +48,10 @@ import { deepEqual } from "./utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { removePathPrefix } from "./types.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
+import {
+  generateFlowLockInternal,
+  generateScriptMetadataInternal,
+} from "./metadata.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -190,6 +196,145 @@ export const yamlOptions = {
   skipInvalid: true,
 };
 
+export interface InlineScript {
+  path: string;
+  content: string;
+}
+
+export function extractInlineScriptsForFlows(
+  modules: FlowModule[],
+  pathAssigner: PathAssigner
+): InlineScript[] {
+  return modules.flatMap((m) => {
+    if (m.value.type == "rawscript") {
+      const [basePath, ext] = pathAssigner.assignPath(
+        m.summary,
+        m.value.language
+      );
+      const path = basePath + ext;
+      const content = m.value.content;
+      const r = [{ path: path, content: content }];
+      m.value.content = "!inline " + path;
+      const lock = m.value.lock;
+      if (lock && lock != "") {
+        const lockPath = basePath + "lock";
+        m.value.lock = "!inline " + lockPath;
+        r.push({ path: lockPath, content: lock });
+      }
+      return r;
+    } else if (m.value.type == "forloopflow") {
+      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
+    } else if (m.value.type == "branchall") {
+      return m.value.branches.flatMap((b) =>
+        extractInlineScriptsForFlows(b.modules, pathAssigner)
+      );
+    } else if (m.value.type == "whileloopflow") {
+      return extractInlineScriptsForFlows(m.value.modules, pathAssigner);
+    } else if (m.value.type == "branchone") {
+      return [
+        ...m.value.branches.flatMap((b) =>
+          extractInlineScriptsForFlows(b.modules, pathAssigner)
+        ),
+        ...extractInlineScriptsForFlows(m.value.default, pathAssigner),
+      ];
+    } else {
+      return [];
+    }
+  });
+}
+
+interface PathAssigner {
+  assignPath(summary: string | undefined, language: string): [string, string];
+}
+const INLINE_SCRIPT = "inline_script";
+
+export function extractInlineScriptsForApps(
+  rec: any,
+  pathAssigner: PathAssigner
+): InlineScript[] {
+  if (!rec) {
+    return [];
+  }
+  if (typeof rec == "object") {
+    return Object.entries(rec).flatMap(([k, v]) => {
+      if (k == "inlineScript" && typeof v == "object") {
+        const o: Record<string, any> = v as any;
+        const name = rec["name"];
+        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
+        const r = [];
+        if (o["content"]) {
+          const content = o["content"];
+          o["content"] = "!inline " + basePath + ext;
+          r.push({
+            path: basePath + ext,
+            content: content,
+          });
+        }
+        if (o["lock"] && o["lock"] != "") {
+          const lock = o["lock"];
+          o["lock"] = "!inline " + basePath + "lock";
+          r.push({
+            path: basePath + "lock",
+            content: lock,
+          });
+        }
+        return r;
+      } else {
+        return extractInlineScriptsForApps(v, pathAssigner);
+      }
+    });
+  }
+  return [];
+}
+
+export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
+  let counter = 0;
+  const seen_names = new Set<string>();
+  function assignPath(
+    summary: string | undefined,
+    language: RawScript["language"]
+  ): [string, string] {
+    let name;
+
+    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+
+    let original_name = name;
+
+    if (name == "") {
+      original_name = INLINE_SCRIPT;
+      name = `${INLINE_SCRIPT}_0`;
+    }
+
+    while (seen_names.has(name)) {
+      counter++;
+      name = `${original_name}_${counter}`;
+    }
+    seen_names.add(name);
+
+    let ext;
+    if (language == "python3") ext = "py";
+    else if (language == defaultTs) ext = "ts";
+    else if (language == "bun") ext = "bun.ts";
+    else if (language == "deno") ext = "deno.ts";
+    else if (language == "go") ext = "go";
+    else if (language == "bash") ext = "sh";
+    else if (language == "powershell") ext = "ps1";
+    else if (language == "postgresql") ext = "pg.sql";
+    else if (language == "mysql") ext = "my.sql";
+    else if (language == "bigquery") ext = "bq.sql";
+    else if (language == "snowflake") ext = "sf.sql";
+    else if (language == "mssql") ext = "ms.sql";
+    else if (language == "graphql") ext = "gql";
+    else if (language == "nativets") ext = "native.ts";
+    else if (language == "frontend") ext = "frontend.js";
+    else if (language == "php") ext = "php";
+    else ext = "no_ext";
+
+    return [`${name}.inline_script.`, ext];
+  }
+
+  return { assignPath };
+}
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
@@ -208,136 +353,6 @@ function ZipFSElement(
       : "other";
 
     const isJson = p.endsWith(".json");
-
-    interface InlineScript {
-      path: string;
-      content: string;
-    }
-
-    let counter = 0;
-    const seen_names = new Set<string>();
-    function assignPath(
-      summary: string | undefined,
-      language: RawScript["language"],
-      defaultTs: "bun" | "deno"
-    ): [string, string] {
-      let name;
-
-      const INLINE_SCRIPT = "inline_script";
-      name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
-
-      let original_name = name;
-
-      if (name == "") {
-        original_name = INLINE_SCRIPT;
-        name = `${INLINE_SCRIPT}_0`;
-      }
-
-      while (seen_names.has(name)) {
-        counter++;
-        name = `${original_name}_${counter}`;
-      }
-      seen_names.add(name);
-
-      let ext;
-      if (language == "python3") ext = "py";
-      else if (language == defaultTs) ext = "ts";
-      else if (language == "bun") ext = "bun.ts";
-      else if (language == "deno") ext = "deno.ts";
-      else if (language == "go") ext = "go";
-      else if (language == "bash") ext = "sh";
-      else if (language == "powershell") ext = "ps1";
-      else if (language == "postgresql") ext = "pg.sql";
-      else if (language == "mysql") ext = "my.sql";
-      else if (language == "bigquery") ext = "bq.sql";
-      else if (language == "snowflake") ext = "sf.sql";
-      else if (language == "mssql") ext = "ms.sql";
-      else if (language == "graphql") ext = "gql";
-      else if (language == "nativets") ext = "native.ts";
-      else if (language == "frontend") ext = "frontend.js";
-      else if (language == "php") ext = "php";
-      else ext = "no_ext";
-
-      return [`${name}.inline_script.`, ext];
-    }
-
-    function extractInlineScriptsForFlows(
-      modules: FlowModule[]
-    ): InlineScript[] {
-      return modules.flatMap((m) => {
-        if (m.value.type == "rawscript") {
-          const [basePath, ext] = assignPath(
-            m.summary,
-            m.value.language,
-            defaultTs
-          );
-          const path = basePath + ext;
-          const content = m.value.content;
-          const r = [{ path: path, content: content }];
-          m.value.content = "!inline " + path;
-          const lock = m.value.lock;
-          if (lock && lock != "") {
-            const lockPath = basePath + "lock";
-            m.value.lock = "!inline " + lockPath;
-            r.push({ path: lockPath, content: lock });
-          }
-          return r;
-        } else if (m.value.type == "forloopflow") {
-          return extractInlineScriptsForFlows(m.value.modules);
-        } else if (m.value.type == "branchall") {
-          return m.value.branches.flatMap((b) =>
-            extractInlineScriptsForFlows(b.modules)
-          );
-        } else if (m.value.type == "whileloopflow") {
-          return extractInlineScriptsForFlows(m.value.modules);
-        } else if (m.value.type == "branchone") {
-          return [
-            ...m.value.branches.flatMap((b) =>
-              extractInlineScriptsForFlows(b.modules)
-            ),
-            ...extractInlineScriptsForFlows(m.value.default),
-          ];
-        } else {
-          return [];
-        }
-      });
-    }
-
-    function extractInlineScriptsForApps(rec: any): InlineScript[] {
-      if (!rec) {
-        return [];
-      }
-      if (typeof rec == "object") {
-        return Object.entries(rec).flatMap(([k, v]) => {
-          if (k == "inlineScript" && typeof v == "object") {
-            const o: Record<string, any> = v as any;
-            const name = rec["name"];
-            const [basePath, ext] = assignPath(name, o["language"], defaultTs);
-            const r = [];
-            if (o["content"]) {
-              const content = o["content"];
-              o["content"] = "!inline " + basePath + ext;
-              r.push({
-                path: basePath + ext,
-                content: content,
-              });
-            }
-            if (o["lock"] && o["lock"] != "") {
-              const lock = o["lock"];
-              o["lock"] = "!inline " + basePath + "lock";
-              r.push({
-                path: basePath + "lock",
-                content: lock,
-              });
-            }
-            return r;
-          } else {
-            return extractInlineScriptsForApps(v);
-          }
-        });
-      }
-      return [];
-    }
 
     function transformPath() {
       if (kind == "flow") {
@@ -358,7 +373,8 @@ function ZipFSElement(
           if (kind == "flow") {
             const flow: OpenFlow = JSON.parse(await f.async("text"));
             const inlineScripts = extractInlineScriptsForFlows(
-              flow.value.modules
+              flow.value.modules,
+              newPathAssigner(defaultTs)
             );
             for (const s of inlineScripts) {
               yield {
@@ -383,7 +399,10 @@ function ZipFSElement(
             };
           } else if (kind == "app") {
             const app = JSON.parse(await f.async("text"));
-            const inlineScripts = extractInlineScriptsForApps(app?.["value"]);
+            const inlineScripts = extractInlineScriptsForApps(
+              app?.["value"],
+              newPathAssigner(defaultTs)
+            );
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -879,6 +898,36 @@ async function pull(opts: GlobalOptions & SyncOptions) {
     }
 
     const conflicts = [];
+    const changedScripts: string[] = [];
+    const changedFlows: string[] = [];
+
+    // deno-lint-ignore no-inner-declarations
+    async function addToChangedIfNotExists(p: string) {
+      const isScript = exts.some((e) => p.endsWith(e));
+      if (isScript) {
+        if (p.includes(".flow" + SEP)) {
+          const folder =
+            p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+          if (!changedFlows.includes(folder)) {
+            changedFlows.push(folder);
+          }
+        } else {
+          if (!changedScripts.includes(p)) {
+            changedScripts.push(p);
+          }
+        }
+      } else if (p.endsWith(".script.yaml") || p.endsWith(".script.json")) {
+        try {
+          const contentPath = await findContentFile(p);
+          if (!contentPath) return;
+          if (changedScripts.includes(contentPath)) return;
+          changedScripts.push(contentPath);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
       const target = path.join(Deno.cwd(), change.path);
@@ -924,9 +973,12 @@ async function pull(opts: GlobalOptions & SyncOptions) {
             // ignore
           }
         }
-        if (!change.path.endsWith(".json") && !change.path.endsWith(".yaml")) {
+        if (exts.some((e) => change.path.endsWith(e))) {
           log.info(`Editing script content of ${change.path}`);
-        } else {
+        } else if (
+          change.path.endsWith(".yaml") ||
+          change.path.endsWith(".json")
+        ) {
           log.info(`Editing ${getTypeStrFromPath(change.path)} ${change.path}`);
         }
         await Deno.writeTextFile(target, change.after);
@@ -935,6 +987,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
           await ensureDir(path.dirname(stateTarget));
           await Deno.copyFile(target, stateTarget);
         }
+        await addToChangedIfNotExists(change.path);
       } else if (change.name === "added") {
         await ensureDir(path.dirname(target));
         if (opts.stateful) {
@@ -946,6 +999,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
         if (opts.stateful) {
           await Deno.copyFile(target, stateTarget);
         }
+        await addToChangedIfNotExists(change.path);
       } else if (change.name === "deleted") {
         try {
           log.info(
@@ -978,9 +1032,29 @@ async function pull(opts: GlobalOptions & SyncOptions) {
         Deno.exit(1);
       }
     }
+    log.info("All local changes pulled, now updating wmill-lock.yaml");
+
+    const globalDeps = await findGlobalDeps();
+
+    for (const change of changedScripts) {
+      await generateScriptMetadataInternal(
+        change,
+        workspace,
+        opts,
+        false,
+        true,
+        globalDeps,
+        codebases,
+        true
+      );
+    }
+    for (const change of changedFlows) {
+      log.info(`Updating lock for flow ${change}`);
+      await generateFlowLockInternal(change, false, workspace, true);
+    }
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes applied locally.`
+        `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`
       )
     );
   }

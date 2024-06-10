@@ -2785,6 +2785,11 @@ lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
 }
 
+#[derive(sqlx::FromRow)]
+struct FlowRawValue {
+    pub value: sqlx::types::Json<Box<RawValue>>,
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
@@ -3106,28 +3111,44 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
         ),
+        JobPayload::RawFlowDependencies { path, flow_value } => (
+            None,
+            Some(path),
+            None,
+            JobKind::FlowDependencies,
+            Some(flow_value.clone()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
         JobPayload::FlowDependencies { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_scalar!(
+                sqlx::query_as::<_, FlowRawValue>(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    path,
-                    workspace_id
-                ),
+                )
+                .bind(&path)
+                .bind(&workspace_id),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {path}: {err:?}"
-                ))
-            })?;
+            let value =
+                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
+                    Error::InternalErr(format!(
+                        "could not convert json to flow for {path}: {err:?}"
+                    ))
+                })?;
             (
                 None,
                 Some(path),
                 None,
                 JobKind::FlowDependencies,
                 Some(value.clone()),
-                Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
+                None,
                 None,
                 None,
                 None,
@@ -3275,19 +3296,20 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
         JobPayload::Flow { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_scalar!(
+                sqlx::query_as::<_, FlowRawValue>(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    path,
-                    workspace_id
-                ),
+                )
+                .bind(&path)
+                .bind(&workspace_id),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let mut value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {path}: {err:?}"
-                ))
-            })?;
+            let mut value =
+                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
+                    Error::InternalErr(format!(
+                        "could not convert json to flow for {path}: {err:?}"
+                    ))
+                })?;
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
@@ -3584,8 +3606,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
-        raw_flow.map(|f| serde_json::json!(f)),
-        flow_status.map(|f| serde_json::json!(f)),
+        Json(raw_flow) as Json<Option<FlowValue>>,
+        Json(flow_status) as Json<Option<FlowStatus>>,
         is_flow_step,
         language as Option<ScriptLang>,
         same_worker,

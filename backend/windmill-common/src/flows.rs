@@ -124,7 +124,7 @@ impl Retry {
     /// Takes the number of previous retries and returns the interval until the next retry if any.
     ///
     /// May return [`Duration::ZERO`] to retry immediately.
-    pub fn interval(&self, previous_attempts: u16) -> Option<Duration> {
+    pub fn interval(&self, previous_attempts: u16, silent: bool) -> Option<Duration> {
         let Self { constant, exponential } = self;
 
         if previous_attempts < constant.attempts {
@@ -142,7 +142,9 @@ impl Retry {
                     };
                 }
             }
-            tracing::warn!("Rescheduling job in {} seconds due to failure", secs);
+            if !silent {
+                tracing::warn!("Rescheduling job in {} seconds due to failure", secs);
+            }
             Some(Duration::from_secs(secs as u64))
         } else {
             None
@@ -162,7 +164,7 @@ impl Retry {
     pub fn max_interval(&self) -> Option<Duration> {
         self.max_attempts()
             .checked_sub(1)
-            .and_then(|p| self.interval(p))
+            .and_then(|p| self.interval(p, true))
     }
 }
 

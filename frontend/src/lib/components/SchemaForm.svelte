@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow, generateRandomString } from '$lib/utils'
+	import { allTrue, computeShow } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -15,6 +15,7 @@
 	import { flip } from 'svelte/animate'
 	import { createEventDispatcher } from 'svelte'
 	import LightweightArgInput from './LightweightArgInput.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -67,7 +68,9 @@
 		args = nargs
 	}
 
-	let keys: string[] = []
+	let keys: string[] = Array.isArray(schema?.order)
+		? schema?.order
+		: Object.keys(schema?.properties ?? {})
 
 	function removeExtraKey() {
 		const nargs = {}
@@ -87,20 +90,6 @@
 		id: string
 	}> = []
 
-	$: {
-		let lkeys = Object.keys(schema?.properties ?? {})
-		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
-			keys = lkeys
-
-			items = keys.map((item, index) => {
-				return { value: item, id: generateRandomString() }
-			})
-			if (!noDelete) {
-				removeExtraKey()
-			}
-		}
-	}
-
 	$: isValid = allTrue(inputCheck ?? {})
 
 	let resourceTypes: string[] | undefined = undefined
@@ -113,24 +102,35 @@
 
 	$: schema && reorder()
 
-	// Reorder the schema properties according to the order array
+	function hasExtraKeys() {
+		return Object.keys(args ?? {}).some((x) => !keys.includes(x))
+	}
+
 	function reorder() {
-		if (schema?.order && Array.isArray(schema.order)) {
-			const n = {}
+		let lkeys = Object.keys(schema?.properties ?? {})
+		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
+			console.debug('reorder')
+			if (schema?.order && Array.isArray(schema.order)) {
+				const n = {}
 
-			;(schema.order as string[]).forEach((x) => {
-				if (schema.properties && schema.properties[x] != undefined) {
-					n[x] = schema.properties[x]
-				}
-			})
-
-			Object.keys(schema.properties ?? {})
-				.filter((x) => !schema.order?.includes(x))
-				.forEach((x) => {
-					n[x] = schema.properties[x]
+				;(schema.order as string[]).forEach((x) => {
+					if (schema.properties && schema.properties[x] != undefined) {
+						n[x] = schema.properties[x]
+					}
 				})
-			schema.properties = n
+
+				Object.keys(schema.properties ?? {})
+					.filter((x) => !schema.order?.includes(x))
+					.forEach((x) => {
+						n[x] = schema.properties[x]
+					})
+				schema.properties = n
+			}
 			keys = Object.keys(schema.properties ?? {})
+		}
+
+		if (!noDelete && hasExtraKeys()) {
+			removeExtraKey()
 		}
 	}
 
