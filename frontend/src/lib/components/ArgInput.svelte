@@ -79,6 +79,7 @@
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
 	export let dndEnabled: boolean = false
+	export let order: string[] | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -607,10 +608,21 @@
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
-							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
+							schema={{
+								properties,
+								$schema: '',
+								required: nestedRequired ?? [],
+								type: 'object',
+								order
+							}}
 							bind:args={value}
 							dndType={`nested-${title}`}
 							{dndEnabled}
+							on:reorder={(e) => {
+								const keys = e.detail
+
+								order = keys
+							}}
 						/>
 					</div>
 				{:else if disabled}

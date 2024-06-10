@@ -35,6 +35,7 @@
 		  }
 		| undefined = undefined
 	export let properties: Record<string, any> = {}
+	export let order: string[] = []
 
 	const dispatch = createEventDispatcher()
 
@@ -46,10 +47,11 @@
 		return []
 	}
 
-	let schema = { properties }
+	let schema = { properties, order }
 
 	$: if (schema) {
 		properties = schema.properties
+		order = schema.order
 	}
 </script>
 

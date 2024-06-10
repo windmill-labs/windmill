@@ -368,6 +368,7 @@
 															customErrorMessage={schema.properties[argName].customErrorMessage}
 															itemsType={schema.properties[argName].items}
 															bind:properties={schema.properties[argName].properties}
+															bind:order={schema.properties[argName].order}
 															on:requiredChange={(event) => {
 																if (event.detail.required) {
 																	schema.required = schema.required ?? []

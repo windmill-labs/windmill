@@ -111,6 +111,7 @@
 
 	$: schema && reorder()
 
+	// Reorder the schema properties according to the order array
 	function reorder() {
 		if (schema?.order && Array.isArray(schema.order)) {
 			const n = {}
@@ -167,7 +168,7 @@
 
 		schema = { ...schema }
 
-		dispatch('reorder')
+		dispatch('reorder', keys)
 	}
 	function startDrag(e) {
 		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
@@ -233,7 +234,8 @@
 									format={schema.properties[argName].format}
 									contentEncoding={schema.properties[argName].contentEncoding}
 									customErrorMessage={schema.properties[argName].customErrorMessage}
-									properties={schema.properties[argName].properties}
+									bind:properties={schema.properties[argName].properties}
+									bind:order={schema.properties[argName].order}
 									nestedRequired={schema.properties[argName].required}
 									itemsType={schema.properties[argName].items}
 									disabled={disabledArgs.includes(argName) || disabled}

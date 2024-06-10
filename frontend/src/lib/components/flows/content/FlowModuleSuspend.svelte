@@ -230,7 +230,6 @@
 				/>
 				<EditableSchemaWrapper
 					bind:schema={flowModule.suspend.resume_form.schema}
-					noPreview
 					fullHeight={false}
 				/>
 			{/if}
