@@ -357,7 +357,9 @@
 					<Pane size={33}>
 						<div class="px-2">
 							<div class="break-words relative font-sans">
-								<SchemaForm compact {schema} bind:args bind:isValid showSchemaExplorer />
+								{#key schema?.properties}
+									<SchemaForm compact {schema} bind:args bind:isValid showSchemaExplorer />
+								{/key}
 							</div>
 						</div>
 					</Pane>

@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow } from '$lib/utils'
+	import { allTrue, computeShow, generateRandomString } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -88,7 +88,7 @@
 	let items: Array<{
 		value: string
 		id: string
-	}> = []
+	}> = keys.map((value) => ({ value, id: generateRandomString() }))
 
 	$: isValid = allTrue(inputCheck ?? {})
 
