@@ -7,7 +7,7 @@
 	import VariableEditor from './VariableEditor.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
-	import { Plus, X } from 'lucide-svelte'
+	import { Pen, Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
 	import Section from './Section.svelte'
@@ -22,6 +22,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
+	import Popup from './common/popup/Popup.svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -207,7 +208,7 @@
 			</Pane>
 		{/if}
 		<Pane size={noPreview ? 100 : 50} minSize={noPreview ? 100 : 20}>
-			<div class="w-full p-1">
+			<div class="w-full p-2 flex justify-end">
 				<Toggle
 					bind:checked={jsonView}
 					label="JSON View"
@@ -247,37 +248,48 @@
 										}
 									}}
 								>
-									{#if !uiOnly}
-										<div class="flex flex-row gap-2">
-											<input
-												type="text"
-												class="w-full !bg-surface"
-												value={argName}
-												id={argName + i}
-											/>
-											<Button
-												variant="border"
-												color="light"
-												size="xs"
-												on:click={() => {
-													renameProperty(argName, argName + i)
-												}}
-											>
-												Rename
-											</Button>
-										</div>
-									{:else}
-										{argName}
-									{/if}
+									{argName}
 									{#if schema.required?.includes(argName)}
 										<span class="text-red-500 text-xs"> Required </span>
 									{/if}
 
 									{#if !uiOnly}
-										<div class="flex flex-row gap-1 items-center justify-center">
+										<div class="flex flex-row gap-2 items-center justify-center">
+											<Popup
+												floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+												containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+												let:close
+											>
+												<svelte:fragment slot="button">
+													<Button color="light" size="xs" nonCaptureEvent startIcon={{ icon: Pen }}>
+														Rename
+													</Button>
+												</svelte:fragment>
+												<Label label="Name">
+													<div class="flex flex-col gap-2">
+														<input
+															type="text"
+															class="w-full !bg-surface"
+															value={argName}
+															id={argName + i}
+														/>
+														<Button
+															variant="border"
+															color="light"
+															size="xs"
+															on:click={() => {
+																renameProperty(argName, argName + i)
+																close(null)
+															}}
+														>
+															Rename
+														</Button>
+													</div>
+												</Label>
+											</Popup>
 											<button
 												class="rounded-full p-1 text-gray-500 bg-white
-			duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white"
+			duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800"
 												aria-label="Clear"
 												on:click={() => {
 													dispatch('delete', argName)

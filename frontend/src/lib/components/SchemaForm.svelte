@@ -86,7 +86,7 @@
 	}> = []
 
 	$: {
-		let lkeys = Object.keys(schema?.properties ?? {})
+		let lkeys = schema?.order ?? []
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
 
@@ -170,6 +170,7 @@
 
 		dispatch('reorder', keys)
 	}
+
 	function startDrag(e) {
 		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
 		e.preventDefault()

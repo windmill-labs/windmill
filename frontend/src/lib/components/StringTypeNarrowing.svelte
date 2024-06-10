@@ -167,9 +167,9 @@
 			</svelte:fragment>
 			<div class="flex flex-col gap-1">
 				{#each enum_ || [] as e}
-					<div class="flex flex-row max-w-md">
+					<div class="flex flex-row w-full gap-2">
 						<input id="input" type="text" bind:value={e} />
-						<Button size="sm" btnClasses="ml-6" on:click={() => remove(e)}>-</Button>
+						<Button size="sm" on:click={() => remove(e)}>-</Button>
 					</div>
 				{/each}
 			</div>

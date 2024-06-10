@@ -13,8 +13,8 @@
 	let addProperty: AddProperty | undefined = undefined
 </script>
 
-<div class={twMerge(fullHeight ? 'h-full' : 'h-80', 'border overflow-y-auto')}>
-	<div class="pt-6 px-4 border-b pb-4">
+<div class={twMerge(fullHeight ? 'h-full' : 'h-80', 'border overflow-y-auto rounded-md')}>
+	<div class="p-4 border-b">
 		<AddProperty bind:schema bind:this={addProperty} />
 	</div>
 	<EditableSchemaForm
