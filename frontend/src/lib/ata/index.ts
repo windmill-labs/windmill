@@ -117,6 +117,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 					? f.raw
 					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
 				let url = config.root + path
+				// console.log('FOO', config.scriptPath, path, f.raw)
 				console.log('fetching local file', url, f.raw)
 				const res = await fetch(url)
 				if (res.ok) {

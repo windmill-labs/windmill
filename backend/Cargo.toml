@@ -50,7 +50,7 @@ parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/p
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
-cloud = ["windmill-queue/cloud"]
+cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 
 [dependencies]

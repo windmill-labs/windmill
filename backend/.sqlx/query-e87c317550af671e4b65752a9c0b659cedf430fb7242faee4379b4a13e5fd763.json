@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)\n                 VALUES ($1, $2, $4::text::IMPORTER_KIND, $3, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e87c317550af671e4b65752a9c0b659cedf430fb7242faee4379b4a13e5fd763"
+}
