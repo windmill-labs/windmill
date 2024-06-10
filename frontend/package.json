@@ -245,9 +245,9 @@
 			"default": "./package/components/SchemaForm.svelte"
 		},
 		"./components/SchemaEditor.svelte": {
-			"types": "./package/components/SchemaEditor.svelte.d.ts",
-			"svelte": "./package/components/SchemaEditor.svelte",
-			"default": "./package/components/SchemaEditor.svelte"
+			"types": "./package/components/EditableSchemaForm.svelte.d.ts",
+			"svelte": "./package/components/EditableSchemaForm.svelte",
+			"default": "./package/components/EditableSchemaForm.svelte"
 		},
 		"./components/scriptEditor/LogPanel.svelte": {
 			"types": "./package/components/scriptEditor/LogPanel.svelte.d.ts",
