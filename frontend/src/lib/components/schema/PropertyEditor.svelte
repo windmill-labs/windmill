@@ -31,6 +31,7 @@
 	export let placeholder: string | undefined = undefined
 	export let properties: Record<string, any> = {}
 	export let isFlowInput: boolean = false
+	export let isAppInput: boolean = false
 	export let order: string[] = []
 
 	let el: HTMLTextAreaElement | undefined = undefined
@@ -126,7 +127,7 @@
 								bind:currency={extra['currency']}
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
-						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput}
+						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
 							<div class="border">
 								<EditableSchemaForm noPreview bind:schema uiOnly jsonEnabled={false} />
 							</div>

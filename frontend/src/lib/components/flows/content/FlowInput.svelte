@@ -36,6 +36,7 @@
 
 		jsonPayload.closeDrawer()
 	}
+	const yOffset = 191
 </script>
 
 <CapturePayload bind:this={capturePayload} />
@@ -89,6 +90,7 @@
 			}}
 		/>
 	</div>
+
 	<EditableSchemaForm
 		bind:schema={$flowStore.schema}
 		isFlowInput
@@ -98,7 +100,7 @@
 		on:delete={(e) => {
 			addProperty?.handleDeleteArgument([e.detail])
 		}}
-		offset={201}
+		offset={yOffset}
 	/>
 </FlowCard>
 

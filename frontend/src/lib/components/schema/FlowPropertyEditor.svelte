@@ -11,6 +11,7 @@
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import { Tab, TabContent } from '../common'
 	import EditableSchemaWrapper from './EditableSchemaWrapper.svelte'
+	import LightweightArgInput from '../LightweightArgInput.svelte'
 
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -37,6 +38,7 @@
 	export let properties: Record<string, any> = {}
 	export let order: string[] = []
 	export let displayWebhookWarning: boolean = true
+	export let lightweightMode: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -71,7 +73,7 @@
 			<svelte:fragment slot="content">
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<EditableSchemaWrapper bind:schema noPreview fullHeight={false} />
+						<EditableSchemaWrapper bind:schema noPreview fullHeight={false} {lightweightMode} />
 					</TabContent>
 
 					<TabContent value="resource">
@@ -83,23 +85,37 @@
 	{/if}
 
 	<Label label="Default">
-		<ArgInput
-			{itemPicker}
-			resourceTypes={getResourceTypesFromFormat(format)}
-			bind:value={defaultValue}
-			type={password ? 'string' : type}
-			displayHeader={false}
-			{pattern}
-			{customErrorMessage}
-			{itemsType}
-			{contentEncoding}
-			{format}
-			{extra}
-			{nullable}
-			{variableEditor}
-			compact
-			noMargin
-		/>
+		{#if lightweightMode}
+			<LightweightArgInput
+				bind:value={defaultValue}
+				type={password ? 'string' : type}
+				displayHeader={false}
+				{pattern}
+				{customErrorMessage}
+				{itemsType}
+				{contentEncoding}
+				{format}
+				{extra}
+			/>
+		{:else}
+			<ArgInput
+				{itemPicker}
+				resourceTypes={getResourceTypesFromFormat(format)}
+				bind:value={defaultValue}
+				type={password ? 'string' : type}
+				displayHeader={false}
+				{pattern}
+				{customErrorMessage}
+				{itemsType}
+				{contentEncoding}
+				{format}
+				{extra}
+				{nullable}
+				{variableEditor}
+				compact
+				noMargin
+			/>
+		{/if}
 	</Label>
 
 	<div class="flex flex-row gap-2">

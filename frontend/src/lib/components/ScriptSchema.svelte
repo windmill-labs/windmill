@@ -8,6 +8,7 @@
 	export function setSchema(newSchema: Schema) {
 		schema = newSchema
 	}
+	const yOffset = 80
 </script>
 
-<EditableSchemaForm bind:schema uiOnly offset={80} />
+<EditableSchemaForm bind:schema uiOnly offset={yOffset} />

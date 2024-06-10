@@ -10,7 +10,6 @@
 	import { Pen, Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
-	import Section from './Section.svelte'
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -38,6 +37,7 @@
 	export let offset = 48 + 31 + 31 + 16 + 1
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
+	export let lightweightMode: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -192,22 +192,19 @@
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
 				<div class="p-4">
-					<Section
-						label="Form preview"
-						tooltip={'Preview of the form that will be rendered based on the schema. Drag and drop to reorder the fields.'}
-					>
-						{#key schema?.order}
-							<SchemaForm
-								{schema}
-								bind:args
-								dndEnabled
-								on:click={(e) => {
-									opened = e.detail
-								}}
-								on:reorder={() => reorder()}
-							/>
-						{/key}
-					</Section>
+					{#key schema?.order}
+						<SchemaForm
+							{schema}
+							bind:args
+							dndEnabled
+							on:click={(e) => {
+								opened = e.detail
+							}}
+							on:reorder={() => reorder()}
+							{lightweightMode}
+							prettifyHeader={isAppInput}
+						/>
+					{/key}
 				</div>
 			</Pane>
 		{/if}
@@ -219,8 +216,6 @@
 						label="JSON View"
 						size="xs"
 						options={{
-							left: 'Rich Editor',
-							leftTooltip: 'View the schema in a rich editor.',
 							right: 'JSON Editor',
 							rightTooltip:
 								'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
@@ -254,22 +249,22 @@
 										}
 									}}
 								>
-									{argName}
-									{#if schema.required?.includes(argName)}
-										<span class="text-red-500 text-xs"> Required </span>
-									{/if}
-
-									{#if !uiOnly}
-										<div class="flex flex-row gap-2 items-center justify-center">
+									<div class="flex flex-row gap-2">
+										{argName}
+										{#if !uiOnly}
 											<Popup
 												floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 												containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 												let:close
 											>
 												<svelte:fragment slot="button">
-													<Button color="light" size="xs" nonCaptureEvent startIcon={{ icon: Pen }}>
-														Rename
-													</Button>
+													<Button
+														color="light"
+														size="xs2"
+														nonCaptureEvent
+														startIcon={{ icon: Pen }}
+														iconOnly
+													/>
 												</svelte:fragment>
 												<Label label="Name">
 													<div class="flex flex-col gap-2">
@@ -293,17 +288,24 @@
 													</div>
 												</Label>
 											</Popup>
-											<button
-												class="rounded-full p-1 text-gray-500 bg-white
-			duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800"
-												aria-label="Clear"
-												on:click={() => {
-													dispatch('delete', argName)
-												}}
-											>
-												<X size={16} />
-											</button>
-										</div>
+										{/if}
+									</div>
+
+									{#if schema.required?.includes(argName)}
+										<span class="text-red-500 text-xs"> Required </span>
+									{/if}
+
+									{#if !uiOnly}
+										<button
+											class="rounded-full p-1 text-gray-500 bg-white
+		duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800"
+											aria-label="Clear"
+											on:click={() => {
+												dispatch('delete', argName)
+											}}
+										>
+											<X size={16} />
+										</button>
 									{/if}
 								</div>
 								{#if opened === argName}
@@ -327,11 +329,14 @@
 													bind:properties={schema.properties[argName].properties}
 													bind:order={schema.properties[argName].order}
 													{isFlowInput}
+													{isAppInput}
 												>
 													<svelte:fragment slot="typeeditor">
 														{#if isFlowInput || isAppInput}
 															<Label label="Type">
 																<ToggleButtonGroup
+																	tabListClass="flex-wrap"
+																	class="h-auto"
 																	bind:selected
 																	on:selected={(e) => {
 																		const isS3 = e.detail == 'S3'
@@ -384,6 +389,7 @@
 															bind:defaultValue={schema.properties[argName].default}
 															{variableEditor}
 															{itemPicker}
+															{lightweightMode}
 															bind:nullable={schema.properties[argName].nullable}
 															type={schema.properties[argName].type}
 															bind:format={schema.properties[argName].format}

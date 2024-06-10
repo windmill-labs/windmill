@@ -9,6 +9,7 @@
 	export let uiOnly: boolean = false
 	export let noPreview: boolean = false
 	export let fullHeight: boolean = true
+	export let lightweightMode: boolean = false
 
 	let addProperty: AddProperty | undefined = undefined
 </script>
@@ -29,5 +30,6 @@
 		{offset}
 		{uiOnly}
 		{noPreview}
+		{lightweightMode}
 	/>
 </div>

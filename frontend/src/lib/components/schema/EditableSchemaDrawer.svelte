@@ -73,6 +73,8 @@
 	function handleKeyDown(e) {
 		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
 	}
+
+	const yOffset = 49
 </script>
 
 <AddProperty bind:schema bind:this={addProperty} />
@@ -141,6 +143,9 @@
 
 <Drawer bind:this={schemaFormDrawer} size="1200px">
 	<DrawerContent noPadding title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<AddProperty bind:schema />
+		</svelte:fragment>
 		<EditableSchemaForm
 			bind:this={editableSchemaForm}
 			bind:schema
@@ -151,7 +156,8 @@
 			on:delete={(e) => {
 				addProperty?.handleDeleteArgument([e.detail])
 			}}
-			offset={49}
+			offset={yOffset}
+			lightweightMode
 		/>
 	</DrawerContent>
 </Drawer>
