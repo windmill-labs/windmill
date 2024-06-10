@@ -11,6 +11,8 @@ import * as headers from "ext:deno_fetch/20_headers.js";
 import * as streams from "ext:deno_web/06_streams.js";
 import * as timers from "ext:deno_web/02_timers.js";
 import * as url from "ext:deno_url/00_url.js";
+import * as net from "ext:deno_net/01_net.js";
+import * as tls from "ext:deno_net/02_tls.js";
 import * as urlPattern from "ext:deno_url/01_urlpattern.js";
 import * as webidl from "ext:deno_webidl/00_webidl.js";
 import * as response from "ext:deno_fetch/23_response.js";

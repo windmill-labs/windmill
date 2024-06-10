@@ -15,14 +15,15 @@ use std::{
     sync::Arc,
 };
 
-use deno_ast::{ParseParams, SourceTextInfo};
+use deno_ast::ParseParams;
 use deno_core::{
     error::AnyError,
     op2, serde_v8, url,
     v8::{self, IsolateHandle},
-    Extension, JsRuntime, Op, OpState, PollEventLoopOptions, RuntimeOptions, Snapshot,
+    Extension, JsRuntime, OpState, PollEventLoopOptions, RuntimeOptions,
 };
 use deno_fetch::FetchPermissions;
+use deno_net::NetPermissions;
 use deno_tls::{rustls::RootCertStore, rustls_pemfile};
 use deno_web::{BlobStore, TimersPermission};
 use itertools::Itertools;
@@ -103,6 +104,32 @@ impl TimersPermission for PermissionsContainer {
     #[inline(always)]
     fn allow_hrtime(&mut self) -> bool {
         true
+    }
+}
+
+impl NetPermissions for PermissionsContainer {
+    fn check_read(
+        &mut self,
+        _p: &std::path::Path,
+        _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+        Ok(())
+    }
+
+    fn check_write(
+        &mut self,
+        _p: &std::path::Path,
+        _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+        Ok(())
+    }
+
+    fn check_net<T: AsRef<str>>(
+        &mut self,
+        _host: &(T, Option<u16>),
+        _api_name: &str,
+    ) -> Result<(), deno_core::error::AnyError> {
+        Ok(())
     }
 }
 
@@ -187,21 +214,21 @@ pub async fn eval_timeout(
     timeout(
         std::time::Duration::from_millis(10000),
         tokio::task::spawn_blocking(move || {
-            let mut ops = vec![op_get_context::DECL];
+            let mut ops = vec![op_get_context()];
 
             if authed_client.is_some() {
                 ops.extend([
                     // An op for summing an array of numbers
                     // The op-layer automatically deserializes inputs
                     // and serializes the returned Result & value
-                    op_variable::DECL,
-                    op_resource::DECL,
+                    op_variable(),
+                    op_resource(),
                 ])
             }
 
             if by_id.is_some() && authed_client.is_some() {
-                ops.push(op_get_result::DECL);
-                ops.push(op_get_id::DECL);
+                ops.push(op_get_result());
+                ops.push(op_get_id());
             }
 
             let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
@@ -437,7 +464,7 @@ function get_from_env(name) {{
         },
     );
 
-    let script = context.execute_script("<anon>", code.into())?;
+    let script = context.execute_script("<anon>", code)?;
     let fut = context.resolve(script);
     let global = context
         .with_event_loop_promise(fut, PollEventLoopOptions::default())
@@ -562,13 +589,17 @@ fn op_get_context(op_state: Rc<RefCell<OpState>>, #[string] id: &str) -> String 
 pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
     let parsed = deno_ast::parse_module(ParseParams {
         specifier: url::Url::parse("file:///eval.ts")?,
-        text_info: SourceTextInfo::from_string(expr),
         capture_tokens: false,
         scope_analysis: false,
         media_type: deno_ast::MediaType::TypeScript,
         maybe_syntax: None,
+        text: deno_core::ModuleCodeString::from(expr).into(),
     })?;
-    Ok(parsed.transpile(&Default::default())?.text)
+    Ok(parsed
+        .transpile(&Default::default(), &Default::default())?
+        .into_source()
+        .into_string()?
+        .text)
 }
 
 static RUNTIME_SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/FETCH_SNAPSHOT.bin"));
@@ -606,7 +637,7 @@ pub async fn eval_fetch_timeout(
         .collect::<Vec<_>>();
 
     let result_f = tokio::task::spawn_blocking(move || {
-        let ops = vec![op_get_static_args::DECL, op_log::DECL];
+        let ops = vec![op_get_static_args(), op_log()];
         let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
         let deno_fetch_options = if let Some(cert_path) = env::var("DENO_CERT").ok() {
@@ -630,6 +661,7 @@ pub async fn eval_fetch_timeout(
                 None,
             ),
             deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(deno_fetch_options),
+            deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
             ext,
         ];
 
@@ -641,9 +673,10 @@ pub async fn eval_fetch_timeout(
                 deno_core::v8::CreateParams::default()
                     .heap_limits(0 as usize, 1024 * 1024 * 128 as usize),
             ),
-            startup_snapshot: Some(Snapshot::Static(RUNTIME_SNAPSHOT)),
+            // startup_snapshot: None,
+            startup_snapshot: Some(RUNTIME_SNAPSHOT),
             module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
-            //                startup_snapshot: Some(Snapshot::Static(buffer)),
+            extension_transpiler: None,
             ..Default::default()
         };
 
@@ -653,6 +686,7 @@ pub async fn eval_fetch_timeout(
         // let instant = Instant::now();
 
         let mut js_runtime: JsRuntime = JsRuntime::new(options);
+        tracing::error!("js_runtime created");
         // tracing::info!("ttc: {:?}", instant.elapsed());
 
         js_runtime.add_near_heap_limit_callback(move |x,y| {
@@ -735,17 +769,17 @@ async fn eval_fetch(
 ) -> anyhow::Result<Box<RawValue>> {
     if let Some(env_code) = env_code.as_ref() {
         let _ = js_runtime
-            .load_side_module(
+            .load_side_es_module_from_code(
                 &deno_core::resolve_url("file:///windmill.ts")?,
-                Some(format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()).into()),
+                format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
             )
             .await?;
     }
 
     let _ = js_runtime
-        .load_side_module(
+        .load_side_es_module_from_code(
             &deno_core::resolve_url("file:///eval.ts")?,
-            Some(format!("{}\n{expr}", env_code.unwrap_or_default()).into()),
+            format!("{}\n{expr}", env_code.unwrap_or_default()),
         )
         .await?;
 
@@ -754,9 +788,7 @@ async fn eval_fetch(
         r#"
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
 import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.stringify)
-"#
-        .to_string()
-        .into(),
+"#,
     )?;
 
     let fut = js_runtime.resolve(script);
@@ -817,7 +849,7 @@ mod tests {
 
         let code = "value.test + params.test";
 
-        let ops = vec![op_get_context::DECL];
+        let ops = vec![op_get_context()];
 
         let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
         let exts = vec![ext];
@@ -881,6 +913,55 @@ multiline template`";
         assert_eq!(res.get(), "2");
         Ok(())
     }
+
+    // #[tokio::test]
+    // async fn test_eval_timeout_bug() -> anyhow::Result<()> {
+    //     let ops = vec![op_get_static_args(), op_log()];
+    //     let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+
+    //     let deno_fetch_options = if let Some(cert_path) = env::var("DENO_CERT").ok() {
+    //         let mut cert_store_provider = ContainerRootCertStoreProvider::new();
+    //         cert_store_provider.add_certificate(cert_path)?;
+
+    //         deno_fetch::Options {
+    //             root_cert_store_provider: Some(Arc::new(cert_store_provider)),
+    //             ..Default::default()
+    //         }
+    //     } else {
+    //         Default::default()
+    //     };
+
+    //     let exts: Vec<Extension> = vec![
+    //         deno_webidl::deno_webidl::init_ops(),
+    //         deno_url::deno_url::init_ops(),
+    //         deno_console::deno_console::init_ops(),
+    //         deno_web::deno_web::init_ops::<PermissionsContainer>(
+    //             Arc::new(BlobStore::default()),
+    //             None,
+    //         ),
+    //         deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(deno_fetch_options),
+    //         deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
+    //         ext,
+    //     ];
+
+    //     // Use our snapshot to provision our new runtime
+    //     let options = RuntimeOptions {
+    //         is_main: true,
+    //         extensions: exts,
+    //         create_params: Some(
+    //             deno_core::v8::CreateParams::default()
+    //                 .heap_limits(0 as usize, 1024 * 1024 * 128 as usize),
+    //         ),
+    //         // startup_snapshot: None,
+    //         startup_snapshot: Some(RUNTIME_SNAPSHOT),
+    //         module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
+    //         extension_transpiler: None,
+    //         ..Default::default()
+    //     };
+
+    //     let mut js_runtime: JsRuntime = JsRuntime::new(options);
+    //     Ok(())
+    // }
 
     // #[tokio::test]
     // async fn test_eval_fetch_timeout() -> anyhow::Result<()> {
