@@ -10,4 +10,4 @@
 	}
 </script>
 
-<EditableSchemaForm bind:schema uiOnly />
+<EditableSchemaForm bind:schema uiOnly offset={80} />

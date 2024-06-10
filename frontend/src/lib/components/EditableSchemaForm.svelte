@@ -36,6 +36,7 @@
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
 	export let offset = 48 + 31 + 31 + 16 + 1
+	export let jsonEnabled: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -208,25 +209,27 @@
 			</Pane>
 		{/if}
 		<Pane size={noPreview ? 100 : 50} minSize={noPreview ? 100 : 20}>
-			<div class="w-full p-2 flex justify-end">
-				<Toggle
-					bind:checked={jsonView}
-					label="JSON View"
-					size="xs"
-					options={{
-						left: 'Rich Editor',
-						leftTooltip: 'View the schema in a rich editor',
-						right: 'JSON Editor',
-						rightTooltip:
-							'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
-					}}
-					lightMode
-					on:change={() => {
-						schemaString = JSON.stringify(schema, null, '\t')
-						editor?.setCode(schemaString)
-					}}
-				/>
-			</div>
+			{#if jsonEnabled}
+				<div class="w-full p-2 flex justify-end">
+					<Toggle
+						bind:checked={jsonView}
+						label="JSON View"
+						size="xs"
+						options={{
+							left: 'Rich Editor',
+							leftTooltip: 'View the schema in a rich editor',
+							right: 'JSON Editor',
+							rightTooltip:
+								'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+						}}
+						lightMode
+						on:change={() => {
+							schemaString = JSON.stringify(schema, null, '\t')
+							editor?.setCode(schemaString)
+						}}
+					/>
+				</div>
+			{/if}
 
 			{#if !jsonView}
 				<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} divide-y">
@@ -319,6 +322,7 @@
 													bind:title={schema.properties[argName].title}
 													bind:placeholder={schema.properties[argName].placeholder}
 													bind:properties={schema.properties[argName].properties}
+													bind:order={schema.properties[argName].order}
 													{isFlowInput}
 												>
 													<svelte:fragment slot="typeeditor">

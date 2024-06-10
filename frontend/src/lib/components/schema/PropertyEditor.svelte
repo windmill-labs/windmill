@@ -31,6 +31,7 @@
 	export let placeholder: string | undefined = undefined
 	export let properties: Record<string, any> = {}
 	export let isFlowInput: boolean = false
+	export let order: string[] = []
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -50,12 +51,14 @@
 	}
 
 	let schema = {
-		properties
+		properties,
+		order
 	}
 
 	// When shema changes we need to update the properties
 	$: {
 		properties = schema.properties
+		order = schema.order
 	}
 </script>
 
@@ -125,7 +128,7 @@
 							/>
 						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput}
 							<div class="border">
-								<EditableSchemaForm noPreview bind:schema uiOnly />
+								<EditableSchemaForm noPreview bind:schema uiOnly jsonEnabled={false} />
 							</div>
 						{/if}
 					</div>
