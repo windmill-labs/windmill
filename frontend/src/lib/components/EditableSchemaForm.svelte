@@ -239,10 +239,28 @@
 										}
 									}}
 								>
-									{argName}
+									<div class="flex flex-row gap-2">
+										<input
+											type="text"
+											class="w-full !bg-surface"
+											value={argName}
+											id={argName + i}
+										/>
+										<Button
+											variant="border"
+											color="light"
+											size="xs"
+											on:click={() => {
+												renameProperty(argName, argName + i)
+											}}
+										>
+											Rename
+										</Button>
+									</div>
 									{#if schema.required?.includes(argName)}
 										<span class="text-red-500 text-xs"> Required </span>
 									{/if}
+
 									{#if !uiOnly}
 										<div class="flex flex-row gap-1 items-center justify-center">
 											<button
@@ -326,26 +344,6 @@
 																		<ToggleButton value={x[1]} label={x[0]} />
 																	{/each}
 																</ToggleButtonGroup>
-															</Label>
-															<Label label="Name">
-																<div class="flex flex-row gap-2">
-																	<input
-																		type="text"
-																		class="w-full"
-																		value={argName}
-																		id={argName + i}
-																	/>
-																	<Button
-																		variant="border"
-																		color="light"
-																		size="xs"
-																		on:click={() => {
-																			renameProperty(argName, argName + i)
-																		}}
-																	>
-																		Rename
-																	</Button>
-																</div>
 															</Label>
 														{/if}
 													</svelte:fragment>

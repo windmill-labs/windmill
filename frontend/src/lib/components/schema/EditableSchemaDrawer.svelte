@@ -151,7 +151,7 @@
 			on:delete={(e) => {
 				addProperty?.handleDeleteArgument([e.detail])
 			}}
-			offset={0}
+			offset={49}
 		/>
 	</DrawerContent>
 </Drawer>
