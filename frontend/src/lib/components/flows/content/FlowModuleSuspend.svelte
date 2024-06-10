@@ -15,7 +15,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
-	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
+	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
@@ -228,10 +228,10 @@
 						right: 'Hide cancel button on approval page'
 					}}
 				/>
-				<EditableSchemaWrapper
-					bind:schema={flowModule.suspend.resume_form.schema}
-					fullHeight={false}
-				/>
+
+				<div class="max-w-md">
+					<EditableSchemaDrawer bind:schema={flowModule.suspend.resume_form.schema} />
+				</div>
 			{/if}
 		</div>
 	{/if}
