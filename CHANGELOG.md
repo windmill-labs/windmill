@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.343.2](https://github.com/windmill-labs/windmill/compare/v1.343.1...v1.343.2) (2024-06-10)
+
+
+### Bug Fixes
+
+* fix nativets scripts ([36d0c4e](https://github.com/windmill-labs/windmill/commit/36d0c4e992551c80c13312c255b0b6c816a0cb32))
+
 ## [1.343.1](https://github.com/windmill-labs/windmill/compare/v1.343.0...v1.343.1) (2024-06-10)
 
 
