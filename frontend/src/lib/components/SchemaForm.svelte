@@ -11,6 +11,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -55,7 +56,9 @@
 		args = nargs
 	}
 
-	let keys: string[] = []
+	let keys: string[] = Array.isArray(schema?.order)
+		? schema?.order
+		: Object.keys(schema?.properties ?? {})
 
 	function removeExtraKey() {
 		const nargs = {}
@@ -71,16 +74,6 @@
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
 
-	$: {
-		let lkeys = Object.keys(schema?.properties ?? {})
-		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
-			keys = lkeys
-			if (!noDelete) {
-				removeExtraKey()
-			}
-		}
-	}
-
 	$: isValid = allTrue(inputCheck ?? {})
 
 	let resourceTypes: string[] | undefined = undefined
@@ -93,23 +86,34 @@
 
 	$: schema && reorder()
 
+	function hasExtraKeys() {
+		return Object.keys(args ?? {}).some((x) => !keys.includes(x))
+	}
 	function reorder() {
-		if (schema?.order && Array.isArray(schema.order)) {
-			const n = {}
+		let lkeys = Object.keys(schema?.properties ?? {})
+		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
+			console.debug('reorder')
+			if (schema?.order && Array.isArray(schema.order)) {
+				const n = {}
 
-			;(schema.order as string[]).forEach((x) => {
-				if (schema.properties && schema.properties[x] != undefined) {
-					n[x] = schema.properties[x]
-				}
-			})
-
-			Object.keys(schema.properties ?? {})
-				.filter((x) => !schema.order?.includes(x))
-				.forEach((x) => {
-					n[x] = schema.properties[x]
+				;(schema.order as string[]).forEach((x) => {
+					if (schema.properties && schema.properties[x] != undefined) {
+						n[x] = schema.properties[x]
+					}
 				})
-			schema.properties = n
+
+				Object.keys(schema.properties ?? {})
+					.filter((x) => !schema.order?.includes(x))
+					.forEach((x) => {
+						n[x] = schema.properties[x]
+					})
+				schema.properties = n
+			}
 			keys = Object.keys(schema.properties ?? {})
+		}
+
+		if (!noDelete && hasExtraKeys()) {
+			removeExtraKey()
 		}
 	}
 </script>
