@@ -11,6 +11,7 @@ import {
   readAll,
   Script,
   ScriptService,
+  SEP,
   Table,
   writeAllSync,
   yamlStringify,
@@ -23,7 +24,7 @@ import {
 
 import { Workspace } from "./workspace.ts";
 import {
-  generateMetadataInternal,
+  generateScriptMetadataInternal,
   parseMetadataFile,
   updateScriptSchema,
 } from "./metadata.ts";
@@ -735,14 +736,15 @@ async function generateMetadata(
   const globalDeps = await findGlobalDeps();
   if (scriptPath) {
     // read script metadata file
-    await generateMetadataInternal(
+    await generateScriptMetadataInternal(
       scriptPath,
       workspace,
       opts,
       false,
       false,
       globalDeps,
-      codebases
+      codebases,
+      false
     );
   } else {
     const ignore = await ignoreF(opts);
@@ -752,8 +754,8 @@ async function generateMetadata(
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
-          p.includes(".flow/") ||
-          p.includes(".app/")
+          p.includes(".flow" + SEP) ||
+          p.includes(".app" + SEP)
         );
       },
       false,
@@ -762,14 +764,15 @@ async function generateMetadata(
     let hasAny = false;
     log.info("Generating metadata for all stale scripts:");
     for (const e of Object.keys(elems)) {
-      const candidate = await generateMetadataInternal(
+      const candidate = await generateScriptMetadataInternal(
         e,
         workspace,
         opts,
         true,
         true,
         globalDeps,
-        codebases
+        codebases,
+        false
       );
       if (candidate) {
         hasAny = true;
@@ -791,14 +794,15 @@ async function generateMetadata(
       return;
     }
     for (const e of Object.keys(elems)) {
-      await generateMetadataInternal(
+      await generateScriptMetadataInternal(
         e,
         workspace,
         opts,
         false,
         true,
         globalDeps,
-        codebases
+        codebases,
+        false
       );
     }
   }
