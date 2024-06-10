@@ -163,6 +163,14 @@
 				schema.required = schema.required?.map((x) => (x === oldName ? newName : x))
 			}
 
+			// Replace the old name with the new name in the order array
+			if (schema.order) {
+				const index = schema.order.indexOf(oldName)
+				if (index !== -1) {
+					schema.order[index] = newName
+				}
+			}
+
 			opened = newName
 
 			schema = { ...schema }
