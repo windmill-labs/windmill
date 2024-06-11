@@ -4,7 +4,9 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
+	import { deepEqual } from 'fast-equals'
 
+	export let keys: string[] = []
 	export let dndType: string | undefined = undefined
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -13,20 +15,23 @@
 	export let onlyMaskPassword: boolean = false
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
+	export let enableItemUpdate: boolean = false
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
 	let dragDisabled: boolean = false
-	let items = schema?.order?.map((key) => ({ id: key, value: key })) ?? []
+	let items = keys.map((key) => ({ id: key, value: key })) ?? []
 
-	function updateItems(order: string[]) {
-		if (order.every((key, index) => key === items[index].id)) return
+	function updateItems(keys: string[]) {
+		const currentItemsIds = items.map((item) => item.id)
 
-		items = order.map((key) => ({ id: key, value: key }))
+		if (!deepEqual(keys, currentItemsIds)) {
+			items = keys.map((key) => ({ id: key, value: key }))
+		}
 	}
 
-	$: schema?.order && updateItems(schema?.order)
+	$: keys && enableItemUpdate && updateItems(keys)
 
 	function handleConsider(e) {
 		const {

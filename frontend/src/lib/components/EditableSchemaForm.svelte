@@ -170,6 +170,8 @@
 				<div class="p-4">
 					{#key renderCount}
 						<SchemaFormDnd
+							enableItemUpdate={isFlowInput || isAppInput}
+							{keys}
 							{schema}
 							{dndType}
 							bind:args
