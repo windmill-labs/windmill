@@ -618,6 +618,7 @@
 									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 								>
 									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
 								</div>
 							</svelte:fragment>
 						</DropdownV2>
@@ -902,6 +903,7 @@
 									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 								>
 									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
 								</div>
 							</svelte:fragment>
 						</DropdownV2>
