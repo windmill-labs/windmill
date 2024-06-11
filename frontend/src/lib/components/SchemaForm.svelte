@@ -11,7 +11,6 @@
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
-	import { flip } from 'svelte/animate'
 	import { createEventDispatcher } from 'svelte'
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -23,10 +22,6 @@
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
 	export let disabled = false
-	export let items: Array<{
-		id: string
-		value: string
-	}> = []
 
 	export let isValid: boolean = true
 	export let autofocus = false
@@ -145,10 +140,9 @@
 	on:finalize
 	on:consider
 >
-	{#if items.length > 0}
-		{#each items as item, i (item.id)}
-			{@const argName = item.value}
-			<div animate:flip={{ duration: 200 }}>
+	{#if keys.length > 0}
+		{#each keys as argName, i (argName)}
+			<div>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->

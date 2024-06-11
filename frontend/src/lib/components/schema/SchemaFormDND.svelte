@@ -18,16 +18,9 @@
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
-	let dragDisabled: boolean = false
 	let items = keys.map((key) => ({ id: key, value: key })) ?? []
 
-	function updateItems(keys: string[]) {
-		if (keys.length !== items.length) {
-			items = keys.map((key) => ({ id: key, value: key }))
-		}
-	}
-
-	$: keys && updateItems(keys)
+	let dragDisabled: boolean = false
 
 	function handleConsider(e) {
 		const {
@@ -35,7 +28,10 @@
 			info: { source, trigger }
 		} = e.detail
 
+		schema.order = newItems.map((x) => x.id)
+		schema = schema
 		items = newItems
+
 		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
 			dragDisabled = true
 		}
@@ -47,13 +43,13 @@
 			info: { source }
 		} = e.detail
 
+		schema.order = newItems.map((x) => x.id)
+		schema = schema
 		items = newItems
 
 		if (source === SOURCES.POINTER) {
 			dragDisabled = true
 		}
-
-		keys = items.map((item) => item.value)
 
 		dispatch('finalize', keys)
 	}
@@ -82,15 +78,14 @@
 		{onlyMaskPassword}
 		{disablePortal}
 		{disabled}
-		bind:schema
+		{schema}
 		dndConfig={{
-			items,
+			items: items,
 			dragDisabled: dragDisabled,
 			flipDurationMs,
 			dropTargetStyle: {},
 			type: dndType ?? 'top-level'
 		}}
-		{items}
 	>
 		<svelte:fragment slot="actions">
 			<div
