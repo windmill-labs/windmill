@@ -9,13 +9,13 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
-	import { GripVertical, Plus } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { flip } from 'svelte/animate'
 	import { createEventDispatcher } from 'svelte'
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
-	import SchemaFormDND from './schema/SchemaFormDND.svelte'
+	import { dndzone, type Options as DndOptions } from 'svelte-dnd-action'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -23,6 +23,10 @@
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
 	export let disabled = false
+	export let items: Array<{
+		id: string
+		value: string
+	}> = []
 
 	export let isValid: boolean = true
 	export let autofocus = false
@@ -39,9 +43,9 @@
 	export let showSchemaExplorer = false
 	export let showReset = false
 	export let onlyMaskPassword = false
-	export let dndType: string | undefined = undefined
 	export let dndEnabled: boolean = false
 	export let lightweightMode: boolean = false
+	export let dndConfig: DndOptions = { items: [], dragDisabled: true }
 
 	const dispatch = createEventDispatcher()
 
@@ -135,33 +139,15 @@
 	</div>
 {/if}
 
-<SchemaFormDND
+<div
 	class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
-	let:items
-	let:handleKeyDown
-	let:startDrag
-	let:dragDisabled
-	dndType={dndEnabled ? dndType ?? 'top-level' : 'dnd-disabled'}
-	{dndEnabled}
-	{keys}
-	on:finalize={(e) => {
-		const nkeys = e.detail
-		schema.properties = nkeys.reduce((acc, key) => {
-			acc[key] = schema.properties[key]
-			return acc
-		}, {})
-
-		schema.order = nkeys
-
-		schema = { ...schema }
-
-		dispatch('reorder', nkeys)
-	}}
+	use:dndzone={dndConfig}
+	on:finalize
+	on:consider
 >
 	{#if items.length > 0}
 		{#each items as item, i (item.id)}
 			{@const argName = item.value}
-
 			<div animate:flip={{ duration: 200 }}>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
@@ -196,6 +182,7 @@
 										placeholder={schema.properties[argName].placeholder}
 									>
 										<svelte:fragment slot="actions">
+											<slot name="actions" />
 											{#if linkedSecretCandidates?.includes(argName)}
 												<div>
 													<ToggleButtonGroup
@@ -222,8 +209,8 @@
 															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
 														/>
 													</ToggleButtonGroup>
-												</div>{/if}</svelte:fragment
-										>
+												</div>{/if}
+										</svelte:fragment>
 									</LightweightArgInput>
 								{:else}
 									<ArgInput
@@ -263,6 +250,7 @@
 										{dndEnabled}
 									>
 										<svelte:fragment slot="actions">
+											<slot name="actions" />
 											{#if linkedSecretCandidates?.includes(argName)}
 												<div>
 													<ToggleButtonGroup
@@ -295,17 +283,6 @@
 								{/if}
 								<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 								<!-- svelte-ignore a11y-no-static-element-interactions -->
-								{#if dndEnabled}
-									<div
-										tabindex={dragDisabled ? 0 : -1}
-										class="w-4 h-4 cursor-move ml-2"
-										on:mousedown={startDrag}
-										on:touchstart={startDrag}
-										on:keydown={handleKeyDown}
-									>
-										<GripVertical size={16} />
-									</div>
-								{/if}
 							{/if}
 						{/if}
 					</div>
@@ -315,7 +292,7 @@
 	{:else if !shouldHideNoInputs}
 		<div class="text-secondary text-sm">No inputs</div>
 	{/if}
-</SchemaFormDND>
+</div>
 {#if !noVariablePicker}
 	<ItemPicker
 		bind:this={itemPicker}

@@ -57,6 +57,10 @@
 		properties = schema.properties
 		order = schema.order
 		requiredProperty = schema.required
+
+		console.log('schema', schema)
+
+		dispatch('schemaChange')
 	}
 </script>
 

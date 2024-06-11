@@ -99,7 +99,11 @@
 				class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
 			>
 				<div class="flex flex-row justify-between items-center w-full">
-					{item.value}
+					{`${item.value}${
+						schema.properties[item.value].title
+							? ` (title: ${schema.properties[item.value].title})`
+							: ''
+					} `}
 					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div class="flex flex-row gap-1 item-center h-full justify-center">

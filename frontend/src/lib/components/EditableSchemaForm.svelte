@@ -5,7 +5,6 @@
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
 	import { Pen, Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -22,6 +21,7 @@
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
 	import Popup from './common/popup/Popup.svelte'
+	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -84,6 +84,8 @@
 			}
 		}
 	}
+
+	let renderCount: number = 0
 
 	reorder()
 
@@ -188,17 +190,21 @@
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
 				<div class="p-4">
-					<SchemaForm
-						{schema}
-						bind:args
-						dndEnabled
-						on:click={(e) => {
-							opened = e.detail
-						}}
-						on:reorder={() => reorder()}
-						{lightweightMode}
-						prettifyHeader={isAppInput}
-					/>
+					{#key renderCount}
+						<SchemaFormDnd
+							{keys}
+							{schema}
+							bind:args
+							on:click={(e) => {
+								opened = e.detail
+							}}
+							on:reorder={() => {
+								reorder()
+							}}
+							{lightweightMode}
+							prettifyHeader={isAppInput}
+						/>
+					{/key}
 				</div>
 			</Pane>
 		{/if}
@@ -411,6 +417,9 @@
 																} else {
 																	schema.required = schema.required?.filter((x) => x !== argName)
 																}
+															}}
+															on:schemaChange={() => {
+																renderCount++
 															}}
 														/>
 													{/if}

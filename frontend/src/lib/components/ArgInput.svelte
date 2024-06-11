@@ -14,7 +14,6 @@
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Toggle from './Toggle.svelte'
@@ -32,6 +31,7 @@
 	import Password from './Password.svelte'
 	import Label from './Label.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -604,7 +604,7 @@
 			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded-md w-full">
-						<SchemaForm
+						<SchemaFormDnd
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
@@ -615,12 +615,10 @@
 								type: 'object',
 								order
 							}}
-							bind:args={value}
+							args={value}
 							dndType={`nested-${title}`}
-							{dndEnabled}
 							on:reorder={(e) => {
 								const keys = e.detail
-
 								order = keys
 							}}
 						/>
