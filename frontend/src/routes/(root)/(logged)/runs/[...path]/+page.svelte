@@ -31,7 +31,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { AlertTriangle, Calendar, Check, Clock, X } from 'lucide-svelte'
+	import { AlertTriangle, Calendar, Check, ChevronDown, Clock, X } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -334,32 +334,47 @@
 
 	let jobIdsToCancel: string[] = []
 	let isSelectingJobsToCancel = false
+	let fetchingFilteredJobs = false
+	let selectedFiltersString: string | undefined = undefined
 
+	async function cancelVisibleJobs() {
+		isSelectingJobsToCancel = true
+		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
+		if (selectedIds.length === 0 ) {
+			sendUserToast("There are no visible jobs that can be canceled", true)
+		}
+	}
 	async function cancelFilteredJobs() {
-		jobIdsToCancel = await JobService.listFilteredUuids({
-			workspace: $workspaceStore ?? '',
-			startedBefore: maxTs,
-			startedAfter: minTs,
-			schedulePath,
-			scriptPathExact: path === null || path === '' ? undefined : path,
-			createdBy: user === null || user === '' ? undefined : user,
-			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
-			jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
-			running: success == 'running' ? true : undefined,
-			isNotSchedule: showSchedules == false ? true : undefined,
-			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
-			args:
-				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
-			result:
-				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
-					? resultFilter
-					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined,
-			concurrencyKey: concurrencyKey ?? undefined
-		})
-
 		isCancelingFilteredJobs = true
+		fetchingFilteredJobs = true
+		const selectedFilters = {
+				workspace: $workspaceStore ?? '',
+				startedBefore: maxTs,
+				startedAfter: minTs,
+				schedulePath,
+				scriptPathExact: path === null || path === '' ? undefined : path,
+				createdBy: user === null || user === '' ? undefined : user,
+				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+				jobKinds,
+				success: success == 'success' ? true : success == 'failure' ? false : undefined,
+				running: success == 'running' ? true : undefined,
+				isNotSchedule: showSchedules == false ? true : undefined,
+				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+				args:
+					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
+						? argFilter
+						: undefined,
+				result:
+					resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+						? resultFilter
+						: undefined,
+				allWorkspaces: allWorkspaces ? true : undefined,
+				concurrencyKey: concurrencyKey ?? undefined
+			}
+
+		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
+		jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
+		fetchingFilteredJobs = false
 	}
 
 	async function cancelSelectedJobs() {
@@ -430,10 +445,13 @@
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}}
+	loading={fetchingFilteredJobs}
 	on:canceled={() => {
 		isCancelingFilteredJobs = false
 	}}
-/>
+>
+	<pre>{selectedFiltersString}</pre>
+</ConfirmationModal>
 
 <ConfirmationModal
 	title={`Confirm cancelling the jobs visible on this page`}
@@ -567,43 +585,61 @@
 				<RunsQueue {queue_count} {allWorkspaces} />
 				<div class="flex flex-row">
 					{#if isSelectingJobsToCancel}
-						<Button
-							startIcon={{ icon: Check }}
-							size="xs"
-							color="red"
-							variant="contained"
-							on:click={cancelSelectedJobs}
-						/>
-						<Button
-							startIcon={{ icon: X }}
-							size="xs"
-							color="gray"
-							variant="contained"
-							on:click={() => {
-								isSelectingJobsToCancel = false
-								selectedIds = []
-							}}
-						/>
-					{:else}
-						<Button
-							size="xs"
-							color="light"
-							variant="contained"
-							disabled={!jobs?.some(isJobCancelable)}
-							on:click={() => {
-								isSelectingJobsToCancel = true
-								selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
-							}}
-						>
-							Cancel jobs
-						</Button>
-						{#if !(!$userStore?.is_admin && !$superadmin)}
-							<DropdownV2
-								items={[
-									{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-								]}
+						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
+							<Button
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
 							/>
-						{/if}
+							<Button
+								startIcon={{ icon: X }}
+								size="xs"
+								color="gray"
+								variant="contained"
+								on:click={() => {
+									isSelectingJobsToCancel = false
+									selectedIds = []
+								}}
+							/>
+						</div>
+					{:else if !$userStore?.is_admin && !$superadmin}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{:else}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								},
+								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
 					{/if}
 				</div>
 			</div>
@@ -833,43 +869,61 @@
 				{/if}
 				<div class="flex flex-row">
 					{#if isSelectingJobsToCancel}
-						<Button
-							startIcon={{ icon: Check }}
-							size="xs"
-							color="red"
-							variant="contained"
-							on:click={cancelSelectedJobs}
-						/>
-						<Button
-							startIcon={{ icon: X }}
-							size="xs"
-							color="gray"
-							variant="contained"
-							on:click={() => {
-								isSelectingJobsToCancel = false
-								selectedIds = []
-							}}
-						/>
-					{:else}
-						<Button
-							size="xs"
-							color="light"
-							disabled={!jobs?.some(isJobCancelable)}
-							variant="contained"
-							on:click={() => {
-								isSelectingJobsToCancel = true
-								selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
-							}}
-						>
-							Cancel jobs
-						</Button>
-						{#if !(!$userStore?.is_admin && !$superadmin)}
-							<DropdownV2
-								items={[
-									{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-								]}
+						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
+							<Button
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
 							/>
-						{/if}
+							<Button
+								startIcon={{ icon: X }}
+								size="xs"
+								color="gray"
+								variant="contained"
+								on:click={() => {
+									isSelectingJobsToCancel = false
+									selectedIds = []
+								}}
+							/>
+						</div>
+					{:else if !$userStore?.is_admin && !$superadmin}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{:else}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								},
+								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
 					{/if}
 				</div>
 			</div>
