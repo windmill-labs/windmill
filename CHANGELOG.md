@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.344.1](https://github.com/windmill-labs/windmill/compare/v1.344.0...v1.344.1) (2024-06-11)
+
+
+### Bug Fixes
+
+* cancel jobs button missing chevron ([#3896](https://github.com/windmill-labs/windmill/issues/3896)) ([b9092e5](https://github.com/windmill-labs/windmill/commit/b9092e591ec08fed65e2f1e1e0449461fcc9ec41))
+* fix dependency tracking for single scripts ([5f119de](https://github.com/windmill-labs/windmill/commit/5f119de6cb915f234c868da1aa02050481cbc4b0))
+* upgrade deno to 1.44.1 ([f8f6d8b](https://github.com/windmill-labs/windmill/commit/f8f6d8beaae2cdd754808074886d793add6144b6))
+
 ## [1.344.0](https://github.com/windmill-labs/windmill/compare/v1.343.3...v1.344.0) (2024-06-11)
 
 
