@@ -101,6 +101,7 @@
 			addProperty?.handleDeleteArgument([e.detail])
 		}}
 		offset={yOffset}
+		displayWebhookWarning
 	/>
 </FlowCard>
 

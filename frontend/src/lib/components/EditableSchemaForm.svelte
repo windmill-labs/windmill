@@ -38,6 +38,7 @@
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
 	export let lightweightMode: boolean = false
+	export let displayWebhookWarning: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -409,7 +410,7 @@
 															bind:properties={schema.properties[argName].properties}
 															bind:order={schema.properties[argName].order}
 															bind:requiredProperty={schema.properties[argName].required}
-															displayWebhookWarning={!isAppInput}
+															{displayWebhookWarning}
 															on:requiredChange={(event) => {
 																if (event.detail.required) {
 																	schema.required = schema.required ?? []
