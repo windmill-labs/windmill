@@ -123,7 +123,7 @@
 		}
 	}
 
-	$: xxx = items ?? keys.map((x) => ({ id: x, value: x }))
+	$: fields = items ?? keys.map((x) => ({ id: x, value: x }))
 </script>
 
 {#if showReset}
@@ -141,7 +141,7 @@
 	on:consider
 >
 	{#if keys.length > 0}
-		{#each xxx as item, i (item.id)}
+		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
 			<div animate:flip={{ duration: 200 }}>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
