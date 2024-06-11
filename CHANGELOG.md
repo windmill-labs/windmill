@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.343.3](https://github.com/windmill-labs/windmill/compare/v1.343.2...v1.343.3) (2024-06-11)
+
+
+### Bug Fixes
+
+* flow args should always render in test flow ([1be0bfa](https://github.com/windmill-labs/windmill/commit/1be0bfaf7b676cd9381ceee12dd2923620c8e90e))
+* improve init script handling of windows newlines ([eb068fd](https://github.com/windmill-labs/windmill/commit/eb068fd086b9023c073c9e4adbff3b79da74c374))
+
 ## [1.343.2](https://github.com/windmill-labs/windmill/compare/v1.343.1...v1.343.2) (2024-06-10)
 
 
