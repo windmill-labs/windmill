@@ -18,9 +18,16 @@
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
+	let dragDisabled: boolean = false
 	let items = keys.map((key) => ({ id: key, value: key })) ?? []
 
-	let dragDisabled: boolean = false
+	function updateItems(keys: string[]) {
+		if (keys.length !== items.length) {
+			items = keys.map((key) => ({ id: key, value: key }))
+		}
+	}
+
+	$: keys && updateItems(keys)
 
 	function handleConsider(e) {
 		const {
@@ -28,10 +35,7 @@
 			info: { source, trigger }
 		} = e.detail
 
-		schema.order = newItems.map((x) => x.id)
-		schema = schema
 		items = newItems
-
 		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
 			dragDisabled = true
 		}
@@ -43,15 +47,15 @@
 			info: { source }
 		} = e.detail
 
-		schema.order = newItems.map((x) => x.id)
-		schema = schema
 		items = newItems
 
 		if (source === SOURCES.POINTER) {
 			dragDisabled = true
 		}
 
-		dispatch('finalize', keys)
+		keys = items.map((item) => item.value)
+
+		dispatch('reorder', keys)
 	}
 
 	function startDrag(e) {
@@ -66,37 +70,36 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-<div class={$$props.class}>
-	<SchemaForm
-		on:click
-		on:reorder
-		on:consider={handleConsider}
-		on:finalize={handleFinalize}
-		{lightweightMode}
-		{args}
-		{prettifyHeader}
-		{onlyMaskPassword}
-		{disablePortal}
-		{disabled}
-		{schema}
-		dndConfig={{
-			items: items,
-			dragDisabled: dragDisabled,
-			flipDurationMs,
-			dropTargetStyle: {},
-			type: dndType ?? 'top-level'
-		}}
-	>
-		<svelte:fragment slot="actions">
-			<div
-				tabindex={dragDisabled ? 0 : -1}
-				class="w-4 h-4 cursor-move ml-2"
-				on:mousedown={startDrag}
-				on:touchstart={startDrag}
-				on:keydown={handleKeyDown}
-			>
-				<GripVertical size={16} />
-			</div>
-		</svelte:fragment>
-	</SchemaForm>
-</div>
+<SchemaForm
+	on:click
+	on:reorder
+	on:consider={handleConsider}
+	on:finalize={handleFinalize}
+	{lightweightMode}
+	{args}
+	{prettifyHeader}
+	{onlyMaskPassword}
+	{disablePortal}
+	{disabled}
+	bind:schema
+	dndConfig={{
+		items,
+		dragDisabled: dragDisabled,
+		flipDurationMs,
+		dropTargetStyle: {},
+		type: dndType ?? 'top-level'
+	}}
+	{items}
+>
+	<svelte:fragment slot="actions">
+		<div
+			tabindex={dragDisabled ? 0 : -1}
+			class="w-4 h-8 cursor-move ml-2"
+			on:mousedown={startDrag}
+			on:touchstart={startDrag}
+			on:keydown={handleKeyDown}
+		>
+			<GripVertical size={16} />
+		</div>
+	</svelte:fragment>
+</SchemaForm>

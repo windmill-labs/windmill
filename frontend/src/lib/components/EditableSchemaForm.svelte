@@ -26,7 +26,6 @@
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
 	export let args: Record<string, any> = {}
-
 	export let shouldHideNoInputs: boolean = false
 	export let noVariablePicker = false
 	export let flexWrap = false
@@ -39,6 +38,7 @@
 	export let isAppInput: boolean = false
 	export let lightweightMode: boolean = false
 	export let displayWebhookWarning: boolean = false
+	export let dndType: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -87,30 +87,7 @@
 	}
 
 	let renderCount: number = 0
-
-	reorder()
-
-	function reorder() {
-		if (schema?.order && Array.isArray(schema.order)) {
-			const n = {}
-
-			;(schema.order as string[]).forEach((x) => {
-				if (schema.properties && schema.properties[x] != undefined) {
-					n[x] = schema?.properties[x]
-				}
-			})
-
-			Object.keys(schema.properties ?? {})
-				.filter((x) => !schema.order?.includes(x))
-				.forEach((x) => {
-					n[x] = schema.properties[x]
-				})
-			schema.properties = n
-		}
-	}
-
 	let opened: string | undefined = undefined
-
 	let selected = ''
 
 	export function openField(key: string) {
@@ -195,12 +172,13 @@
 						<SchemaFormDnd
 							{keys}
 							{schema}
+							{dndType}
 							bind:args
 							on:click={(e) => {
 								opened = e.detail
 							}}
-							on:reorder={() => {
-								reorder()
+							on:reorder={(e) => {
+								schema.order = e.detail
 							}}
 							{lightweightMode}
 							prettifyHeader={isAppInput}

@@ -15,6 +15,7 @@
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { dndzone, type Options as DndOptions } from 'svelte-dnd-action'
+	import { flip } from 'svelte/animate'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -38,14 +39,11 @@
 	export let showSchemaExplorer = false
 	export let showReset = false
 	export let onlyMaskPassword = false
-	export let dndEnabled: boolean = false
 	export let lightweightMode: boolean = false
 	export let dndConfig: DndOptions = { items: [], dragDisabled: true }
+	export let items: { id: string; value: string }[] | undefined = undefined
 
 	const dispatch = createEventDispatcher()
-
-	let clazz: string = ''
-	export { clazz as class }
 
 	let inputCheck: { [id: string]: boolean } = {}
 
@@ -124,25 +122,28 @@
 			removeExtraKey()
 		}
 	}
+
+	$: xxx = items ?? keys.map((x) => ({ id: x, value: x }))
 </script>
 
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
-		<Button size="xs" color="light" on:click={() => setDefaults()}
-			>Reset args to runnable's defaults</Button
-		>
+		<Button size="xs" color="light" on:click={() => setDefaults()}>
+			Reset args to runnable's defaults
+		</Button>
 	</div>
 {/if}
 
 <div
-	class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
+	class="w-full {$$props.class} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
 	use:dndzone={dndConfig}
 	on:finalize
 	on:consider
 >
 	{#if keys.length > 0}
-		{#each keys as argName, i (argName)}
-			<div>
+		{#each xxx as item, i (item.id)}
+			{@const argName = item.value}
+			<div animate:flip={{ duration: 200 }}>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -241,7 +242,6 @@
 										nullable={schema.properties[argName].nullable}
 										title={schema.properties[argName].title}
 										placeholder={schema.properties[argName].placeholder}
-										{dndEnabled}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />

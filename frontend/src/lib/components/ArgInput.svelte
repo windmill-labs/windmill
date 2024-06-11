@@ -35,9 +35,7 @@
 
 	export let label: string = ''
 	export let value: any
-
 	export let defaultValue: any = undefined
-
 	export let description: string = ''
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -78,7 +76,6 @@
 	export let nullable: boolean = false
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
-	export let dndEnabled: boolean = false
 	export let order: string[] | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
@@ -605,6 +602,7 @@
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded-md w-full">
 						<SchemaFormDnd
+							keys={order}
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}

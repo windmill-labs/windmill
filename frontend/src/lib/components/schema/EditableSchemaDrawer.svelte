@@ -162,6 +162,7 @@
 			}}
 			offset={yOffset}
 			lightweightMode
+			dndType="drawer"
 		/>
 	</DrawerContent>
 </Drawer>
