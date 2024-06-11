@@ -170,7 +170,6 @@
 				<div class="p-4">
 					{#key renderCount}
 						<SchemaFormDnd
-							{keys}
 							{schema}
 							{dndType}
 							bind:args

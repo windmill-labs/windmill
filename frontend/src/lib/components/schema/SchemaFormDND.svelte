@@ -5,7 +5,6 @@
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 
-	export let keys: string[] = []
 	export let dndType: string | undefined = undefined
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -19,15 +18,15 @@
 	const flipDurationMs = 200
 
 	let dragDisabled: boolean = false
-	let items = keys.map((key) => ({ id: key, value: key })) ?? []
+	let items = schema?.order?.map((key) => ({ id: key, value: key })) ?? []
 
-	function updateItems(keys: string[]) {
-		if (keys.length !== items.length) {
-			items = keys.map((key) => ({ id: key, value: key }))
-		}
+	function updateItems(order: string[]) {
+		if (order.every((key, index) => key === items[index].id)) return
+
+		items = order.map((key) => ({ id: key, value: key }))
 	}
 
-	$: keys && updateItems(keys)
+	$: schema?.order && updateItems(schema?.order)
 
 	function handleConsider(e) {
 		const {
@@ -53,9 +52,10 @@
 			dragDisabled = true
 		}
 
-		keys = items.map((item) => item.value)
-
-		dispatch('reorder', keys)
+		dispatch(
+			'reorder',
+			items.map((item) => item.value)
+		)
 	}
 
 	function startDrag(e) {

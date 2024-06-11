@@ -16,14 +16,6 @@
 	export let type: string | undefined = undefined
 	export let pattern: undefined | string = undefined
 	export let enum_: string[] | undefined = undefined
-	export let itemsType:
-		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
-				contentEncoding?: 'base64'
-				enum?: string[]
-				multiselect?: string[]
-		  }
-		| undefined = undefined
 	export let extra: Record<string, any> = {}
 	export let minW = true
 	export let customErrorMessage: string | undefined = undefined
@@ -33,6 +25,14 @@
 	export let isFlowInput: boolean = false
 	export let isAppInput: boolean = false
 	export let order: string[] = []
+	export let itemsType:
+		| {
+				type?: 'string' | 'number' | 'bytes' | 'object'
+				contentEncoding?: 'base64'
+				enum?: string[]
+				multiselect?: string[]
+		  }
+		| undefined = undefined
 
 	let el: HTMLTextAreaElement | undefined = undefined
 
@@ -56,11 +56,19 @@
 		order
 	}
 
-	// When shema changes we need to update the properties
-	$: {
-		properties = schema.properties
-		order = schema.order
+	function updatePropertiesAnOrder(newProperties: Record<string, any>, newOrder: string[]) {
+		// DO a deep equal to avoid unnecessary updates
+		if (JSON.stringify(properties) !== JSON.stringify(newProperties)) {
+			properties = newProperties
+		}
+
+		if (JSON.stringify(order) !== JSON.stringify(newOrder)) {
+			order = newOrder
+		}
 	}
+
+	// When schema changes we need to update the properties
+	$: schema && updatePropertiesAnOrder(schema.properties, schema.order)
 </script>
 
 <div class="flex flex-row items-center justify-between w-full gap-2">

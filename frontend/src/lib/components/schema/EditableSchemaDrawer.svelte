@@ -21,9 +21,9 @@
 	let dragDisabled: boolean = false
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
-	$: items = Object.keys(schema?.properties ?? {}).map((item, index) => {
+	$: items = (schema?.order?.map((item, index) => {
 		return { value: item, id: generateRandomString() }
-	}) as Array<{
+	}) ?? []) as Array<{
 		value: string
 		id: string
 	}>
@@ -65,7 +65,6 @@
 		schema = { ...schema }
 	}
 	function startDrag(e) {
-		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
 		e.preventDefault()
 		dragDisabled = false
 	}
@@ -91,7 +90,7 @@
 	on:finalize={handleFinalize}
 	class="gap-1 flex flex-col mt-2"
 >
-	{#if items.length > 0}
+	{#if items?.length > 0}
 		{#each items as item (item.id)}
 			<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 			<div
