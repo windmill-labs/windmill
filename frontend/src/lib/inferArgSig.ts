@@ -6,10 +6,18 @@ export function argSigToJsonSchemaType(
 		| { resource: string | null }
 		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
 		| { str: string[] | null }
-		| { object: { key: string; typ: any }[] },
+		| { object: { key: string; typ: any }[] }
+		| {
+				oneof: [
+					{
+						label: string
+						properties: { key: string; typ: any }[]
+					}
+				]
+		  },
 	oldS: SchemaProperty
 ): void {
-	const newS: SchemaProperty = { type: '' }
+	let newS: SchemaProperty = { type: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
 	} else if (t === 'float') {
@@ -31,6 +39,22 @@ export function argSigToJsonSchemaType(
 	} else if (t === 'datetime') {
 		newS.type = 'string'
 		newS.format = 'date-time'
+	} else if (typeof t !== 'string' && 'oneof' in t) {
+		newS.type = 'oneOf'
+		if (t.oneof) {
+			newS.oneOf = t.oneof.map((obj) => {
+				const properties = {}
+				for (const prop of obj.properties) {
+					properties[prop.key] = {}
+					argSigToJsonSchemaType(prop.typ, properties[prop.key])
+				}
+				return {
+					type: 'object',
+					title: obj.label,
+					properties
+				}
+			})
+		}
 	} else if (typeof t !== 'string' && `object` in t) {
 		newS.type = 'object'
 		if (t.object) {

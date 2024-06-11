@@ -32,6 +32,8 @@
 	import Password from './Password.svelte'
 	import Label from './Label.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -42,6 +44,7 @@
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
+	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = true
@@ -78,6 +81,20 @@
 	export let nullable: boolean = false
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+
+	let oneOfSelected: string | undefined = undefined
+	function updateOneOfSelected(oneOf) {
+		if (oneOf && oneOf.length >= 2) {
+			oneOfSelected = oneOf[0]['title'] ?? undefined
+		}
+	}
+	$: updateOneOfSelected(oneOf)
+	function updateOneOfSelectedValue(oneOfSelected) {
+		if (oneOfSelected) {
+			value = { label: oneOfSelected }
+		}
+	}
+	$: updateOneOfSelectedValue(oneOfSelected)
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -631,6 +648,69 @@
 						/>
 					</div>
 				{/if}
+			{:else if inputCat == 'oneOf'}
+				<div class="flex flex-col gap-2 w-full">
+					{#if oneOf && oneOf.length >= 2}
+						<ToggleButtonGroup bind:selected={oneOfSelected}>
+							{#each oneOf as obj}
+								<ToggleButton value={obj.title} label={obj.title} />
+							{/each}
+						</ToggleButtonGroup>
+
+						{#if oneOfSelected}
+							{@const obj = oneOf.find((obj) => obj.title === oneOfSelected)}
+							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
+								<div class="p-4 pl-8 border rounded w-full">
+									<SchemaForm
+										{onlyMaskPassword}
+										{disablePortal}
+										{disabled}
+										noDelete
+										schema={{
+											properties: obj.properties
+												? Object.fromEntries(
+														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+												  )
+												: undefined,
+											$schema: '',
+											required: obj.required ?? [],
+											type: 'object'
+										}}
+										bind:args={value}
+									/>
+								</div>
+							{:else if disabled}
+								<textarea disabled />
+							{:else}
+								<JsonEditor
+									bind:editor
+									on:focus={(e) => {
+										dispatch('focus')
+									}}
+									on:blur={(e) => {
+										dispatch('blur')
+									}}
+									code={rawValue}
+									bind:value
+								/>
+							{/if}
+						{/if}
+					{:else if disabled}
+						<textarea disabled />
+					{:else}
+						<JsonEditor
+							bind:editor
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							on:blur={(e) => {
+								dispatch('blur')
+							}}
+							code={rawValue}
+							bind:value
+						/>
+					{/if}
+				</div>
 			{:else if inputCat == 'enum'}
 				<div class="flex flex-row w-full gap-1">
 					<ArgEnum

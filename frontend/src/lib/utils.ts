@@ -377,6 +377,7 @@ export type InputCat =
 	| 'sql'
 	| 'yaml'
 	| 'currency'
+	| 'oneOf'
 
 export function setInputCat(
 	type: string | undefined,
@@ -411,6 +412,8 @@ export function setInputCat(
 		return 'email'
 	} else if (type == 'string' && format == 'currency') {
 		return 'currency'
+	} else if (type == 'oneOf') {
+		return 'oneOf'
 	} else {
 		return 'string'
 	}

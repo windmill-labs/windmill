@@ -64,7 +64,8 @@
 			nullable: schema.nullable,
 			dateFormat: schema.format,
 			title: schema.title,
-			placeholder: schema.placeholder
+			placeholder: schema.placeholder,
+			oneOf: schema.oneOf
 		}
 	}
 
