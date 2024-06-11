@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.344.0](https://github.com/windmill-labs/windmill/compare/v1.343.3...v1.344.0) (2024-06-11)
+
+
+### Features
+
+* cancel jobs based on filters ([#3874](https://github.com/windmill-labs/windmill/issues/3874)) ([7474145](https://github.com/windmill-labs/windmill/commit/7474145f0edf2cb17b9ee90e35f605b367eae60d))
+
+
+### Bug Fixes
+
+* **backend:** wrong previous result used in flow for-loop ([dcff6e9](https://github.com/windmill-labs/windmill/commit/dcff6e9ff3eb2f9d75d39a8ec20d0a9d1edf14a1))
+* **frontend:** Fix Timeline/Node Status tab zIndex ([#3894](https://github.com/windmill-labs/windmill/issues/3894)) ([609f332](https://github.com/windmill-labs/windmill/commit/609f332116f4fc3ab934d2d51fc34754fa30b6db))
+
 ## [1.343.3](https://github.com/windmill-labs/windmill/compare/v1.343.2...v1.343.3) (2024-06-11)
 
 
