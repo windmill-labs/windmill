@@ -6,7 +6,6 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 
-	export let keys: string[] = []
 	export let dndType: string | undefined = undefined
 	export let schema: Schema
 	export let args: Record<string, any> = {}
@@ -15,23 +14,23 @@
 	export let onlyMaskPassword: boolean = false
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
-	export let enableItemUpdate: boolean = false
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
+	$: keys = schema.order ?? Object.keys(schema.properties ?? {}) ?? []
+
 	let dragDisabled: boolean = false
-	let items = keys.map((key) => ({ id: key, value: key })) ?? []
+	let items = keys?.map((key) => ({ id: key, value: key })) ?? []
 
-	function updateItems(keys: string[]) {
-		const currentItemsIds = items.map((item) => item.id)
-
-		if (!deepEqual(keys, currentItemsIds)) {
+	function updateItems() {
+		const oldKeys = items.map((item) => item.value)
+		if (!deepEqual(oldKeys, keys)) {
 			items = keys.map((key) => ({ id: key, value: key }))
 		}
 	}
 
-	$: keys && enableItemUpdate && updateItems(keys)
+	$: keys && updateItems()
 
 	function handleConsider(e) {
 		const {

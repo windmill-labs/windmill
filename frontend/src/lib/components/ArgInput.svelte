@@ -504,7 +504,6 @@
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded-md w-full">
 						<SchemaFormDnd
-							keys={order ?? Object.keys(properties)}
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
