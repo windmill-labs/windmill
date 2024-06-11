@@ -2022,7 +2022,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 args.insert("iter".to_string(), to_raw_value(new_args));
                 if let Some(input_transforms) = simple_input_transforms {
-                    let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
+                    //previous id is none because we do not want to use previous id if we are in a for loop
+                    let ctx = get_transform_context(&flow_job, "", &status).await?;
                     transform_inp = transform_input(
                         Arc::new(args),
                         arc_last_job_result.clone(),
