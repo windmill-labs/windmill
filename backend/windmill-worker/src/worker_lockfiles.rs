@@ -106,7 +106,7 @@ async fn clear_dependency_map_for_item<'c>(
     sqlx::query!(
         "DELETE FROM dependency_map
                  WHERE importer_path = $1 AND importer_kind = $3::text::IMPORTER_KIND
-                 AND workspace_id = $2 AND importer_node_id = $4",
+                 AND workspace_id = $2 AND ($4::text IS NULL OR importer_node_id = $4::text)",
         item_path,
         w_id,
         importer_kind,
