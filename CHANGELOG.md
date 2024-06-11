@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.344.2](https://github.com/windmill-labs/windmill/compare/v1.344.1...v1.344.2) (2024-06-11)
+
+
+### Bug Fixes
+
+* fix dependency tracking for single scripts ([28d7510](https://github.com/windmill-labs/windmill/commit/28d7510584a47f98f87b7d0e87a663121b2bb5ef))
+
 ## [1.344.1](https://github.com/windmill-labs/windmill/compare/v1.344.0...v1.344.1) (2024-06-11)
 
 
