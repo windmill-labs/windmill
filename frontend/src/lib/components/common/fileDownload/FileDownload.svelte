@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 
 	export let s3object: any
 </script>

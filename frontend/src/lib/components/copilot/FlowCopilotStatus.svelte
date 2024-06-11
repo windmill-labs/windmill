@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { getContext } from 'svelte'
 	import ManualPopover from '../ManualPopover.svelte'
 	import Button from '../common/button/Button.svelte'

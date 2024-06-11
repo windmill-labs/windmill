@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import { Button } from '$lib/components/common'

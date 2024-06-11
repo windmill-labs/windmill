@@ -9,7 +9,7 @@
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'

@@ -2,7 +2,7 @@
 	import { AppService, FlowService, ResourceService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { clickOutside } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { Boxes, Code2, Edit, LayoutDashboard, Loader2, X } from 'lucide-svelte'
 	import Portal from 'svelte-portal'
 	import { twMerge } from 'tailwind-merge'

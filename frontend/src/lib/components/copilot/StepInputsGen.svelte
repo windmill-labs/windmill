@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import YAML from 'yaml'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils'

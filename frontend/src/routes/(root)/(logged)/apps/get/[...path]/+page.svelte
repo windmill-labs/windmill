@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 

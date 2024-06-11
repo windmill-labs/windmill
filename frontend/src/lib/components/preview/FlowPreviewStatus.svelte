@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 
 	import JobStatus from '../JobStatus.svelte'
 	export let job: QueuedJob | CompletedJob

@@ -6,7 +6,7 @@
 	import { ResourceService, VariableService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'

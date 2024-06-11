@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ConcurrencyGroup } from '$lib/gen'
 	import { ConcurrencyGroupsService } from '$lib/gen'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button } from '$lib/components/common'

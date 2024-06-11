@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/toast'

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'

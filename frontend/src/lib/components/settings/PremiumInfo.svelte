@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { capitalize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'

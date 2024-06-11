@@ -12,7 +12,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {

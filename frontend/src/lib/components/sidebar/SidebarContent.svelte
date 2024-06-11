@@ -33,7 +33,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { type Changelog, changelogs } from './changelogs'
 
 	$: mainMenuLinks = [

@@ -6,7 +6,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
 

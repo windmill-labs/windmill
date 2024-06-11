@@ -26,7 +26,7 @@
 		hubBaseUrlStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
 	import {
 		Code2,

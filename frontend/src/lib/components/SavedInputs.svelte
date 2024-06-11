@@ -8,7 +8,7 @@
 		type Job
 	} from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { classNames, displayDate, displayDateOnly, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'

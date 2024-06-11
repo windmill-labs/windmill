@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/paths'
-	
+	import { base } from '$lib/navigation'
+
 	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { page } from '$app/stores'

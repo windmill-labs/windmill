@@ -4,7 +4,7 @@
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import SearchItems from './SearchItems.svelte'
 	import { page } from '$app/stores'
 	import { goto as gotoUrl } from '$app/navigation'

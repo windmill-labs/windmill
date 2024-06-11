@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Code2, Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 </script>
 
 <!-- Buttons -->

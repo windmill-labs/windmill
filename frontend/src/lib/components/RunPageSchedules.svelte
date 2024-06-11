@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import Toggle from './Toggle.svelte'
 	import { ListOrdered, Calendar, PenBox } from 'lucide-svelte'
 	import JobArgs from './JobArgs.svelte'

@@ -1,5 +1,7 @@
 import { goto as svelteGoto } from '$app/navigation'
-import { base } from '$app/paths'
+import { base } from '$lib/navigation'
+
+export { base } from '$app/paths'
 
 export function goto(path, options = {}) {
 	const fullPath = `${base}${path}`;

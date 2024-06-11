@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'

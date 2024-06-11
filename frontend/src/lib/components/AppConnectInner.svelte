@@ -19,7 +19,7 @@
 	import OauthScopes from './OauthScopes.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen } from 'lucide-svelte'

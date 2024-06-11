@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'

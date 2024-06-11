@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 
 	import AppConnectInner from '$lib/components/AppConnectInner.svelte'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'

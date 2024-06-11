@@ -11,7 +11,7 @@
 
 	import Menu from '../common/menu/MenuV2.svelte'
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'

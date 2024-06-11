@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { displayDate, msToSec } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'

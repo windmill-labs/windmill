@@ -8,7 +8,7 @@
 		type WorkflowStatus
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { displayDate } from '$lib/utils'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'

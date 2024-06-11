@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 	import { page } from '$app/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
 

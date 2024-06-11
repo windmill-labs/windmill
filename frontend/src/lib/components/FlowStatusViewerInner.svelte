@@ -10,7 +10,7 @@
 		type FlowModule
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'

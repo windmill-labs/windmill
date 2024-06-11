@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { displayDate, truncateRev } from '$lib/utils'
 	import ScheduleEditor from './ScheduleEditor.svelte'

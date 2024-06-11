@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
 		AppService,

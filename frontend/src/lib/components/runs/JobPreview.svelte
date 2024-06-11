@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'

@@ -4,7 +4,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
 	import { BROWSER } from 'esm-env'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'

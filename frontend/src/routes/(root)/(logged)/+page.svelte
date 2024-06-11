@@ -13,7 +13,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'

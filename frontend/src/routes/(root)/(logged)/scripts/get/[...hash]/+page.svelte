@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { JobService, ScriptService, type Script } from '$lib/gen'
 	import {
 		defaultIfEmptyString,

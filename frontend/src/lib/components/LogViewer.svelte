@@ -10,7 +10,7 @@
 	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { workspaceStore } from '$lib/stores'
 	import AnsiUp from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'

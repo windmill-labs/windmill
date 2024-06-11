@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import {
 		ResourceService,
 		SettingService,

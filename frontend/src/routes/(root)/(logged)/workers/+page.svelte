@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Popup, Skeleton } from '$lib/components/common'

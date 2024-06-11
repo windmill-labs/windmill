@@ -2,7 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,

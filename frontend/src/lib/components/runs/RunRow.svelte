@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
 	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'

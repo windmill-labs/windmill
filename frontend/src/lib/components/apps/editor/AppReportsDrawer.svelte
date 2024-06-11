@@ -16,7 +16,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$app/paths'
+	import { base } from '$lib/navigation'
 	import { emptyString, formatCron, sendUserToast, tryEvery } from '$lib/utils'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
