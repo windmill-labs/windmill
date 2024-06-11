@@ -114,6 +114,17 @@
 		opened = key
 	}
 
+	export function deleteField(key: string) {
+		delete args[key]
+		delete schema.properties[key]
+		if (schema.required?.includes(key)) {
+			schema.required = schema.required?.filter((x) => x !== key)
+		}
+		if (schema.order) {
+			schema.order = schema.order.filter((x) => x !== key)
+		}
+	}
+
 	$: if (opened === undefined && keys.length > 0) {
 		opened = keys[0]
 	}
@@ -391,6 +402,7 @@
 															itemsType={schema.properties[argName].items}
 															bind:properties={schema.properties[argName].properties}
 															bind:order={schema.properties[argName].order}
+															bind:requiredProperty={schema.properties[argName].required}
 															displayWebhookWarning={!isAppInput}
 															on:requiredChange={(event) => {
 																if (event.detail.required) {

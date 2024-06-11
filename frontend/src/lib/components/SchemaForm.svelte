@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow, generateRandomString } from '$lib/utils'
+	import { allTrue, computeShow } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -11,11 +11,11 @@
 	import { getResourceTypes } from './resourceTypesStore'
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
-	import { SOURCES, TRIGGERS, dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { createEventDispatcher } from 'svelte'
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
+	import SchemaFormDND from './schema/SchemaFormDND.svelte'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -43,9 +43,6 @@
 	export let dndEnabled: boolean = false
 	export let lightweightMode: boolean = false
 
-	let dragDisabled: boolean = false
-
-	const flipDurationMs = 200
 	const dispatch = createEventDispatcher()
 
 	let clazz: string = ''
@@ -85,10 +82,6 @@
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
-	let items: Array<{
-		value: string
-		id: string
-	}> = keys.map((value) => ({ value, id: generateRandomString() }))
 
 	$: isValid = allTrue(inputCheck ?? {})
 
@@ -128,73 +121,9 @@
 			keys = Object.keys(schema.properties ?? {})
 		}
 
-		// If keys length is different from items length, we need to update items
-		if (keys.length !== items.length) {
-			items = keys.map((value) => ({ value, id: generateRandomString() }))
-		}
-
-		// If the lengths are the same, we need to check if the keys are the same
-		if (keys.length === items.length) {
-			const newKeys = keys.map((value) => value)
-			const oldKeys = items.map((item) => item.value)
-
-			if (!deepEqual(newKeys, oldKeys)) {
-				items = keys.map((value) => ({ value, id: generateRandomString() }))
-			}
-		}
-
 		if (!noDelete && hasExtraKeys()) {
 			removeExtraKey()
 		}
-	}
-
-	function handleConsider(e) {
-		const {
-			items: newItems,
-			info: { source, trigger }
-		} = e.detail
-
-		items = newItems
-		// Ensure dragging is stopped on drag finish via keyboard
-		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
-			dragDisabled = true
-		}
-	}
-
-	function handleFinalize(e) {
-		const {
-			items: newItems,
-			info: { source }
-		} = e.detail
-
-		items = newItems
-
-		if (source === SOURCES.POINTER) {
-			dragDisabled = true
-		}
-
-		keys = items.map((item) => item.value)
-
-		schema.properties = keys.reduce((acc, key) => {
-			acc[key] = schema.properties[key]
-			return acc
-		}, {})
-
-		schema.order = keys
-
-		schema = { ...schema }
-
-		dispatch('reorder', keys)
-	}
-
-	function startDrag(e) {
-		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
-		e.preventDefault()
-		dragDisabled = false
-	}
-
-	function handleKeyDown(e) {
-		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
 	}
 </script>
 
@@ -206,17 +135,28 @@
 	</div>
 {/if}
 
-<div
+<SchemaFormDND
 	class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
-	use:dndzone={{
-		items,
-		dragDisabled: dragDisabled || !dndEnabled,
-		flipDurationMs,
-		dropTargetStyle: {},
-		type: dndEnabled ? dndType ?? 'top-level' : 'dnd-disabled'
+	let:items
+	let:handleKeyDown
+	let:startDrag
+	let:dragDisabled
+	dndType={dndEnabled ? dndType ?? 'top-level' : 'dnd-disabled'}
+	{dndEnabled}
+	{keys}
+	on:finalize={(e) => {
+		const nkeys = e.detail
+		schema.properties = nkeys.reduce((acc, key) => {
+			acc[key] = schema.properties[key]
+			return acc
+		}, {})
+
+		schema.order = nkeys
+
+		schema = { ...schema }
+
+		dispatch('reorder', nkeys)
 	}}
-	on:consider={handleConsider}
-	on:finalize={handleFinalize}
 >
 	{#if items.length > 0}
 		{#each items as item, i (item.id)}
@@ -240,7 +180,7 @@
 										description={schema.properties[argName].description}
 										bind:value={args[argName]}
 										type={schema.properties[argName].type}
-										required={schema?.required.includes(argName)}
+										required={schema?.required?.includes(argName)}
 										pattern={schema.properties[argName].pattern}
 										bind:valid={inputCheck[argName]}
 										defaultValue={schema.properties[argName].default}
@@ -249,7 +189,7 @@
 										contentEncoding={schema.properties[argName].contentEncoding}
 										customErrorMessage={schema.properties[argName].customErrorMessage}
 										bind:properties={schema.properties[argName].properties}
-										nestedRequired={schema.properties[argName].required}
+										nestedRequired={schema.properties[argName]?.required}
 										itemsType={schema.properties[argName].items}
 										extra={schema.properties[argName]}
 										title={schema.properties[argName].title}
@@ -295,7 +235,7 @@
 										description={schema.properties[argName].description}
 										bind:value={args[argName]}
 										type={schema.properties[argName].type}
-										required={schema.required.includes(argName)}
+										required={schema?.required?.includes(argName)}
 										pattern={schema.properties[argName].pattern}
 										bind:valid={inputCheck[argName]}
 										defaultValue={schema.properties[argName].default}
@@ -305,7 +245,7 @@
 										customErrorMessage={schema.properties[argName].customErrorMessage}
 										bind:properties={schema.properties[argName].properties}
 										bind:order={schema.properties[argName].order}
-										nestedRequired={schema.properties[argName].required}
+										nestedRequired={schema.properties[argName]?.required}
 										itemsType={schema.properties[argName].items}
 										disabled={disabledArgs.includes(argName) || disabled}
 										{compact}
@@ -375,7 +315,7 @@
 	{:else if !shouldHideNoInputs}
 		<div class="text-secondary text-sm">No inputs</div>
 	{/if}
-</div>
+</SchemaFormDND>
 {#if !noVariablePicker}
 	<ItemPicker
 		bind:this={itemPicker}

@@ -459,7 +459,11 @@
 <slot />
 
 {#if !$userStore?.operator}
-	<Drawer placement="right" bind:open={metadataOpen} size="800px">
+	<Drawer
+		placement="right"
+		bind:open={metadataOpen}
+		size={selectedTab === 'ui' ? '1200px' : '800px'}
+	>
 		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
 			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={selectedTab}>

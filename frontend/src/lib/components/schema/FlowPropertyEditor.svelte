@@ -10,8 +10,8 @@
 	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import { Tab, TabContent } from '../common'
-	import EditableSchemaWrapper from './EditableSchemaWrapper.svelte'
 	import LightweightArgInput from '../LightweightArgInput.svelte'
+	import EditableSchemaDrawer from './EditableSchemaDrawer.svelte'
 
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -37,6 +37,7 @@
 		| undefined = undefined
 	export let properties: Record<string, any> = {}
 	export let order: string[] = []
+	export let requiredProperty: string[] = []
 	export let displayWebhookWarning: boolean = true
 	export let lightweightMode: boolean = false
 
@@ -50,11 +51,12 @@
 		return []
 	}
 
-	let schema = { properties, order }
+	let schema = { properties, order, required: requiredProperty }
 
 	$: if (schema) {
 		properties = schema.properties
 		order = schema.order
+		requiredProperty = schema.required
 	}
 </script>
 
@@ -73,7 +75,7 @@
 			<svelte:fragment slot="content">
 				<div class="pt-2">
 					<TabContent value="custom-object">
-						<EditableSchemaWrapper bind:schema noPreview fullHeight={false} {lightweightMode} />
+						<EditableSchemaDrawer bind:schema />
 					</TabContent>
 
 					<TabContent value="resource">
