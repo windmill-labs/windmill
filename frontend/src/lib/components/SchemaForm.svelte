@@ -109,7 +109,6 @@
 	function reorder() {
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
-			console.debug('reorder')
 			if (schema?.order && Array.isArray(schema.order)) {
 				const n = {}
 
@@ -127,6 +126,21 @@
 				schema.properties = n
 			}
 			keys = Object.keys(schema.properties ?? {})
+		}
+
+		// If keys length is different from items length, we need to update items
+		if (keys.length !== items.length) {
+			items = keys.map((value) => ({ value, id: generateRandomString() }))
+		}
+
+		// If the lengths are the same, we need to check if the keys are the same
+		if (keys.length === items.length) {
+			const newKeys = keys.map((value) => value)
+			const oldKeys = items.map((item) => item.value)
+
+			if (!deepEqual(newKeys, oldKeys)) {
+				items = keys.map((value) => ({ value, id: generateRandomString() }))
+			}
 		}
 
 		if (!noDelete && hasExtraKeys()) {

@@ -41,21 +41,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	function changePosition(i: number, up: boolean): any {
-		const entries = Object.entries(schema.properties)
-		var element = entries[i]
-		entries.splice(i, 1)
-		entries.splice(up ? i - 1 : i + 1, 0, element)
-		schema.properties = Object.fromEntries(entries)
-		syncOrders()
-	}
-
-	function syncOrders() {
-		if (schema) {
-			schema.order = Object.keys(schema.properties ?? {})
-		}
-	}
-
 	let clazz: string = ''
 	export { clazz as class }
 
@@ -192,19 +177,17 @@
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
 				<div class="p-4">
-					{#key schema?.order}
-						<SchemaForm
-							{schema}
-							bind:args
-							dndEnabled
-							on:click={(e) => {
-								opened = e.detail
-							}}
-							on:reorder={() => reorder()}
-							{lightweightMode}
-							prettifyHeader={isAppInput}
-						/>
-					{/key}
+					<SchemaForm
+						{schema}
+						bind:args
+						dndEnabled
+						on:click={(e) => {
+							opened = e.detail
+						}}
+						on:reorder={() => reorder()}
+						{lightweightMode}
+						prettifyHeader={isAppInput}
+					/>
 				</div>
 			</Pane>
 		{/if}
@@ -273,6 +256,12 @@
 															class="w-full !bg-surface"
 															value={argName}
 															id={argName + i}
+															on:keydown={(event) => {
+																if (event.key === 'Enter') {
+																	renameProperty(argName, argName + i)
+																	close(null)
+																}
+															}}
 														/>
 														<Button
 															variant="border"
@@ -321,8 +310,6 @@
 													bind:contentEncoding={schema.properties[argName].contentEncoding}
 													bind:customErrorMessage={schema.properties[argName].customErrorMessage}
 													bind:itemsType={schema.properties[argName].items}
-													on:changePosition={(event) =>
-														changePosition(event.detail.i, event.detail.up)}
 													bind:extra={schema.properties[argName]}
 													bind:title={schema.properties[argName].title}
 													bind:placeholder={schema.properties[argName].placeholder}
