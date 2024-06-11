@@ -4,6 +4,7 @@
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
 	import { allTrue, computeShow } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 
@@ -24,8 +25,6 @@
 		args = {}
 	}
 
-	reorder()
-
 	export function invalidate(key: string, error: string) {
 		inputCheck[key] = false
 		errors[key] = error
@@ -41,29 +40,39 @@
 		errors = Object.fromEntries(Object.entries(errors).map((x) => [x[0], '']))
 	}
 
+	let keys: string[] = Array.isArray(schema?.order)
+		? schema?.order
+		: Object.keys(schema?.properties ?? {})
+
+	$: schema && reorder()
+
 	function reorder() {
-		console.log('reorder')
-		if (schema?.order && Array.isArray(schema.order)) {
-			const n = {}
+		let lkeys = Object.keys(schema?.properties ?? {})
+		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
+			console.debug('reorder')
+			if (schema?.order && Array.isArray(schema.order)) {
+				const n = {}
 
-			;(schema.order as string[]).forEach((x) => {
-				if (schema.properties && schema.properties[x] != undefined) {
-					n[x] = schema.properties[x]
-				}
-			})
-
-			Object.keys(schema.properties ?? {})
-				.filter((x) => !schema.order?.includes(x))
-				.forEach((x) => {
-					n[x] = schema.properties[x]
+				;(schema.order as string[]).forEach((x) => {
+					if (schema.properties && schema.properties[x] != undefined) {
+						n[x] = schema.properties[x]
+					}
 				})
-			schema.properties = n
+
+				Object.keys(schema.properties ?? {})
+					.filter((x) => !schema.order?.includes(x))
+					.forEach((x) => {
+						n[x] = schema.properties[x]
+					})
+				schema.properties = n
+			}
+			keys = Object.keys(schema.properties ?? {})
 		}
 	}
 </script>
 
 <div class={twMerge('w-full flex flex-col px-0.5 pb-2', largeGap ? 'gap-8' : 'gap-2')}>
-	{#each Object.keys(schema.properties ?? {}) as argName (argName)}
+	{#each keys as argName (argName)}
 		{#if typeof args == 'object' && schema?.properties[argName] && args}
 			<LightweightArgInput
 				render={computeShow(argName, schema?.properties[argName].showExpr, args)}

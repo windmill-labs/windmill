@@ -129,7 +129,7 @@ pub async fn gen_lockfile(
                 "\ndetected trustedDependencies: {}\n",
                 trusted_deps.join(", ")
             );
-            append_logs(job_id.clone(), w_id.to_string(), logs1, db).await;
+            append_logs(&job_id, w_id, logs1, db).await;
 
             let mut content = "".to_string();
             {
@@ -192,7 +192,7 @@ pub async fn gen_lockfile(
 async fn gen_bunfig(job_dir: &str) -> Result<()> {
     let registry = NPM_CONFIG_REGISTRY.read().await.clone();
     let bunfig_install_scopes = BUNFIG_INSTALL_SCOPES.read().await.clone();
-    Ok(if registry.is_some() || bunfig_install_scopes.is_some() {
+    if registry.is_some() || bunfig_install_scopes.is_some() {
         let (url, token_opt) = if let Some(ref s) = registry {
             let url = s.trim();
             if url.is_empty() {
@@ -222,7 +222,8 @@ registry = {}
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
         let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
-    })
+    }
+    Ok(())
 }
 
 pub async fn install_lockfile(
@@ -280,7 +281,7 @@ pub async fn install_lockfile(
     };
 
     if npm_mode {
-        append_logs(job_id.clone(), w_id.to_string(), npm_logs, db).await;
+        append_logs(&job_id.clone(), w_id, npm_logs, db).await;
     }
 
     let child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
@@ -575,7 +576,7 @@ pub async fn handle_bun_job(
 
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
-        append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
         let _ = gen_lockfile(
             mem_peak,
@@ -607,7 +608,7 @@ pub async fn handle_bun_job(
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
 
-    append_logs(job.id.clone(), job.workspace_id.to_string(), init_logs, db).await;
+    append_logs(&job.id, &job.workspace_id, init_logs, db).await;
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();

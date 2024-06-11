@@ -16,6 +16,7 @@ use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
+use tower::ServiceBuilder;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
@@ -28,6 +29,7 @@ use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
 use crate::concurrency_groups::join_concurrency_key;
+use crate::add_webhook_allowed_origin;
 use crate::db::ApiAuthed;
 
 use crate::{
@@ -114,6 +116,10 @@ pub fn workspaced_service() -> Router {
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
+    // Cloud events abuse control headers
+    let ce_headers =
+        ServiceBuilder::new().layer(axum::middleware::from_fn(add_webhook_allowed_origin));
+
     let api_list_jobs_query_duration = setup_list_jobs_debug_metrics();
 
     Router::new()
@@ -121,13 +127,15 @@ pub fn workspaced_service() -> Router {
             "/run/f/*script_path",
             post(run_flow_by_path)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run/workflow_as_code/:job_id/:entrypoint",
             post(run_workflow_as_code)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/restart/f/:job_id/from/:step_id",
@@ -141,33 +149,38 @@ pub fn workspaced_service() -> Router {
             "/run/p/*script_path",
             post(run_script_by_path)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run_wait_result/p/*script_path",
             post(run_wait_result_script_by_path)
                 .get(run_wait_result_job_by_path_get)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run_wait_result/h/:hash",
             post(run_wait_result_script_by_hash)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run_wait_result/f/*script_path",
             post(run_wait_result_flow_by_path)
                 .get(run_wait_result_flow_by_path_get)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route(
             "/run/h/:hash",
             post(run_job_by_hash)
                 .head(|| async { "" })
-                .layer(cors.clone()),
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
         .route("/run/preview_bundle", post(run_bundle_preview_script))
@@ -225,6 +238,7 @@ pub fn workspaced_service() -> Router {
             get(get_result_by_id).layer(cors.clone()),
         )
         .route("/run/dependencies", post(run_dependencies_job))
+        .route("/run/flow_dependencies", post(run_flow_dependencies_job))
 }
 
 pub fn global_service() -> Router {
@@ -1240,7 +1254,7 @@ async fn cancel_jobs(
 
                 if let Some(job_running) = job_running {
                     append_logs(
-                        j.id,
+                        &j.id,
                         w_id,
                         format!("canceled by {username}: cancel_all"),
                         db.clone(),
@@ -3630,14 +3644,13 @@ pub struct RunDependenciesResponse {
     pub dependencies: String,
 }
 
-pub async fn run_dependencies_job(
+async fn run_dependencies_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(req): Json<RunDependenciesRequest>,
 ) -> error::Result<Response> {
-    check_scopes(&authed, || format!("runscript"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -3677,6 +3690,60 @@ pub async fn run_dependencies_job(
             language: language,
         },
         args,
+        authed.display_username(),
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    wait_result
+}
+
+#[derive(Deserialize)]
+pub struct RunFlowDependenciesRequest {
+    pub path: String,
+    pub flow_value: FlowValue,
+}
+
+#[derive(Serialize)]
+pub struct RunFlowDependenciesResponse {
+    pub dependencies: String,
+}
+
+async fn run_flow_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunFlowDependenciesRequest>,
+) -> error::Result<Response> {
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run dependencies jobs for security reasons".to_string(),
+        ));
+    }
+
+    let (uuid, tx) = push(
+        &db,
+        PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
+        &w_id,
+        JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
+        PushArgs::empty(),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -4068,6 +4135,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
         ));
     }
 
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     return Err(error::Error::NotFound(format!(
         "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
         file_p

@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.75-slim-bookworm
+ARG RUST_IMAGE=rust:1.78-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.4-slim-bookworm
 
 FROM ${DEBIAN_IMAGE} as downloader
@@ -53,7 +53,7 @@ RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VER
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
-COPY --from=oven/bun:1.0.29 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.8 /usr/local/bin/bun /usr/bin/bun
 
 
 RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.41.0/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true

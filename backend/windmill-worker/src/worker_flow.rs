@@ -742,7 +742,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             } else {
                 "Flow job completed with error\n".to_string()
             };
-            append_logs(flow_job.id, w_id.to_string(), logs, db).await;
+            append_logs(&flow_job.id, w_id, logs, db).await;
         }
         #[cfg(feature = "enterprise")]
         if flow_job.parent_job.is_none() {
@@ -852,8 +852,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             Err(err) => {
                 let e = json!({"message": err.to_string(), "name": "InternalError"});
                 append_logs(
-                    flow_job.id,
-                    w_id.to_string(),
+                    &flow_job.id,
+                    w_id,
                     format!("Unexpected error during flow chaining:\n{:#?}", e),
                     db,
                 )
@@ -1039,7 +1039,7 @@ async fn has_failure_module<'c>(
 fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
     (status.fail_count <= MAX_RETRY_ATTEMPTS)
         .then(|| &retry)
-        .and_then(|retry| retry.interval(status.fail_count))
+        .and_then(|retry| retry.interval(status.fail_count, false))
         .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
 }
 
@@ -1135,12 +1135,6 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
     } else {
         Ok(Step::FailureStep)
     }
-}
-
-#[derive(serde::Deserialize)]
-pub struct ErrorValue<'a> {
-    #[serde(borrow)]
-    pub error: Option<&'a RawValue>,
 }
 
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
@@ -1275,15 +1269,6 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 pub struct Iter {
     index: i32,
     value: Box<RawValue>,
-}
-
-#[derive(Serialize)]
-pub struct MergeArgs<'a> {
-    #[serde(flatten)]
-    b: &'a Iter,
-
-    #[serde(flatten)]
-    a: HashMap<String, Box<RawValue>>,
 }
 
 #[derive(FromRow)]
@@ -1681,7 +1666,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 let result: Value = json!({ "error": {"message": logs, "name": error_name}});
 
-                append_logs(flow_job.id, flow_job.workspace_id.clone(), logs.clone(), db).await;
+                append_logs(&flow_job.id, &flow_job.workspace_id, logs.clone(), db).await;
 
                 job_completed_tx
                     .send(SendResult::UpdateFlow {

@@ -434,7 +434,7 @@
 				)
 			}
 		} catch (e) {
-			let error = e.body ?? e.message
+			let error = e?.body ?? e?.message
 			updateResult({ error })
 			$errorByComponent[id] = { error }
 		}
@@ -593,7 +593,7 @@
 						},
 						error: (e) => {
 							console.error(e)
-							reject()
+							reject(e)
 						}
 					}).catch(reject)
 				})
