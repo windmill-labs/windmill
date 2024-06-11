@@ -87,7 +87,7 @@ async fn add_relative_imports_to_dependency_map<'c>(
             script_path,
             import,
             importer_kind,
-            node_id
+            node_id.clone().unwrap_or_default()
         )
         .execute(&mut *tx)
         .await?;
