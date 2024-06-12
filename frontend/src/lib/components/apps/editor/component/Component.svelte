@@ -625,6 +625,7 @@
 				id={component.id}
 				conditions={component.conditions}
 				customCss={component.customCss}
+				onTabChange={component.onTabChange}
 				{componentContainerHeight}
 				{render}
 			/>

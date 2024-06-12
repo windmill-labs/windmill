@@ -15,5 +15,14 @@
 </div>
 
 <div class="col-span-7">
-	<MultiSelect {items} bind:value />
+	{#if items.length === 0}
+		<div
+			class="text-xs text-secondary w-full bg-gray-100 border rounded-md h-7 flex items-center px-2"
+		>
+			No components to recompute.
+			<Tooltip light small>Create one and select it here.</Tooltip>
+		</div>
+	{:else}
+		<MultiSelect {items} bind:value />
+	{/if}
 </div>

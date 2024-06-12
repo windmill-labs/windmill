@@ -61,12 +61,20 @@
 				bind:value={item.data.onSelect}
 			/>
 		{/if}
-		{#if item.data.type === 'tabscomponent'}
+		{#if item.data.type === 'tabscomponent' || item.data.type === 'conditionalwrapper'}
 			<EventHandlerItem
 				title="On tab change"
-				tooltip="Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue"
+				tooltip="Select components to recompute after the selected tab was changed"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onTabChange}
+			/>
+		{/if}
+		{#if item.data.type === 'fileinputcomponent' || item.data.type === 's3fileinputcomponent'}
+			<EventHandlerItem
+				title="On file change"
+				tooltip="Select components to recompute after a file was selected"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.onFileChange}
 			/>
 		{/if}
 	</div>
