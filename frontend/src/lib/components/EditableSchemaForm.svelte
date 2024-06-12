@@ -113,6 +113,9 @@
 		let lkeys = schema.order ?? Object.keys(schema?.properties ?? {})
 		if (schema?.properties && !deepEqual(lkeys, keys)) {
 			keys = lkeys
+			if (opened == undefined) {
+				opened = keys[0]
+			}
 			if (!noDelete) {
 				removeExtraKey()
 			}
