@@ -128,7 +128,8 @@
 		width: 100%;
 		@apply bg-surface;
 		z-index: 3;
-		transition: transform var(--duration) ease;
+		transition: transform var(--duration) ease, max-width var(--duration) ease,
+			max-height var(--duration) ease;
 		height: 100%;
 	}
 

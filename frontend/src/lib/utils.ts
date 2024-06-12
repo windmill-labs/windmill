@@ -881,7 +881,8 @@ export function shouldDisplayPlaceholder(
 	format: string | undefined,
 	enum_: string[] | undefined,
 	contentEncoding: 'base64' | 'binary' | undefined,
-	pattern: string | undefined
+	pattern: string | undefined,
+	extra: Record<string, any> | undefined
 ): boolean {
 	if (type === 'string') {
 		const kind = computeKind(enum_, contentEncoding, pattern, format)
@@ -894,5 +895,9 @@ export function shouldDisplayPlaceholder(
 		return kind === 'none' || kind === 'pattern'
 	}
 
-	return type === 'number' || type === 'integer' || type === undefined
+	if (type === 'number' || type === 'integer') {
+		return extra?.['min'] === undefined || extra?.['max'] === undefined
+	}
+
+	return type === undefined
 }
