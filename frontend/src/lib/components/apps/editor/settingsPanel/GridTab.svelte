@@ -6,7 +6,7 @@
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
-	import { dragHandle, dragHandleZone } from 'svelte-dnd-action'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import GridTabDisabled from './GridTabDisabled.svelte'

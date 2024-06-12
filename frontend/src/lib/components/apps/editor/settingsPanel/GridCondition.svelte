@@ -2,7 +2,7 @@
 	import type { AppInputSpec } from '../../inputType'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import PanelSection from './common/PanelSection.svelte'
-	import { dndzone } from 'svelte-dnd-action'
+	import { dndzone } from '@windmill-labs/svelte-dnd-action'
 	import { GripVertical, Plus, X } from 'lucide-svelte'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import { generateRandomString } from '$lib/utils'

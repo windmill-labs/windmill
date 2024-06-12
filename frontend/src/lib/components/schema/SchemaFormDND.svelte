@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { dragHandle } from 'svelte-dnd-action'
+	import { dragHandle } from '@windmill-labs/svelte-dnd-action'
 	import SchemaForm from '../SchemaForm.svelte'
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'

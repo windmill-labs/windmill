@@ -4,7 +4,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
-	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
+	import { dndzone, SOURCES, TRIGGERS } from '@windmill-labs/svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'

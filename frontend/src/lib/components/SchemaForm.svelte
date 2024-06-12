@@ -14,7 +14,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { dragHandleZone, type Options as DndOptions } from 'svelte-dnd-action'
+	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 
 	export let schema: Schema | any

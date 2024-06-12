@@ -4,7 +4,7 @@
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { Drawer, DrawerContent } from '../common'
 	import AddProperty from './AddProperty.svelte'
-	import { dragHandle, dragHandleZone } from 'svelte-dnd-action'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { generateRandomString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -76,45 +76,49 @@
 				animate:flip={{ duration: 200 }}
 				class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
 			>
-				<div class="flex flex-row justify-between items-center w-full">
-					{`${item.value}${
-						schema.properties[item.value].title
-							? ` (title: ${schema.properties[item.value].title})`
-							: ''
-					} `}
-					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
-					<div class="flex flex-row gap-1 item-center h-full justify-center">
-						<Button
-							iconOnly
-							size="xs2"
-							color="light"
-							startIcon={{ icon: Pen }}
-							on:click={() => {
-								schemaFormDrawer?.openDrawer()
+				{#if schema.properties?.[item.value]}
+					<div class="flex flex-row justify-between items-center w-full">
+						{`${item.value}${
+							schema.properties?.[item.value]?.title
+								? ` (title: ${schema.properties?.[item.value]?.title})`
+								: ''
+						} `}
+						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<div class="flex flex-row gap-1 item-center h-full justify-center">
+							<Button
+								iconOnly
+								size="xs2"
+								color="light"
+								startIcon={{ icon: Pen }}
+								on:click={() => {
+									schemaFormDrawer?.openDrawer()
 
-								tick().then(() => {
-									editableSchemaForm?.openField(item.value)
-								})
-							}}
-						/>
+									tick().then(() => {
+										editableSchemaForm?.openField(item.value)
+									})
+								}}
+							/>
 
-						<div class="cursor-move flex items-center handle" use:dragHandle>
-							<GripVertical size={16} />
+							<div class="cursor-move flex items-center handle" use:dragHandle>
+								<GripVertical size={16} />
+							</div>
 						</div>
 					</div>
-				</div>
 
-				{#if schema.properties[item.value].type === 'object'}
-					<div class="flex flex-col w-full mt-2">
-						<Label label="Nested Properties">
-							<svelte:self
-								on:change={() => (schema = schema)}
-								schema={schema.properties[item.value]}
-								parentId={item.value}
-							/>
-						</Label>
-					</div>
+					{#if schema.properties[item.value]?.type === 'object'}
+						<div class="flex flex-col w-full mt-2">
+							<Label label="Nested Properties">
+								<svelte:self
+									on:change={() => (schema = schema)}
+									schema={schema.properties[item.value]}
+									parentId={item.value}
+								/>
+							</Label>
+						</div>
+					{/if}
+				{:else}
+					<div class="text-tertiary"> Value is undefined </div>
 				{/if}
 			</div>
 		{/each}
