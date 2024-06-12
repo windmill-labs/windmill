@@ -229,7 +229,7 @@ try {{
 }} catch (Exception $e) {{
     $err = [
         "message" => $e->getMessage(),
-        "name" => $e->getName(),
+        "name" => get_class($e),
         "stack" => $e->getTraceAsString()
     ];
     $step_id = getenv('WM_FLOW_STEP_ID');
