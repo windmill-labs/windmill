@@ -14,6 +14,7 @@
 	export let selected: any
 	export let noWFull: boolean = false
 	export let disabled: boolean = false
+	export let tabListClass: string = ''
 
 	const dispatch = createEventDispatcher()
 	const selectedContent = writable(selected)
@@ -42,7 +43,9 @@
 		$$props.class
 	)}
 >
-	<TabList class="flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ">
+	<TabList
+		class={twMerge('flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ', tabListClass)}
+	>
 		<slot />
 	</TabList>
 </TabGroup>
