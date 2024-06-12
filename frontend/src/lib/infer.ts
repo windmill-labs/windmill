@@ -135,7 +135,6 @@ export async function inferArgs(
 	schema.required = []
 	const oldProperties = JSON.parse(JSON.stringify(schema.properties))
 	schema.properties = {}
-	console.log('FOO', inferedSchema.args)
 	for (const arg of inferedSchema.args) {
 		if (!(arg.name in oldProperties)) {
 			schema.properties[arg.name] = { description: '', type: '' }
@@ -152,7 +151,6 @@ export async function inferArgs(
 			schema.required.push(arg.name)
 		}
 	}
-	console.log('BAR', schema.properties)
 	await tick()
 
 	return inferedSchema.no_main_func

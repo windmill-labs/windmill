@@ -30,7 +30,6 @@
 	export let shouldHideNoInputs: boolean = false
 	export let noVariablePicker = false
 	export let flexWrap = false
-	export let noDelete = false
 	export let uiOnly: boolean = false
 	export let isFlowInput: boolean = false
 	export let noPreview: boolean = false
@@ -61,21 +60,13 @@
 		args = nargs
 	}
 
-	function removeExtraKey() {
-		const nargs = {}
-		Object.keys(args ?? {}).forEach((key) => {
-			if (keys.includes(key)) {
-				nargs[key] = args[key]
-			}
-		})
-		args = nargs
-	}
-
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
 
-	let keys: string[] = []
+	let keys: string[] = Array.isArray(schema?.order)
+		? [...schema.order]
+		: Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {})
 
 	$: schema && onSchemaChange()
 
@@ -88,13 +79,11 @@
 		}
 		let norder = [...schema.order]
 		let properties = Object.keys(schema?.properties ?? {})
-
-		console.log('properties', schema.properties)
 		let index = 0
+		let hasChanged = false
 		for (let k of properties) {
 			if (schema.properties[k].type === 'object' && schema.properties[k].properties) {
-				console.log(schema.properties[k])
-				alignOrderWithProperties(schema.properties[k])
+				hasChanged = hasChanged || alignOrderWithProperties(schema.properties[k])
 			}
 			if (!norder.includes(k)) {
 				console.log('adding', k, index)
@@ -105,19 +94,22 @@
 		norder = norder.filter((x) => properties.includes(x))
 		if (!deepEqual(schema.order, norder)) {
 			schema.order = norder
-			schema = schema
+			console.log('b')
+			return true
 		}
+		return hasChanged
 	}
 	function onSchemaChange() {
-		alignOrderWithProperties(schema)
-		let lkeys = schema.order ?? Object.keys(schema?.properties ?? {})
+		dispatch('change', schema)
+		if (alignOrderWithProperties(schema)) {
+			schema = schema
+		}
+		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
 		if (schema?.properties && !deepEqual(lkeys, keys)) {
-			keys = lkeys
+			keys = [...lkeys]
+			schema = schema
 			if (opened == undefined) {
 				opened = keys[0]
-			}
-			if (!noDelete) {
-				removeExtraKey()
 			}
 		}
 	}
@@ -210,6 +202,10 @@
 							}}
 							on:reorder={(e) => {
 								schema.order = e.detail
+							}}
+							on:change={() => {
+								schema = schema
+								dispatch('change', schema)
 							}}
 							{lightweightMode}
 							prettifyHeader={isAppInput}
@@ -344,6 +340,10 @@
 													bind:order={schema.properties[argName].order}
 													{isFlowInput}
 													{isAppInput}
+													on:change={() => {
+														schema = schema
+														dispatch('change', schema)
+													}}
 												>
 													<svelte:fragment slot="typeeditor">
 														{#if isFlowInput || isAppInput}

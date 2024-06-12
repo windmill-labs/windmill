@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { SOURCES, TRIGGERS } from 'svelte-dnd-action'
+	import { dragHandle } from 'svelte-dnd-action'
 	import SchemaForm from '../SchemaForm.svelte'
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
@@ -18,9 +18,9 @@
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
-	let dragDisabled: boolean = false
 	let items = computeItems()
 
+	let dragDisabled = true
 	$: schema && dragDisabled && updateItems()
 
 	function computeItems() {
@@ -40,50 +40,33 @@
 	}
 
 	function handleConsider(e) {
-		const {
-			items: newItems,
-			info: { source, trigger }
-		} = e.detail
+		dragDisabled = false
+		const { items: newItems } = e.detail
 
 		items = newItems
-		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
-			dragDisabled = true
-		}
 	}
 
 	function handleFinalize(e) {
-		const {
-			items: newItems,
-			info: { source }
-		} = e.detail
+		const { items: newItems } = e.detail
 
+		dragDisabled = true
 		items = newItems
-
-		if (source === SOURCES.POINTER) {
-			dragDisabled = true
-		}
 
 		dispatch(
 			'reorder',
 			items.map((item) => item.value)
 		)
 	}
-
-	function startDrag(e) {
-		e.preventDefault()
-		dragDisabled = false
-	}
-
-	function handleKeyDown(e) {
-		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
-	}
 </script>
 
+<!-- {JSON.stringify(schema)}
+{dragDisabled} -->
 <!-- {JSON.stringify(items)} -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <SchemaForm
 	on:click
+	on:change
 	on:reorder
 	on:consider={handleConsider}
 	on:finalize={handleFinalize}
@@ -96,7 +79,6 @@
 	bind:schema
 	dndConfig={{
 		items,
-		dragDisabled: dragDisabled,
 		flipDurationMs,
 		dropTargetStyle: {},
 		type: dndType ?? 'top-level'
@@ -104,13 +86,7 @@
 	{items}
 >
 	<svelte:fragment slot="actions">
-		<div
-			tabindex={dragDisabled ? 0 : -1}
-			class="w-4 h-8 cursor-move ml-2"
-			on:mousedown={startDrag}
-			on:touchstart={startDrag}
-			on:keydown={handleKeyDown}
-		>
+		<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
 			<GripVertical size={16} />
 		</div>
 	</svelte:fragment>

@@ -500,13 +500,20 @@
 									const keys = e.detail
 									order = keys
 								}}
+								on:change
 							/>
 						{:else}
 							<SchemaForm
 								{onlyMaskPassword}
 								{disablePortal}
 								{disabled}
-								schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
+								schema={{
+									properties,
+									order,
+									$schema: '',
+									required: nestedRequired ?? [],
+									type: 'object'
+								}}
 								bind:args={value}
 							/>
 						{/if}

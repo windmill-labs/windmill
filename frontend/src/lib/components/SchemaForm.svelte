@@ -14,7 +14,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { dndzone, type Options as DndOptions } from 'svelte-dnd-action'
+	import { dragHandleZone, type Options as DndOptions } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 
 	export let schema: Schema | any
@@ -97,6 +97,7 @@
 	}
 
 	function reorder() {
+		dispatch('change')
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
 			if (schema?.order && Array.isArray(schema.order)) {
@@ -126,6 +127,11 @@
 	$: fields = items ?? keys.map((x) => ({ id: x, value: x }))
 </script>
 
+<!-- <div class="text-2xs">
+	{Object.keys(schema?.properties)}
+	{schema?.order}
+	{JSON.stringify(schema)}
+</div> -->
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
 		<Button size="xs" color="light" on:click={() => setDefaults()}>
@@ -136,7 +142,7 @@
 
 <div
 	class="w-full {$$props.class} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
-	use:dndzone={dndConfig ?? { items: [], dragDisabled: true }}
+	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
 	on:finalize
 	on:consider
 >
@@ -209,6 +215,7 @@
 									</LightweightArgInput>
 								{:else}
 									<ArgInput
+										on:change
 										{disablePortal}
 										{resourceTypes}
 										{prettifyHeader}

@@ -66,34 +66,33 @@ export function argSigToJsonSchemaType(
 		newS.type = 'object'
 	}
 
-	// const preservedFields = [
-	// 	'description',
-	// 	'pattern',
-	// 	'default',
-	// 	'enum',
-	// 	'format',
-	// 	'items',
-	// 	'min',
-	// 	'max',
-	// 	'currency',
-	// 	'currencyLocale',
-	// 	'multiselect',
-	// 	'customErrorMessage',
-	// 	'properties',
-	// 	'required',
-	// 	'showExpr',
-	// 	'password',
-	// 	'order',
-	// 	'nullable',
-	// 	'dateFormat',
-	// 	'title',
-	// 	'placeholder'
-	// ]
-	// preservedFields.forEach((field) => {
-	// 	if (oldS[field] !== undefined) {
-	// 		newS[field] = oldS[field]
-	// 	}
-	// })
+	const preservedFields = [
+		'description',
+		'pattern',
+		'default',
+		'enum',
+		'format',
+		'items',
+		'min',
+		'max',
+		'currency',
+		'currencyLocale',
+		'multiselect',
+		'customErrorMessage',
+		'required',
+		'showExpr',
+		'password',
+		'order',
+		'nullable',
+		'dateFormat',
+		'title',
+		'placeholder'
+	]
+	preservedFields.forEach((field) => {
+		if (oldS[field] !== undefined) {
+			newS[field] = oldS[field]
+		}
+	})
 
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {

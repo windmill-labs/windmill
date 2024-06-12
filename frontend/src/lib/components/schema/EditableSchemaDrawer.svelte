@@ -4,7 +4,7 @@
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { Drawer, DrawerContent } from '../common'
 	import AddProperty from './AddProperty.svelte'
-	import { SOURCES, TRIGGERS, dndzone } from 'svelte-dnd-action'
+	import { dragHandle, dragHandleZone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { generateRandomString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -20,7 +20,6 @@
 
 	let addProperty: AddProperty | undefined = undefined
 	let schemaFormDrawer: Drawer | undefined = undefined
-	let dragDisabled: boolean = false
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
 	$: items = ((schema?.order ?? Object.keys(schema.properties ?? {}))?.map((item, index) => {
@@ -31,29 +30,15 @@
 	}>
 
 	function handleConsider(e) {
-		const {
-			items: newItems,
-			info: { source, trigger }
-		} = e.detail
+		const { items: newItems } = e.detail
 
 		items = newItems
-		// Ensure dragging is stopped on drag finish via keyboard
-		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
-			dragDisabled = true
-		}
 	}
 
 	function handleFinalize(e) {
-		const {
-			items: newItems,
-			info: { source }
-		} = e.detail
+		const { items: newItems } = e.detail
 
 		items = newItems
-
-		if (source === SOURCES.POINTER) {
-			dragDisabled = true
-		}
 
 		const keys = items.map((item) => item.value)
 
@@ -67,14 +52,6 @@
 		schema = { ...schema }
 		dispatch('change', schema)
 	}
-	function startDrag(e) {
-		e.preventDefault()
-		dragDisabled = false
-	}
-
-	function handleKeyDown(e) {
-		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
-	}
 
 	const yOffset = 49
 </script>
@@ -82,9 +59,8 @@
 <AddProperty on:change bind:schema bind:this={addProperty} />
 
 <div
-	use:dndzone={{
+	use:dragHandleZone={{
 		items,
-		dragDisabled: dragDisabled,
 		flipDurationMs,
 		dropTargetStyle: {},
 		type: parentId ? `app-editor-fields-${parentId}` : 'app-editor-fields'
@@ -123,13 +99,7 @@
 							}}
 						/>
 
-						<div
-							tabindex={dragDisabled ? 0 : -1}
-							class="cursor-move flex items-center"
-							on:mousedown={startDrag}
-							on:touchstart={startDrag}
-							on:keydown={handleKeyDown}
-						>
+						<div class="cursor-move flex items-center handle" use:dragHandle>
 							<GripVertical size={16} />
 						</div>
 					</div>

@@ -9,6 +9,8 @@
 	import Tooltip from '../Tooltip.svelte'
 
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
+	import { deepEqual } from 'fast-equals'
+	import { createEventDispatcher } from 'svelte'
 
 	export let description: string = ''
 	export let format: string = ''
@@ -56,19 +58,18 @@
 		order
 	}
 
-	function updatePropertiesAnOrder(newProperties: Record<string, any>, newOrder: string[]) {
-		// DO a deep equal to avoid unnecessary updates
-		if (JSON.stringify(properties) !== JSON.stringify(newProperties)) {
-			properties = newProperties
-		}
+	$: (properties || order) && updateSchema()
 
-		if (JSON.stringify(order) !== JSON.stringify(newOrder)) {
-			order = newOrder
+	function updateSchema() {
+		if (!deepEqual(schema.properties, properties) || !deepEqual(schema.order, order)) {
+			schema = {
+				properties,
+				order
+			}
 		}
 	}
 
-	// When schema changes we need to update the properties
-	$: schema && updatePropertiesAnOrder(schema.properties, schema.order)
+	const dispatch = createEventDispatcher()
 </script>
 
 <div class="flex flex-row items-center justify-between w-full gap-2">
@@ -137,7 +138,7 @@
 							/>
 						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
 							<div class="border">
-								<EditableSchemaForm noPreview bind:schema uiOnly jsonEnabled={false} />
+								<EditableSchemaForm on:change noPreview bind:schema uiOnly jsonEnabled={false} />
 							</div>
 						{:else}
 							<div class="text-tertiary text-xs">No settings available for this field type</div>
