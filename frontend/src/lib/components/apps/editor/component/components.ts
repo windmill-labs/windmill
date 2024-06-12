@@ -190,7 +190,9 @@ export type FileInputComponent = BaseComponent<'fileinputcomponent'>
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
+	onTabChange?: string[]
 }
+
 export type ListComponent = BaseComponent<'listcomponent'>
 export type ContainerComponent = BaseComponent<'containercomponent'> & {
 	groupFields: RichConfigurations

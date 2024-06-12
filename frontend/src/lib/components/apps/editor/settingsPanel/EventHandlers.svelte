@@ -1,14 +1,17 @@
 <script lang="ts">
-	import type { GridItem } from '../../types'
-	import Recompute from './Recompute.svelte'
+	import type { AppViewerContext, GridItem } from '../../types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { getContext } from 'svelte'
+	import EventHandlerItem from './EventHandlerItem.svelte'
+
+	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let item: GridItem
 	export let ownId: string
 </script>
 
-<div>
-	<div class="px-3 pt-2 text-sm font-normal flex flex-row items-center gap-1">
+<div class="py-4 flex flex-col gap-4">
+	<div class="px-2.5 text-sm font-normal flex flex-row items-center gap-1">
 		Event handlers
 		<Tooltip light>
 			Event handlers are used to trigger actions on other components when a specific event occurs.
@@ -16,41 +19,55 @@
 		</Tooltip>
 	</div>
 
-	{#if (`recomputeIds` in item.data && Array.isArray(item.data.recomputeIds)) || item.data.type === 'buttoncomponent' || item.data.type === 'formcomponent' || item.data.type === 'formbuttoncomponent' || item.data.type === 'checkboxcomponent'}
-		<Recompute bind:recomputeIds={item.data.recomputeIds} {ownId} />
-	{/if}
-	{#if (`onOpenRecomputeIds` in item.data && Array.isArray(item.data.onOpenRecomputeIds)) || item.data.type === 'modalcomponent' || item.data.type === 'drawercomponent'}
-		<Recompute
-			bind:recomputeIds={item.data.onOpenRecomputeIds}
-			{ownId}
-			title="Trigger runnables on open"
-			tooltip="Select components to recompute after this component was opened"
-		/>
-	{/if}
-	{#if (`onCloseRecomputeIds` in item.data && Array.isArray(item.data.onCloseRecomputeIds)) || item.data.type === 'modalcomponent' || item.data.type === 'drawercomponent'}
-		<Recompute
-			bind:recomputeIds={item.data.onCloseRecomputeIds}
-			{ownId}
-			title="Trigger runnables on close"
-			tooltip="Select components to recompute after this component was closed"
-		/>
-	{/if}
-	{#if item.data.type === 'checkboxcomponent'}
-		<Recompute
-			title="Recompute on toggle"
-			tooltip={'Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue'}
-			documentationLink={undefined}
-			bind:recomputeIds={item.data.onToggle}
-			{ownId}
-		/>
-	{/if}
-	{#if item.data.type === 'resourceselectcomponent' || item.data.type === 'selectcomponent'}
-		<Recompute
-			title="Recompute on select"
-			tooltip={'Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue'}
-			documentationLink={undefined}
-			bind:recomputeIds={item.data.onSelect}
-			{ownId}
-		/>
-	{/if}
+	<div class="grid grid-cols-10 w-full px-2.5 gap-4">
+		{#if (`onOpenRecomputeIds` in item.data && Array.isArray(item.data.onOpenRecomputeIds)) || item.data.type === 'modalcomponent' || item.data.type === 'drawercomponent'}
+			<EventHandlerItem
+				title="On open"
+				tooltip="Select components to recompute after this component was opened"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.onOpenRecomputeIds}
+			/>
+		{/if}
+
+		{#if (`onCloseRecomputeIds` in item.data && Array.isArray(item.data.onCloseRecomputeIds)) || item.data.type === 'modalcomponent' || item.data.type === 'drawercomponent'}
+			<EventHandlerItem
+				title="On close"
+				tooltip="Select components to recompute after this component was closed"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.onCloseRecomputeIds}
+			/>
+		{/if}
+		{#if (`recomputeIds` in item.data && Array.isArray(item.data.recomputeIds)) || item.data.type === 'buttoncomponent' || item.data.type === 'formcomponent' || item.data.type === 'formbuttoncomponent' || item.data.type === 'checkboxcomponent'}
+			<EventHandlerItem
+				title="On success"
+				tooltip="Select components to recompute after this component was closed"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.recomputeIds}
+			/>
+		{/if}
+		{#if item.data.type === 'checkboxcomponent'}
+			<EventHandlerItem
+				title="On toggle"
+				tooltip="Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.onToggle}
+			/>
+		{/if}
+		{#if item.data.type === 'resourceselectcomponent' || item.data.type === 'selectcomponent'}
+			<EventHandlerItem
+				title="On select"
+				tooltip="Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.onSelect}
+			/>
+		{/if}
+		{#if item.data.type === 'tabscomponent'}
+			<EventHandlerItem
+				title="On tab change"
+				tooltip="Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.onTabChange}
+			/>
+		{/if}
+	</div>
 </div>

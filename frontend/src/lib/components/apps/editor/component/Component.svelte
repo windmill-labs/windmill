@@ -606,6 +606,7 @@
 				id={component.id}
 				tabs={component.tabs}
 				disabledTabs={component.disabledTabs}
+				onTabChange={component.onTabChange}
 				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}
