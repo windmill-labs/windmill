@@ -54,7 +54,8 @@
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
-				nargs[key] = schema?.properties[key].default
+				let value = schema?.properties[key].default
+				nargs[key] = value === 'object' ? JSON.parse(JSON.stringify(value)) : value
 			}
 		})
 		args = nargs
