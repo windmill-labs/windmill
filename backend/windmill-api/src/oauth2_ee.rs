@@ -12,6 +12,7 @@ use axum::{routing::get, Json, Router};
 use hmac::Mac;
 use hyper::HeaderMap;
 
+use itertools::Itertools;
 use oauth2::{Client as OClient, *};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -120,25 +121,12 @@ async fn list_logins() -> error::JsonResult<Logins> {
     return Ok(Json(Logins { oauth: vec![], saml: None }));
 }
 
-#[derive(Serialize)]
-struct ScopesAndParams {
-    scopes: Vec<String>,
-    extra_params: Option<HashMap<String, String>>,
-}
-async fn list_connects() -> error::JsonResult<HashMap<String, ScopesAndParams>> {
+async fn list_connects() -> error::JsonResult<Vec<String>> {
     Ok(Json(
         (&OAUTH_CLIENTS.read().await.connects)
-            .into_iter()
-            .map(|(k, v)| {
-                (
-                    k.to_owned(),
-                    ScopesAndParams {
-                        scopes: v.scopes.clone(),
-                        extra_params: v.extra_params.clone(),
-                    },
-                )
-            })
-            .collect::<HashMap<String, ScopesAndParams>>(),
+            .keys()
+            .map(|x| x.to_owned())
+            .collect_vec(),
     ))
 }
 
