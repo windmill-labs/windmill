@@ -18,27 +18,26 @@
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
-	let keys = schema.order ?? Object.keys(schema.properties ?? {}) ?? []
-
-	$: schema && updateKeys()
-	function updateKeys() {
-		let nkeys = schema.order ?? Object.keys(schema.properties ?? {}) ?? []
-		if (!deepEqual(keys, nkeys)) {
-			keys = nkeys
-		}
-	}
-
 	let dragDisabled: boolean = false
-	let items = keys?.map((key) => ({ id: key, value: key })) ?? []
+	let items = computeItems()
+
+	$: schema && dragDisabled && updateItems()
+
+	function computeItems() {
+		return (
+			(schema.order ?? Object.keys(schema.properties ?? {}) ?? []).map((key) => ({
+				id: key,
+				value: key
+			})) ?? []
+		)
+	}
 
 	function updateItems() {
-		const oldKeys = items.map((item) => item.value)
-		if (!deepEqual(oldKeys, keys)) {
-			items = keys.map((key) => ({ id: key, value: key }))
+		const newItems = computeItems()
+		if (!deepEqual(newItems, items)) {
+			items = newItems
 		}
 	}
-
-	$: keys && updateItems()
 
 	function handleConsider(e) {
 		const {
@@ -80,6 +79,7 @@
 	}
 </script>
 
+<!-- {JSON.stringify(items)} -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <SchemaForm
