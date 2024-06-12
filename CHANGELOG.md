@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.345.0](https://github.com/windmill-labs/windmill/compare/v1.344.3...v1.345.0) (2024-06-12)
+
+
+### Features
+
+* **frontend:** Generated UI editor + Schema Form complete refactor ([#3835](https://github.com/windmill-labs/windmill/issues/3835)) ([2344077](https://github.com/windmill-labs/windmill/commit/2344077b340ba22e40eb5ddb85c70f21c0c9e801))
+
 ## [1.344.3](https://github.com/windmill-labs/windmill/compare/v1.344.2...v1.344.3) (2024-06-11)
 
 
