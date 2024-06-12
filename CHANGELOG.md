@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.344.2](https://github.com/windmill-labs/windmill/compare/v1.344.1...v1.344.2) (2024-06-11)
+
+
+### Bug Fixes
+
+* fix dependency tracking for single scripts ([28d7510](https://github.com/windmill-labs/windmill/commit/28d7510584a47f98f87b7d0e87a663121b2bb5ef))
+
+## [1.344.1](https://github.com/windmill-labs/windmill/compare/v1.344.0...v1.344.1) (2024-06-11)
+
+
+### Bug Fixes
+
+* cancel jobs button missing chevron ([#3896](https://github.com/windmill-labs/windmill/issues/3896)) ([b9092e5](https://github.com/windmill-labs/windmill/commit/b9092e591ec08fed65e2f1e1e0449461fcc9ec41))
+* fix dependency tracking for single scripts ([5f119de](https://github.com/windmill-labs/windmill/commit/5f119de6cb915f234c868da1aa02050481cbc4b0))
+* upgrade deno to 1.44.1 ([f8f6d8b](https://github.com/windmill-labs/windmill/commit/f8f6d8beaae2cdd754808074886d793add6144b6))
+
+## [1.344.0](https://github.com/windmill-labs/windmill/compare/v1.343.3...v1.344.0) (2024-06-11)
+
+
+### Features
+
+* cancel jobs based on filters ([#3874](https://github.com/windmill-labs/windmill/issues/3874)) ([7474145](https://github.com/windmill-labs/windmill/commit/7474145f0edf2cb17b9ee90e35f605b367eae60d))
+
+
+### Bug Fixes
+
+* **backend:** wrong previous result used in flow for-loop ([dcff6e9](https://github.com/windmill-labs/windmill/commit/dcff6e9ff3eb2f9d75d39a8ec20d0a9d1edf14a1))
+* **frontend:** Fix Timeline/Node Status tab zIndex ([#3894](https://github.com/windmill-labs/windmill/issues/3894)) ([609f332](https://github.com/windmill-labs/windmill/commit/609f332116f4fc3ab934d2d51fc34754fa30b6db))
+
 ## [1.343.3](https://github.com/windmill-labs/windmill/compare/v1.343.2...v1.343.3) (2024-06-11)
 
 
