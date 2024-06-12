@@ -50,8 +50,8 @@ pub enum InstanceEvent {
 #[derive(Debug, Clone)]
 pub struct ClientWithScopes {
     _client: OClient,
-    scopes: Vec<String>,
-    extra_params: Option<HashMap<String, String>>,
+    _scopes: Vec<String>,
+    _extra_params: Option<HashMap<String, String>>,
     _extra_params_callback: Option<HashMap<String, String>>,
     _allowed_domains: Option<Vec<String>>,
     _userinfo_url: Option<String>,
