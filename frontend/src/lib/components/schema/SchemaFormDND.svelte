@@ -18,7 +18,15 @@
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
-	$: keys = schema.order ?? Object.keys(schema.properties ?? {}) ?? []
+	let keys = schema.order ?? Object.keys(schema.properties ?? {}) ?? []
+
+	$: schema && updateKeys()
+	function updateKeys() {
+		let nkeys = schema.order ?? Object.keys(schema.properties ?? {}) ?? []
+		if (!deepEqual(keys, nkeys)) {
+			keys = nkeys
+		}
+	}
 
 	let dragDisabled: boolean = false
 	let items = keys?.map((key) => ({ id: key, value: key })) ?? []

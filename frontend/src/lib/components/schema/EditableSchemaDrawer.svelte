@@ -8,7 +8,7 @@
 	import { flip } from 'svelte/animate'
 	import { generateRandomString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { tick } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import Label from '../Label.svelte'
 
 	export let schema: Schema | undefined | any
@@ -16,12 +16,14 @@
 
 	const flipDurationMs = 200
 
+	const dispatch = createEventDispatcher()
+
 	let addProperty: AddProperty | undefined = undefined
 	let schemaFormDrawer: Drawer | undefined = undefined
 	let dragDisabled: boolean = false
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
-	$: items = (schema?.order?.map((item, index) => {
+	$: items = ((schema?.order ?? Object.keys(schema.properties ?? {}))?.map((item, index) => {
 		return { value: item, id: generateRandomString() }
 	}) ?? []) as Array<{
 		value: string
@@ -63,6 +65,7 @@
 		schema.order = keys
 
 		schema = { ...schema }
+		dispatch('change', schema)
 	}
 	function startDrag(e) {
 		e.preventDefault()
@@ -76,7 +79,7 @@
 	const yOffset = 49
 </script>
 
-<AddProperty bind:schema bind:this={addProperty} />
+<AddProperty on:change bind:schema bind:this={addProperty} />
 
 <div
 	use:dndzone={{
@@ -135,7 +138,11 @@
 				{#if schema.properties[item.value].type === 'object'}
 					<div class="flex flex-col w-full mt-2">
 						<Label label="Nested Properties">
-							<svelte:self schema={schema.properties[item.value]} parentId={item.value} />
+							<svelte:self
+								on:change={() => (schema = schema)}
+								schema={schema.properties[item.value]}
+								parentId={item.value}
+							/>
 						</Label>
 					</div>
 				{/if}

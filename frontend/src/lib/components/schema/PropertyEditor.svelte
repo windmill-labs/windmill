@@ -139,6 +139,8 @@
 							<div class="border">
 								<EditableSchemaForm noPreview bind:schema uiOnly jsonEnabled={false} />
 							</div>
+						{:else}
+							<div class="text-tertiary text-xs">No settings available for this field type</div>
 						{/if}
 					</div>
 				</Label>

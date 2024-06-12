@@ -22,6 +22,7 @@
 	import { emptyString } from '$lib/utils'
 	import Popup from './common/popup/Popup.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -76,9 +77,41 @@
 
 	let keys: string[] = []
 
-	$: {
-		let lkeys = Object.keys(schema?.properties ?? {})
-		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
+	$: schema && onSchemaChange()
+
+	function alignOrderWithProperties(schema: {
+		properties: Record<string, any>
+		order: string[] | undefined
+	}) {
+		if (schema.order == undefined && !Array.isArray(schema.order)) {
+			schema.order = []
+		}
+		let norder = [...schema.order]
+		let properties = Object.keys(schema?.properties ?? {})
+
+		console.log('properties', schema.properties)
+		let index = 0
+		for (let k of properties) {
+			if (schema.properties[k].type === 'object' && schema.properties[k].properties) {
+				console.log(schema.properties[k])
+				alignOrderWithProperties(schema.properties[k])
+			}
+			if (!norder.includes(k)) {
+				console.log('adding', k, index)
+				norder = [...norder.slice(0, index), k, ...norder.slice(index)]
+			}
+			index += 1
+		}
+		norder = norder.filter((x) => properties.includes(x))
+		if (!deepEqual(schema.order, norder)) {
+			schema.order = norder
+			schema = schema
+		}
+	}
+	function onSchemaChange() {
+		alignOrderWithProperties(schema)
+		let lkeys = schema.order ?? Object.keys(schema?.properties ?? {})
+		if (schema?.properties && !deepEqual(lkeys, keys)) {
 			keys = lkeys
 			if (!noDelete) {
 				removeExtraKey()
@@ -87,7 +120,7 @@
 	}
 
 	let renderCount: number = 0
-	let opened: string | undefined = undefined
+	let opened: string | undefined = keys[0]
 	let selected = ''
 
 	export function openField(key: string) {
@@ -103,10 +136,6 @@
 		if (schema.order) {
 			schema.order = schema.order.filter((x) => x !== key)
 		}
-	}
-
-	$: if (opened === undefined && keys.length > 0) {
-		opened = keys[0]
 	}
 
 	$: if (opened && schema.properties[opened]) {
@@ -152,7 +181,7 @@
 
 			opened = newName
 
-			schema = { ...schema }
+			schema = schema
 			sendUserToast('Argument renamed successfully')
 		}
 	}

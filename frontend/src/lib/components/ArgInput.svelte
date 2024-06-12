@@ -26,6 +26,7 @@
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
+	import SchemaForm from './SchemaForm.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -40,7 +41,6 @@
 	export let valid = true
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
-	export let editableSchema: { i: number; total: number } | undefined = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -73,6 +73,7 @@
 	export let placeholder: string | undefined = undefined
 	export let order: string[] | undefined = undefined
 	export let editor: SimpleEditor | undefined = undefined
+	export let orderEditable = false
 
 	const dispatch = createEventDispatcher()
 
@@ -204,10 +205,6 @@
 	let itemsLimit = 50
 
 	$: validateInput(pattern, value, required)
-
-	function changePosition(i: number, up: boolean) {
-		dispatch('changePosition', { i, up })
-	}
 </script>
 
 <S3FilePicker
@@ -233,24 +230,6 @@
 				{format}
 				{simpleTooltip}
 			/>
-
-			{#if editableSchema}
-				<span class="mx-8" />
-				{#if editableSchema.i > 0}
-					<button
-						on:click={() => changePosition(editableSchema?.i ?? 0, true)}
-						class="text-lg mr-2"
-					>
-						&uparrow;</button
-					>
-				{/if}
-				{#if editableSchema.i < editableSchema.total - 1}
-					<button
-						on:click={() => changePosition(editableSchema?.i ?? 0, false)}
-						class="text-lg mr-2">&downarrow;</button
-					>
-				{/if}
-			{/if}
 		{/if}
 
 		{#if description}
@@ -503,24 +482,34 @@
 			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded-md w-full">
-						<SchemaFormDnd
-							{onlyMaskPassword}
-							{disablePortal}
-							{disabled}
-							schema={{
-								properties,
-								$schema: '',
-								required: nestedRequired ?? [],
-								type: 'object',
-								order
-							}}
-							args={value}
-							dndType={`nested-${title}`}
-							on:reorder={(e) => {
-								const keys = e.detail
-								order = keys
-							}}
-						/>
+						{#if orderEditable}
+							<SchemaFormDnd
+								{onlyMaskPassword}
+								{disablePortal}
+								{disabled}
+								schema={{
+									properties,
+									$schema: '',
+									required: nestedRequired ?? [],
+									type: 'object',
+									order
+								}}
+								args={value}
+								dndType={`nested-${title}`}
+								on:reorder={(e) => {
+									const keys = e.detail
+									order = keys
+								}}
+							/>
+						{:else}
+							<SchemaForm
+								{onlyMaskPassword}
+								{disablePortal}
+								{disabled}
+								schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
+								bind:args={value}
+							/>
+						{/if}
 					</div>
 				{:else if disabled}
 					<textarea disabled />

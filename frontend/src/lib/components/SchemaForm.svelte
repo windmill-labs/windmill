@@ -40,7 +40,7 @@
 	export let showReset = false
 	export let onlyMaskPassword = false
 	export let lightweightMode: boolean = false
-	export let dndConfig: DndOptions = { items: [], dragDisabled: true }
+	export let dndConfig: DndOptions | undefined = undefined
 	export let items: { id: string; value: string }[] | undefined = undefined
 
 	const dispatch = createEventDispatcher()
@@ -136,7 +136,7 @@
 
 <div
 	class="w-full {$$props.class} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
-	use:dndzone={dndConfig}
+	use:dndzone={dndConfig ?? { items: [], dragDisabled: true }}
 	on:finalize
 	on:consider
 >
@@ -242,6 +242,7 @@
 										nullable={schema.properties[argName].nullable}
 										title={schema.properties[argName].title}
 										placeholder={schema.properties[argName].placeholder}
+										orderEditable={dndConfig != undefined}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />
