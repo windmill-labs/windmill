@@ -68,8 +68,6 @@
 			}
 		}
 	}
-
-	const dispatch = createEventDispatcher()
 </script>
 
 <div class="flex flex-row items-center justify-between w-full gap-2">

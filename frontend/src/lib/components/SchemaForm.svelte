@@ -127,11 +127,6 @@
 	$: fields = items ?? keys.map((x) => ({ id: x, value: x }))
 </script>
 
-<!-- <div class="text-2xs">
-	{Object.keys(schema?.properties)}
-	{schema?.order}
-	{JSON.stringify(schema)}
-</div> -->
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
 		<Button size="xs" color="light" on:click={() => setDefaults()}>
@@ -215,7 +210,7 @@
 									</LightweightArgInput>
 								{:else}
 									<ArgInput
-										on:change
+										on:change={() => dispatch('change')}
 										{disablePortal}
 										{resourceTypes}
 										{prettifyHeader}
