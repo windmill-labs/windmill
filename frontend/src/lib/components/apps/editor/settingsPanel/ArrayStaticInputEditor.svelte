@@ -4,7 +4,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
-	import { dndzone, SOURCES, TRIGGERS } from '@windmill-labs/svelte-dnd-action'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
@@ -178,48 +178,18 @@
 		}
 	}
 
-	let dragDisabled = true
-
-	let dragging = false
 	function handleConsider(e) {
-		const {
-			items: newItems,
-			info: { source, trigger }
-		} = e.detail
+		const { items: newItems } = e.detail
 		items = newItems
-		// Ensure dragging is stopped on drag finish via keyboard
-		if (source === SOURCES.KEYBOARD && trigger === TRIGGERS.DRAG_STOPPED) {
-			dragDisabled = true
-		}
 	}
 
 	function handleFinalize(e) {
-		const {
-			items: newItems,
-			info: { source }
-		} = e.detail
+		const { items: newItems } = e.detail
 
 		items = newItems
 
-		// Ensure dragging is stopped on drag finish via pointer (mouse, touch)
-		if (source === SOURCES.POINTER) {
-			dragDisabled = true
-		}
-
 		const reorderedValues = items.map((item) => item.value)
 		componentInput.value = reorderedValues
-		dragging = false
-	}
-
-	function startDrag(e) {
-		dragging = true
-		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
-		e.preventDefault()
-		dragDisabled = false
-	}
-
-	function handleKeyDown(e) {
-		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
 	}
 
 	let items = (Array.isArray(componentInput.value) ? componentInput.value : [])
@@ -272,9 +242,8 @@
 			{/if}
 		</div>
 		<section
-			use:dndzone={{
+			use:dragHandleZone={{
 				items,
-				dragDisabled,
 				flipDurationMs,
 				dropTargetStyle: {}
 			}}
@@ -293,19 +262,12 @@
 								bind:componentInput
 								bind:value={item.value}
 								on:remove={() => deleteElementByType(index)}
-								{dragging}
 							/>
 						</div>
 
 						<div class="flex justify-between flex-col items-center">
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<div
-								tabindex={dragDisabled ? 0 : -1}
-								class="w-4 h-4 cursor-move"
-								on:mousedown={startDrag}
-								on:touchstart={startDrag}
-								on:keydown={handleKeyDown}
-							>
+							<div class="w-4 h-4 cursor-move handle" use:dragHandle>
 								<GripVertical size={16} />
 							</div>
 							{#if subFieldType !== 'db-explorer'}

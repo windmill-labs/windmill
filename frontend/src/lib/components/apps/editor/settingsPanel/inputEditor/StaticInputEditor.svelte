@@ -30,7 +30,6 @@
 	export let placeholder: string | undefined = undefined
 	export let format: string | undefined = undefined
 	export let id: string | undefined
-	export let dragging: boolean = false
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -154,17 +153,11 @@
 				/>
 			{:else}
 				<div class="flex w-full flex-col">
-					{#if dragging}
-						<div class="text-xs text-secondary whitespace-pre border p-1"
-							>{JSON.stringify(componentInput.value, null, 2)}</div
-						>
-					{:else}
-						<JsonEditor
-							small
-							bind:value={componentInput.value}
-							code={JSON.stringify(componentInput.value, null, 2)}
-						/>
-					{/if}
+					<JsonEditor
+						small
+						bind:value={componentInput.value}
+						code={JSON.stringify(componentInput.value, null, 2)}
+					/>
 				</div>
 			{/if}
 		{:else if fieldType === 'array'}
