@@ -10,7 +10,6 @@
 
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { createEventDispatcher } from 'svelte'
 
 	export let description: string = ''
 	export let format: string = ''
