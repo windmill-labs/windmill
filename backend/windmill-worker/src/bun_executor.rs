@@ -2,7 +2,6 @@ use std::{collections::HashMap, process::Stdio};
 
 use base64::Engine;
 use itertools::Itertools;
-use regex::Regex;
 use serde_json::value::RawValue;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
@@ -16,9 +15,9 @@ use crate::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
         parse_npm_config, read_result, start_child_process, write_file, write_file_binary,
     },
-    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
-    DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV,
-    TZ_ENV,
+    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_CACHE_DIR, BUN_PATH, BUN_TAR_CACHE_DIR,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH,
+    PATH_ENV, TZ_ENV,
 };
 
 use tokio::{fs::File, process::Command};
@@ -32,7 +31,7 @@ use tokio::sync::mpsc::Receiver;
 use windmill_common::variables;
 
 use windmill_common::{
-    error::{self, to_anyhow, Result},
+    error::{self, Result},
     jobs::QueuedJob,
 };
 
@@ -50,11 +49,6 @@ const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.conf
 pub const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
 pub const EMPTY_FILE: &str = "<empty>";
 
-lazy_static::lazy_static! {
-    pub static ref TRUSTED_DEP: Regex = Regex::new(r"//\s?trustedDependencies:(.*)\n").unwrap();
-
-}
-
 pub async fn gen_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -67,7 +61,6 @@ pub async fn gen_lockfile(
     base_internal_url: &str,
     worker_name: &str,
     export_pkg: bool,
-    trusted_deps: Vec<String>,
     raw_deps: Option<String>,
     npm_mode: bool,
 ) -> Result<Option<String>> {
@@ -123,33 +116,6 @@ pub async fn gen_lockfile(
             false,
         )
         .await?;
-
-        if trusted_deps.len() > 0 {
-            let logs1 = format!(
-                "\ndetected trustedDependencies: {}\n",
-                trusted_deps.join(", ")
-            );
-            append_logs(&job_id, w_id, logs1, db).await;
-
-            let mut content = "".to_string();
-            {
-                let mut file = File::open(format!("{job_dir}/package.json")).await?;
-                file.read_to_string(&mut content).await?;
-            }
-            let mut value =
-                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&content)
-                    .map_err(to_anyhow)?;
-            value.insert(
-                "trustedDependencies".to_string(),
-                serde_json::json!(trusted_deps),
-            );
-            write_file(
-                job_dir,
-                "package.json",
-                &serde_json::to_string(&value).map_err(to_anyhow)?,
-            )
-            .await?;
-        }
     }
 
     install_lockfile(
@@ -307,23 +273,6 @@ pub async fn install_lockfile(
     }
 
     Ok(())
-}
-
-pub fn get_trusted_deps(code: &str) -> Vec<String> {
-    // postinstall not allowed with nsjail
-    if !*DISABLE_NSJAIL {
-        return vec![];
-    }
-    TRUSTED_DEP
-        .captures(code)
-        .map(|x| {
-            x[1].to_string()
-                .trim()
-                .split(',')
-                .map(|y| y.trim().to_string())
-                .collect_vec()
-        })
-        .unwrap_or_default()
 }
 
 struct Annotations {
@@ -491,6 +440,33 @@ pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()>
     ));
 }
 
+fn untar_file(file_path: &str, output_dir: &str) -> anyhow::Result<()> {
+    // Open the tar file
+    let file = std::fs::File::open(file_path)?;
+    let file = std::io::BufReader::new(file);
+
+    // For a plain tar file, use it directly
+    let mut archive = tar::Archive::new(file);
+
+    // Iterate over the entries in the archive
+    let mut entries = archive.entries()?;
+    while let Some(entry) = entries.next() {
+        let mut entry = entry?;
+        let path = entry.path()?.to_owned();
+        let full_path = std::path::Path::new(output_dir).join(path);
+
+        // Create directories if necessary
+        if let Some(parent) = full_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Extract the file
+        entry.unpack(full_path)?;
+    }
+
+    Ok(())
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
     requirements_o: Option<String>,
@@ -507,11 +483,21 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<Box<RawValue>> {
+    let mut buntar_path = "".to_string();
+
+    let mut has_buntar = false;
     if !codebase.is_some() {
-        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+        if let Some(s_hash) = job.script_hash.as_ref() {
+            buntar_path = format!("{BUN_TAR_CACHE_DIR}/{}.tar", s_hash);
+            if tokio::fs::metadata(&buntar_path).await.is_ok() {
+                has_buntar = true
+            }
+        } else {
+            let _ = write_file(job_dir, "main.ts", inner_content).await?;
+        }
     } else {
         let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
-    }
+    };
 
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
@@ -530,21 +516,22 @@ pub async fn handle_bun_job(
         ));
     }
 
-    if let Some(codebase) = codebase.as_ref() {
-        pull_codebase(&job.workspace_id, codebase, job_dir).await?;
-    } else if let Some(reqs) = requirements_o {
-        let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-        if splitted.len() != 2 {
-            return Err(error::Error::ExecutionErr(
+    if has_buntar {
+        append_logs(&job.id, &job.workspace_id, "using cached buntar", db).await;
+        untar_file(&buntar_path, job_dir)?;
+    } else {
+        if let Some(codebase) = codebase.as_ref() {
+            pull_codebase(&job.workspace_id, codebase, job_dir).await?;
+        } else if let Some(reqs) = requirements_o {
+            let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
+            if splitted.len() != 2 {
+                return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
-        }
-        let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
-        let lockb = splitted[1];
-        if lockb != EMPTY_FILE {
-            let has_trusted_deps = &splitted[0].contains("trustedDependencies");
-
-            if !has_trusted_deps {
+            }
+            let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
+            let lockb = splitted[1];
+            if lockb != EMPTY_FILE {
                 let _ = write_file_binary(
                     job_dir,
                     "bun.lockb",
@@ -555,51 +542,53 @@ pub async fn handle_bun_job(
                         })?,
                 )
                 .await?;
-            }
 
-            install_lockfile(
+                install_lockfile(
+                    mem_peak,
+                    canceled_by,
+                    &job.id,
+                    &job.workspace_id,
+                    db,
+                    job_dir,
+                    worker_name,
+                    common_bun_proc_envs.clone(),
+                    annotation.npm_mode,
+                )
+                .await?;
+            }
+            let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+
+            if !buntar_path.is_empty() {
+                tar::Builder::new(std::fs::File::create(&buntar_path)?)
+                    .append_dir_all(".", job_dir)?;
+            }
+        } else {
+            // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
+            let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
+            append_logs(&job.id, &job.workspace_id, logs1, db).await;
+
+            let _ = gen_lockfile(
                 mem_peak,
                 canceled_by,
                 &job.id,
                 &job.workspace_id,
                 db,
+                &client.get_token().await,
+                &job.script_path(),
                 job_dir,
+                base_internal_url,
                 worker_name,
-                common_bun_proc_envs.clone(),
+                false,
+                None,
                 annotation.npm_mode,
             )
             .await?;
+
+            let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+
+            // }
         }
-    } else {
-        // TODO: remove once bun implement a reasonable set of trusted deps
-        let trusted_deps = get_trusted_deps(inner_content);
-
-        // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
-        let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
-
-        let _ = gen_lockfile(
-            mem_peak,
-            canceled_by,
-            &job.id,
-            &job.workspace_id,
-            db,
-            &client.get_token().await,
-            &job.script_path(),
-            job_dir,
-            base_internal_url,
-            worker_name,
-            false,
-            trusted_deps,
-            None,
-            annotation.npm_mode,
-        )
-        .await?;
-        // }
     }
-
-    let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
-
     let init_logs = if codebase.is_some() {
         "\n\n--- NODE SNAPSHOT EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
@@ -963,20 +952,16 @@ pub async fn start_worker(
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
         let lockb = splitted[1];
         if lockb != EMPTY_FILE {
-            let has_trusted_deps = &splitted[0].contains("trustedDependencies");
-
-            if !has_trusted_deps {
-                let _ = write_file_binary(
-                    job_dir,
-                    "bun.lockb",
-                    &base64::engine::general_purpose::STANDARD
-                        .decode(&splitted[1])
-                        .map_err(|_| {
-                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                        })?,
-                )
-                .await?;
-            }
+            let _ = write_file_binary(
+                job_dir,
+                "bun.lockb",
+                &base64::engine::general_purpose::STANDARD
+                    .decode(&splitted[1])
+                    .map_err(|_| {
+                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                    })?,
+            )
+            .await?;
 
             install_lockfile(
                 &mut mem_peak,
@@ -993,7 +978,6 @@ pub async fn start_worker(
             tracing::info!("dedicated worker requirements installed: {reqs}");
         }
     } else if !*DISABLE_NSJAIL {
-        let trusted_deps = get_trusted_deps(inner_content);
         logs.push_str("\n\n--- BUN INSTALL ---\n");
         let _ = gen_lockfile(
             &mut mem_peak,
@@ -1007,7 +991,6 @@ pub async fn start_worker(
             base_internal_url,
             worker_name,
             false,
-            trusted_deps,
             None,
             annotation.npm_mode,
         )
