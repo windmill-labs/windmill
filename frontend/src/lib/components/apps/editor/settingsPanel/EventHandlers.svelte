@@ -33,7 +33,7 @@
 	>
 		{#if (`onOpenRecomputeIds` in item.data && Array.isArray(item.data.onOpenRecomputeIds)) || item.data.type === 'modalcomponent' || item.data.type === 'drawercomponent'}
 			<EventHandlerItem
-				title="On open"
+				title="on open"
 				tooltip="Select components to recompute after this component was opened"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onOpenRecomputeIds}
@@ -42,7 +42,7 @@
 
 		{#if (`onCloseRecomputeIds` in item.data && Array.isArray(item.data.onCloseRecomputeIds)) || item.data.type === 'modalcomponent' || item.data.type === 'drawercomponent'}
 			<EventHandlerItem
-				title="On close"
+				title="on close"
 				tooltip="Select components to recompute after this component was closed"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onCloseRecomputeIds}
@@ -50,7 +50,7 @@
 		{/if}
 		{#if (`recomputeIds` in item.data && Array.isArray(item.data.recomputeIds)) || item.data.type === 'buttoncomponent' || item.data.type === 'formcomponent' || item.data.type === 'formbuttoncomponent' || item.data.type === 'checkboxcomponent'}
 			<EventHandlerItem
-				title="On success"
+				title="on success"
 				tooltip="Select components to recompute after this component was closed"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.recomputeIds}
@@ -58,7 +58,7 @@
 		{/if}
 		{#if item.data.type === 'checkboxcomponent'}
 			<EventHandlerItem
-				title="On toggle"
+				title="on toggle"
 				tooltip="Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onToggle}
@@ -66,7 +66,7 @@
 		{/if}
 		{#if item.data.type === 'resourceselectcomponent' || item.data.type === 'selectcomponent'}
 			<EventHandlerItem
-				title="On select"
+				title="on select"
 				tooltip="Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onSelect}
@@ -74,7 +74,7 @@
 		{/if}
 		{#if item.data.type === 'tabscomponent' || item.data.type === 'conditionalwrapper'}
 			<EventHandlerItem
-				title="On tab change"
+				title="on tab change"
 				tooltip="Select components to recompute after the selected tab was changed"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onTabChange}
@@ -82,7 +82,7 @@
 		{/if}
 		{#if item.data.type === 'fileinputcomponent' || item.data.type === 's3fileinputcomponent'}
 			<EventHandlerItem
-				title="On file change"
+				title="on file change"
 				tooltip="Select components to recompute after a file was selected"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onFileChange}
@@ -90,7 +90,7 @@
 		{/if}
 		{#if item.data.type === 'steppercomponent'}
 			<EventHandlerItem
-				title="On next"
+				title="on next"
 				tooltip="Select components to recompute after the next button was clicked"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onNext}
@@ -98,7 +98,7 @@
 		{/if}
 		{#if item.data.type === 'steppercomponent'}
 			<EventHandlerItem
-				title="On previous"
+				title="on previous"
 				tooltip="Select components to recompute after the previous button was clicked"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onPrevious}
