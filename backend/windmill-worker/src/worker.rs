@@ -6,7 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR};
+use windmill_common::{
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
+    db::Authed,
+    worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR},
+};
 
 use anyhow::Result;
 use const_format::concatcp;
@@ -41,8 +45,8 @@ use windmill_common::{
     get_latest_deployed_hash_for_path,
     jobs::{JobKind, QueuedJob},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
-    utils::{rd_string, StripPath},
+    users::SUPERADMIN_SECRET_EMAIL,
+    utils::StripPath,
     worker::{to_raw_value, update_ping, CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
 };
@@ -164,32 +168,59 @@ pub async fn create_token_for_owner(
         return Ok(token.clone());
     }
 
-    let token: String = rd_string(32);
-    let is_super_admin =
-        sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-            .fetch_optional(db)
-            .await?
-            .unwrap_or(false)
-            || email == SUPERADMIN_SECRET_EMAIL
-            || email == SUPERADMIN_NOTIFICATION_EMAIL
-            || owner == SUPERADMIN_SYNC_EMAIL;
+    let jwt_secret = JWT_SECRET.read().await;
 
-    sqlx::query_scalar!(
-        "INSERT INTO token
-            (workspace_id, token, owner, label, expiration, super_admin, email, job)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7, $8)",
-        &w_id,
-        token,
-        owner,
-        label,
-        expires_in.to_string(),
-        is_super_admin,
-        email,
-        job_id
+    if jwt_secret.is_empty() {
+        return Err(Error::InternalErr("No JWT secret found".to_string()));
+    }
+
+    let job_perms: Authed = match sqlx::query_as!(
+        JobPerms,
+        "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        job_id,
+        w_id
     )
-    .execute(db)
-    .await?;
-    Ok(token)
+    .fetch_optional(db)
+    .await?
+    {
+        Some(jp) => jp.into(),
+        None => {
+            tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
+            fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "Could not get permissions directly for job {job_id}: {e:#}"
+                    ))
+                })?
+        }
+    };
+
+    let payload = JWTAuthClaims {
+        email: job_perms.email,
+        username: job_perms.username,
+        is_admin: job_perms.is_admin,
+        is_operator: job_perms.is_operator,
+        groups: job_perms.groups,
+        folders: job_perms.folders,
+        label: Some(label.to_string()),
+        workspace_id: w_id.to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
+            as usize,
+    };
+
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+        &payload,
+        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
+    )
+    .map_err(|err| {
+        Error::InternalErr(format!(
+            "Could not encode JWT token for job {job_id}: {:?}",
+            err
+        ))
+    })?;
+    Ok(format!("jwt:{}", token))
 }
 
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
@@ -1912,6 +1943,7 @@ async fn queue_init_bash_maybe<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             true,
             Some("init_script".to_string()),
+            None,
             None,
             None,
             None,

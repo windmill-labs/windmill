@@ -25,6 +25,8 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
+use windmill_common::auth::JobPerms;
+use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
@@ -2094,6 +2096,22 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             flow_job.root_job.or_else(|| Some(flow_job.id))
         };
 
+        // forward root job permissions to the new job
+        let job_perms: Option<Authed> =
+            if let Some(root_job) = &flow_job.root_job.or_else(|| Some(flow_job.id)) {
+                sqlx::query_as!(
+                    JobPerms,
+                    "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+                    root_job,
+                    flow_job.workspace_id,
+                )
+                .fetch_optional(&mut tx)
+                .await?
+                .map(|x| x.into())
+            } else {
+                None
+            };
+
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
@@ -2124,6 +2142,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             payload_tag.timeout,
             Some(module.id.clone()),
             new_job_priority_override,
+            job_perms.as_ref(),
         )
         .await?;
 
