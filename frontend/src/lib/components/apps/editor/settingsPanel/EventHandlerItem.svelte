@@ -9,7 +9,7 @@
 	export let tooltip: string
 </script>
 
-<div class="grid grid-cols-12 w-full px-2.5 gap-8">
+<div class="grid grid-cols-12 w-full gap-8">
 	<div class="col-span-3 flex items-center text-xs whitespace-nowrap h-8">
 		{title}
 		<Tooltip light small>{tooltip}</Tooltip>
