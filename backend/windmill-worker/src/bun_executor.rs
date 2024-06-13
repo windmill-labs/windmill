@@ -448,22 +448,7 @@ fn untar_file(file_path: &str, output_dir: &str) -> anyhow::Result<()> {
 
     // For a plain tar file, use it directly
     let mut archive = tar::Archive::new(file);
-
-    // Iterate over the entries in the archive
-    let mut entries = archive.entries()?;
-    while let Some(entry) = entries.next() {
-        let mut entry = entry?;
-        let path = entry.path()?.to_owned();
-        let full_path = std::path::Path::new(output_dir).join(path);
-
-        // Create directories if necessary
-        if let Some(parent) = full_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        // Extract the file
-        entry.unpack(full_path)?;
-    }
+    archive.unpack(output_dir)?;
 
     Ok(())
 }
