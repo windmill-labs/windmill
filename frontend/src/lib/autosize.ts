@@ -43,7 +43,7 @@ export const action = (node) => {
 	}
 
 	const setHeight = () => {
-		node.style.height = '0px'
+		node.style.height = 'auto'
 		node.style.height = Math.max(node.scrollHeight ?? 0, 30) + 2 + 'px'
 	}
 

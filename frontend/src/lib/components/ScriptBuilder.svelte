@@ -306,6 +306,7 @@
 		if (initialPath != '' && !savedScript) {
 			return
 		}
+
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
 			const current = cleanValueProperties(script)
@@ -458,7 +459,11 @@
 <slot />
 
 {#if !$userStore?.operator}
-	<Drawer placement="right" bind:open={metadataOpen} size="800px">
+	<Drawer
+		placement="right"
+		bind:open={metadataOpen}
+		size={selectedTab === 'ui' ? '1200px' : '800px'}
+	>
 		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
 			<!-- svelte-ignore a11y-autofocus -->
 			<Tabs bind:selected={selectedTab}>
@@ -475,7 +480,10 @@
 				</Tab>
 				<Tab value="schedule" active={$scheduleStore.enabled}>Schedule</Tab>
 				<svelte:fragment slot="content">
-					<div class="p-4">
+					<div
+						class={selectedTab === 'ui' ? 'p-0' : 'p-4'}
+						style={selectedTab === 'ui' ? `height: calc(100% - 32px);` : ''}
+					>
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-8">
 								<Section label="Metadata">
@@ -967,8 +975,7 @@
 								{/if}
 							</div>
 						</TabContent>
-						<TabContent value="ui">
-							<div class="mt-4" />
+						<TabContent value="ui" class="h-full">
 							<ScriptSchema bind:schema={script.schema} />
 						</TabContent>
 						<TabContent value="schedule">

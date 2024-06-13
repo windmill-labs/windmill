@@ -3,7 +3,6 @@
 	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, computeShow } from '$lib/utils'
-	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -11,7 +10,12 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { Plus } from 'lucide-svelte'
+	import ArgInput from './ArgInput.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import LightweightArgInput from './LightweightArgInput.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
+	import { flip } from 'svelte/animate'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -35,9 +39,11 @@
 	export let showSchemaExplorer = false
 	export let showReset = false
 	export let onlyMaskPassword = false
+	export let lightweightMode: boolean = false
+	export let dndConfig: DndOptions | undefined = undefined
+	export let items: { id: string; value: string }[] | undefined = undefined
 
-	let clazz: string = ''
-	export { clazz as class }
+	const dispatch = createEventDispatcher()
 
 	let inputCheck: { [id: string]: boolean } = {}
 
@@ -50,7 +56,8 @@
 
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
-				nargs[key] = schema?.properties[key].default
+				let value = schema?.properties[key].default
+				nargs[key] = value === 'object' ? JSON.parse(JSON.stringify(value)) : value
 			}
 		})
 		args = nargs
@@ -89,10 +96,11 @@
 	function hasExtraKeys() {
 		return Object.keys(args ?? {}).some((x) => !keys.includes(x))
 	}
+
 	function reorder() {
+		dispatch('change')
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
-			console.debug('reorder')
 			if (schema?.order && Array.isArray(schema.order)) {
 				const n = {}
 
@@ -116,96 +124,173 @@
 			removeExtraKey()
 		}
 	}
+
+	$: fields = items ?? keys.map((x) => ({ id: x, value: x }))
 </script>
 
 {#if showReset}
 	<div class="flex flex-row-reverse w-full">
-		<Button size="xs" color="light" on:click={() => setDefaults()}
-			>Reset args to runnable's defaults</Button
-		>
+		<Button size="xs" color="light" on:click={() => setDefaults()}>
+			Reset args to runnable's defaults
+		</Button>
 	</div>
 {/if}
-<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}">
+
+<div
+	class="w-full {$$props.class} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''}"
+	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
+	on:finalize
+	on:consider
+>
 	{#if keys.length > 0}
-		{#each keys as argName, i (argName)}
-			{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
-				<div>
-					{#if typeof args == 'object' && schema?.properties[argName]}
-						{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
-							<ArgInput
-								{disablePortal}
-								{resourceTypes}
-								{prettifyHeader}
-								autofocus={i == 0 && autofocus ? true : null}
-								label={argName}
-								description={schema.properties[argName].description}
-								bind:value={args[argName]}
-								type={schema.properties[argName].type}
-								required={schema.required.includes(argName)}
-								pattern={schema.properties[argName].pattern}
-								bind:valid={inputCheck[argName]}
-								defaultValue={schema.properties[argName].default}
-								enum_={schema.properties[argName].enum}
-								format={schema.properties[argName].format}
-								contentEncoding={schema.properties[argName].contentEncoding}
-								customErrorMessage={schema.properties[argName].customErrorMessage}
-								properties={schema.properties[argName].properties}
-								nestedRequired={schema.properties[argName].required}
-								itemsType={schema.properties[argName].items}
-								disabled={disabledArgs.includes(argName) || disabled}
-								{compact}
-								{variableEditor}
-								{itemPicker}
-								bind:pickForField
-								password={linkedSecret == argName}
-								extra={schema.properties[argName]}
-								{showSchemaExplorer}
-								simpleTooltip={schemaFieldTooltip[argName]}
-								{onlyMaskPassword}
-								nullable={schema.properties[argName].nullable}
-								title={schema.properties[argName].title}
-								placeholder={schema.properties[argName].placeholder}
-							>
-								<svelte:fragment slot="actions">
-									{#if linkedSecretCandidates?.includes(argName)}
-										<div>
-											<ToggleButtonGroup
-												selected={linkedSecret == argName}
-												on:selected={(e) => {
-													if (e.detail) {
-														linkedSecret = argName
-													} else if (linkedSecret == argName) {
-														linkedSecret = undefined
-													}
-												}}
-											>
-												<ToggleButton
-													value={false}
-													size="sm"
-													label="Inlined"
-													tooltip="The value is inlined in the resource and thus has no special treatment."
-												/>
-												<ToggleButton
-													position="right"
-													value={true}
-													size="sm"
-													label="Secret"
-													tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
-												/>
-											</ToggleButtonGroup>
-										</div>{/if}</svelte:fragment
-								>
-							</ArgInput>
+		{#each fields as item, i (item.id)}
+			{@const argName = item.value}
+			<div animate:flip={{ duration: 200 }}>
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="flex flex-row items-center bg-surface"
+						on:click={() => {
+							dispatch('click', argName)
+						}}
+					>
+						{#if typeof args == 'object' && schema?.properties[argName]}
+							{#if computeShow(argName, schema?.properties[argName].showExpr, args)}
+								{#if lightweightMode}
+									<LightweightArgInput
+										label={argName}
+										description={schema.properties[argName].description}
+										bind:value={args[argName]}
+										type={schema.properties[argName].type}
+										required={schema?.required?.includes(argName)}
+										pattern={schema.properties[argName].pattern}
+										bind:valid={inputCheck[argName]}
+										defaultValue={schema.properties[argName].default}
+										enum_={schema.properties[argName].enum}
+										format={schema.properties[argName].format}
+										contentEncoding={schema.properties[argName].contentEncoding}
+										customErrorMessage={schema.properties[argName].customErrorMessage}
+										bind:properties={schema.properties[argName].properties}
+										nestedRequired={schema.properties[argName]?.required}
+										itemsType={schema.properties[argName].items}
+										extra={schema.properties[argName]}
+										title={schema.properties[argName].title}
+										placeholder={schema.properties[argName].placeholder}
+									>
+										<svelte:fragment slot="actions">
+											<slot name="actions" />
+											{#if linkedSecretCandidates?.includes(argName)}
+												<div>
+													<ToggleButtonGroup
+														selected={linkedSecret == argName}
+														on:selected={(e) => {
+															if (e.detail) {
+																linkedSecret = argName
+															} else if (linkedSecret == argName) {
+																linkedSecret = undefined
+															}
+														}}
+													>
+														<ToggleButton
+															value={false}
+															size="sm"
+															label="Inlined"
+															tooltip="The value is inlined in the resource and thus has no special treatment."
+														/>
+														<ToggleButton
+															position="right"
+															value={true}
+															size="sm"
+															label="Secret"
+															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+														/>
+													</ToggleButtonGroup>
+												</div>{/if}
+										</svelte:fragment>
+									</LightweightArgInput>
+								{:else}
+									<ArgInput
+										on:change={() => dispatch('change')}
+										{disablePortal}
+										{resourceTypes}
+										{prettifyHeader}
+										autofocus={i == 0 && autofocus ? true : null}
+										label={argName}
+										description={schema.properties[argName].description}
+										bind:value={args[argName]}
+										type={schema.properties[argName].type}
+										required={schema?.required?.includes(argName)}
+										pattern={schema.properties[argName].pattern}
+										bind:valid={inputCheck[argName]}
+										defaultValue={schema.properties[argName].default}
+										enum_={schema.properties[argName].enum}
+										format={schema.properties[argName].format}
+										contentEncoding={schema.properties[argName].contentEncoding}
+										customErrorMessage={schema.properties[argName].customErrorMessage}
+										bind:properties={schema.properties[argName].properties}
+										bind:order={schema.properties[argName].order}
+										nestedRequired={schema.properties[argName]?.required}
+										itemsType={schema.properties[argName].items}
+										disabled={disabledArgs.includes(argName) || disabled}
+										{compact}
+										{variableEditor}
+										{itemPicker}
+										bind:pickForField
+										password={linkedSecret == argName}
+										extra={schema.properties[argName]}
+										{showSchemaExplorer}
+										simpleTooltip={schemaFieldTooltip[argName]}
+										{onlyMaskPassword}
+										nullable={schema.properties[argName].nullable}
+										title={schema.properties[argName].title}
+										placeholder={schema.properties[argName].placeholder}
+										orderEditable={dndConfig != undefined}
+									>
+										<svelte:fragment slot="actions">
+											<slot name="actions" />
+											{#if linkedSecretCandidates?.includes(argName)}
+												<div>
+													<ToggleButtonGroup
+														selected={linkedSecret == argName}
+														on:selected={(e) => {
+															if (e.detail) {
+																linkedSecret = argName
+															} else if (linkedSecret == argName) {
+																linkedSecret = undefined
+															}
+														}}
+													>
+														<ToggleButton
+															value={false}
+															size="sm"
+															label="Inlined"
+															tooltip="The value is inlined in the resource and thus has no special treatment."
+														/>
+														<ToggleButton
+															position="right"
+															value={true}
+															size="sm"
+															label="Secret"
+															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+														/>
+													</ToggleButtonGroup>
+												</div>{/if}</svelte:fragment
+										>
+									</ArgInput>
+								{/if}
+								<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
+							{/if}
 						{/if}
-					{/if}
-				</div>
-			{/if}
+					</div>
+				{/if}
+			</div>
 		{/each}
 	{:else if !shouldHideNoInputs}
 		<div class="text-secondary text-sm">No inputs</div>
 	{/if}
 </div>
-
 {#if !noVariablePicker}
 	<ItemPicker
 		bind:this={itemPicker}
