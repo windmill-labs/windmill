@@ -51,7 +51,7 @@
 		{#if (`recomputeIds` in item.data && Array.isArray(item.data.recomputeIds)) || item.data.type === 'buttoncomponent' || item.data.type === 'formcomponent' || item.data.type === 'formbuttoncomponent' || item.data.type === 'checkboxcomponent'}
 			<EventHandlerItem
 				title="on success"
-				tooltip="Select components to recompute after this component was closed"
+				tooltip="Select components to recompute after this runnable has successfully run"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.recomputeIds}
 			/>
