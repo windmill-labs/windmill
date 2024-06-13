@@ -15,12 +15,14 @@ export interface PropertyDisplayInfo {
 	propertiesNumber: number
 }
 
+export type EnumType = string[] | { label: string; value: string }[] | undefined
+
 export interface SchemaProperty {
 	type: string | undefined
 	description?: string
 	pattern?: string
 	default?: any
-	enum?: string[]
+	enum?: EnumType
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
 	items?: {
@@ -57,7 +59,7 @@ export interface ModalSchemaProperty {
 	multiselect?: boolean
 	format?: string
 	pattern?: string
-	enum_?: string[]
+	enum_?: EnumType
 	default?: any
 	items?: { type?: 'string' | 'number'; enum?: string[] }
 	contentEncoding?: 'base64' | 'binary'
