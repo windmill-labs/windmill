@@ -1,5 +1,4 @@
 <script lang="ts">
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
@@ -16,6 +15,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
+	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
@@ -50,35 +50,35 @@
 </script>
 
 <Section label="Suspend/Approval/Prompt" class="w-full">
+	<svelte:fragment slot="action">
+		<SuspendDrawer text="Approval/Prompt helpers" />
+	</svelte:fragment>
 	<svelte:fragment slot="header">
-		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_approval">
-			If defined, at the end of the step, the flow will be suspended until it receives external
-			requests to be resumed or canceled. This is most useful to implement approval steps but can be
-			used flexibly for other purposes.
-		</Tooltip>
-		<div class="ml-4">
-			<div class="flex">
-				<SuspendDrawer text="Approval/Prompt helpers" />
-			</div>
+		<div class="flex flex-row items-center gap-2">
+			<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_approval">
+				If defined, at the end of the step, the flow will be suspended until it receives external
+				requests to be resumed or canceled. This is most useful to implement approval steps but can
+				be used flexibly for other purposes.
+			</Tooltip>
+			<Toggle
+				size="xs"
+				checked={isSuspendEnabled}
+				on:change={() => {
+					if (isSuspendEnabled && flowModule.suspend != undefined) {
+						flowModule.suspend = undefined
+					} else {
+						flowModule.suspend = {
+							required_events: 1,
+							timeout: 1800
+						}
+					}
+				}}
+				options={{
+					right: 'Suspend flow execution until events/approvals received'
+				}}
+			/>
 		</div>
 	</svelte:fragment>
-
-	<Toggle
-		checked={isSuspendEnabled}
-		on:change={() => {
-			if (isSuspendEnabled && flowModule.suspend != undefined) {
-				flowModule.suspend = undefined
-			} else {
-				flowModule.suspend = {
-					required_events: 1,
-					timeout: 1800
-				}
-			}
-		}}
-		options={{
-			right: 'Suspend flow execution until events/approvals received'
-		}}
-	/>
 
 	<div class="overflow-x-auto scrollbar-hidden">
 		<Tabs bind:selected={suspendTabSelected}>
@@ -190,46 +190,60 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="flex flex-col mt-4 gap-4">
-			{#if flowModule.suspend}
-				{#if emptyString($enterpriseLicense)}
-					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
-				{/if}
+		<div class="grid grid-cols-4 mt-4 gap-2">
+			<div class="col-span-2 flex flex-col gap-2">
+				{#if flowModule.suspend}
+					{#if emptyString($enterpriseLicense)}
+						<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
+					{/if}
 
-				<div class="flex gap-4">
-					<Toggle
-						checked={Boolean(flowModule.suspend.resume_form)}
-						options={{
-							right: 'Add a form to the approval page'
-						}}
-						disabled={emptyString($enterpriseLicense)}
-						on:change={(e) => {
-							if (flowModule.suspend) {
-								if (e.detail) {
-									flowModule.suspend.resume_form = {
-										schema: emptySchema()
+					<div class="flex flex-col gap-2">
+						<Toggle
+							checked={Boolean(flowModule.suspend.resume_form)}
+							size="xs"
+							options={{
+								right: 'Add a form to the approval page'
+							}}
+							disabled={emptyString($enterpriseLicense)}
+							on:change={(e) => {
+								if (flowModule.suspend) {
+									if (e.detail) {
+										flowModule.suspend.resume_form = {
+											schema: emptySchema()
+										}
+									} else {
+										flowModule.suspend.resume_form = undefined
 									}
-								} else {
-									flowModule.suspend.resume_form = undefined
 								}
-							}
-						}}
-					/>
-					<div class="flex">
-						<SuspendDrawer text="Default args & Dynamic enums help" />
+							}}
+						/>
+						<div class="flex">
+							<SuspendDrawer text="Default args & Dynamic enums help" />
+						</div>
 					</div>
-				</div>
-			{/if}
-			{#if flowModule.suspend?.resume_form}
-				<Toggle
-					bind:checked={flowModule.suspend.hide_cancel}
-					size="xs"
-					options={{
-						right: 'Hide cancel button on approval page'
-					}}
-				/>
-				<SchemaEditor bind:schema={flowModule.suspend.resume_form.schema} />
-			{/if}
+				{/if}
+				{#if flowModule.suspend}
+					<Toggle
+						bind:checked={flowModule.suspend.hide_cancel}
+						size="xs"
+						options={{
+							right: 'Hide cancel button on approval page'
+						}}
+						disabled={!Boolean(flowModule?.suspend?.resume_form)}
+					/>
+				{/if}
+			</div>
+			<div class="col-span-2">
+				{#if flowModule?.suspend?.resume_form}
+					<EditableSchemaDrawer bind:schema={flowModule.suspend.resume_form.schema} />
+				{:else}
+					<div
+						class="bg-gray-50 border-gray-200 border dark:bg-gray-900/40 dark:border-gray-700/40 rounded-md p-2 text-xs"
+					>
+						No form
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </Section>

@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.345.1](https://github.com/windmill-labs/windmill/compare/v1.345.0...v1.345.1) (2024-06-13)
+
+
+### Bug Fixes
+
+* correct exception handling in PHP wrapper ([#3901](https://github.com/windmill-labs/windmill/issues/3901)) ([320ba75](https://github.com/windmill-labs/windmill/commit/320ba754a4dcfb096807cfedbab8264be11dfb32))
+* enums derivable from code ([6c2420f](https://github.com/windmill-labs/windmill/commit/6c2420f118d5665eca9ccc7a4f0b2ccd018738aa))
+
+## [1.345.0](https://github.com/windmill-labs/windmill/compare/v1.344.3...v1.345.0) (2024-06-12)
+
+
+### Features
+
+* **frontend:** Generated UI editor + Schema Form complete refactor ([#3835](https://github.com/windmill-labs/windmill/issues/3835)) ([2344077](https://github.com/windmill-labs/windmill/commit/2344077b340ba22e40eb5ddb85c70f21c0c9e801))
+
+## [1.344.3](https://github.com/windmill-labs/windmill/compare/v1.344.2...v1.344.3) (2024-06-11)
+
+
+### Bug Fixes
+
+* fix dependency tracking for single scripts ([c966979](https://github.com/windmill-labs/windmill/commit/c96697928fa0ef3cd4507f377a73f3b51560fbf7))
+
 ## [1.344.2](https://github.com/windmill-labs/windmill/compare/v1.344.1...v1.344.2) (2024-06-11)
 
 
