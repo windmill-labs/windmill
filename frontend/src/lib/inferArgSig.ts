@@ -69,10 +69,6 @@ export function argSigToJsonSchemaType(
 	const preservedFields = [
 		'description',
 		'pattern',
-		'default',
-		'enum',
-		'format',
-		'items',
 		'min',
 		'max',
 		'currency',
@@ -83,7 +79,6 @@ export function argSigToJsonSchemaType(
 		'showExpr',
 		'password',
 		'order',
-		'nullable',
 		'dateFormat',
 		'title',
 		'placeholder'
