@@ -485,16 +485,8 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut buntar_path = "".to_string();
 
-    let mut has_buntar = false;
     if !codebase.is_some() {
-        if let Some(s_hash) = job.script_hash.as_ref() {
-            buntar_path = format!("{BUN_TAR_CACHE_DIR}/{}.tar", s_hash);
-            if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                has_buntar = true
-            }
-        } else {
-            let _ = write_file(job_dir, "main.ts", inner_content).await?;
-        }
+        let _ = write_file(job_dir, "main.ts", inner_content).await?;
     } else {
         let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
     };
@@ -516,6 +508,7 @@ pub async fn handle_bun_job(
         ));
     }
 
+    let mut has_buntar = false;
     if has_buntar {
         append_logs(&job.id, &job.workspace_id, "using cached buntar", db).await;
         untar_file(&buntar_path, job_dir)?;
@@ -543,6 +536,13 @@ pub async fn handle_bun_job(
                 )
                 .await?;
 
+                if let Some(s_hash) = job.script_hash.as_ref() {
+                    buntar_path = format!("{BUN_TAR_CACHE_DIR}/{}.tar", s_hash);
+                    if tokio::fs::metadata(&buntar_path).await.is_ok() {
+                        has_buntar = true
+                    }
+                }
+
                 install_lockfile(
                     mem_peak,
                     canceled_by,
@@ -556,7 +556,6 @@ pub async fn handle_bun_job(
                 )
                 .await?;
             }
-            let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
 
             if !buntar_path.is_empty() {
                 tar::Builder::new(std::fs::File::create(&buntar_path)?)
@@ -584,11 +583,11 @@ pub async fn handle_bun_job(
             )
             .await?;
 
-            let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
-
             // }
         }
+        let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
     }
+
     let init_logs = if codebase.is_some() {
         "\n\n--- NODE SNAPSHOT EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
