@@ -28,8 +28,8 @@ use windmill_common::worker::TMP_DIR;
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
-use crate::concurrency_groups::join_concurrency_key;
 use crate::add_webhook_allowed_origin;
+use crate::concurrency_groups::join_concurrency_key;
 use crate::db::ApiAuthed;
 
 use crate::{
@@ -1327,9 +1327,7 @@ async fn list_filtered_uuids(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut sqlb = SqlBuilder::select_from("queue")
-        .fields(&["id"])
-        .clone();
+    let mut sqlb = SqlBuilder::select_from("queue").fields(&["id"]).clone();
 
     sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
 
@@ -3935,13 +3933,16 @@ async fn add_batch_jobs(
         )
         .fetch_all(&db)
         .await?;
-    sqlx::query!(
-        "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
-        custom_concurrency_key,
-        &uuids
-    )
-    .execute(&db)
-    .await?;
+
+    if let Some(custom_concurrency_key) = custom_concurrency_key {
+        sqlx::query!(
+            "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
+            custom_concurrency_key,
+            &uuids
+        )
+        .execute(&db)
+        .await?;
+    }
 
     Ok(Json(uuids))
 }
