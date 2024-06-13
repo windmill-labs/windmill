@@ -20,7 +20,7 @@
 	<div class="col-span-8">
 		{#if items.length === 0}
 			<div
-				class="text-xs text-secondary w-full bg-gray-100 border rounded-md flex items-center px-2 h-8"
+				class="text-xs text-secondary w-full bg-gray-100 border rounded-md flex items-center px-2 h-8 dark:bg-gray-900 dark:border-gray-600"
 			>
 				No components to recompute.
 				<Tooltip light small>Create one and select it here.</Tooltip>

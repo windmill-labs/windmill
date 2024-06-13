@@ -508,7 +508,7 @@
 						class="remove"
 					>
 						<slot name="remove-icon">
-							<X size={20} class="text-primary dark:text-indigo-900 p-0.5" />
+							<X size={20} class="text-primary dark:text-primary-inverse p-0.5" />
 						</slot>
 					</button>
 				{/if}

@@ -31,7 +31,7 @@
 		title="Event handlers"
 		tooltip="Event handlers are used to trigger actions on other components when a specific event occurs. For example, you can trigger a recompute on a component when a button is clicked."
 	>
-		<div class="flex flex-col gap-4">
+		<div class="flex flex-col gap-4 w-full">
 			{#if (`onOpenRecomputeIds` in item.data && Array.isArray(item.data.onOpenRecomputeIds)) || item.data.type === 'modalcomponent' || item.data.type === 'drawercomponent'}
 				<EventHandlerItem
 					title="On open"

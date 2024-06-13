@@ -7,9 +7,10 @@
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 	import BackgroundScriptSettings from './settingsPanel/script/BackgroundScriptSettings.svelte'
-	import Recompute from './settingsPanel/Recompute.svelte'
+	import EventHandlerItem from './settingsPanel/EventHandlerItem.svelte'
 
-	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, app, stateId, runnableComponents } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let firstComponent = $selectedComponent?.[0]
 
@@ -153,7 +154,14 @@
 				</PanelSection>
 			</div>
 		{/if}
-		<Recompute bind:recomputeIds={hiddenInlineScript.script.recomputeIds} ownId={id} />
+		<PanelSection title={`Event handlers`}>
+			<EventHandlerItem
+				title="On success"
+				tooltip="This event is triggered when the script runs successfully."
+				items={Object.keys($runnableComponents).filter((_id) => _id !== id)}
+				bind:value={hiddenInlineScript.script.recomputeIds}
+			/>
+		</PanelSection>
 		<div class="grow shrink" />
 	{/key}
 {/if}
