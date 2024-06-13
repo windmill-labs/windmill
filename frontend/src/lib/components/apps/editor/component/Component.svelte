@@ -606,6 +606,7 @@
 				id={component.id}
 				tabs={component.tabs}
 				disabledTabs={component.disabledTabs}
+				onTabChange={component.onTabChange}
 				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}
@@ -617,6 +618,8 @@
 				customCss={component.customCss}
 				{componentContainerHeight}
 				componentInput={component.componentInput}
+				onNext={component.onNext}
+				onPrevious={component.onPrevious}
 				{render}
 			/>
 		{:else if component.type === 'conditionalwrapper' && component.conditions}
@@ -624,6 +627,7 @@
 				id={component.id}
 				conditions={component.conditions}
 				customCss={component.customCss}
+				onTabChange={component.onTabChange}
 				{componentContainerHeight}
 				{render}
 			/>
@@ -675,6 +679,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onFileChange={component.onFileChange}
 				{render}
 			/>
 		{:else if component.type === 's3fileinputcomponent'}
@@ -682,6 +687,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onFileChange={component.onFileChange}
 				{render}
 			/>
 		{:else if component.type === 'imagecomponent'}

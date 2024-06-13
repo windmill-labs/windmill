@@ -13,6 +13,7 @@
 	export let externalJobs: Job[] = []
 	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
+	export let isSelectingJobsToCancel: boolean = false
 	export let selectedIds: string[] = []
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
@@ -171,13 +172,14 @@
 					>
 				</div>
 			</div>
-		{:else if $workspaceStore !== 'admins' &&  omittedObscuredJobs}
+		{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
 			<div class="w-1/12 text-2xs flex flex-row">
 				{jobs && jobCountString(jobs.length)}
 				<Popover>
-					<AlertTriangle size={16} class="ml-0.5 text-yellow-500"/>
+					<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
 					<svelte:fragment slot="text">
-						Too specific filtering may have caused the omission of obscured jobs. This is done for security reasons. To see obscured jobs, try removing some filters.
+						Too specific filtering may have caused the omission of obscured jobs. This is done for
+						security reasons. To see obscured jobs, try removing some filters.
 					</svelte:fragment>
 				</Popover>
 			</div>
@@ -214,10 +216,21 @@
 								{containsLabel}
 								job={jobOrDate.job}
 								selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+								{isSelectingJobsToCancel}
 								on:select={() => {
-									selectedWorkspace = jobOrDate.job.workspace_id
-									selectedIds = [jobOrDate.job.id]
-									dispatch('select')
+									const jobId = jobOrDate.job.id
+									if (isSelectingJobsToCancel) {
+										if (selectedIds.includes(jobOrDate.job.id)) {
+											selectedIds = selectedIds.filter((id) => id != jobId)
+										} else {
+											selectedIds.push(jobId)
+											selectedIds = selectedIds
+										}
+									} else {
+										selectedWorkspace = jobOrDate.job.workspace_id
+										selectedIds = [jobOrDate.job.id]
+										dispatch('select')
+									}
 								}}
 								{activeLabel}
 								on:filterByLabel

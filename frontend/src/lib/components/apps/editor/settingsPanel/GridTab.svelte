@@ -6,7 +6,7 @@
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
-	import { dndzone } from 'svelte-dnd-action'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import GridTabDisabled from './GridTabDisabled.svelte'
@@ -135,21 +135,6 @@
 				$componentControl[component.id]?.setTab?.(targetIndex)
 			})
 		}
-
-		dragDisabled = true
-	}
-
-	let dragDisabled = true
-
-	function startDrag(event) {
-		event.preventDefault()
-		dragDisabled = false
-	}
-
-	function handleKeyDown(event: KeyboardEvent): void {
-		if ((event.key === 'Enter' || event.key === ' ') && dragDisabled) {
-			dragDisabled = false
-		}
 	}
 </script>
 
@@ -159,10 +144,9 @@
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
 		<section
-			use:dndzone={{
+			use:dragHandleZone={{
 				items,
 				flipDurationMs: 200,
-				dragDisabled,
 				dropTargetStyle: {}
 			}}
 			on:consider={handleConsider}
@@ -185,15 +169,7 @@
 							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<div
-								tabindex={dragDisabled ? 0 : -1}
-								class="w-4 h-4"
-								on:mousedown={startDrag}
-								on:touchstart={startDrag}
-								on:keydown={handleKeyDown}
-								aria-label="drag-handle"
-								style={dragDisabled ? 'cursor: grab' : 'cursor: grabbing'}
-							>
+							<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
 								<GripVertical size={16} />
 							</div>
 						</div>

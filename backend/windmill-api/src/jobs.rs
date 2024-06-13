@@ -28,6 +28,7 @@ use windmill_common::worker::TMP_DIR;
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
+use crate::concurrency_groups::join_concurrency_key;
 use crate::add_webhook_allowed_origin;
 use crate::db::ApiAuthed;
 
@@ -191,7 +192,8 @@ pub fn workspaced_service() -> Router {
         )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
-        .route("/queue/cancel_all", post(cancel_all))
+        .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
+        .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route(
             "/completed/list",
@@ -994,6 +996,7 @@ pub struct ListQueueQuery {
     pub is_flow_step: Option<bool>,
     pub has_null_parent: Option<bool>,
     pub is_not_schedule: Option<bool>,
+    pub concurrency_key: Option<String>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1022,6 +1025,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             is_flow_step: lcq.is_flow_step,
             has_null_parent: lcq.has_null_parent,
             is_not_schedule: lcq.is_not_schedule,
+            concurrency_key: lcq.concurrency_key,
         }
     }
 }
@@ -1217,23 +1221,20 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
-async fn cancel_all(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+#[derive(Deserialize, FromRow)]
+struct JobToCancel {
+    id: Uuid,
+    is_flow_step: Option<bool>,
+    running: bool,
+}
 
-    Path(w_id): Path<String>,
+async fn cancel_jobs(
+    jobs: Vec<JobToCancel>,
+    db: &DB,
+    username: &str,
+    w_id: &str,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    let jobs = sqlx::query!(
-        "SELECT id, running, is_flow_step FROM queue WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL",
-        w_id,
-    )
-    .fetch_all(&db)
-    .await?;
-
-    let username = authed.username;
     let mut uuids = vec![];
     for j in jobs.iter() {
         let r = sqlx::query!(
@@ -1241,7 +1242,7 @@ async fn cancel_all(
             username,
             j.id,
         )
-        .fetch_optional(&db)
+        .fetch_optional(db)
         .await;
 
         if r.as_ref().is_ok_and(|x| x.is_some()) {
@@ -1254,7 +1255,7 @@ async fn cancel_all(
                 if let Some(job_running) = job_running {
                     append_logs(
                         &j.id,
-                        w_id.clone(),
+                        w_id,
                         format!("canceled by {username}: cancel_all"),
                         db.clone(),
                     )
@@ -1284,6 +1285,62 @@ async fn cancel_all(
     }
 
     Ok(Json(uuids))
+}
+
+async fn cancel_selection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+
+    Path(w_id): Path<String>,
+    Json(jobs): Json<Vec<Uuid>>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+    let jobs_to_cancel = sqlx::query_as!(
+        JobToCancel,
+        "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
+        &jobs
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    cancel_jobs(
+        jobs_to_cancel,
+        &db,
+        authed.username.as_str(),
+        w_id.as_str(),
+        rsmq,
+    )
+    .await
+}
+
+async fn list_filtered_uuids(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+
+    Path(w_id): Path<String>,
+    Query(lq): Query<ListQueueQuery>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut sqlb = SqlBuilder::select_from("queue")
+        .fields(&["id"])
+        .clone();
+
+    sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
+
+    sqlb.and_where_is_null("schedule_path");
+
+    sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str(), false);
+
+    let sql = sqlb.query()?;
+    let jobs = sqlx::query_scalar(sql.as_str()).fetch_all(&db).await?;
+
+    Ok(Json(jobs))
 }
 
 #[derive(Serialize, Debug, FromRow)]
@@ -4341,6 +4398,7 @@ pub struct ListCompletedQuery {
     pub has_null_parent: Option<bool>,
     pub label: Option<String>,
     pub is_not_schedule: Option<bool>,
+    pub concurrency_key: Option<String>,
 }
 
 async fn list_completed_jobs(
