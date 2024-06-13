@@ -66,6 +66,29 @@ export function argSigToJsonSchemaType(
 		newS.type = 'object'
 	}
 
+	const preservedFields = [
+		'description',
+		'pattern',
+		'min',
+		'max',
+		'currency',
+		'currencyLocale',
+		'multiselect',
+		'customErrorMessage',
+		'required',
+		'showExpr',
+		'password',
+		'order',
+		'dateFormat',
+		'title',
+		'placeholder'
+	]
+	preservedFields.forEach((field) => {
+		if (oldS[field] !== undefined) {
+			newS[field] = oldS[field]
+		}
+	})
+
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {
 			if (prop != 'description') {

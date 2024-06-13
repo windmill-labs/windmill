@@ -7,6 +7,7 @@
 	export let disablePortal = false
 	export let showSchemaExplorer = false
 	export let selectFirst = false
+	export let defaultValue: any
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -47,6 +48,7 @@
 				resourceToValue()
 			}}
 			bind:value={path}
+			initialValue={defaultValue}
 			resourceType={format.split('-').length > 1 ? format.substring('resource-'.length) : undefined}
 			{showSchemaExplorer}
 		/>
