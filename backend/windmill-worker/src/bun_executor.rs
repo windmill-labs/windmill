@@ -519,7 +519,7 @@ pub async fn handle_bun_job(
             let mut sha_path = sha2::Sha256::new();
             sha_path.update(lockb.as_bytes());
 
-            let buntar_name = base64::engine::general_purpose::STANDARD.encode(sha_path.finalize());
+            let buntar_name = base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
             let buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}.tar");
 
             let mut skip_install = false;
@@ -547,9 +547,13 @@ pub async fn handle_bun_job(
                     annotation.npm_mode,
                 )
                 .await?;
+
                 if create_buntar {
-                    if let Err(e) = tar::Builder::new(std::fs::File::create(&buntar_path)?)
-                        .append_dir_all(".", job_dir)
+                    let f = std::fs::File::create(&buntar_path);
+                    if let Err(e) = f {
+                        tracing::error!("Could not create buntar file {buntar_path}: {e}");
+                    } else if let Err(e) =
+                        tar::Builder::new(f.unwrap()).append_dir_all(".", job_dir)
                     {
                         tracing::error!("Could not create buntar: {e}");
                     }
