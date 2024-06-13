@@ -3,6 +3,7 @@ use std::{collections::HashMap, process::Stdio};
 use base64::Engine;
 use itertools::Itertools;
 use serde_json::value::RawValue;
+use sha2::Digest;
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
 use windmill_queue::{append_logs, CanceledBy};
@@ -483,8 +484,6 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<Box<RawValue>> {
-    let mut buntar_path = "".to_string();
-
     if !codebase.is_some() {
         let _ = write_file(job_dir, "main.ts", inner_content).await?;
     } else {
@@ -508,41 +507,49 @@ pub async fn handle_bun_job(
         ));
     }
 
-    let mut has_buntar = false;
-    if has_buntar {
-        append_logs(&job.id, &job.workspace_id, "using cached buntar", db).await;
-        untar_file(&buntar_path, job_dir)?;
-    } else {
-        if let Some(codebase) = codebase.as_ref() {
-            pull_codebase(&job.workspace_id, codebase, job_dir).await?;
-        } else if let Some(reqs) = requirements_o {
-            let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-            if splitted.len() != 2 {
-                return Err(error::Error::ExecutionErr(
+    let mut gbuntar_name = None;
+    if let Some(codebase) = codebase.as_ref() {
+        pull_codebase(&job.workspace_id, codebase, job_dir).await?;
+    } else if let Some(reqs) = requirements_o {
+        let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
+        if splitted.len() != 2 {
+            return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
-            }
-            let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
-            let lockb = splitted[1];
-            if lockb != EMPTY_FILE {
-                let _ = write_file_binary(
-                    job_dir,
-                    "bun.lockb",
-                    &base64::engine::general_purpose::STANDARD
-                        .decode(&splitted[1])
-                        .map_err(|_| {
-                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                        })?,
-                )
-                .await?;
+        }
+        let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
+        let lockb = splitted[1];
+        if lockb != EMPTY_FILE {
+            let _ = write_file_binary(
+                job_dir,
+                "bun.lockb",
+                &base64::engine::general_purpose::STANDARD
+                    .decode(&splitted[1])
+                    .map_err(|_| {
+                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                    })?,
+            )
+            .await?;
 
-                if let Some(s_hash) = job.script_hash.as_ref() {
-                    buntar_path = format!("{BUN_TAR_CACHE_DIR}/{}.tar", s_hash);
-                    if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                        has_buntar = true
-                    }
+            let mut sha_path = sha2::Sha256::new();
+            sha_path.update(lockb.as_bytes());
+
+            let buntar_name = base64::engine::general_purpose::STANDARD.encode(sha_path.finalize());
+            let buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}.tar");
+
+            let mut skip_install = false;
+            let mut create_buntar = false;
+            if tokio::fs::metadata(&buntar_path).await.is_ok() {
+                if let Err(e) = untar_file(&buntar_path, job_dir) {
+                    tracing::error!("Could not untar buntar: {e}");
+                } else {
+                    gbuntar_name = Some(buntar_name.clone());
+                    skip_install = true;
                 }
-
+            } else {
+                create_buntar = true;
+            }
+            if !skip_install {
                 install_lockfile(
                     mem_peak,
                     canceled_by,
@@ -555,46 +562,56 @@ pub async fn handle_bun_job(
                     annotation.npm_mode,
                 )
                 .await?;
+                if create_buntar {
+                    if let Err(e) = tar::Builder::new(std::fs::File::create(&buntar_path)?)
+                        .append_dir_all(".", job_dir)
+                    {
+                        tracing::error!("Could not create buntar: {e}");
+                    }
+                }
             }
-
-            if !buntar_path.is_empty() {
-                tar::Builder::new(std::fs::File::create(&buntar_path)?)
-                    .append_dir_all(".", job_dir)?;
-            }
-        } else {
-            // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
-            let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
-            append_logs(&job.id, &job.workspace_id, logs1, db).await;
-
-            let _ = gen_lockfile(
-                mem_peak,
-                canceled_by,
-                &job.id,
-                &job.workspace_id,
-                db,
-                &client.get_token().await,
-                &job.script_path(),
-                job_dir,
-                base_internal_url,
-                worker_name,
-                false,
-                None,
-                annotation.npm_mode,
-            )
-            .await?;
-
-            // }
         }
-        let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+    } else {
+        // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
+        let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+
+        let _ = gen_lockfile(
+            mem_peak,
+            canceled_by,
+            &job.id,
+            &job.workspace_id,
+            db,
+            &client.get_token().await,
+            &job.script_path(),
+            job_dir,
+            base_internal_url,
+            worker_name,
+            false,
+            None,
+            annotation.npm_mode,
+        )
+        .await?;
+
+        // }
     }
 
-    let init_logs = if codebase.is_some() {
+    let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+
+    let mut init_logs = if codebase.is_some() {
         "\n\n--- NODE SNAPSHOT EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
+
+    if let Some(gbuntar_name) = gbuntar_name {
+        init_logs = format!(
+            "\nskipping install, using cached buntar based on lockfile hash: {gbuntar_name}{}",
+            init_logs
+        );
+    }
 
     append_logs(&job.id, &job.workspace_id, init_logs, db).await;
 

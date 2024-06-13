@@ -724,12 +724,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         .await
         .expect("could not create initial worker dir");
 
-    let _ = write_file(
-        &worker_dir,
-        "download_deps.py.sh",
-        INCLUDE_DEPS_PY_SH_CONTENT,
-    )
-    .await;
+    if !*DISABLE_NSJAIL {
+        let _ = write_file(
+            &worker_dir,
+            "download_deps.py.sh",
+            INCLUDE_DEPS_PY_SH_CONTENT,
+        )
+        .await;
+    }
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
