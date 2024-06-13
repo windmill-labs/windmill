@@ -8,7 +8,6 @@
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
-    db::Authed,
     worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR},
 };
 
