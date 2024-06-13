@@ -16,6 +16,7 @@
 	export let customCss: ComponentCustomCSS<'s3fileinputcomponent'> | undefined = undefined
 	export let render: boolean
 	export let extraKey: string | undefined = undefined
+	export let onFileChange: string[] | undefined = undefined
 
 	let resolvedConfig = initConfig(
 		components['s3fileinputcomponent'].initialData.configuration,
@@ -33,7 +34,8 @@
 	}
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl, runnableComponents } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	$componentControl[id] = {
 		clearFiles: () => {
@@ -125,6 +127,7 @@
 		on:addition={(evt) => {
 			const curr = outputs.result.peak()
 			outputs.result.set(curr.concat(evt.detail))
+			onFileChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 		}}
 		on:deletion={(evt) => {
 			const curr = outputs.result.peak()
