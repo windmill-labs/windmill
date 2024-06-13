@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.345.1](https://github.com/windmill-labs/windmill/compare/v1.345.0...v1.345.1) (2024-06-13)
+
+
+### Bug Fixes
+
+* correct exception handling in PHP wrapper ([#3901](https://github.com/windmill-labs/windmill/issues/3901)) ([320ba75](https://github.com/windmill-labs/windmill/commit/320ba754a4dcfb096807cfedbab8264be11dfb32))
+* enums derivable from code ([6c2420f](https://github.com/windmill-labs/windmill/commit/6c2420f118d5665eca9ccc7a4f0b2ccd018738aa))
+
 ## [1.345.0](https://github.com/windmill-labs/windmill/compare/v1.344.3...v1.345.0) (2024-06-12)
 
 
