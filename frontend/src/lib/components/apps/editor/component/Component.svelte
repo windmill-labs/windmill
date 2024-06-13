@@ -618,6 +618,8 @@
 				customCss={component.customCss}
 				{componentContainerHeight}
 				componentInput={component.componentInput}
+				onNext={component.onNext}
+				onPrevious={component.onPrevious}
 				{render}
 			/>
 		{:else if component.type === 'conditionalwrapper' && component.conditions}
@@ -677,6 +679,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onFileChange={component.onFileChange}
 				{render}
 			/>
 		{:else if component.type === 's3fileinputcomponent'}
@@ -684,6 +687,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				onFileChange={component.onFileChange}
 				{render}
 			/>
 		{:else if component.type === 'imagecomponent'}

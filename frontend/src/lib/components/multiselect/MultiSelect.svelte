@@ -78,6 +78,7 @@
 	export let ulSelectedClass: string = ``
 	export let ulSelectedStyle: string | null = null
 	export let value: Option | Option[] | null = null
+	export let disableRemoveAll: boolean = false
 
 	const selected_to_value = (selected: Option[]) => {
 		value = maxSelect === 1 ? selected[0] ?? null : selected
@@ -552,7 +553,7 @@
 	{#if disabled}
 		<slot name="disabled-icon">disable</slot>
 	{:else if selected.length > 0}
-		{#if maxSelect !== 1 && selected.length > 1}
+		{#if maxSelect !== 1 && selected.length > 1 && !disableRemoveAll}
 			<button
 				type="button"
 				class="remove remove-all"
@@ -648,7 +649,7 @@
 						on:blur={() => (option_msg_is_active = false)}
 						role="option"
 						aria-selected="false"
-						class="user-msg"
+						class="user-msg p-1"
 						style:cursor={{
 							dupe: `not-allowed`,
 							create: `pointer`,

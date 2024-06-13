@@ -60,7 +60,7 @@
 
 		selectedConditionIndex = index
 		outputs.selectedTabIndex.set(index)
-		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 	}
 
 	$: resolvedConditions && handleResolvedConditions()

@@ -52,7 +52,7 @@
 		selectedIndex = tabs?.indexOf(selected)
 		outputs?.selectedTabIndex.set(selectedIndex)
 
-		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		onTabChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {

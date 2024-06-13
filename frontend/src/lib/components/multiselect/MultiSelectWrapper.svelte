@@ -59,6 +59,7 @@
 					open = true
 				}}
 				let:option
+				disableRemoveAll
 			>
 				<!-- needed because portal doesn't work for mouseup event en mobile -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->

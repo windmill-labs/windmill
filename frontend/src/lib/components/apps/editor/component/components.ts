@@ -218,6 +218,8 @@ export type ModalComponent = BaseComponent<'modalcomponent'> & {
 }
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
+	onNext?: string[]
+	onPrevious?: string[]
 }
 export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & {
 	conditions: RichConfiguration[]
