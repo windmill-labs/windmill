@@ -154,7 +154,10 @@
 				</PanelSection>
 			</div>
 		{/if}
-		<PanelSection title={`Event handlers`}>
+		<PanelSection
+			title={`Event handlers`}
+			tooltip="Event handlers are used to trigger actions on other components when a specific event occurs. For example, you can trigger a recompute on a component when a script has successfully run."
+		>
 			<EventHandlerItem
 				title="On success"
 				tooltip="This event is triggered when the script runs successfully."
