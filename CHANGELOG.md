@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.345.2](https://github.com/windmill-labs/windmill/compare/v1.345.1...v1.345.2) (2024-06-13)
+
+
+### Bug Fixes
+
+* add database grants to oustanding_wait_time table ([96767ec](https://github.com/windmill-labs/windmill/commit/96767ec042b12af6c1dfb5fa1263847934975cb9))
+
 ## [1.345.1](https://github.com/windmill-labs/windmill/compare/v1.345.0...v1.345.1) (2024-06-13)
 
 
