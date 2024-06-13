@@ -1,0 +1,7 @@
+[package]
+name = "windmill-indexer"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]

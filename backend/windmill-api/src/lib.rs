@@ -69,6 +69,7 @@ mod openai;
 mod raw_apps;
 mod resources;
 mod saml_ee;
+mod indexer_ee;
 mod schedule;
 mod scim_ee;
 mod scripts;
@@ -230,6 +231,7 @@ pub async fn run_server(
                         .nest("/flows", flows::workspaced_service())
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
+                        .nest("/index", indexer_ee::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)

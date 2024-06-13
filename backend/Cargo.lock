@@ -10037,6 +10037,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-indexer"
+version = "1.342.0"
+
+[[package]]
 name = "windmill-parser"
 version = "1.342.0"
 dependencies = [

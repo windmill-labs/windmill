@@ -13,6 +13,7 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-git-sync",
+    "./windmill-indexer",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -81,6 +82,7 @@ serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
+
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -252,3 +254,5 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 
 # 0.1.12 broken (nested dependency of swc_common) 
 triomphe = "<0.1.12"
+
+tantivy = "0.22.0"
