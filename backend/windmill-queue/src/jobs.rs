@@ -112,6 +112,7 @@ lazy_static::lazy_static! {
         .build().unwrap();
 
 
+    pub static ref JOB_TOKEN: Option<String> = std::env::var("JOB_TOKEN").ok();
 }
 
 #[cfg(feature = "cloud")]
@@ -3674,20 +3675,22 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         .filter_map(|x| serde_json::to_value(x).ok())
         .collect::<Vec<_>>();
 
-    sqlx::query!("INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
-        values ($1, $2, $3, $4, $5, $6, $7, $8) 
-        ON CONFLICT (job_id) DO UPDATE SET email = $2, username = $3, is_admin = $4, is_operator = $5, folders = $6, groups = $7, workspace_id = $8",
-        job_id,
-        job_authed.email,
-        job_authed.username,
-        job_authed.is_admin,
-        job_authed.is_operator,
-        folders.as_slice(),
-        job_authed.groups.as_slice(),
-        workspace_id,
-    ).execute(&mut tx).await.map_err(
-        |e| Error::InternalErr(format!("Could not insert into job_perms for job_id={job_id}: {e:#}"))
-    )?;
+    if JOB_TOKEN.is_none() {
+        if let Err(err) = sqlx::query!("INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
+            values ($1, $2, $3, $4, $5, $6, $7, $8) 
+            ON CONFLICT (job_id) DO UPDATE SET email = $2, username = $3, is_admin = $4, is_operator = $5, folders = $6, groups = $7, workspace_id = $8",
+            job_id,
+            job_authed.email,
+            job_authed.username,
+            job_authed.is_admin,
+            job_authed.is_operator,
+            folders.as_slice(),
+            job_authed.groups.as_slice(),
+            workspace_id,
+        ).execute(&mut tx).await {
+            tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
+        }
+    }
 
     {
         let uuid_string = job_id.to_string();

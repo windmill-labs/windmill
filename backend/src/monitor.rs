@@ -153,11 +153,8 @@ pub async fn initial_load(
         tracing::error!("Could not reload critical error emails setting: {:?}", e);
     }
 
-    if let Err(e) = load_jwt_secret_setting(&db).await {
-        tracing::error!(
-            "Could not reload automate username creation setting: {:?}",
-            e
-        );
+    if let Err(e) = reload_jwt_secret_setting(&db).await {
+        tracing::error!("Could not reload jwt secret setting: {:?}", e);
     }
 
     #[cfg(feature = "parquet")]
@@ -1373,7 +1370,7 @@ async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
     Ok(secret)
 }
 
-pub async fn load_jwt_secret_setting(db: &DB) -> error::Result<()> {
+pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let jwt_secret = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
 
     let jwt_secret = if let Some(q) = jwt_secret {
@@ -1386,29 +1383,6 @@ pub async fn load_jwt_secret_setting(db: &DB) -> error::Result<()> {
     } else {
         tracing::info!("Not jwt secret found, generating one");
         generate_and_save_jwt_secret(db).await?
-    };
-
-    let mut l = JWT_SECRET.write().await;
-    *l = jwt_secret;
-
-    Ok(())
-}
-
-pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
-    let jwt_secret = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
-
-    let jwt_secret = if let Some(q) = jwt_secret {
-        if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
-            v
-        } else {
-            return Err(error::Error::InternalErr(
-                "Could not parse jwt_secret setting".to_string(),
-            ));
-        }
-    } else {
-        return Err(error::Error::InternalErr(
-            "jwt_secret setting not found".to_string(),
-        ));
     };
 
     let mut l = JWT_SECRET.write().await;

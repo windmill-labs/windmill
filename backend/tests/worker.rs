@@ -21,6 +21,8 @@ use sqlx::query;
 use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
 use serde::Serialize;
+use windmill_common::auth::JWT_SECRET;
+use windmill_common::utils::rd_string;
 use windmill_common::worker::{PriorityTags, WORKER_CONFIG};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
@@ -161,6 +163,12 @@ fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
 
 fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowStatusModule> {
     modules.into_iter().find(|s| s.id() == id)
+}
+
+async fn set_jwt_secret() -> () {
+    let secret = rd_string(32);
+    let mut l = JWT_SECRET.write().await;
+    *l = secret;
 }
 
 mod suspend_resume {
@@ -994,6 +1002,7 @@ fn spawn_test_worker(
     let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
+        set_jwt_secret().await;
         {
             let mut wc = WORKER_CONFIG.write().await;
             (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();

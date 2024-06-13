@@ -174,17 +174,17 @@ pub async fn create_token_for_owner(
         return Err(Error::InternalErr("No JWT secret found".to_string()));
     }
 
-    let job_perms: Authed = match sqlx::query_as!(
+    let job_authed = match sqlx::query_as!(
         JobPerms,
         "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
     )
     .fetch_optional(db)
-    .await?
+    .await
     {
-        Some(jp) => jp.into(),
-        None => {
+        Ok(Some(jp)) => jp.into(),
+        _ => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
             fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
                 .await
@@ -197,12 +197,12 @@ pub async fn create_token_for_owner(
     };
 
     let payload = JWTAuthClaims {
-        email: job_perms.email,
-        username: job_perms.username,
-        is_admin: job_perms.is_admin,
-        is_operator: job_perms.is_operator,
-        groups: job_perms.groups,
-        folders: job_perms.folders,
+        email: job_authed.email,
+        username: job_authed.username,
+        is_admin: job_authed.is_admin,
+        is_operator: job_authed.is_operator,
+        groups: job_authed.groups,
+        folders: job_authed.folders,
         label: Some(label.to_string()),
         workspace_id: w_id.to_string(),
         exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
