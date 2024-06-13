@@ -27,7 +27,7 @@ use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
 use crate::{
-    bun_executor::{gen_lockfile, get_trusted_deps},
+    bun_executor::gen_lockfile,
     common::write_file,
     deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
@@ -1201,13 +1201,9 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Bun => {
-            let trusted_deps = if !raw_deps {
+            if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
-                //TODO: remove once bun provides sane default fot it
-                get_trusted_deps(job_raw_code)
-            } else {
-                vec![]
-            };
+            }
             let req = gen_lockfile(
                 mem_peak,
                 canceled_by,
@@ -1220,7 +1216,6 @@ async fn capture_dependency_job(
                 base_internal_url,
                 worker_name,
                 true,
-                trusted_deps,
                 if raw_deps {
                     Some(job_raw_code.to_string())
                 } else {

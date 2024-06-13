@@ -235,6 +235,7 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
+pub const BUN_TAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "buntar");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
@@ -754,12 +755,14 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         .await
         .expect("could not create initial worker dir");
 
-    let _ = write_file(
-        &worker_dir,
-        "download_deps.py.sh",
-        INCLUDE_DEPS_PY_SH_CONTENT,
-    )
-    .await;
+    if !*DISABLE_NSJAIL {
+        let _ = write_file(
+            &worker_dir,
+            "download_deps.py.sh",
+            INCLUDE_DEPS_PY_SH_CONTENT,
+        )
+        .await;
+    }
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
