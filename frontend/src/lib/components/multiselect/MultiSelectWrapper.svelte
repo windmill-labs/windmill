@@ -5,6 +5,7 @@
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
@@ -33,14 +34,17 @@
 	}
 
 	// bg-indigo-100 text-indigo-800 dark:bg-indigo-200 dark:text-indigo-900
+	let darkMode: boolean = false
 
 	let w = 0
 	let open: boolean = false
 </script>
 
+<DarkModeObserver bind:darkMode />
+
 <div use:floatingRef bind:clientWidth={w}>
 	{#if !value || Array.isArray(value)}
-		<div class="border rounded-md border-gray-300 shadow-sm">
+		<div class="border rounded-md border-gray-300 shadow-sm dark:border-gray-600">
 			<MultiSelect
 				outerDivClass={`!text-xs`}
 				ulSelectedClass="overflow-auto"
@@ -48,8 +52,8 @@
 				--sms-border={'none'}
 				--sms-min-height={'30px'}
 				--sms-focus-border={'none'}
-				--sms-selected-bg={'#e0e7ff'}
-				--sms-selected-text-color={'#3730a3'}
+				--sms-selected-bg={darkMode ? '#c7d2fe' : '#e0e7ff'}
+				--sms-selected-text-color={darkMode ? '#312e81' : '#3730a3'}
 				bind:selected={value}
 				options={items}
 				on:close={() => {
