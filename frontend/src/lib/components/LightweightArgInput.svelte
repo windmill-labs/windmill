@@ -241,9 +241,12 @@
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						class={valid && error == ''
-							? ''
-							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
+						class={twMerge(
+							valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30',
+							'w-full'
+						)}
 						bind:checked={value}
 					/>
 					{#if type == 'boolean' && value == undefined}
