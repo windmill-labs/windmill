@@ -22,7 +22,6 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
 use serde::Serialize;
 use windmill_common::auth::JWT_SECRET;
-use windmill_common::utils::rd_string;
 use windmill_common::worker::{PriorityTags, WORKER_CONFIG};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
