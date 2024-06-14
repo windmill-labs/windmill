@@ -219,7 +219,7 @@ pub async fn create_token_for_owner(
             err
         ))
     })?;
-    Ok(format!("jwt:{}", token))
+    Ok(format!("jwt_{}", token))
 }
 
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");

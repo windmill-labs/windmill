@@ -167,35 +167,29 @@ impl AuthCache {
                 Some(authed)
             }
             #[cfg(feature = "enterprise")]
-            _ if token.starts_with("jwt_ext:") => {
-                let authed_and_exp = crate::ee::jwt_ext_auth(w_id.as_ref(), token).await;
+            _ if token.starts_with("jwt_ext_") => {
+                let authed_and_exp =
+                    crate::ee::jwt_ext_auth(w_id.as_ref(), token.trim_start_matches("jwt_ext_"))
+                        .await;
 
                 if let Some((authed, exp)) = authed_and_exp.clone() {
-                    match i64::try_from(exp) {
-                        Ok(exp) => {
-                            self.cache.insert(
-                                key,
-                                ExpiringAuthCache {
-                                    authed: authed.clone(),
-                                    expiry: chrono::Utc.timestamp_nanos(exp * 1_000_000_000),
-                                },
-                            );
+                    self.cache.insert(
+                        key,
+                        ExpiringAuthCache {
+                            authed: authed.clone(),
+                            expiry: chrono::Utc.timestamp_nanos(exp as i64 * 1_000_000_000),
+                        },
+                    );
 
-                            Some(authed)
-                        }
-                        Err(err) => {
-                            tracing::error!("JWT_EXT auth error: invalid exp: {:?}", err);
-                            None
-                        }
-                    }
+                    Some(authed)
                 } else {
                     None
                 }
             }
-            _ if token.starts_with("jwt:") => {
+            _ if token.starts_with("jwt_") => {
                 let jwt_secret = JWT_SECRET.read().await;
                 if !jwt_secret.is_empty() {
-                    let jwt_token = token.trim_start_matches("jwt:");
+                    let jwt_token = token.trim_start_matches("jwt_");
 
                     let jwt_result = jsonwebtoken::decode::<JWTAuthClaims>(
                         jwt_token,
@@ -223,24 +217,16 @@ impl AuthCache {
                                 username_override,
                             };
 
-                            match i64::try_from(payload.claims.exp) {
-                                Ok(exp) => {
-                                    self.cache.insert(
-                                        key,
-                                        ExpiringAuthCache {
-                                            authed: authed.clone(),
-                                            expiry: chrono::Utc
-                                                .timestamp_nanos(exp * 1_000_000_000),
-                                        },
-                                    );
+                            self.cache.insert(
+                                key,
+                                ExpiringAuthCache {
+                                    authed: authed.clone(),
+                                    expiry: chrono::Utc
+                                        .timestamp_nanos(payload.claims.exp as i64 * 1_000_000_000),
+                                },
+                            );
 
-                                    Some(authed)
-                                }
-                                Err(err) => {
-                                    tracing::error!("JWT auth error: invalid exp: {:?}", err);
-                                    None
-                                }
-                            }
+                            Some(authed)
                         }
                         Err(err) => {
                             tracing::error!("JWT auth error: {:?}", err);

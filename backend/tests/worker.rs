@@ -166,7 +166,7 @@ fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowSt
 }
 
 async fn set_jwt_secret() -> () {
-    let secret = rd_string(32);
+    let secret = "mytestsecret".to_string();
     let mut l = JWT_SECRET.write().await;
     *l = secret;
 }
@@ -952,6 +952,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     inner: Fut,
     port: u16,
 ) -> <Fut as std::future::Future>::Output {
+    set_jwt_secret().await;
     let (quit, worker) = spawn_test_worker(db, port);
     let worker = tokio::time::timeout(std::time::Duration::from_secs(60), worker);
     tokio::pin!(worker);
@@ -1002,7 +1003,6 @@ fn spawn_test_worker(
     let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
-        set_jwt_secret().await;
         {
             let mut wc = WORKER_CONFIG.write().await;
             (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
