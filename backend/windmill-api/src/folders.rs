@@ -603,32 +603,6 @@ async fn add_owner(
     Ok(format!("Added {} to folder {}", owner, name))
 }
 
-pub async fn get_folders_for_user(
-    w_id: &str,
-    username: &str,
-    groups: &[String],
-    db: &DB,
-) -> Result<Vec<(String, bool, bool)>> {
-    let mut perms = groups
-        .into_iter()
-        .map(|x| format!("g/{}", x))
-        .collect::<Vec<_>>();
-    perms.insert(0, format!("u/{}", username));
-    let folders = sqlx::query!(
-        "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder
-        WHERE extra_perms ?| $1  AND workspace_id = $2",
-        &perms[..],
-        w_id,
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|x| (x.name, x.write.unwrap_or(false), x.owner.unwrap_or(false)))
-    .collect();
-
-    Ok(folders)
-}
-
 async fn remove_owner(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,

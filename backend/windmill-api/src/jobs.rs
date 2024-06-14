@@ -2622,6 +2622,7 @@ pub async fn run_flow_by_path(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -2711,6 +2712,7 @@ pub async fn restart_flow(
         None,
         None,
         completed_job.priority,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -2763,6 +2765,7 @@ pub async fn run_script_by_path(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -2839,6 +2842,7 @@ pub async fn run_workflow_as_code(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     sqlx::query!(
@@ -3137,6 +3141,7 @@ pub async fn run_wait_result_job_by_path_get(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3256,6 +3261,7 @@ async fn run_wait_result_script_by_path_internal(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3336,6 +3342,7 @@ pub async fn run_wait_result_script_by_hash(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3418,6 +3425,7 @@ async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3485,6 +3493,7 @@ async fn run_preview_script(
         run_query.timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3566,6 +3575,7 @@ async fn run_bundle_preview_script(
                 run_query.timeout,
                 None,
                 None,
+                Some(&authed.clone().into()),
             )
             .await?;
             job_id = Some(uuid);
@@ -3704,6 +3714,7 @@ async fn run_dependencies_job(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3758,6 +3769,7 @@ async fn run_flow_dependencies_job(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3864,6 +3876,7 @@ async fn add_batch_jobs(
                     None,
                     None,
                     None,
+                    Some(&authed.clone().into()),
                 )
                 .await?;
                 tx = PushIsolationLevel::Transaction(ntx);
@@ -3993,6 +4006,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -4069,6 +4083,7 @@ pub async fn run_job_by_hash(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
