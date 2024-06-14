@@ -219,7 +219,7 @@ async fn create_schedule(
     .await?;
 
     if ns.enabled.unwrap_or(true) {
-        tx = push_scheduled_job(&db, tx, &schedule).await?
+        tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into())).await?
     }
     tx.commit().await?;
 
@@ -299,7 +299,7 @@ async fn edit_schedule(
     .await?;
 
     if schedule.enabled {
-        tx = push_scheduled_job(&db, tx, &schedule).await?;
+        tx = push_scheduled_job(&db, tx, &schedule, None).await?;
     }
     tx.commit().await?;
 
@@ -506,7 +506,7 @@ pub async fn set_enabled(
     .await?;
 
     if payload.enabled {
-        tx = push_scheduled_job(&db, tx, &schedule).await?;
+        tx = push_scheduled_job(&db, tx, &schedule, None).await?;
     }
     tx.commit().await?;
 
@@ -554,7 +554,7 @@ pub async fn set_enabled(
 //     .await?;
 
 //     if payload.enabled {
-//         tx = push_scheduled_job(&db, tx, &schedule).await?;
+//         tx = push_scheduled_job(&db, tx, &schedule, None).await?;
 //     }
 //     tx.commit().await?;
 
