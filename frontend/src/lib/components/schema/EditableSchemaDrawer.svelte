@@ -6,7 +6,7 @@
 	import AddProperty from './AddProperty.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
-	import { generateRandomString } from '$lib/utils'
+	import { emptyString, generateRandomString } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Label from '../Label.svelte'
@@ -58,8 +58,8 @@
 	const yOffset = 49
 	let jsonView: boolean = false
 	let schemaString: string = JSON.stringify(schema, null, '\t')
-	let error: string | undefined = undefined
 	let editor: SimpleEditor | undefined = undefined
+	let error: string | undefined = undefined
 </script>
 
 <div class="flex flex-col items-end mb-2 w-full">
@@ -189,4 +189,9 @@
 		autoHeight
 		automaticLayout
 	/>
+	{#if !emptyString(error)}
+		<div class="text-red-400 text-xs">{error}</div>
+	{:else}
+		<div><br /> </div>
+	{/if}
 {/if}
