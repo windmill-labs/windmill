@@ -3,7 +3,7 @@
 	import { Badge, Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import type { SchemaProperty } from '$lib/common'
+	import type { EnumType, SchemaProperty } from '$lib/common'
 	import autosize from '$lib/autosize'
 	import Toggle from './Toggle.svelte'
 	import Range from './Range.svelte'
@@ -33,7 +33,7 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -387,7 +387,11 @@
 						bind:value
 					>
 						{#each enum_ ?? [] as e}
-							<option>{e}</option>
+							{#if typeof e === 'string'}
+								<option value={e}>{e}</option>
+							{:else}
+								<option value={e.value}>{e.label}</option>
+							{/if}
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}

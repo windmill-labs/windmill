@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { EnumType } from '$lib/common'
 	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
@@ -12,7 +13,7 @@
 	import RegexGen from './copilot/RegexGen.svelte'
 
 	export let pattern: string | undefined
-	export let enum_: string[] | undefined
+	export let enum_: EnumType
 	export let format: string | undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined
 	export let customErrorMessage: string | undefined
@@ -62,13 +63,42 @@
 
 	function add() {
 		let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
-		enum_ = enum_ ? enum_.concat(choice) : [choice]
+
+		if (
+			enumMode === 'object' &&
+			Array.isArray(enum_) &&
+			enum_.length > 0 &&
+			typeof enum_[0] === 'object'
+		) {
+			enum_ = (enum_ as { label: string; value: string }[]).concat({
+				label: choice,
+				value: choice
+			})
+		} else if (
+			enumMode === 'string' &&
+			Array.isArray(enum_) &&
+			enum_.length > 0 &&
+			typeof enum_[0] === 'string'
+		) {
+			enum_ = (enum_ as string[]).concat(choice)
+		} else if (enumMode === 'object' && !enum_) {
+			enum_ = [{ label: choice, value: choice }]
+		} else if (enumMode === 'string' && !enum_) {
+			enum_ = [choice]
+		}
 	}
 
 	function remove(item: string) {
-		enum_ = (enum_ || []).filter((el) => el !== item)
-		if (enum_.length == 0) {
-			enum_ = undefined
+		if (Array.isArray(enum_)) {
+			if (enumMode === 'object' && enum_.length > 0 && typeof enum_[0] === 'object') {
+				enum_ = (enum_ as { label: string; value: string }[]).filter((el) => el.value !== item)
+			} else if (enumMode === 'string' && enum_.length > 0 && typeof enum_[0] === 'string') {
+				enum_ = (enum_ as string[]).filter((el) => el !== item)
+			}
+
+			if (enum_.length === 0) {
+				enum_ = undefined
+			}
 		}
 	}
 
@@ -77,6 +107,8 @@
 		{ label: 'US Format', format: 'MM/dd/yyyy' },
 		{ label: 'EU Format', format: 'dd/MM/yyyy' }
 	]
+
+	let enumMode: 'string' | 'object' = enum_ && typeof enum_[0] === 'object' ? 'object' : 'string'
 </script>
 
 <div class="flex flex-col gap-2">
@@ -161,15 +193,39 @@
 				</Tooltip>
 			</svelte:fragment>
 			<svelte:fragment slot="action">
-				<Button color="light" size="xs" btnClasses="ml-2" on:click={() => (enum_ = undefined)}>
-					Clear enums
-				</Button>
+				<div class="flex flex-row gap-1">
+					<ToggleButtonGroup
+						bind:selected={enumMode}
+						on:selected={() => {
+							enum_ = undefined
+						}}
+					>
+						<ToggleButton value="string" size="sm" label="String" />
+						<ToggleButton
+							value="object"
+							size="sm"
+							label="Object"
+							tooltip="Use this mode if you want to define key-value pairs"
+						/>
+					</ToggleButtonGroup>
+
+					<Button color="light" size="xs" btnClasses="ml-2" on:click={() => (enum_ = undefined)}>
+						Clear enums
+					</Button>
+				</div>
 			</svelte:fragment>
 			<div class="flex flex-col gap-1">
 				{#each enum_ || [] as e}
-					<div class="flex flex-row w-full gap-2">
-						<input id="input" type="text" bind:value={e} />
-						<Button size="sm" on:click={() => remove(e)}>-</Button>
+					<div class="flex flex-row w-full gap-2 pt-2">
+						{#if typeof e === 'string'}
+							<input id="input" type="text" bind:value={e} />
+						{:else}
+							<input id="input" type="text" bind:value={e.label} />
+							<input id="input" type="text" bind:value={e.value} />
+						{/if}
+
+						<Button size="sm" on:click={() => remove(typeof e === 'string' ? e : e.value)}>-</Button
+						>
 					</div>
 				{/each}
 			</div>

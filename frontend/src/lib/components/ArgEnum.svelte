@@ -1,11 +1,12 @@
 <script lang="ts">
+	import type { EnumType } from '$lib/common'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let disabled: boolean
 	export let value: any
-	export let enum_: string[] | undefined
+	export let enum_: EnumType
 	export let autofocus: boolean | null
 	export let defaultValue: string | undefined
 	export let valid: boolean
@@ -26,6 +27,7 @@
 <div class="w-full flex-col">
 	<div class="w-full">
 		<AutoComplete
+			labelFieldName={typeof enum_?.[0] === 'string' ? undefined : 'label'}
 			items={[...(required ? [] : ['']), ...(enum_ ?? []), ...customItems]}
 			bind:selectedItem={value}
 			inputClassName={twMerge(

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { SchemaProperty } from '$lib/common'
+	import type { EnumType, SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -39,7 +39,7 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = true
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let disabled = false
 	export let itemsType:
 		| {
@@ -101,7 +101,11 @@
 				if (inputCat === 'string') {
 					value = nullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
-					value = enum_?.[0]
+					if (Array.isArray(enum_) && typeof enum_[0] == 'object') {
+						value = enum_[0].value
+					} else {
+						value = enum_?.[0]
+					}
 				} else if (inputCat == 'boolean') {
 					value = false
 				} else if (inputCat == 'list') {

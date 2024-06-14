@@ -10,13 +10,14 @@
 
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
+	import type { EnumType } from '$lib/common'
 
 	export let description: string = ''
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
 	export let pattern: undefined | string = undefined
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let extra: Record<string, any> = {}
 	export let minW = true
 	export let customErrorMessage: string | undefined = undefined
