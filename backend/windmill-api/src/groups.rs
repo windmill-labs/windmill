@@ -7,7 +7,7 @@
  */
 
 use crate::db::ApiAuthed;
-use crate::{db::DB, users::get_groups_for_user, utils::require_super_admin};
+use crate::{db::DB, utils::require_super_admin};
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -17,11 +17,12 @@ use axum::{
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{db::UserDB, users::username_to_permissioned_as};
 use windmill_common::{
+    auth::get_groups_for_user,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination},
 };
+use windmill_common::{db::UserDB, users::username_to_permissioned_as};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{query_scalar, FromRow, Postgres, Transaction};

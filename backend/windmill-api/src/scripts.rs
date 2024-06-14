@@ -648,7 +648,7 @@ async fn create_script_internal<'c>(
             clear_schedule(tx.transaction_mut(), &schedule.path, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(&db, tx, &schedule).await?;
+                tx = push_scheduled_job(&db, tx, &schedule, None).await?;
             }
         }
     } else {
@@ -751,6 +751,7 @@ async fn create_script_internal<'c>(
             None,
             None,
             None,
+            Some(&authed.clone().into()),
         )
         .await?;
         Ok((hash, new_tx))
