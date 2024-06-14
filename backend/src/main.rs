@@ -165,7 +165,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
                 if std::env::var("JOB_TOKEN").is_err() {
-                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still create one ephemeral token per job and the DATABASE_URL need to be of a role that can INSERT into the token table")
+                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
                 }
 
                 #[cfg(not(feature = "enterprise"))]

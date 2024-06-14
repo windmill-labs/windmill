@@ -810,9 +810,11 @@ pub async fn add_completed_job<
         tracing::debug!("decremented concurrency counter");
     }
 
-    sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
-        .execute(&mut tx)
-        .await?;
+    if JOB_TOKEN.is_none() {
+        sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
+            .execute(&mut tx)
+            .await?;
+    }
 
     tx.commit().await?;
     tracing::info!(

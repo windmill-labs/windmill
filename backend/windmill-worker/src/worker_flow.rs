@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, KEEP_JOB_DIR};
+use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, JOB_TOKEN, KEEP_JOB_DIR};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -2098,7 +2098,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         };
 
         // forward root job permissions to the new job
-        let job_perms: Option<Authed> =
+        let job_perms: Option<Authed> = if JOB_TOKEN.is_none() {
             if let Some(root_job) = &flow_job.root_job.or_else(|| Some(flow_job.id)) {
                 sqlx::query_as!(
                     JobPerms,
@@ -2111,7 +2111,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 .map(|x| x.into())
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
