@@ -13,8 +13,9 @@
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'fileinputcomponent'> | undefined = undefined
 	export let render: boolean
+	export let onFileChange: string[] | undefined = undefined
 
-	const { app, worldStore, componentControl, mode } =
+	const { app, worldStore, componentControl, mode, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let acceptedFileTypes: string[] | undefined = undefined
@@ -36,6 +37,7 @@
 			})
 		}
 		outputs?.result.set(files)
+		onFileChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 	}
 
 	let css = initCss($app.css?.fileinputcomponent, customCss)

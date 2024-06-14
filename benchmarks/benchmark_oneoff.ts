@@ -119,7 +119,11 @@ export async function main({
     return completedJobs - pastJobs;
   }
 
-  if (["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(kind)) {
+  if (
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+      kind
+    )
+  ) {
     await createBenchScript(kind, workspace);
   }
 
@@ -135,7 +139,9 @@ export async function main({
       kind: "noop",
     });
   } else if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(kind)
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+      kind
+    )
   ) {
     body = JSON.stringify({
       kind: "script",
@@ -148,21 +154,20 @@ export async function main({
       flow_value: payload.value,
     });
   } else if (kind.startsWith("flow:")) {
-    console.log("Detected custom flow ")
+    console.log("Detected custom flow ");
     body = JSON.stringify({
       kind: "flow",
-      path: kind.substr(5)
+      path: kind.substr(5),
     });
   } else if (kind.startsWith("script:")) {
-    console.log("Detected custom script")
+    console.log("Detected custom script");
     body = JSON.stringify({
       kind: "script",
-      path: kind.substr(7)
+      path: kind.substr(7),
     });
   } else {
     throw new Error("Unknown script pattern " + kind);
   }
-
 
   const response = await fetch(
     config.server +
@@ -179,7 +184,12 @@ export async function main({
     }
   );
   if (!response.ok) {
-    throw new Error("Failed to create jobs: " + response.statusText);
+    throw new Error(
+      "Failed to create jobs: " +
+        response.statusText +
+        " " +
+        (await response.text())
+    );
   }
   const uuids = await response.json();
   const end_create = Date.now();
@@ -247,7 +257,13 @@ export async function main({
   console.log("completed jobs", completedJobs);
   console.log("queue length:", await getQueueCount());
 
-  if (!noVerify && kind !== "noop" && kind !== 'nativets' && !kind.startsWith("flow:") && !kind.startsWith("script:")) {
+  if (
+    !noVerify &&
+    kind !== "noop" &&
+    kind !== "nativets" &&
+    !kind.startsWith("flow:") &&
+    !kind.startsWith("script:")
+  ) {
     await verifyOutputs(uuids, config.workspace_id);
   }
 
