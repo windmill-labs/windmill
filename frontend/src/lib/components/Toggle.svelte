@@ -16,6 +16,7 @@
 	export let textStyle = ''
 	export let color: 'blue' | 'red' = 'blue'
 	export let id = (Math.random() + 1).toString(36).substring(10)
+	export let lightMode: boolean = false
 
 	export let size: 'sm' | 'xs' = 'sm'
 
@@ -41,7 +42,7 @@
 		>
 			{options?.left}
 			{#if options?.leftTooltip}
-				<Tooltip>{options?.leftTooltip}</Tooltip>
+				<Tooltip light={lightMode}>{options?.leftTooltip}</Tooltip>
 			{/if}
 		</span>
 	{/if}
@@ -64,7 +65,9 @@
 		<div
 			class={classNames(
 				"transition-all bg-surface-selected rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all ",
-				color == 'red' ? 'peer-checked:bg-red-600' : 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500',
+				color == 'red'
+					? 'peer-checked:bg-red-600'
+					: 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500',
 				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
 					: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
@@ -83,7 +86,7 @@
 		>
 			{options?.right}
 			{#if options?.rightTooltip}
-				<Tooltip>{options?.rightTooltip}</Tooltip>
+				<Tooltip light={lightMode}>{options?.rightTooltip}</Tooltip>
 			{/if}
 		</span>
 	{/if}

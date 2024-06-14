@@ -120,11 +120,10 @@ struct ObscuredJob {
 }
 #[derive(Deserialize)]
 struct ExtendedJobsParams {
-    concurrency_key: Option<String>,
     row_limit: Option<i64>,
 }
 
-fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
+pub fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
     if let Some(key) = concurrency_key {
         sqlb.join("concurrency_key")
             .on_eq("id", "concurrency_key.job_id")
@@ -151,7 +150,6 @@ async fn get_concurrent_intervals(
     }
 
     let row_limit = iq.row_limit.unwrap_or(1000);
-    let concurrency_key = iq.concurrency_key;
 
     let lq = ListCompletedQuery { order_desc: Some(true), ..lq };
     let lqc = lq.clone();
@@ -177,10 +175,10 @@ async fn get_concurrent_intervals(
         .limit(row_limit)
         .clone();
 
-    sqlb_q = join_concurrency_key(concurrency_key.as_ref(), sqlb_q);
-    sqlb_c = join_concurrency_key(concurrency_key.as_ref(), sqlb_c);
-    sqlb_q_user = join_concurrency_key(concurrency_key.as_ref(), sqlb_q_user);
-    sqlb_c_user = join_concurrency_key(concurrency_key.as_ref(), sqlb_c_user);
+    sqlb_q = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_q);
+    sqlb_c = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_c);
+    sqlb_q_user = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_q_user);
+    sqlb_c_user = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb_c_user);
 
     let should_fetch_obscured_jobs = match lq {
         ListCompletedQuery {
@@ -211,7 +209,8 @@ async fn get_concurrent_intervals(
             job_kinds: _,
             is_flow_step: _,
             all_workspaces: _,
-        } => concurrency_key.is_some(),
+            concurrency_key: Some(_),
+        } => true,
         _ => false,
     };
 

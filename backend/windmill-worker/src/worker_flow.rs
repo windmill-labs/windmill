@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, KEEP_JOB_DIR};
+use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, JOB_TOKEN, KEEP_JOB_DIR};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -25,6 +25,8 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
+use windmill_common::auth::JobPerms;
+use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
@@ -2022,7 +2024,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 args.insert("iter".to_string(), to_raw_value(new_args));
                 if let Some(input_transforms) = simple_input_transforms {
-                    let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
+                    //previous id is none because we do not want to use previous id if we are in a for loop
+                    let ctx = get_transform_context(&flow_job, "", &status).await?;
                     transform_inp = transform_input(
                         Arc::new(args),
                         arc_last_job_result.clone(),
@@ -2094,6 +2097,25 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             flow_job.root_job.or_else(|| Some(flow_job.id))
         };
 
+        // forward root job permissions to the new job
+        let job_perms: Option<Authed> = if JOB_TOKEN.is_none() {
+            if let Some(root_job) = &flow_job.root_job.or_else(|| Some(flow_job.id)) {
+                sqlx::query_as!(
+                    JobPerms,
+                    "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+                    root_job,
+                    flow_job.workspace_id,
+                )
+                .fetch_optional(&mut tx)
+                .await?
+                .map(|x| x.into())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
             &db,
@@ -2124,6 +2146,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             payload_tag.timeout,
             Some(module.id.clone()),
             new_job_priority_override,
+            job_perms.as_ref(),
         )
         .await?;
 

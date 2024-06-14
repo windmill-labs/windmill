@@ -9,7 +9,6 @@
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import { classNames, getModifierKey, isMac } from '$lib/utils'
 	import { buildExtraLib } from '../../utils'
-	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
 	import AlignmentEditor from './AlignmentEditor.svelte'
@@ -40,6 +39,7 @@
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ContextVariables from './ContextVariables.svelte'
+	import EventHandlers from './EventHandlers.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -402,46 +402,8 @@
 				{ccomponents[component.type].name} has no configuration
 			</div>
 		{/if}
-		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
-			<Recompute
-				bind:recomputeIds={componentSettings.item.data.recomputeIds}
-				ownId={component.id}
-			/>
-		{/if}
-		{#if (`onOpenRecomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.onOpenRecomputeIds)) || componentSettings.item.data.type === 'modalcomponent' || componentSettings.item.data.type === 'drawercomponent'}
-			<Recompute
-				bind:recomputeIds={componentSettings.item.data.onOpenRecomputeIds}
-				ownId={component.id}
-				title="Trigger runnables on open"
-				tooltip="Select components to recompute after this component was opened"
-			/>
-		{/if}
-		{#if (`onCloseRecomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.onCloseRecomputeIds)) || componentSettings.item.data.type === 'modalcomponent' || componentSettings.item.data.type === 'drawercomponent'}
-			<Recompute
-				bind:recomputeIds={componentSettings.item.data.onCloseRecomputeIds}
-				ownId={component.id}
-				title="Trigger runnables on close"
-				tooltip="Select components to recompute after this component was closed"
-			/>
-		{/if}
-		{#if componentSettings.item.data.type === 'checkboxcomponent'}
-			<Recompute
-				title="Recompute on toggle"
-				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue'}
-				documentationLink={undefined}
-				bind:recomputeIds={componentSettings.item.data.onToggle}
-				ownId={component.id}
-			/>
-		{/if}
-		{#if componentSettings.item.data.type === 'resourceselectcomponent' || componentSettings.item.data.type === 'selectcomponent'}
-			<Recompute
-				title="Recompute on select"
-				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue'}
-				documentationLink={undefined}
-				bind:recomputeIds={componentSettings.item.data.onSelect}
-				ownId={component.id}
-			/>
-		{/if}
+
+		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
 
 		<div class="grow shrink" />
 

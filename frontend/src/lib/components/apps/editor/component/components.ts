@@ -186,11 +186,15 @@ export type RadioComponent = BaseComponent<'radiocomponent'>
 export type IconComponent = BaseComponent<'iconcomponent'>
 export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
 export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
-export type FileInputComponent = BaseComponent<'fileinputcomponent'>
+export type FileInputComponent = BaseComponent<'fileinputcomponent'> & {
+	onFileChange?: string[]
+}
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
+	onTabChange?: string[]
 }
+
 export type ListComponent = BaseComponent<'listcomponent'>
 export type ContainerComponent = BaseComponent<'containercomponent'> & {
 	groupFields: RichConfigurations
@@ -214,9 +218,12 @@ export type ModalComponent = BaseComponent<'modalcomponent'> & {
 }
 export type StepperComponent = BaseComponent<'steppercomponent'> & {
 	tabs: string[]
+	onNext?: string[]
+	onPrevious?: string[]
 }
 export type ConditionalWrapperComponent = BaseComponent<'conditionalwrapper'> & {
 	conditions: RichConfiguration[]
+	onTabChange?: string[]
 }
 
 export type Schemaformcomponent = BaseComponent<'schemaformcomponent'>
@@ -234,7 +241,9 @@ export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	actions: TableAction[]
 }
 
-export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'>
+export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'> & {
+	onFileChange?: string[]
+}
 
 export type DecisionTreeNode = {
 	id: string

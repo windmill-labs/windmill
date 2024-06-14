@@ -27,7 +27,7 @@ use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
 use crate::{
-    bun_executor::{gen_lockfile, get_trusted_deps},
+    bun_executor::gen_lockfile,
     common::write_file,
     deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
@@ -87,7 +87,7 @@ async fn add_relative_imports_to_dependency_map<'c>(
             script_path,
             import,
             importer_kind,
-            node_id
+            node_id.clone().unwrap_or_default()
         )
         .execute(&mut *tx)
         .await?;
@@ -106,7 +106,7 @@ async fn clear_dependency_map_for_item<'c>(
     sqlx::query!(
         "DELETE FROM dependency_map
                  WHERE importer_path = $1 AND importer_kind = $3::text::IMPORTER_KIND
-                 AND workspace_id = $2 AND importer_node_id = $4",
+                 AND workspace_id = $2 AND ($4::text IS NULL OR importer_node_id = $4::text)",
         item_path,
         w_id,
         importer_kind,
@@ -437,6 +437,7 @@ async fn trigger_dependents_to_recompute_dependencies<
             false,
             None,
             true,
+            None,
             None,
             None,
             None,
@@ -1200,13 +1201,9 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Bun => {
-            let trusted_deps = if !raw_deps {
+            if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
-                //TODO: remove once bun provides sane default fot it
-                get_trusted_deps(job_raw_code)
-            } else {
-                vec![]
-            };
+            }
             let req = gen_lockfile(
                 mem_peak,
                 canceled_by,
@@ -1219,7 +1216,6 @@ async fn capture_dependency_job(
                 base_internal_url,
                 worker_name,
                 true,
-                trusted_deps,
                 if raw_deps {
                     Some(job_raw_code.to_string())
                 } else {

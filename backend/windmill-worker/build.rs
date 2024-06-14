@@ -107,16 +107,16 @@ fn main() {
     // Thus we're not using compressed snapshot, trading off
     // a lot of build time for some startup time in debug build.
     let mut file = std::fs::File::create(snapshot_path).unwrap();
-    if cfg!(debug_assertions) {
-        file.write_all(&output.output).unwrap();
-    } else {
-        let mut vec = Vec::with_capacity(output.output.len());
-        vec.extend((output.output.len() as u32).to_le_bytes());
-        vec.extend_from_slice(
-            &zstd::bulk::compress(&output.output, 22).expect("snapshot compression failed"),
-        );
-        file.write_all(&vec).unwrap();
-    }
+    // if cfg!(debug_assertions) {
+    file.write_all(&output.output).unwrap();
+    // } else {
+    //     let mut vec = Vec::with_capacity(output.output.len());
+    //     vec.extend((output.output.len() as u32).to_le_bytes());
+    //     vec.extend_from_slice(
+    //         &zstd::bulk::compress(&output.output, 22).expect("snapshot compression failed"),
+    //     );
+    //     file.write_all(&vec).unwrap();
+    // }
 
     for path in output.files_loaded_during_snapshot {
         println!("cargo:rerun-if-changed={}", path.display());

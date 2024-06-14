@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, emptyString, shouldDisplayPlaceholder } from '$lib/utils'
-	import { ChevronDown, DollarSign, Pipette, Plus, X } from 'lucide-svelte'
+	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
@@ -9,19 +9,14 @@
 	import { Badge, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
-	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
-	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ArgEnum from './ArgEnum.svelte'
-	import ArrayTypeNarrowing from './ArrayTypeNarrowing.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -34,10 +29,11 @@
 	import Tooltip from './Tooltip.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
+	import SchemaForm from './SchemaForm.svelte'
 
 	export let label: string = ''
 	export let value: any
-
 	export let defaultValue: any = undefined
 
 	export let description: string = ''
@@ -50,7 +46,6 @@
 	export let valid = true
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
-	export let editableSchema: { i: number; total: number } | undefined = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -81,6 +76,9 @@
 	export let nullable: boolean = false
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+	export let order: string[] | undefined = undefined
+	export let editor: SimpleEditor | undefined = undefined
+	export let orderEditable = false
 
 	let oneOfSelected: string | undefined = undefined
 	function updateOneOfSelected(oneOf) {
@@ -100,17 +98,12 @@
 	const dispatch = createEventDispatcher()
 
 	let ignoreValueUndefined = false
-
 	let error: string = ''
-
 	let s3FilePicker: S3FilePicker
 	let s3FileUploadRawMode: false
 	let isListJson = false
 
 	let el: HTMLTextAreaElement | undefined = undefined
-
-	export let editor: SimpleEditor | undefined = undefined
-
 	let inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
@@ -232,10 +225,6 @@
 	let itemsLimit = 50
 
 	$: validateInput(pattern, value, required)
-
-	function changePosition(i: number, up: boolean) {
-		dispatch('changePosition', { i, up })
-	}
 </script>
 
 <S3FilePicker
@@ -261,114 +250,8 @@
 				{format}
 				{simpleTooltip}
 			/>
-
-			{#if editableSchema}
-				<span class="mx-8" />
-				{#if editableSchema.i > 0}
-					<button
-						on:click={() => changePosition(editableSchema?.i ?? 0, true)}
-						class="text-lg mr-2"
-					>
-						&uparrow;</button
-					>
-				{/if}
-				{#if editableSchema.i < editableSchema.total - 1}
-					<button
-						on:click={() => changePosition(editableSchema?.i ?? 0, false)}
-						class="text-lg mr-2">&downarrow;</button
-					>
-				{/if}
-			{/if}
 		{/if}
-		{#if editableSchema}
-			<Label label="Description">
-				<textarea
-					class="mb-1"
-					use:autosize
-					rows="1"
-					bind:value={description}
-					on:keydown={onKeyDown}
-					placeholder="Field description"
-				/>
-			</Label>
-			<div class="flex flex-row gap-2 w-full">
-				<Label label="Custom Title" class="w-full">
-					<svelte:fragment slot="header">
-						<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
-					</svelte:fragment>
-					<input class="mb-1" bind:value={title} on:keydown={onKeyDown} placeholder="Field title" />
-				</Label>
-			</div>
 
-			{#if type == 'array'}
-				<ArrayTypeNarrowing bind:itemsType />
-			{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
-				<div class="p-2 my-2 mv-1 text-xs border-solid border rounded-lg">
-					<div class="w-min">
-						<Button
-							on:click={() => {
-								seeEditable = !seeEditable
-							}}
-							endIcon={{
-								icon: ChevronDown,
-								classes: twMerge('rotate-0 duration-300', seeEditable ? '!rotate-180' : '')
-							}}
-							color="light"
-							size="xs"
-						>
-							Customize
-						</Button>
-					</div>
-
-					{#if seeEditable}
-						<div class="mt-2">
-							{#if type == 'string'}
-								<StringTypeNarrowing
-									bind:customErrorMessage
-									bind:format
-									bind:pattern
-									bind:enum_
-									bind:contentEncoding
-									bind:password={extra['password']}
-									bind:minRows={extra['minRows']}
-									bind:disableCreate={extra['disableCreate']}
-									bind:disableVariablePicker={extra['disableVariablePicker']}
-									bind:dateFormat={extra['dateFormat']}
-								/>
-							{:else if type == 'number' || type == 'integer'}
-								<NumberTypeNarrowing
-									bind:min={extra['min']}
-									bind:max={extra['max']}
-									bind:currency={extra['currency']}
-									bind:currencyLocale={extra['currencyLocale']}
-								/>
-							{:else if type == 'object'}
-								<ObjectTypeNarrowing bind:format />
-							{/if}
-						</div>
-						{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern)}
-							<Label label="Placeholder" class="pt-2">
-								<textarea placeholder="Enter a placeholder" rows="1" bind:value={placeholder} />
-							</Label>
-						{/if}
-						{#if !required && type === 'string'}
-							<div class="mt-2 border-t pt-4">
-								<Toggle
-									options={{
-										right: 'Nullable',
-										rightTooltip:
-											'If enabled, the default value will be null and not an empty string.'
-									}}
-									size="xs"
-									bind:checked={extra.nullable}
-								/>
-							</div>
-						{/if}
-					{/if}
-				</div>
-			{/if}
-			<span class="text-2xs font-semibold">Preview:</span>
-		{/if}
 		{#if description}
 			<div class="text-xs italic pb-1 text-secondary">
 				<pre class="font-main whitespace-normal">{description}</pre>
@@ -555,7 +438,14 @@
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
-				<ObjectResourceInput selectFirst {disablePortal} {format} bind:value {showSchemaExplorer} />
+				<ObjectResourceInput
+					{defaultValue}
+					selectFirst
+					{disablePortal}
+					{format}
+					bind:value
+					{showSchemaExplorer}
+				/>
 			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
 					.replace('resource-', '')
 					.replace('_', '')
@@ -611,14 +501,42 @@
 				</div>
 			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 				{#if properties && Object.keys(properties).length > 0}
-					<div class="p-4 pl-8 border rounded w-full">
-						<SchemaForm
-							{onlyMaskPassword}
-							{disablePortal}
-							{disabled}
-							schema={{ properties, $schema: '', required: nestedRequired ?? [], type: 'object' }}
-							bind:args={value}
-						/>
+					<div class="p-4 pl-8 border rounded-md w-full">
+						{#if orderEditable}
+							<SchemaFormDnd
+								{onlyMaskPassword}
+								{disablePortal}
+								{disabled}
+								schema={{
+									properties,
+									$schema: '',
+									required: nestedRequired ?? [],
+									type: 'object',
+									order
+								}}
+								args={value}
+								dndType={`nested-${title}`}
+								on:reorder={(e) => {
+									const keys = e.detail
+									order = keys
+								}}
+								on:change
+							/>
+						{:else}
+							<SchemaForm
+								{onlyMaskPassword}
+								{disablePortal}
+								{disabled}
+								schema={{
+									properties,
+									order,
+									$schema: '',
+									required: nestedRequired ?? [],
+									type: 'object'
+								}}
+								bind:args={value}
+							/>
+						{/if}
 					</div>
 				{:else if disabled}
 					<textarea disabled />
@@ -762,6 +680,7 @@
 					selectFirst
 					{disablePortal}
 					bind:value
+					initialValue={defaultValue}
 					resourceType={format && format.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}
@@ -848,6 +767,7 @@
 			{/if}
 			<slot name="actions" />
 		</div>
+
 		{#if !compact || (error && error != '')}
 			<div class="text-right text-xs text-red-600 dark:text-red-400">
 				{#if disabled || error === ''}

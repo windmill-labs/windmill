@@ -23,6 +23,11 @@
 	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
 
 	const dispatch = createEventDispatcher()
+
+	const mapping = {
+		onSuccess: 'On success wizard',
+		onError: 'On error wizard'
+	}
 </script>
 
 {#if inputSpecs}
@@ -38,7 +43,7 @@
 			{:else if finalInputSpecsConfiguration[k]?.type == 'oneOf'}
 				<OneOfInputSpecsEditor
 					{acceptSelf}
-					key={k}
+					key={mapping[k] ?? k}
 					bind:oneOf={inputSpecs[k]}
 					{id}
 					{shouldCapitalize}

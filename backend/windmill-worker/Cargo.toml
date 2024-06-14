@@ -11,10 +11,10 @@ path = "src/lib.rs"
 [features]
 default = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:gcp_auth", "dep:jsonwebtoken", "dep:pem", "dep:sha2", "dep:tiberius", "dep:tokio-util", "dep:openidconnect"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:gcp_auth", "dep:pem", "dep:tiberius", "dep:tokio-util", "dep:openidconnect"]
 benchmark = ["windmill-queue/benchmark"]
 flamegraph = []
-parquet = ["windmill-common/parquet", "dep:object_store", "dep:tar"]
+parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []
 
@@ -70,8 +70,8 @@ mysql_async.workspace = true
 base64.workspace = true
 gcp_auth = { workspace = true, optional = true }
 rust_decimal.workspace = true
-jsonwebtoken = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
+jsonwebtoken.workspace = true
+sha2.workspace = true
 pem = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
@@ -81,7 +81,7 @@ hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 openidconnect = { workspace = true, optional = true}
-tar = { workspace = true, optional = true}
+tar.workspace = true
 object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 

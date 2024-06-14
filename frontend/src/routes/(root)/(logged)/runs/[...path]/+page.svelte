@@ -31,10 +31,11 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { AlertTriangle, Calendar, Clock } from 'lucide-svelte'
+	import { AlertTriangle, Calendar, Check, ChevronDown, Clock, X } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -97,7 +98,9 @@
 	let selectedManualDate = 0
 	let autoRefresh: boolean = true
 	let runDrawer: Drawer
-	let cancelAllJobs = false
+	let isCancelingVisibleJobs = false
+	let isCancelingFilteredJobs = false
+
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
 	let externalJobs: Job[] | undefined = undefined
@@ -248,6 +251,8 @@
 		completedJobs = undefined
 		selectedManualDate = 0
 		selectedIds = []
+		jobIdsToCancel = []
+		isSelectingJobsToCancel = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -327,6 +332,60 @@
 		}
 	}
 
+	let jobIdsToCancel: string[] = []
+	let isSelectingJobsToCancel = false
+	let fetchingFilteredJobs = false
+	let selectedFiltersString: string | undefined = undefined
+
+	async function cancelVisibleJobs() {
+		isSelectingJobsToCancel = true
+		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
+		if (selectedIds.length === 0 ) {
+			sendUserToast("There are no visible jobs that can be canceled", true)
+		}
+	}
+	async function cancelFilteredJobs() {
+		isCancelingFilteredJobs = true
+		fetchingFilteredJobs = true
+		const selectedFilters = {
+				workspace: $workspaceStore ?? '',
+				startedBefore: maxTs,
+				startedAfter: minTs,
+				schedulePath,
+				scriptPathExact: path === null || path === '' ? undefined : path,
+				createdBy: user === null || user === '' ? undefined : user,
+				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+				jobKinds,
+				success: success == 'success' ? true : success == 'failure' ? false : undefined,
+				running: success == 'running' ? true : undefined,
+				isNotSchedule: showSchedules == false ? true : undefined,
+				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+				args:
+					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
+						? argFilter
+						: undefined,
+				result:
+					resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+						? resultFilter
+						: undefined,
+				allWorkspaces: allWorkspaces ? true : undefined,
+				concurrencyKey: concurrencyKey ?? undefined
+			}
+
+		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
+		jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
+		fetchingFilteredJobs = false
+	}
+
+	async function cancelSelectedJobs() {
+		jobIdsToCancel = selectedIds
+		isCancelingVisibleJobs = true
+	}
+
+	function isJobCancelable(j: Job): boolean {
+		return j.type === 'QueuedJob' && !j.schedule_path
+	}
+
 	const warnJobLimitMsg =
 		'The exact number of concurrent job at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
 
@@ -334,6 +393,10 @@
 		graph === 'ConcurrencyChart' &&
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
+
+	$: if (selectedIds.length === 0) {
+		isSelectingJobsToCancel = false
+	}
 </script>
 
 <JobLoader
@@ -368,17 +431,45 @@
 />
 
 <ConfirmationModal
-	title="Confirm cancelling all jobs"
-	confirmationText="Cancel all jobs"
-	open={cancelAllJobs}
+	title={`Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`}
+	confirmationText={`Cancel ${jobIdsToCancel.length} jobs that matched the filters`}
+	open={isCancelingFilteredJobs}
 	on:confirmed={async () => {
-		cancelAllJobs = false
-		let uuids = await JobService.cancelAll({ workspace: $workspaceStore ?? '' })
+		isCancelingFilteredJobs = false
+		let uuids = await JobService.cancelSelection({
+			workspace: $workspaceStore ?? '',
+			requestBody: jobIdsToCancel
+		})
+		jobIdsToCancel = []
+		selectedIds = []
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+	}}
+	loading={fetchingFilteredJobs}
+	on:canceled={() => {
+		isCancelingFilteredJobs = false
+	}}
+>
+	<pre>{selectedFiltersString}</pre>
+</ConfirmationModal>
+
+<ConfirmationModal
+	title={`Confirm cancelling the jobs visible on this page`}
+	confirmationText={`Cancel ${jobIdsToCancel.length} jobs`}
+	open={isCancelingVisibleJobs}
+	on:confirmed={async () => {
+		isCancelingVisibleJobs = false
+		let uuids = await JobService.cancelSelection({
+			workspace: $workspaceStore ?? '',
+			requestBody: jobIdsToCancel
+		})
+		jobIdsToCancel = []
+		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}}
 	on:canceled={() => {
-		cancelAllJobs = false
+		isCancelingVisibleJobs = false
 	}}
 />
 
@@ -492,14 +583,66 @@
 		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 			<div class="flex gap-2 grow flex-row">
 				<RunsQueue {queue_count} {allWorkspaces} />
-				<Button
-					size="xs"
-					color="light"
-					variant="contained"
-					title="Require to be an admin. Cancel all jobs in queue"
-					disabled={!$userStore?.is_admin && !$superadmin}
-					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
-				>
+				<div class="flex flex-row">
+					{#if isSelectingJobsToCancel}
+						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
+							<Button
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
+							/>
+							<Button
+								startIcon={{ icon: X }}
+								size="xs"
+								color="gray"
+								variant="contained"
+								on:click={() => {
+									isSelectingJobsToCancel = false
+									selectedIds = []
+								}}
+							/>
+						</div>
+					{:else if !$userStore?.is_admin && !$superadmin}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{:else}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								},
+								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
+				</div>
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40">
 				<Toggle
@@ -603,6 +746,7 @@
 							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
+							{isSelectingJobsToCancel}
 							bind:selectedIds
 							bind:selectedWorkspace
 							on:filterByPath={filterByPath}
@@ -724,14 +868,66 @@
 				{#if queue_count}
 					<RunsQueue {queue_count} {allWorkspaces} />
 				{/if}
-				<Button
-					size="xs"
-					color="light"
-					variant="contained"
-					title="Require to be an admin. Cancel all jobs in queue"
-					disabled={!$userStore?.is_admin && !$superadmin}
-					on:click={async () => (cancelAllJobs = true)}>Cancel All</Button
-				>
+				<div class="flex flex-row">
+					{#if isSelectingJobsToCancel}
+						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
+							<Button
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
+							/>
+							<Button
+								startIcon={{ icon: X }}
+								size="xs"
+								color="gray"
+								variant="contained"
+								on:click={() => {
+									isSelectingJobsToCancel = false
+									selectedIds = []
+								}}
+							/>
+						</div>
+					{:else if !$userStore?.is_admin && !$superadmin}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{:else}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'Select jobs to cancel',
+									action: cancelVisibleJobs
+								},
+								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
+									<ChevronDown class="w-5 h-5" />
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
+				</div>
 			</div>
 			<div class="flex gap-2 py-1">
 				<div class="relative flex gap-2 items-center pr-8 w-40">
@@ -834,10 +1030,11 @@
 				externalJobs={externalJobs ?? []}
 				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 				showExternalJobs={!graphIsRunsChart}
+				{isSelectingJobsToCancel}
 				bind:selectedIds
 				bind:selectedWorkspace
 				on:select={() => {
-					runDrawer.openDrawer()
+					if (!isSelectingJobsToCancel) runDrawer.openDrawer()
 				}}
 				on:filterByPath={filterByPath}
 				on:filterByUser={filterByUser}
