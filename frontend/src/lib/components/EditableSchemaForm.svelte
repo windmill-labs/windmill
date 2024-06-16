@@ -328,6 +328,7 @@
 												<PropertyEditor
 													bind:description={schema.properties[argName].description}
 													type={schema.properties[argName].type}
+													bind:oneOf={schema.properties[argName].oneOf}
 													bind:pattern={schema.properties[argName].pattern}
 													bind:enum_={schema.properties[argName].enum}
 													bind:format={schema.properties[argName].format}
@@ -407,6 +408,7 @@
 															{lightweightMode}
 															bind:nullable={schema.properties[argName].nullable}
 															type={schema.properties[argName].type}
+															oneOf={schema.properties[argName].oneOf}
 															bind:format={schema.properties[argName].format}
 															contentEncoding={schema.properties[argName].contentEncoding}
 															required={schema.required?.includes(argName) ?? false}

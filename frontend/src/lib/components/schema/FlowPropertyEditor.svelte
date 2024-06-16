@@ -12,10 +12,12 @@
 	import { Tab, TabContent } from '../common'
 	import LightweightArgInput from '../LightweightArgInput.svelte'
 	import EditableSchemaDrawer from './EditableSchemaDrawer.svelte'
+	import type { SchemaProperty } from '$lib/common'
 
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
+	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let password = false
@@ -94,6 +96,7 @@
 				bind:value={defaultValue}
 				type={password ? 'string' : type}
 				displayHeader={false}
+				{oneOf}
 				{pattern}
 				{customErrorMessage}
 				{itemsType}
@@ -108,6 +111,7 @@
 				bind:value={defaultValue}
 				type={password ? 'string' : type}
 				displayHeader={false}
+				{oneOf}
 				{pattern}
 				{customErrorMessage}
 				{itemsType}

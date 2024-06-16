@@ -40,18 +40,24 @@ export function argSigToJsonSchemaType(
 		newS.type = 'string'
 		newS.format = 'date-time'
 	} else if (typeof t !== 'string' && 'oneof' in t) {
-		newS.type = 'oneOf'
+		newS.type = 'object'
 		if (t.oneof) {
 			newS.oneOf = t.oneof.map((obj) => {
+				const oldObjS = oldS.oneOf?.find((o) => o?.title === obj.label) ?? undefined
 				const properties = {}
 				for (const prop of obj.properties) {
-					properties[prop.key] = {}
+					if (oldObjS?.properties && prop.key in oldObjS?.properties) {
+						properties[prop.key] = oldObjS?.properties[prop.key]
+					} else {
+						properties[prop.key] = { description: '', type: '' }
+					}
 					argSigToJsonSchemaType(prop.typ, properties[prop.key])
 				}
 				return {
 					type: 'object',
 					title: obj.label,
-					properties
+					properties,
+					order: oldObjS?.order ?? undefined
 				}
 			})
 		}
@@ -60,7 +66,11 @@ export function argSigToJsonSchemaType(
 		if (t.object) {
 			const properties = {}
 			for (const prop of t.object) {
-				properties[prop.key] = {}
+				if (oldS.properties && prop.key in oldS.properties) {
+					properties[prop.key] = oldS.properties[prop.key]
+				} else {
+					properties[prop.key] = { description: '', type: '' }
+				}
 				argSigToJsonSchemaType(prop.typ, properties[prop.key])
 			}
 			newS.properties = properties

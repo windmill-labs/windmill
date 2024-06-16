@@ -82,6 +82,7 @@
 				bind:valid={inputCheck[argName]}
 				bind:error={errors[argName]}
 				type={schema.properties[argName].type}
+				oneOf={schema.properties[argName].oneOf}
 				required={schema.required?.includes(argName) ?? false}
 				pattern={schema.properties[argName].pattern}
 				defaultValue={defaultValues?.[argName] ?? schema.properties[argName].default}

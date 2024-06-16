@@ -10,11 +10,15 @@
 
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
+	import type { SchemaProperty } from '$lib/common'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	export let description: string = ''
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
+	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let pattern: undefined | string = undefined
 	export let enum_: string[] | undefined = undefined
 	export let extra: Record<string, any> = {}
@@ -36,6 +40,24 @@
 		| undefined = undefined
 
 	let el: HTMLTextAreaElement | undefined = undefined
+
+	let oneOfSelected: string | undefined =
+		(oneOf && oneOf.length >= 2 && oneOf[0]['title']) || undefined
+	let oneOfSchemas: any[] | undefined = undefined
+	function updateOneOfSchemas(oneOf: SchemaProperty[] | undefined) {
+		if (oneOf && oneOf.length >= 2) {
+			oneOfSchemas = oneOf.map((obj) => {
+				return {
+					properties: obj.properties
+						? Object.fromEntries(Object.entries(obj.properties).filter(([k, v]) => k !== 'label'))
+						: {},
+					order: obj.order ?? []
+				}
+			})
+		}
+	}
+
+	$: updateOneOfSchemas(oneOf)
 
 	export function focus() {
 		el?.focus()
@@ -133,6 +155,25 @@
 								bind:currency={extra['currency']}
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
+						{:else if type == 'object' && oneOf && oneOf.length >= 2}
+							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
+								{#each oneOf as obj}
+									<ToggleButton value={obj.title} label={obj.title} />
+								{/each}
+							</ToggleButtonGroup>
+							{oneOfSelected}
+							{#if oneOfSelected && oneOfSchemas}
+								{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
+								<div class="border">
+									<EditableSchemaForm
+										on:change
+										noPreview
+										bind:schema={oneOfSchemas[idx]}
+										uiOnly
+										jsonEnabled={false}
+									/>
+								</div>
+							{/if}
 						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
 							<div class="border">
 								<EditableSchemaForm on:change noPreview bind:schema uiOnly jsonEnabled={false} />
