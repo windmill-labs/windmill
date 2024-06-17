@@ -63,6 +63,10 @@
 	}
 
 	function add() {
+		if (enumLabels === undefined) {
+			enumLabels = {}
+		}
+
 		let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
 		enum_ = enum_ ? enum_.concat(choice) : [choice]
 	}
@@ -178,17 +182,19 @@
 							bind:value={e}
 							on:input={(event) => onEnumKeyChange(event?.currentTarget.value, e)}
 						/>
-						<input
-							id="input"
-							type="text"
-							bind:value={enumLabels[e]}
-							placeholder="Optional title..."
-							on:input={(event) => {
-								if (event?.currentTarget.value === '') {
-									delete enumLabels[e]
-								}
-							}}
-						/>
+						{#if enumLabels !== undefined}
+							<input
+								id="input"
+								type="text"
+								bind:value={enumLabels[e]}
+								placeholder="Optional title..."
+								on:input={(event) => {
+									if (event?.currentTarget.value === '') {
+										delete enumLabels[e]
+									}
+								}}
+							/>
+						{/if}
 
 						<Button size="sm" on:click={() => remove(e)}>-</Button>
 					</div>
