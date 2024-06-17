@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { EnumType } from '$lib/common'
 	import { computeKind } from '$lib/utils'
 	import Label from './Label.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
@@ -12,7 +13,7 @@
 	import RegexGen from './copilot/RegexGen.svelte'
 
 	export let pattern: string | undefined
-	export let enum_: string[] | undefined
+	export let enum_: EnumType
 	export let format: string | undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined
 	export let customErrorMessage: string | undefined
@@ -22,6 +23,9 @@
 	export let password: boolean = false
 	export let noExtra = false
 	export let dateFormat: string | undefined
+	export let enumLabels: Record<string, string> = {}
+	export let allowKindChange: boolean = true
+	export let allowAddingOrDeletingEnumValues: boolean = true
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind(
 		enum_,
@@ -61,6 +65,10 @@
 	}
 
 	function add() {
+		if (enumLabels === undefined) {
+			enumLabels = {}
+		}
+
 		let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
 		enum_ = enum_ ? enum_.concat(choice) : [choice]
 	}
@@ -70,6 +78,10 @@
 		if (enum_.length == 0) {
 			enum_ = undefined
 		}
+
+		if (enumLabels !== undefined) {
+			delete enumLabels[item]
+		}
 	}
 
 	const presetOptions = [
@@ -77,30 +89,39 @@
 		{ label: 'US Format', format: 'MM/dd/yyyy' },
 		{ label: 'EU Format', format: 'dd/MM/yyyy' }
 	]
+
+	function onEnumKeyChange(oldKey: string, newKey: string) {
+		if (oldKey !== newKey) {
+			enumLabels[newKey] = enumLabels[oldKey]
+			delete enumLabels[oldKey]
+		}
+	}
 </script>
 
 <div class="flex flex-col gap-2">
-	<ToggleButtonGroup
-		bind:selected={kind}
-		on:selected={(e) => {
-			if (e.detail != 'enum') {
-				enum_ = undefined
-			}
-			if (e.detail == 'none') {
-				pattern = undefined
-				format = undefined
-				contentEncoding = undefined
-				customErrorMessage = undefined
-				minRows = undefined
-				disableCreate = undefined
-				disableVariablePicker = undefined
-			}
-		}}
-	>
-		{#each [['None', 'none'], ['File', 'base64', 'Encoded as Base 64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
-			<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
-		{/each}
-	</ToggleButtonGroup>
+	{#if allowKindChange}
+		<ToggleButtonGroup
+			bind:selected={kind}
+			on:selected={(e) => {
+				if (e.detail != 'enum') {
+					enum_ = undefined
+				}
+				if (e.detail == 'none') {
+					pattern = undefined
+					format = undefined
+					contentEncoding = undefined
+					customErrorMessage = undefined
+					minRows = undefined
+					disableCreate = undefined
+					disableVariablePicker = undefined
+				}
+			}}
+		>
+			{#each [['None', 'none'], ['File', 'base64', 'Encoded as Base 64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
+				<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
+			{/each}
+		</ToggleButtonGroup>
+	{/if}
 	{#if kind == 'pattern'}
 		<Label label="Pattern (Regex)">
 			<svelte:fragment slot="header">
@@ -160,22 +181,40 @@
 					want to allow custom values, you can disable the option below.
 				</Tooltip>
 			</svelte:fragment>
-			<svelte:fragment slot="action">
-				<Button color="light" size="xs" btnClasses="ml-2" on:click={() => (enum_ = undefined)}>
-					Clear enums
-				</Button>
-			</svelte:fragment>
 			<div class="flex flex-col gap-1">
 				{#each enum_ || [] as e}
-					<div class="flex flex-row w-full gap-2">
-						<input id="input" type="text" bind:value={e} />
-						<Button size="sm" on:click={() => remove(e)}>-</Button>
+					<div class="flex flex-row w-full gap-2 pt-2">
+						<input
+							id="input"
+							type="text"
+							bind:value={e}
+							on:input={(event) => onEnumKeyChange(event?.currentTarget.value, e)}
+						/>
+						{#if enumLabels !== undefined}
+							<input
+								id="input"
+								type="text"
+								bind:value={enumLabels[e]}
+								placeholder="Optional title..."
+								on:input={(event) => {
+									if (event?.currentTarget.value === '') {
+										delete enumLabels[e]
+									}
+								}}
+							/>
+						{/if}
+
+						{#if allowAddingOrDeletingEnumValues}
+							<Button size="sm" on:click={() => remove(e)}>-</Button>
+						{/if}
 					</div>
 				{/each}
 			</div>
-			<div class="flex flex-row my-1">
-				<Button color="light" size="sm" on:click={add}>+</Button>
-			</div>
+			{#if allowAddingOrDeletingEnumValues}
+				<div class="flex flex-row my-1">
+					<Button color="light" size="sm" on:click={add}>+</Button>
+				</div>
+			{/if}
 		</Label>
 		{#if !noExtra}
 			<Toggle
@@ -211,7 +250,8 @@
 		{#if format == 'date'}
 			<div class="mt-1" />
 
-			<div class="grid grid-cols-3 gap-2">
+			<div class="grid grid-cols-3 gap-2"
+				>x
 				<Label label="Date format passed to script" class="col-span-2">
 					<svelte:fragment slot="header">
 						<Tooltip light>
