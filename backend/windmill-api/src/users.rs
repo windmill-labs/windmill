@@ -587,7 +587,10 @@ where
                 {
                     if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
                         parts.extensions.insert(authed.clone());
-                        if authed.scopes.is_some() && (path_vec.len() < 3 || path_vec[4] != "jobs")
+                        if authed.scopes.is_some()
+                            && (path_vec.len() < 3
+                                || (path_vec[4] != "jobs"
+                                && path_vec[4] != "jobs_u"))
                         {
                             return Err((
                                 StatusCode::UNAUTHORIZED,
