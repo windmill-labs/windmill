@@ -140,6 +140,8 @@
 				? schema.properties[opened].type
 				: schema.properties[opened].format === 'resource-s3_object'
 				? 'S3'
+				: schema.properties[opened].oneOf && schema.properties[opened].oneOf.length >= 2
+				? 'oneOf'
 				: 'object'
 			: ''
 	}
@@ -328,6 +330,7 @@
 												<PropertyEditor
 													bind:description={schema.properties[argName].description}
 													type={schema.properties[argName].type}
+													bind:oneOf={schema.properties[argName].oneOf}
 													bind:pattern={schema.properties[argName].pattern}
 													bind:enum_={schema.properties[argName].enum}
 													bind:format={schema.properties[argName].format}
@@ -355,6 +358,7 @@
 																	bind:selected
 																	on:selected={(e) => {
 																		const isS3 = e.detail == 'S3'
+																		const isOneOf = e.detail == 'oneOf'
 
 																		selected = e.detail
 
@@ -382,6 +386,39 @@
 																				type: 'object',
 																				format: 'resource-s3_object'
 																			}
+																		} else if (isOneOf) {
+																			schema.properties[argName] = {
+																				...emptyProperty,
+																				type: 'object',
+																				oneOf: [
+																					{
+																						title: 'Option 1',
+																						type: 'object',
+																						properties: {
+																							label: {
+																								type: 'string',
+																								enum: ['Option 1']
+																							},
+																							property_1: {
+																								type: 'string'
+																							}
+																						}
+																					},
+																					{
+																						title: 'Option 2',
+																						type: 'object',
+																						properties: {
+																							label: {
+																								type: 'string',
+																								enum: ['Option 2']
+																							},
+																							property_2: {
+																								type: 'string'
+																							}
+																						}
+																					}
+																				]
+																			}
 																		} else {
 																			schema.properties[argName] = {
 																				...emptyProperty,
@@ -391,7 +428,7 @@
 																		}
 																	}}
 																>
-																	{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
+																	{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
 																		<ToggleButton value={x[1]} label={x[0]} />
 																	{/each}
 																</ToggleButtonGroup>
@@ -407,6 +444,7 @@
 															{lightweightMode}
 															bind:nullable={schema.properties[argName].nullable}
 															type={schema.properties[argName].type}
+															bind:oneOf={schema.properties[argName].oneOf}
 															bind:format={schema.properties[argName].format}
 															contentEncoding={schema.properties[argName].contentEncoding}
 															required={schema.required?.includes(argName) ?? false}

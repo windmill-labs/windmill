@@ -43,6 +43,7 @@ export interface SchemaProperty {
 	dateFormat?: string
 	title?: string
 	placeholder?: string
+	oneOf?: SchemaProperty[]
 }
 
 export interface ModalSchemaProperty {
@@ -69,6 +70,7 @@ export interface ModalSchemaProperty {
 	dateFormat?: string
 	title?: string
 	placeholder?: string
+	oneOf?: SchemaProperty[]
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -94,7 +96,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		nullable: schema.nullable,
 		dateFormat: schema.dateFormat,
 		title: schema.title,
-		placeholder: schema.placeholder
+		placeholder: schema.placeholder,
+		oneOf: schema.oneOf
 	}
 }
 export type Schema = {

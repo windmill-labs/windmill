@@ -11,7 +11,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
-use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ};
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
@@ -401,6 +401,79 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 };
                 (tstype_to_typ(&types[other_p]).0, true)
             } else {
+                if types.len() > 1 {
+                    let one_of_values: Vec<OneOfVariant> = types
+                        .into_iter()
+                        .map_while(|x| match &**x {
+                            TsType::TsTypeLit(TsTypeLit { members, .. }) => {
+                                let label = members
+                                    .iter()
+                                    .find_map(|y| match y {
+                                        TsTypeElement::TsPropertySignature(
+                                            TsPropertySignature { key, type_ann, .. },
+                                        ) => match (&**key, type_ann) {
+                                            (Expr::Ident(Ident { sym, .. }), type_ann) => {
+                                                if sym.to_string() == "label" {
+                                                    type_ann.as_ref().map(|z| match &*z.type_ann {
+                                                        TsType::TsLitType(TsLitType {
+                                                            lit: TsLit::Str(Str { value, .. }),
+                                                            ..
+                                                        }) => Some(value.to_string()),
+                                                        _ => None,
+                                                    })
+                                                } else {
+                                                    None
+                                                }
+                                            }
+                                            _ => None,
+                                        },
+                                        _ => None,
+                                    })
+                                    .flatten();
+
+                                match label {
+                                    Some(label) => {
+                                        let properties: Vec<ObjectProperty> = members
+                                            .into_iter()
+                                            .filter_map(|x| match x {
+                                                TsTypeElement::TsPropertySignature(
+                                                    TsPropertySignature { key, type_ann, .. },
+                                                ) => match (*key.to_owned(), type_ann) {
+                                                    (Expr::Ident(Ident { sym, .. }), type_ann) => {
+                                                        Some(ObjectProperty {
+                                                            key: sym.to_string(),
+                                                            typ: type_ann
+                                                                .as_ref()
+                                                                .map(|typ| {
+                                                                    Box::new(
+                                                                        tstype_to_typ(
+                                                                            &*typ.type_ann,
+                                                                        )
+                                                                        .0,
+                                                                    )
+                                                                })
+                                                                .unwrap_or(Box::new(Typ::Unknown)),
+                                                        })
+                                                    }
+                                                    _ => None,
+                                                },
+                                                _ => None,
+                                            })
+                                            .collect();
+                                        Some(OneOfVariant { label, properties })
+                                    }
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        })
+                        .collect();
+
+                    if one_of_values.len() == types.len() {
+                        return (Typ::OneOf(one_of_values), false);
+                    }
+                }
+
                 let literals = types
                     .into_iter()
                     .filter(|x| match ***x {
