@@ -10,6 +10,7 @@ export function argSigToJsonSchemaType(
 	oldS: SchemaProperty
 ): void {
 	const newS: SchemaProperty = { type: '' }
+
 	if (t === 'int') {
 		newS.type = 'integer'
 	} else if (t === 'float') {
@@ -45,6 +46,8 @@ export function argSigToJsonSchemaType(
 		newS.type = 'string'
 		if (t.str) {
 			newS.enum = t.str
+		} else {
+			newS.enum = undefined
 		}
 	} else if (typeof t !== 'string' && `resource` in t) {
 		newS.type = 'object'
