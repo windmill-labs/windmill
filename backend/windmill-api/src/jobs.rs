@@ -32,6 +32,7 @@ use crate::add_webhook_allowed_origin;
 use crate::concurrency_groups::join_concurrency_key;
 use crate::db::ApiAuthed;
 
+use crate::utils::content_plain;
 use crate::{
     db::DB,
     users::{check_scopes, require_owner_of_path, OptAuthed},
@@ -808,14 +809,6 @@ async fn get_logs_from_disk(
         }
     }
     return None;
-}
-
-fn content_plain(body: Body) -> Response {
-    use axum::http::header;
-    Response::builder()
-        .header(header::CONTENT_TYPE, "text/plain")
-        .body(body)
-        .unwrap()
 }
 
 async fn get_job_logs(

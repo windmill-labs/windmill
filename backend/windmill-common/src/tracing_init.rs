@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use const_format::concatcp;
+use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::{
     fmt::{format, Layer},
     prelude::*,
@@ -24,7 +26,10 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
     tracing_subscriber::fmt::layer().compact()
 }
 
-pub fn initialize_tracing() {
+pub const LOGS_SERVICE: &str = "logs/services/";
+pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
+
+pub fn initialize_tracing() -> WorkerGuard {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
     let json_fmt = std::env::var("JSON_FMT")
         .map(|x| x == "true")
@@ -38,6 +43,21 @@ pub fn initialize_tracing() {
     }
 
     let env_filter = EnvFilter::from_default_env();
+    use tracing_appender::rolling::{RollingFileAppender, Rotation};
+    let hostname = crate::utils::hostname();
+
+    std::fs::create_dir_all(TMP_WINDMILL_LOGS_SERVICE).unwrap();
+    let file_appender = RollingFileAppender::builder()
+        .rotation(Rotation::MINUTELY)
+        .filename_prefix(format!("{}.log", hostname))
+        .max_log_files(20)
+        .build(TMP_WINDMILL_LOGS_SERVICE)
+        .expect("Can build tracing file appender");
+
+    let (log_file_writer, _guard) = NonBlockingBuilder::default()
+        .lossy(false)
+        .finish(file_appender);
+    let stdout_and_log_file_writer = std::io::stdout.and(log_file_writer);
 
     let ts_base = tracing_subscriber::registry().with(env_filter);
 
@@ -51,10 +71,17 @@ pub fn initialize_tracing() {
     };
 
     match json_fmt {
-        true => ts_base.with(json_layer().flatten_event(true)).init(),
+        true => ts_base
+            .with(
+                json_layer()
+                    .with_writer(stdout_and_log_file_writer)
+                    .flatten_event(true),
+            )
+            .init(),
         false => ts_base
             .with(
                 compact_layer()
+                    .with_writer(stdout_and_log_file_writer)
                     .with_ansi(style.to_lowercase() != "never")
                     .with_file(true)
                     .with_line_number(true)
@@ -62,6 +89,7 @@ pub fn initialize_tracing() {
             )
             .init(),
     }
+    _guard
 }
 
 #[cfg(feature = "flamegraph")]

@@ -6,8 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use gethostname::gethostname;
 use git_version::git_version;
+use monitor::{send_current_log_file_to_object_store, send_logs_to_object_store};
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
@@ -117,7 +117,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     }
 
     #[cfg(not(feature = "flamegraph"))]
-    windmill_common::tracing_init::initialize_tracing();
+    let _guard = windmill_common::tracing_init::initialize_tracing();
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     tracing::info!("jemalloc enabled");
@@ -300,6 +300,8 @@ Windmill Community Edition {GIT_VERSION}
 
     let worker_mode = num_workers > 0;
 
+    let hostname = windmill_common::utils::hostname();
+
     if server_mode || worker_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
@@ -327,6 +329,8 @@ Windmill Community Edition {GIT_VERSION}
         monitor_db(&db, &base_internal_url, rsmq.clone(), server_mode, true).await;
 
         monitor_pool(&db).await;
+
+        send_logs_to_object_store(&db, &hostname, &mode);
 
         #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
         if !worker_mode {
@@ -379,6 +383,7 @@ Windmill Community Edition {GIT_VERSION}
                         base_internal_url.clone(),
                         rsmq.clone(),
                         mode.clone() == Mode::Agent,
+                        hostname.clone(),
                     )
                     .await?;
                     tracing::info!("All workers exited.");
@@ -594,6 +599,8 @@ Windmill Community Edition {GIT_VERSION}
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
+    send_current_log_file_to_object_store(&db, &hostname, &mode).await;
+
     tracing::info!("Exiting connection pool");
     tokio::select! {
         _ = db.close() => {
@@ -665,6 +672,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     base_internal_url: String,
     rsmq: Option<R>,
     agent_mode: bool,
+    hostname: String,
 ) -> anyhow::Result<()> {
     let mut killpill_rxs = vec![];
     for _ in 0..num_workers {
@@ -675,10 +683,6 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         tracing::info!("Received killpill, exiting");
         return Ok(());
     }
-    let hostname = gethostname()
-        .to_str()
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| rd_string(5));
     let instance_name = hostname
         .clone()
         .replace(" ", "")

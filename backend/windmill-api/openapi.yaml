@@ -8379,6 +8379,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtendedJobs"
 
+  /service_logs/list:
+    get:
+      summary: list audit logs (requires admin privilege)
+      operationId: listAuditLogs
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Username"
+        - $ref: "#/components/parameters/Operation"
+        - $ref: "#/components/parameters/ResourceName"
+        - $ref: "#/components/parameters/ActionKind"
+
+      responses:
+        "200":
+          description: a list of audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLog"
+
 components:
   securitySchemes:
     bearerAuth:

@@ -82,7 +82,7 @@ async fn add_relative_imports_to_dependency_map<'c>(
     for import in relative_imports {
         sqlx::query!(
             "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
-                 VALUES ($1, $2, $4::text::IMPORTER_KIND, $3, $5)",
+                 VALUES ($1, $2, $4::text::IMPORTER_KIND, $3, $5) ON CONFLICT DO NOTHING",
             w_id,
             script_path,
             import,

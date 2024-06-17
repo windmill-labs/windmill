@@ -81,6 +81,7 @@ serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
+object_store.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -130,6 +131,7 @@ chrono = { version = "0.4.35", features = ["serde"] }
 chrono-tz = "^0"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
+tracing-appender = "^0"
 prometheus = { version = "^0", default-features = false }
 cookie = { version = "0.17.0" }
 phf = { version = "0.11", features = ["macros"] }

@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::{NaiveDateTime, Utc};
 use rsmq_async::MultiplexedRsmq;
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::{Pool, Postgres};
@@ -30,7 +31,7 @@ use windmill_common::{
         PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_server_config, stats_ee::get_user_usage, users::truncate_token, utils::now_from_db, worker::{
+    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_server_config, stats_ee::get_user_usage, tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE}, users::truncate_token, utils::{now_from_db, Mode}, worker::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
     }, BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED
@@ -290,6 +291,87 @@ pub async fn monitor_mem() {
             tokio::time::sleep(Duration::from_secs(30)).await;
         }
     });
+}
+
+async fn sleep_until_next_minute_start_plus_one_s() {
+    let now = Utc::now();
+    let next_minute = now + Duration::from_secs(60 - now.timestamp() as u64 % 60 + 1);
+    tokio::time::sleep(tokio::time::Duration::from_secs(next_minute.timestamp() as u64 - now.timestamp() as u64)).await;
+}
+
+async fn find_two_highest_files() -> (Option<String>, Option<String>) {
+    let rd_dir = tokio::fs::read_dir(TMP_WINDMILL_LOGS_SERVICE).await;
+    if let Ok(mut log_files) = rd_dir {
+        let mut highest_file: Option<String> = None;
+        let mut second_highest_file: Option<String> = None;
+        while let Ok(Some(file)) = log_files.next_entry().await {
+            let file_name = file.file_name().to_str().map(|x| x.to_string()).unwrap_or_default();
+            if file_name > highest_file.clone().unwrap_or_default() {
+                second_highest_file = highest_file;
+                highest_file = Some(file_name);
+            }
+        }
+        (highest_file, second_highest_file) 
+    } else {
+        tracing::error!("Error reading log files: {TMP_WINDMILL_LOGS_SERVICE}, {:#?}", rd_dir.unwrap_err());
+        (None, None)
+    }
+}
+
+pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
+    let db = db.clone();
+    let hostname = hostname.to_string();
+    let mode = mode.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        tracing::error!("Starting log file upload to object store");
+        sleep_until_next_minute_start_plus_one_s().await;
+        loop {
+            interval.tick().await;
+            let (_, snd_highest_file) = find_two_highest_files().await;
+            send_log_file_to_object_store(&hostname, &mode, &db, snd_highest_file, false).await;
+        }
+    });
+}
+
+pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
+    tracing::info!("Sending current log file to object store");
+    let (highest_file, _) = find_two_highest_files().await;
+    send_log_file_to_object_store(hostname, mode, db, highest_file, true).await;
+}
+
+async fn send_log_file_to_object_store(hostname: &str, mode: &Mode, db: &Pool<Postgres>, snd_highest_file: Option<String>, use_now: bool) {
+    if let Some(highest_file) = snd_highest_file  {
+        let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE).join(&highest_file);
+        #[cfg(feature = "parquet")]
+        let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
+        #[cfg(feature = "parquet")]
+        if let Some(s3_client) = s3_client {
+                //read file as byte stream
+                let bytes = tokio::fs::read(&path).await.unwrap();
+                let path = object_store::path::Path::from_url_path(format!("{}{highest_file}", LOGS_SERVICE)).unwrap();
+                tracing::info!("Sending logs to object store at {path}");
+                if let Err(e) = s3_client.put(&path, bytes.into()).await {
+                    tracing::error!("Error sending logs to object store: {:?}", e);
+                }         
+            }
+        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
+        let ts: NaiveDateTime = if use_now {
+            Utc::now().naive_utc()
+         } else { highest_file
+            .split(".")
+            .last()
+            .and_then(|x| NaiveDateTime::parse_from_str(x, 
+                "%Y-%m-%d-%H-%M"
+            ).ok())
+            .unwrap_or_else(|| Utc::now().naive_utc()) 
+        };
+        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, file_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4)", hostname, mode.to_string(), ts, highest_file)
+            .execute(db)
+            .await {
+            tracing::error!("Error inserting log file: {:?}", e);
+            }
+        }
 }
 
 pub async fn load_keep_job_dir(db: &DB) {

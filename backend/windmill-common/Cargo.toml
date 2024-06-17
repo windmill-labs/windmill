@@ -37,6 +37,8 @@ reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 lazy_static.workspace = true
 tracing-flame = { version = "^0", optional = true }
+tracing-appender.workspace = true
+gethostname.workspace = true
 itertools.workspace = true
 regex.workspace = true
 git-version.workspace = true
@@ -50,6 +52,7 @@ aws-sdk-sts = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes = { workspace = true, optional = true }
 mail-send.workspace = true
+const_format.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

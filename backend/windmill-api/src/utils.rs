@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::{body::Body, response::Response};
 use regex::Regex;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
@@ -172,4 +173,12 @@ pub async fn get_and_delete_pending_username_or_generate<'c>(
         let username = generate_instance_wide_unique_username(&mut *tx, email).await?;
         Ok(username)
     }
+}
+
+pub fn content_plain(body: Body) -> Response {
+    use axum::http::header;
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(body)
+        .unwrap()
 }

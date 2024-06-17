@@ -9262,6 +9262,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-appender"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3566e8ce28cc0a3fe42519fc80e6b4c943cc4c8cef275620eb8dac2d3d4e06cf"
+dependencies = [
+ "crossbeam-channel",
+ "thiserror",
+ "time",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tracing-attributes"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10129,6 +10141,7 @@ dependencies = [
  "gethostname",
  "git-version",
  "lazy_static",
+ "object_store",
  "once_cell",
  "pg-embed",
  "prometheus",
@@ -10272,7 +10285,9 @@ dependencies = [
  "axum",
  "bytes",
  "chrono",
+ "const_format",
  "cron",
+ "gethostname",
  "git-version",
  "hex",
  "hmac",
@@ -10295,6 +10310,7 @@ dependencies = [
  "tikv-jemalloc-ctl",
  "tokio",
  "tracing",
+ "tracing-appender",
  "tracing-flame",
  "tracing-loki",
  "tracing-subscriber",
