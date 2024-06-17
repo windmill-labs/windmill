@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.346.2](https://github.com/windmill-labs/windmill/compare/v1.346.1...v1.346.2) (2024-06-17)
+
+
+### Bug Fixes
+
+* **frontend:** revert range ([#3916](https://github.com/windmill-labs/windmill/issues/3916)) ([c94c76f](https://github.com/windmill-labs/windmill/commit/c94c76f59bfbd852cfc486edf4a51ee6ab8d4501))
+
 ## [1.346.1](https://github.com/windmill-labs/windmill/compare/v1.346.0...v1.346.1) (2024-06-17)
 
 
