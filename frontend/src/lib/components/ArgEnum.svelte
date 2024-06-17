@@ -12,6 +12,13 @@
 	export let valid: boolean
 	export let create: boolean
 	export let required: boolean
+	export let enumLabels: Record<string, string> | undefined = undefined
+
+	const items = enumLabels
+		? Object.keys(enumLabels).map((key) => ({ value: key, label: enumLabels?.[key] }))
+		: enum_
+		? enum_
+		: []
 
 	const dispatch = createEventDispatcher()
 
@@ -27,8 +34,8 @@
 <div class="w-full flex-col">
 	<div class="w-full">
 		<AutoComplete
-			labelFieldName={typeof enum_?.[0] === 'string' ? undefined : 'label'}
-			items={[...(required ? [] : ['']), ...(enum_ ?? []), ...customItems]}
+			labelFieldName={enumLabels ? 'label' : undefined}
+			items={[...(required ? [] : ['']), ...items, ...customItems]}
 			bind:selectedItem={value}
 			inputClassName={twMerge(
 				'bg-surface-secondary flex',

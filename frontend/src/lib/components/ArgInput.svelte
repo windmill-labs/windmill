@@ -356,6 +356,7 @@
 															{autofocus}
 															bind:value={v}
 															enum_={itemsType?.enum ?? []}
+															enumLabels={extra['enumLabels']}
 														/>
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
@@ -557,6 +558,7 @@
 						bind:value
 						{enum_}
 						{autofocus}
+						enumLabels={extra['enumLabels']}
 					/>
 				</div>
 			{:else if inputCat == 'date'}
