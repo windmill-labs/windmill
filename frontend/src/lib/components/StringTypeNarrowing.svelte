@@ -178,7 +178,17 @@
 							bind:value={e}
 							on:input={(event) => onEnumKeyChange(event?.currentTarget.value, e)}
 						/>
-						<input id="input" type="text" bind:value={enumLabels[e]} />
+						<input
+							id="input"
+							type="text"
+							bind:value={enumLabels[e]}
+							placeholder="Optional title..."
+							on:input={(event) => {
+								if (event?.currentTarget.value === '') {
+									delete enumLabels[e]
+								}
+							}}
+						/>
 
 						<Button size="sm" on:click={() => remove(e)}>-</Button>
 					</div>
