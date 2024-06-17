@@ -6,11 +6,18 @@ export function argSigToJsonSchemaType(
 		| { resource: string | null }
 		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
 		| { str: string[] | null }
-		| { object: { key: string; typ: any }[] },
+		| { object: { key: string; typ: any }[] }
+		| {
+				oneof: [
+					{
+						label: string
+						properties: { key: string; typ: any }[]
+					}
+				]
+		  },
 	oldS: SchemaProperty
 ): void {
-	const newS: SchemaProperty = { type: '' }
-
+	let newS: SchemaProperty = { type: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
 	} else if (t === 'float') {
@@ -32,12 +39,38 @@ export function argSigToJsonSchemaType(
 	} else if (t === 'datetime') {
 		newS.type = 'string'
 		newS.format = 'date-time'
+	} else if (typeof t !== 'string' && 'oneof' in t) {
+		newS.type = 'object'
+		if (t.oneof) {
+			newS.oneOf = t.oneof.map((obj) => {
+				const oldObjS = oldS.oneOf?.find((o) => o?.title === obj.label) ?? undefined
+				const properties = {}
+				for (const prop of obj.properties) {
+					if (oldObjS?.properties && prop.key in oldObjS?.properties) {
+						properties[prop.key] = oldObjS?.properties[prop.key]
+					} else {
+						properties[prop.key] = { description: '', type: '' }
+					}
+					argSigToJsonSchemaType(prop.typ, properties[prop.key])
+				}
+				return {
+					type: 'object',
+					title: obj.label,
+					properties,
+					order: oldObjS?.order ?? undefined
+				}
+			})
+		}
 	} else if (typeof t !== 'string' && `object` in t) {
 		newS.type = 'object'
 		if (t.object) {
 			const properties = {}
 			for (const prop of t.object) {
-				properties[prop.key] = {}
+				if (oldS.properties && prop.key in oldS.properties) {
+					properties[prop.key] = oldS.properties[prop.key]
+				} else {
+					properties[prop.key] = { description: '', type: '' }
+				}
 				argSigToJsonSchemaType(prop.typ, properties[prop.key])
 			}
 			newS.properties = properties
