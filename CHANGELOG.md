@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.347.0](https://github.com/windmill-labs/windmill/compare/v1.346.2...v1.347.0) (2024-06-17)
+
+
+### Features
+
+* **frontend:** UI customisation improvements + add support for object enums ([#3910](https://github.com/windmill-labs/windmill/issues/3910)) ([25024a9](https://github.com/windmill-labs/windmill/commit/25024a920db2956055a4eec6691f761c3048f6ee))
+* oneOf inputs ([#3893](https://github.com/windmill-labs/windmill/issues/3893)) ([2df9c69](https://github.com/windmill-labs/windmill/commit/2df9c6902369c0f9e9dde98ddcf9d06d38646a3e))
+
+
+### Bug Fixes
+
+* fix permission for scoped tokens on jobs_u paths ([05d2197](https://github.com/windmill-labs/windmill/commit/05d219761892508db8ef9a46ffaf23bac26207f3))
+
 ## [1.346.2](https://github.com/windmill-labs/windmill/compare/v1.346.1...v1.346.2) (2024-06-17)
 
 
