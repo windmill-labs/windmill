@@ -16,13 +16,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	let customItems: Array<{
-		value: string
-		label: string
-	}> = []
+	let customItems: string[] = []
 
 	function onCreate(newItem: string) {
-		customItems = [...customItems, { value: newItem, label: newItem }]
+		console.log(newItem)
+		customItems = [...customItems, newItem]
 
 		return newItem
 	}
