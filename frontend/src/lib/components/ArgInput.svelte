@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { SchemaProperty } from '$lib/common'
+	import type { EnumType, SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -42,7 +42,7 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = true
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let disabled = false
 	export let itemsType:
 		| {
@@ -373,6 +373,7 @@
 															{autofocus}
 															bind:value={v}
 															enum_={itemsType?.enum ?? []}
+															enumLabels={extra['enumLabels']}
 														/>
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
@@ -663,6 +664,7 @@
 						bind:value
 						{enum_}
 						{autofocus}
+						enumLabels={extra['enumLabels']}
 					/>
 				</div>
 			{:else if inputCat == 'date'}

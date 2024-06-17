@@ -79,6 +79,8 @@ export function argSigToJsonSchemaType(
 		newS.type = 'string'
 		if (t.str) {
 			newS.enum = t.str
+		} else {
+			newS.enum = undefined
 		}
 	} else if (typeof t !== 'string' && `resource` in t) {
 		newS.type = 'object'
@@ -117,6 +119,7 @@ export function argSigToJsonSchemaType(
 		'title',
 		'placeholder'
 	]
+
 	preservedFields.forEach((field) => {
 		if (oldS[field] !== undefined) {
 			newS[field] = oldS[field]

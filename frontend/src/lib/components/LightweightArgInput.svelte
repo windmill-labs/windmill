@@ -3,7 +3,7 @@
 	import { Badge, Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import type { SchemaProperty } from '$lib/common'
+	import type { EnumType, SchemaProperty } from '$lib/common'
 	import autosize from '$lib/autosize'
 	import Toggle from './Toggle.svelte'
 	import Range from './Range.svelte'
@@ -36,7 +36,7 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -258,9 +258,12 @@
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						class={valid && error == ''
-							? ''
-							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
+						class={twMerge(
+							valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30',
+							'w-full'
+						)}
 						bind:checked={value}
 					/>
 					{#if type == 'boolean' && value == undefined}
@@ -434,7 +437,7 @@
 						bind:value
 					>
 						{#each enum_ ?? [] as e}
-							<option>{e}</option>
+							<option value={e}>{extra?.['enumLabels']?.[e] ?? e}</option>
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}
