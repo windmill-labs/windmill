@@ -95,7 +95,6 @@
 		norder = norder.filter((x) => properties.includes(x))
 		if (!deepEqual(schema.order, norder)) {
 			schema.order = norder
-			console.log('b')
 			return true
 		}
 		return hasChanged
