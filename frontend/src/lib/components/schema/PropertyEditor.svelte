@@ -51,12 +51,11 @@
 					properties: obj.properties
 						? Object.fromEntries(Object.entries(obj.properties).filter(([k, v]) => k !== 'label'))
 						: {},
-					order: obj.order ?? []
+					order: obj.order
 				}
 			})
 		}
 	}
-
 	$: updateOneOfSchemas(oneOf)
 
 	export function focus() {
@@ -155,13 +154,12 @@
 								bind:currency={extra['currency']}
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
-						{:else if type == 'object' && oneOf && oneOf.length >= 2}
+						{:else if type == 'object' && oneOf && oneOf.length >= 2 && !isFlowInput && !isAppInput}
 							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
 								{#each oneOf as obj}
 									<ToggleButton value={obj.title} label={obj.title} />
 								{/each}
 							</ToggleButtonGroup>
-							{oneOfSelected}
 							{#if oneOfSelected && oneOfSchemas}
 								{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
 								<div class="border">

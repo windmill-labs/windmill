@@ -15,7 +15,7 @@
 	export let blockOpen = false
 </script>
 
-<Popover on:close>
+<Popover on:close class="leading-none">
 	<PopoverButton>
 		<div use:floatingRef>
 			<slot name="button" />

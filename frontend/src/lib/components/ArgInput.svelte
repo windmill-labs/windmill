@@ -528,8 +528,10 @@
 												args={value}
 												dndType={`nested-${title}`}
 												on:reorder={(e) => {
-													const keys = e.detail
-													oneOf[objIdx].order = keys
+													if (oneOf && oneOf[objIdx]) {
+														const keys = e.detail
+														oneOf[objIdx].order = keys
+													}
 												}}
 												on:change
 											/>
