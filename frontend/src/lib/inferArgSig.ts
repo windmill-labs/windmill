@@ -81,7 +81,9 @@ export function argSigToJsonSchemaType(
 		'order',
 		'dateFormat',
 		'title',
-		'placeholder'
+		'placeholder',
+		'enumLabels',
+		'enum'
 	]
 	preservedFields.forEach((field) => {
 		if (oldS[field] !== undefined) {
