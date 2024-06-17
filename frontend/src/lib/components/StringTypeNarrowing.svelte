@@ -24,6 +24,8 @@
 	export let noExtra = false
 	export let dateFormat: string | undefined
 	export let enumLabels: Record<string, string> = {}
+	export let allowKindChange: boolean = true
+	export let allowAddingOrDeletingEnumValues: boolean = true
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind(
 		enum_,
@@ -97,27 +99,29 @@
 </script>
 
 <div class="flex flex-col gap-2">
-	<ToggleButtonGroup
-		bind:selected={kind}
-		on:selected={(e) => {
-			if (e.detail != 'enum') {
-				enum_ = undefined
-			}
-			if (e.detail == 'none') {
-				pattern = undefined
-				format = undefined
-				contentEncoding = undefined
-				customErrorMessage = undefined
-				minRows = undefined
-				disableCreate = undefined
-				disableVariablePicker = undefined
-			}
-		}}
-	>
-		{#each [['None', 'none'], ['File', 'base64', 'Encoded as Base 64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
-			<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
-		{/each}
-	</ToggleButtonGroup>
+	{#if allowKindChange}
+		<ToggleButtonGroup
+			bind:selected={kind}
+			on:selected={(e) => {
+				if (e.detail != 'enum') {
+					enum_ = undefined
+				}
+				if (e.detail == 'none') {
+					pattern = undefined
+					format = undefined
+					contentEncoding = undefined
+					customErrorMessage = undefined
+					minRows = undefined
+					disableCreate = undefined
+					disableVariablePicker = undefined
+				}
+			}}
+		>
+			{#each [['None', 'none'], ['File', 'base64', 'Encoded as Base 64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
+				<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
+			{/each}
+		</ToggleButtonGroup>
+	{/if}
 	{#if kind == 'pattern'}
 		<Label label="Pattern (Regex)">
 			<svelte:fragment slot="header">
@@ -200,13 +204,17 @@
 							/>
 						{/if}
 
-						<Button size="sm" on:click={() => remove(e)}>-</Button>
+						{#if allowAddingOrDeletingEnumValues}
+							<Button size="sm" on:click={() => remove(e)}>-</Button>
+						{/if}
 					</div>
 				{/each}
 			</div>
-			<div class="flex flex-row my-1">
-				<Button color="light" size="sm" on:click={add}>+</Button>
-			</div>
+			{#if allowAddingOrDeletingEnumValues}
+				<div class="flex flex-row my-1">
+					<Button color="light" size="sm" on:click={add}>+</Button>
+				</div>
+			{/if}
 		</Label>
 		{#if !noExtra}
 			<Toggle
@@ -242,7 +250,8 @@
 		{#if format == 'date'}
 			<div class="mt-1" />
 
-			<div class="grid grid-cols-3 gap-2">
+			<div class="grid grid-cols-3 gap-2"
+				>x
 				<Label label="Date format passed to script" class="col-span-2">
 					<svelte:fragment slot="header">
 						<Tooltip light>

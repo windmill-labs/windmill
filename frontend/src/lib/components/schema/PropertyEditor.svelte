@@ -127,6 +127,8 @@
 								bind:disableVariablePicker={extra['disableVariablePicker']}
 								bind:dateFormat={extra['dateFormat']}
 								bind:enumLabels={extra['enumLabels']}
+								allowKindChange={isFlowInput || isAppInput}
+								allowAddingOrDeletingEnumValues={isFlowInput || isAppInput}
 							/>
 						{:else if type == 'number' || type == 'integer'}
 							<NumberTypeNarrowing
