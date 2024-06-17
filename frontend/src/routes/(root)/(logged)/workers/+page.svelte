@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Popup, Skeleton } from '$lib/components/common'
+	import { Button, Popup, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -17,7 +17,7 @@
 	import { WorkerService, type WorkerPing, ConfigService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { displayDate, groupBy, truncate } from '$lib/utils'
+	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, FileJson, LineChart, Plus } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import YAML from 'yaml'
@@ -163,6 +163,40 @@
 	}
 
 	let queueMetricsDrawer: Drawer
+	let selectedTab: string = groupedWorkers?.[0]?.[0] ?? 'default'
+	let search: string = ''
+
+	$: worker_group = filterWorkerGroupByNames(
+		groupedWorkers?.find((x) => x?.[0] == selectedTab),
+		search
+	)
+
+	function filterWorkerGroupByNames(
+		worker_group: [string, [string, WorkerPing[]][]] | undefined,
+		search: string
+	): [string, [string, WorkerPing[]][]] | undefined {
+		if (!worker_group) {
+			return undefined
+		}
+
+		if (!search) {
+			return worker_group
+		}
+
+		if (search === '') {
+			return worker_group
+		}
+
+		debugger
+
+		return [
+			worker_group[0],
+			worker_group[1].map(([section, workers]) => [
+				section,
+				workers.filter((x) => x.worker.toLowerCase().includes(search.toLowerCase()))
+			])
+		]
+	}
 </script>
 
 {#if $superadmin}
@@ -309,125 +343,157 @@
 				</div>
 			{/if}</div
 		>
-		{#each groupedWorkers as worker_group (worker_group[0])}
-			{@const config = (workerGroups ?? {})[worker_group[0]]}
-			{@const activeWorkers = worker_group?.[1].flatMap((x) =>
-				x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
-			)}
-			<WorkspaceGroup
-				{customTags}
-				name={worker_group[0]}
-				{config}
-				on:reload={() => {
-					loadWorkerGroups()
-				}}
-				activeWorkers={activeWorkers?.length ?? 0}
-				{defaultTagPerWorkspace}
-			/>
 
-			<DataTable>
-				<Head>
-					<tr>
-						<Cell head first>Worker</Cell>
-						<Cell head>
-							<div class="flex flex-row items-center gap-1">
-								Worker Tags
-								<Tooltip
-									documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
-								>
-									If defined, the workers only pull jobs with the same corresponding tag
-								</Tooltip>
-							</div>
-						</Cell>
-						<Cell head>Last ping</Cell>
-						<Cell head>Worker start</Cell>
-						<Cell head>Jobs ran</Cell>
-						{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
-							<Cell head>Current job</Cell>
-							<Cell head>Occupancy rate</Cell>
-						{/if}
-						<Cell head>Memory usage<br />(Windmill)</Cell>
-						<Cell head>Limits</Cell>
-						<Cell head>Version</Cell>
-						<Cell head last>Liveness</Cell>
-					</tr>
-				</Head>
-				<tbody>
-					{#each worker_group[1] as [section, workers]}
-						<tr class="border-t">
-							<Cell
-								first
-								colspan={(!config || config?.dedicated_worker == undefined) && $superadmin ? 11 : 9}
-								scope="colgroup"
-								class="bg-surface-secondary/60 py-2 border-b"
-							>
-								Instance: <Badge color="gray">{section?.split(splitter)?.[0]}</Badge>
-								IP: <Badge color="gray">{workers[0].ip}</Badge>
-								{#if workers?.length > 1}
-									{workers?.length} Workers
+		<Tabs bind:selected={selectedTab}>
+			{#each groupedWorkers as worker_group (worker_group[0])}
+				{@const activeWorkers = worker_group?.[1].flatMap((x) =>
+					x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+				)}
+				<Tab value={worker_group[0]}>
+					{`${worker_group[0]} ( ${pluralize(activeWorkers?.length, 'worker')}`}
+
+					<Tooltip>Number of workers active in the last 10s</Tooltip>
+					)
+				</Tab>
+			{/each}
+			<svelte:fragment slot="content">
+				{#if worker_group}
+					{@const config = (workerGroups ?? {})[worker_group[0]]}
+					{@const activeWorkers = worker_group?.[1].flatMap((x) =>
+						x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+					)}
+					<WorkspaceGroup
+						{customTags}
+						name={worker_group[0]}
+						{config}
+						on:reload={() => {
+							loadWorkerGroups()
+						}}
+						activeWorkers={activeWorkers?.length ?? 0}
+						{defaultTagPerWorkspace}
+					/>
+
+					<div class="my-2">
+						<input
+							class="max-w-80 border rounded-md p-2"
+							placeholder="Search workers..."
+							bind:value={search}
+						/>
+					</div>
+					<DataTable>
+						<Head>
+							<tr>
+								<Cell head first>Worker</Cell>
+								<Cell head>
+									<div class="flex flex-row items-center gap-1">
+										Worker Tags
+										<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
+										>
+											If defined, the workers only pull jobs with the same corresponding tag
+										</Tooltip>
+									</div>
+								</Cell>
+								<Cell head>Last ping</Cell>
+								<Cell head>Worker start</Cell>
+								<Cell head>Jobs ran</Cell>
+								{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
+									<Cell head>Current job</Cell>
+									<Cell head>Occupancy rate</Cell>
 								{/if}
-							</Cell>
-						</tr>
-
-						{#if workers}
-							{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
-								<tr>
-									<Cell first>{worker}</Cell>
-									<Cell>
-										{#if custom_tags && custom_tags?.length > 2}
-											{truncate(custom_tags?.join(', ') ?? '', 10)}
-											<Tooltip>{custom_tags?.join(', ')}</Tooltip>
-										{:else}
-											{custom_tags?.join(', ') ?? ''}
+								<Cell head>Memory usage<br />(Windmill)</Cell>
+								<Cell head>Limits</Cell>
+								<Cell head>Version</Cell>
+								<Cell head last>Liveness</Cell>
+							</tr>
+						</Head>
+						<tbody>
+							{#each worker_group[1] as [section, workers]}
+								<tr class="border-t">
+									<Cell
+										first
+										colspan={(!config || config?.dedicated_worker == undefined) && $superadmin
+											? 11
+											: 9}
+										scope="colgroup"
+										class="bg-surface-secondary/60 py-2 border-b"
+									>
+										Instance: <Badge color="gray">{section?.split(splitter)?.[0]}</Badge>
+										IP: <Badge color="gray">{workers[0].ip}</Badge>
+										{#if workers?.length > 1}
+											{workers?.length} Workers
 										{/if}
 									</Cell>
-									<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell>
-									<Cell>{displayDate(started_at)}</Cell>
-									<Cell>{jobs_executed}</Cell>
-									{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
-										<Cell>
-											{#if current_job_id}
-												<a href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}>
-													View job
-												</a>
-												<br />
-												(workspace {current_job_workspace_id})
-											{/if}
-										</Cell>
-										<Cell>
-											{Math.ceil(occupancy_rate ?? 0 * 100)}%
-										</Cell>
-									{/if}
-									<Cell
-										>{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}<br
-										/>({wm_memory_usage
-											? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
-											: '--'})</Cell
-									>
-									<Cell>
-										{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
-										/ {memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
-									</Cell>
-									<Cell>
-										<div class="!text-2xs">
-											{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
-										</div>
-									</Cell>
-									<Cell last>
-										<Badge
-											color={last_ping != undefined ? (last_ping < 60 ? 'green' : 'red') : 'gray'}
-										>
-											{last_ping != undefined ? (last_ping < 60 ? 'Alive' : 'Dead') : 'Unknown'}
-										</Badge>
-									</Cell>
 								</tr>
+
+								{#if workers}
+									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+										<tr>
+											<Cell first>{worker}</Cell>
+											<Cell>
+												{#if custom_tags && custom_tags?.length > 2}
+													{truncate(custom_tags?.join(', ') ?? '', 10)}
+													<Tooltip>{custom_tags?.join(', ')}</Tooltip>
+												{:else}
+													{custom_tags?.join(', ') ?? ''}
+												{/if}
+											</Cell>
+											<Cell>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell
+											>
+											<Cell>{displayDate(started_at)}</Cell>
+											<Cell>{jobs_executed}</Cell>
+											{#if (!config || config?.dedicated_worker == undefined) && $superadmin}
+												<Cell>
+													{#if current_job_id}
+														<a
+															href={`/run/${current_job_id}?workspace=${current_job_workspace_id}`}
+														>
+															View job
+														</a>
+														<br />
+														(workspace {current_job_workspace_id})
+													{/if}
+												</Cell>
+												<Cell>
+													{Math.ceil(occupancy_rate ?? 0 * 100)}%
+												</Cell>
+											{/if}
+											<Cell
+												>{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}<br
+												/>({wm_memory_usage
+													? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
+													: '--'})</Cell
+											>
+											<Cell>
+												{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
+												/ {memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
+											</Cell>
+											<Cell>
+												<div class="!text-2xs">
+													{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
+												</div>
+											</Cell>
+											<Cell last>
+												<Badge
+													color={last_ping != undefined
+														? last_ping < 60
+															? 'green'
+															: 'red'
+														: 'gray'}
+												>
+													{last_ping != undefined ? (last_ping < 60 ? 'Alive' : 'Dead') : 'Unknown'}
+												</Badge>
+											</Cell>
+										</tr>
+									{/each}
+								{/if}
 							{/each}
-						{/if}
-					{/each}
-				</tbody>
-			</DataTable>
-			<div class="pb-4" />
-		{/each}
+						</tbody>
+					</DataTable>
+					<div class="pb-4" />
+				{/if}
+			</svelte:fragment>
+		</Tabs>
 
 		<div class="pb-4" />
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Plus, X } from 'lucide-svelte'
+	import { Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -801,26 +801,28 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex gap-2 items-center"
-	><h4 class="py-4 truncate w-40 text-primary">{name}</h4>
+<div class="flex gap-2 items-center justify-end flex-row my-2">
 	{#if $superadmin}
 		<Button
 			color="light"
 			size="xs"
+			variant="border"
 			on:click={() => {
 				dirty = false
 				loadNConfig()
 				drawer.openDrawer()
 			}}
+			startIcon={{ icon: config == undefined ? Plus : Settings }}
 		>
 			<div class="flex flex-row gap-1 items-center">
-				{config == undefined ? 'create' : 'edit'} config
+				{config == undefined ? 'Create' : 'Edit'} config
 			</div>
 		</Button>
 
 		<Button
 			color="light"
 			size="xs"
+			variant="border"
 			on:click={() => {
 				navigator.clipboard.writeText(
 					YAML.stringify({
@@ -830,8 +832,9 @@
 				)
 				sendUserToast('Worker config copied to clipboard as YAML')
 			}}
+			startIcon={{ icon: Copy }}
 		>
-			copy config
+			Copy config
 		</Button>
 
 		{#if config}
@@ -845,9 +848,10 @@
 						openDelete = true
 					}
 				}}
+				startIcon={{ icon: Trash }}
 				btnClasses="text-red-400"
 			>
-				delete config
+				Delete config
 			</Button>
 		{/if}
 
@@ -860,8 +864,9 @@
 				openClean = true
 			}}
 			btnClasses="text-red-400"
+			startIcon={{ icon: RefreshCcwIcon }}
 		>
-			clean cache
+			Clean cache
 		</Button>
 	{:else if config}
 		<Button
@@ -874,10 +879,5 @@
 		>
 			<div class="flex flex-row gap-1 items-center"> config </div>
 		</Button>
-	{/if}
-	{#if activeWorkers > 1}
-		<span class="ml-4 text-xs"
-			>{activeWorkers} Workers <Tooltip>Number of workers active in the last 10s</Tooltip></span
-		>
 	{/if}
 </div>
