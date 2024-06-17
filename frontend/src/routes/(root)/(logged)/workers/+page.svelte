@@ -187,8 +187,6 @@
 			return worker_group
 		}
 
-		debugger
-
 		return [
 			worker_group[0],
 			worker_group[1].map(([section, workers]) => [
@@ -345,16 +343,24 @@
 		>
 
 		<Tabs bind:selected={selectedTab}>
-			{#each groupedWorkers as worker_group (worker_group[0])}
-				{@const activeWorkers = worker_group?.[1].flatMap((x) =>
-					x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
-				)}
-				<Tab value={worker_group[0]}>
-					{`${worker_group[0]} ( ${pluralize(activeWorkers?.length, 'worker')}`}
+			{#each Object.keys(workerGroups ?? {}) as name (name)}
+				{@const worker_group = groupedWorkers.find((x) => x[0] == name)}
 
-					<Tooltip>Number of workers active in the last 10s</Tooltip>
-					)
-				</Tab>
+				{#if worker_group}
+					{@const activeWorkers = worker_group?.[1].flatMap((x) =>
+						x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+					)}
+					<Tab value={worker_group[0]}>
+						{`${worker_group[0]} ( ${pluralize(activeWorkers?.length, 'worker')}`}
+						<Tooltip>Number of workers active in the last 10s</Tooltip>)
+					</Tab>
+				{:else}
+					<Tab value={name}>
+						<Badge color="yellow">
+							{name} (0 worker)
+						</Badge>
+					</Tab>
+				{/if}
 			{/each}
 			<svelte:fragment slot="content">
 				{#if worker_group}
@@ -491,24 +497,26 @@
 						</tbody>
 					</DataTable>
 					<div class="pb-4" />
+				{:else}
+					{@const worker_group = Object.entries(workerGroups ?? {})
+						.filter((x) => !groupedWorkers.some((y) => y[0] == x[0]))
+						.find((x) => x[0] == selectedTab)}
+
+					<WorkspaceGroup
+						{customTags}
+						on:reload={() => {
+							loadWorkerGroups()
+						}}
+						name={worker_group[0]}
+						config={worker_group[1]}
+						activeWorkers={0}
+					/>
+					<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
 				{/if}
 			</svelte:fragment>
 		</Tabs>
 
 		<div class="pb-4" />
-
-		{#each Object.entries(workerGroups ?? {}).filter((x) => !groupedWorkers.some((y) => y[0] == x[0])) as worker_group (worker_group[0])}
-			<WorkspaceGroup
-				{customTags}
-				on:reload={() => {
-					loadWorkerGroups()
-				}}
-				name={worker_group[0]}
-				config={worker_group[1]}
-				activeWorkers={0}
-			/>
-			<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
-		{/each}
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(4) as _}
