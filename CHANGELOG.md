@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.346.1](https://github.com/windmill-labs/windmill/compare/v1.346.0...v1.346.1) (2024-06-17)
+
+
+### Bug Fixes
+
+* job perms and job logs grants ([#3914](https://github.com/windmill-labs/windmill/issues/3914)) ([96dfacb](https://github.com/windmill-labs/windmill/commit/96dfacbfc8a2e418a39a7dc2ebc1082f00ef510f))
+
 ## [1.346.0](https://github.com/windmill-labs/windmill/compare/v1.345.2...v1.346.0) (2024-06-17)
 
 
