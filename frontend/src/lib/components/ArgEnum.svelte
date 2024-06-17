@@ -14,18 +14,25 @@
 	export let required: boolean
 	export let enumLabels: Record<string, string> | undefined = undefined
 
-	const items = enumLabels
-		? Object.keys(enumLabels).map((key) => ({ value: key, label: enumLabels?.[key] }))
-		: enum_
-		? enum_
+	$: items = enum_
+		? enum_.map((item) => (enumLabels ? { value: item, label: enumLabels[item] ?? item } : item))
 		: []
 
 	const dispatch = createEventDispatcher()
 
-	let customItems: string[] = []
+	let customItems: Array<{
+		value: string
+		label: string
+	}> = []
 
 	function onCreate(newItem: string) {
-		customItems = [...customItems, newItem]
+		customItems = [
+			...customItems,
+			{
+				value: newItem,
+				label: newItem
+			}
+		]
 
 		return newItem
 	}
@@ -34,7 +41,7 @@
 <div class="w-full flex-col">
 	<div class="w-full">
 		<AutoComplete
-			labelFieldName={enumLabels ? 'label' : undefined}
+			labelFieldName={'label'}
 			items={[...(required ? [] : ['']), ...items, ...customItems]}
 			bind:selectedItem={value}
 			inputClassName={twMerge(

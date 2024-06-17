@@ -76,6 +76,10 @@
 		if (enum_.length == 0) {
 			enum_ = undefined
 		}
+
+		if (enumLabels !== undefined) {
+			delete enumLabels[item]
+		}
 	}
 
 	const presetOptions = [
