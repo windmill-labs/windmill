@@ -3618,8 +3618,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
-        Json(raw_flow) as Json<Option<FlowValue>>,
-        Json(flow_status) as Json<Option<FlowStatus>>,
+        raw_flow.map(Json) as Option<Json<FlowValue>>,
+        flow_status.map(Json) as Option<Json<FlowStatus>>,
         is_flow_step,
         language as Option<ScriptLang>,
         same_worker,
@@ -3645,39 +3645,39 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         QUEUE_PUSH_COUNT.inc();
     }
 
-    let job_authed = match authed {
-        Some(authed)
-            if authed.email == email
-                && authed.username == permissioned_as_to_username(&permissioned_as) =>
-        {
-            authed.clone()
-        }
-        _ => {
-            if authed.is_some() {
-                tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
-            }
-            fetch_authed_from_permissioned_as(
-                permissioned_as.clone(),
-                email.to_string(),
-                workspace_id,
-                _db,
-            )
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!(
-                    "Could not get permissions directly for job {job_id}: {e:#}"
-                ))
-            })?
-        }
-    };
-
-    let folders = job_authed
-        .folders
-        .iter()
-        .filter_map(|x| serde_json::to_value(x).ok())
-        .collect::<Vec<_>>();
-
     if JOB_TOKEN.is_none() {
+        let job_authed = match authed {
+            Some(authed)
+                if authed.email == email
+                    && authed.username == permissioned_as_to_username(&permissioned_as) =>
+            {
+                authed.clone()
+            }
+            _ => {
+                if authed.is_some() {
+                    tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
+                }
+                fetch_authed_from_permissioned_as(
+                    permissioned_as.clone(),
+                    email.to_string(),
+                    workspace_id,
+                    _db,
+                )
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "Could not get permissions directly for job {job_id}: {e:#}"
+                    ))
+                })?
+            }
+        };
+
+        let folders = job_authed
+            .folders
+            .iter()
+            .filter_map(|x| serde_json::to_value(x).ok())
+            .collect::<Vec<_>>();
+
         if let Err(err) = sqlx::query!("INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
             values ($1, $2, $3, $4, $5, $6, $7, $8) 
             ON CONFLICT (job_id) DO UPDATE SET email = $2, username = $3, is_admin = $4, is_operator = $5, folders = $6, groups = $7, workspace_id = $8",

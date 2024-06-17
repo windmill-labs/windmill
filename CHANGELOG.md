@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.346.0](https://github.com/windmill-labs/windmill/compare/v1.345.2...v1.346.0) (2024-06-17)
+
+
+### Features
+
+* accelerate bun through caches ([#3909](https://github.com/windmill-labs/windmill/issues/3909)) ([28afe59](https://github.com/windmill-labs/windmill/commit/28afe59a4ab4e97a18e4ca7a893d83c329ee4078))
+* **frontend:** event handlers ([#3902](https://github.com/windmill-labs/windmill/issues/3902)) ([4f0e111](https://github.com/windmill-labs/windmill/commit/4f0e111563f5f5ab7b280aa98a89f48cb3637e59))
+* replace ephemeral tokens by jwt ([#3908](https://github.com/windmill-labs/windmill/issues/3908)) ([21b9acc](https://github.com/windmill-labs/windmill/commit/21b9accca1a8ab5c728fce15b3a7890375f11274))
+
+
+### Bug Fixes
+
+* fix workflow as code ([d518e23](https://github.com/windmill-labs/windmill/commit/d518e2359d522df3c8cf23baaf444eabfb11246f))
+* job perms for agent mode ([#3911](https://github.com/windmill-labs/windmill/issues/3911)) ([e0ac22b](https://github.com/windmill-labs/windmill/commit/e0ac22ba4a59da4ca6c548de1ce0b5f394a49c66))
+
 ## [1.345.2](https://github.com/windmill-labs/windmill/compare/v1.345.1...v1.345.2) (2024-06-13)
 
 
