@@ -22,7 +22,7 @@
 	}> = []
 
 	function onCreate(newItem: string) {
-		customItems = [...customItems, value]
+		customItems = [...customItems, { value: newItem, label: newItem }]
 
 		return newItem
 	}
