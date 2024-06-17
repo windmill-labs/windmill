@@ -19,7 +19,6 @@ use serde::Serialize;
 
 use windmill_common::{
     error::{Error, JsonResult},
-    s3_helpers::OBJECT_STORE_CACHE_SETTINGS,
     utils::Pagination,
 };
 
@@ -86,6 +85,8 @@ async fn get_log_stream(
     Extension(db): Extension<DB>,
     Json(lf): Json<Vec<String>>,
 ) -> windmill_common::error::Result<Response> {
+    use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
+
     require_super_admin(&db, &email).await?;
     let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
     if let Some(s3_client) = s3_client {
@@ -120,7 +121,7 @@ async fn get_log_stream(
             let file_p_2 = file_p.clone();
             let file = tokio::fs::read(file_p).await;
             if let Ok(file) = file {
-                yield Ok(bytes::Bytes::from(file)) as object_store::Result<bytes::Bytes>;
+                yield Ok(bytes::Bytes::from(file)) as anyhow::Result<bytes::Bytes>;
             } else {
                 tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
             }

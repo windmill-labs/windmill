@@ -8379,10 +8379,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtendedJobs"
 
-  /service_logs/list:
+  /service_logs/list_files:
     get:
-      summary: list audit logs (requires admin privilege)
-      operationId: listAuditLogs
+      summary: list service logs files (requires superadmin privilege)
+      operationId: listServiceLogsFiles
       tags:
         - service_logs
       parameters:
@@ -8398,13 +8398,13 @@ paths:
 
       responses:
         "200":
-          description: a list of audit logs
+          description: a list of service logs files
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/AuditLog"
+                  $ref: "#/components/schemas/LogFile"
 
 components:
   securitySchemes:
@@ -10887,3 +10887,14 @@ components:
       required:
         - jobs
         - obscured_jobs
+
+    LogFile:
+      type: object
+      properties:
+        file_ts:
+          type: integer
+        file_:
+          type: string
+          format: date-time
+        username:
+          type: string

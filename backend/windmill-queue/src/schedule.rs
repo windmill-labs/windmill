@@ -12,6 +12,7 @@ use crate::QueueTransaction;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
+use windmill_common::db::Authed;
 use windmill_common::flows::Retry;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
@@ -27,6 +28,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     db: &DB,
     mut tx: QueueTransaction<'c, R>,
     schedule: &Schedule,
+    authed: Option<&Authed>,
 ) -> Result<QueueTransaction<'c, R>> {
     let sched = cron::Schedule::from_str(schedule.schedule.as_ref())
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
@@ -205,6 +207,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         timeout,
         None,
         None,
+        authed,
     )
     .await?;
     Ok(tx) // TODO: Bubble up pushed UUID from here

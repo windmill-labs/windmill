@@ -23,18 +23,32 @@ use windmill_api::{
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
 use windmill_common::{
-    ee::CriticalErrorChannel, error, flow_status::FlowStatusModule, global_settings::{
+    auth::JWT_SECRET,
+    ee::CriticalErrorChannel,
+    error,
+    flow_status::FlowStatusModule,
+    global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-    }, jobs::QueuedJob, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_server_config, stats_ee::get_user_usage, tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE}, users::truncate_token, utils::{now_from_db, Mode}, worker::{
+    },
+    jobs::QueuedJob,
+    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
+    server::load_server_config,
+    stats_ee::get_user_usage,
+    tracing_init::TMP_WINDMILL_LOGS_SERVICE,
+    users::truncate_token,
+    utils::{now_from_db, rd_string, Mode},
+    worker::{
         load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
         WORKER_CONFIG,
-    }, BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, METRICS_DEBUG_ENABLED, METRICS_ENABLED
+    },
+    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
 use windmill_worker::{
@@ -141,6 +155,10 @@ pub async fn initial_load(
         tracing::error!("Could not reload critical error emails setting: {:?}", e);
     }
 
+    if let Err(e) = reload_jwt_secret_setting(&db).await {
+        tracing::error!("Could not reload jwt secret setting: {:?}", e);
+    }
+
     #[cfg(feature = "parquet")]
     if !_is_agent {
         reload_s3_cache_setting(&db).await;
@@ -201,7 +219,7 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
                     tracing::error!("Error setting jemalloc prof_active: {e:?}");
                 }
             }
-        },
+        }
         _ => (),
     };
     Ok(())
@@ -209,7 +227,9 @@ pub async fn load_metrics_debug_enabled(db: &DB) -> error::Result<()> {
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 #[derive(Debug, Clone)]
-pub struct MallctlError { pub code: i32 }
+pub struct MallctlError {
+    pub code: i32,
+}
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 fn set_prof_active(new_value: bool) -> Result<(), MallctlError> {
@@ -217,13 +237,12 @@ fn set_prof_active(new_value: bool) -> Result<(), MallctlError> {
 
     tracing::info!("Setting jemalloc prof_active to {}", new_value);
     let result = unsafe {
-
         tikv_jemalloc_sys::mallctl(
-            option_name.as_ptr(), // const char *name
-            std::ptr::null_mut(), // void *oldp
-            std::ptr::null_mut(), // size_t *oldlenp
-            &new_value as *const _ as *mut _, // void *newp
-            std::mem::size_of_val(&new_value) // size_t newlen
+            option_name.as_ptr(),              // const char *name
+            std::ptr::null_mut(),              // void *oldp
+            std::ptr::null_mut(),              // size_t *oldlenp
+            &new_value as *const _ as *mut _,  // void *newp
+            std::mem::size_of_val(&new_value), // size_t newlen
         )
     };
 
@@ -240,15 +259,12 @@ pub fn bytes_to_mb(bytes: u64) -> f64 {
     bytes as f64 / BYTES_PER_MB
 }
 
-
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 pub async fn monitor_mem() {
-
     use std::time::Duration;
-    use tikv_jemalloc_ctl::{stats, epoch};
+    use tikv_jemalloc_ctl::{epoch, stats};
 
     tokio::spawn(async move {
-
         // Obtain a MIB for the `epoch`, `stats.allocated`, and
         // `atats.resident` keys:
         let e = match epoch::mib() {
@@ -271,19 +287,22 @@ pub async fn monitor_mem() {
                 tracing::error!("Error getting jemalloc resident mib: {:?}", e);
                 return;
             }
-        }; 
-        
-        
+        };
+
         loop {
-            // Many statistics are cached and only updated 
+            // Many statistics are cached and only updated
             // when the epoch is advanced:
             match e.advance() {
                 Ok(_) => {
                     // Read statistics using MIB key:
                     let allocated = allocated.read().unwrap_or_default();
                     let resident = resident.read().unwrap_or_default();
-                    tracing::info!("{} mb allocated/{} mb resident", bytes_to_mb(allocated as u64), bytes_to_mb(resident as u64));
-                },
+                    tracing::info!(
+                        "{} mb allocated/{} mb resident",
+                        bytes_to_mb(allocated as u64),
+                        bytes_to_mb(resident as u64)
+                    );
+                }
                 Err(e) => {
                     tracing::error!("Error advancing jemalloc epoch: {:?}", e);
                 }
@@ -296,7 +315,10 @@ pub async fn monitor_mem() {
 async fn sleep_until_next_minute_start_plus_one_s() {
     let now = Utc::now();
     let next_minute = now + Duration::from_secs(60 - now.timestamp() as u64 % 60 + 1);
-    tokio::time::sleep(tokio::time::Duration::from_secs(next_minute.timestamp() as u64 - now.timestamp() as u64)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(
+        next_minute.timestamp() as u64 - now.timestamp() as u64,
+    ))
+    .await;
 }
 
 async fn find_two_highest_files() -> (Option<String>, Option<String>) {
@@ -305,15 +327,22 @@ async fn find_two_highest_files() -> (Option<String>, Option<String>) {
         let mut highest_file: Option<String> = None;
         let mut second_highest_file: Option<String> = None;
         while let Ok(Some(file)) = log_files.next_entry().await {
-            let file_name = file.file_name().to_str().map(|x| x.to_string()).unwrap_or_default();
+            let file_name = file
+                .file_name()
+                .to_str()
+                .map(|x| x.to_string())
+                .unwrap_or_default();
             if file_name > highest_file.clone().unwrap_or_default() {
                 second_highest_file = highest_file;
                 highest_file = Some(file_name);
             }
         }
-        (highest_file, second_highest_file) 
+        (highest_file, second_highest_file)
     } else {
-        tracing::error!("Error reading log files: {TMP_WINDMILL_LOGS_SERVICE}, {:#?}", rd_dir.unwrap_err());
+        tracing::error!(
+            "Error reading log files: {TMP_WINDMILL_LOGS_SERVICE}, {:#?}",
+            rd_dir.unwrap_err()
+        );
         (None, None)
     }
 }
@@ -340,38 +369,47 @@ pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode
     send_log_file_to_object_store(hostname, mode, db, highest_file, true).await;
 }
 
-async fn send_log_file_to_object_store(hostname: &str, mode: &Mode, db: &Pool<Postgres>, snd_highest_file: Option<String>, use_now: bool) {
-    if let Some(highest_file) = snd_highest_file  {
+async fn send_log_file_to_object_store(
+    hostname: &str,
+    mode: &Mode,
+    db: &Pool<Postgres>,
+    snd_highest_file: Option<String>,
+    use_now: bool,
+) {
+    if let Some(highest_file) = snd_highest_file {
         let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE).join(&highest_file);
         #[cfg(feature = "parquet")]
         let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
-                //read file as byte stream
-                let bytes = tokio::fs::read(&path).await.unwrap();
-                let path = object_store::path::Path::from_url_path(format!("{}{highest_file}", LOGS_SERVICE)).unwrap();
-                tracing::info!("Sending logs to object store at {path}");
-                if let Err(e) = s3_client.put(&path, bytes.into()).await {
-                    tracing::error!("Error sending logs to object store: {:?}", e);
-                }         
+            //read file as byte stream
+            let bytes = tokio::fs::read(&path).await.unwrap();
+            let path = object_store::path::Path::from_url_path(format!(
+                "{}{highest_file}",
+                windmill_common::tracing_init::LOGS_SERVICE
+            ))
+            .unwrap();
+            tracing::info!("Sending logs to object store at {path}");
+            if let Err(e) = s3_client.put(&path, bytes.into()).await {
+                tracing::error!("Error sending logs to object store: {:?}", e);
             }
+        }
         //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
         let ts: NaiveDateTime = if use_now {
             Utc::now().naive_utc()
-         } else { highest_file
-            .split(".")
-            .last()
-            .and_then(|x| NaiveDateTime::parse_from_str(x, 
-                "%Y-%m-%d-%H-%M"
-            ).ok())
-            .unwrap_or_else(|| Utc::now().naive_utc()) 
+        } else {
+            highest_file
+                .split(".")
+                .last()
+                .and_then(|x| NaiveDateTime::parse_from_str(x, "%Y-%m-%d-%H-%M").ok())
+                .unwrap_or_else(|| Utc::now().naive_utc())
         };
         if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, file_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4)", hostname, mode.to_string(), ts, highest_file)
             .execute(db)
             .await {
             tracing::error!("Error inserting log file: {:?}", e);
             }
-        }
+    }
 }
 
 pub async fn load_keep_job_dir(db: &DB) {
@@ -881,7 +919,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             .unwrap_or(true);
 
         if metrics_enabled || save_metrics {
-
             let queue_counts = sqlx::query!(
                 "SELECT tag, count(*) as count FROM queue WHERE
                 scheduled_for <= now() - ('3 seconds')::interval AND running = false
@@ -927,12 +964,14 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         // clean queue metrics older than 14 days
         sqlx::query!(
             "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
-        ).execute(&mut *tx).await.ok();
+        )
+        .execute(&mut *tx)
+        .await
+        .ok();
 
         tx.commit().await.ok();
     }
 }
-
 
 #[derive(Serialize)]
 struct WorkerUsage {
@@ -940,7 +979,6 @@ struct WorkerUsage {
     worker_instance: String,
     vcpus: Option<i64>,
     memory: Option<i64>,
-
 }
 
 pub async fn save_usage_metrics(db: &Pool<Postgres>) {
@@ -958,7 +996,10 @@ pub async fn save_usage_metrics(db: &Pool<Postgres>) {
 
         // save author and operator count every ~24 hours
         if last_check
-            .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::hours(24) - chrono::Duration::minutes(random_nb % 60))
+            .map(|last_check| {
+                chrono::Utc::now() - last_check
+                    > chrono::Duration::hours(24) - chrono::Duration::minutes(random_nb % 60)
+            })
             .unwrap_or(true)
         {
             let user_usage = get_user_usage(&mut *tx).await.ok();
@@ -966,14 +1007,13 @@ pub async fn save_usage_metrics(db: &Pool<Postgres>) {
             if let Some(user_usage) = user_usage {
                 sqlx::query!(
                     "INSERT INTO metrics (id, value) VALUES ('author_count', $1), ('operator_count', $2)",
-                    serde_json::json!(user_usage.author_count.unwrap_or(0)), 
+                    serde_json::json!(user_usage.author_count.unwrap_or(0)),
                     serde_json::json!(user_usage.operator_count.unwrap_or(0))
                 )
                 .execute(&mut *tx)
                 .await
                 .ok();
             }
-
 
             // clean metrics older than 6 months (including worker usage)
             sqlx::query!(
@@ -987,7 +1027,10 @@ pub async fn save_usage_metrics(db: &Pool<Postgres>) {
 
         // save worker usage every ~60 minutes
         if last_check
-            .map(|last_check| chrono::Utc::now() - last_check > chrono::Duration::minutes(60) - chrono::Duration::seconds(random_nb % 300))
+            .map(|last_check| {
+                chrono::Utc::now() - last_check
+                    > chrono::Duration::minutes(60) - chrono::Duration::seconds(random_nb % 300)
+            })
             .unwrap_or(true)
         {
             let worker_usage = sqlx::query_as!(
@@ -1011,7 +1054,6 @@ pub async fn save_usage_metrics(db: &Pool<Postgres>) {
 
         tx.commit().await.ok();
     }
-
 }
 
 pub async fn reload_server_config(db: &Pool<Postgres>) {
@@ -1185,7 +1227,9 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             mpsc::channel::<SameWorkerPayload>(1);
         let (send_result_never_used, _send_result_rx_never_used) = mpsc::channel::<SendResult>(1);
 
-        let label = if job.permissioned_as != format!("u/{}", job.created_by) && job.permissioned_as != job.created_by {
+        let label = if job.permissioned_as != format!("u/{}", job.created_by)
+            && job.permissioned_as != job.created_by
+        {
             format!("ephemeral-script-end-user-{}", job.created_by)
         } else {
             "ephemeral-script".to_string()
@@ -1338,7 +1382,7 @@ async fn cancel_zombie_flow_job(
         db,
         rsmq.clone(),
         false,
-        false
+        false,
     )
     .await?;
     sqlx::query!(
@@ -1413,6 +1457,38 @@ pub async fn reload_critical_error_channels_setting(db: &DB) -> error::Result<()
 
     let mut l = CRITICAL_ERROR_CHANNELS.write().await;
     *l = critical_error_channels;
+
+    Ok(())
+}
+
+async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
+    let secret = rd_string(32);
+    sqlx::query!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2",
+        JWT_SECRET_SETTING,
+        serde_json::to_value(&secret).unwrap()
+    ).execute(db).await?;
+
+    Ok(secret)
+}
+
+pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
+    let jwt_secret = load_value_from_global_settings(db, JWT_SECRET_SETTING).await?;
+
+    let jwt_secret = if let Some(q) = jwt_secret {
+        if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
+            v
+        } else {
+            tracing::error!("Could not parse jwt_secret setting, generating new one");
+            generate_and_save_jwt_secret(db).await?
+        }
+    } else {
+        tracing::info!("Not jwt secret found, generating one");
+        generate_and_save_jwt_secret(db).await?
+    };
+
+    let mut l = JWT_SECRET.write().await;
+    *l = jwt_secret;
 
     Ok(())
 }

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO log_file (hostname, mode, file_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Timestamp",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c89d30b6600396a8171253f26ab0583a228010ea8fcee65aaa436de290d4c8eb"
+}
