@@ -106,7 +106,7 @@
 						</div>
 					</div>
 
-					{#if schema.properties[item.value]?.type === 'object'}
+					{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
 						<div class="flex flex-col w-full mt-2">
 							<Label label="Nested Properties">
 								<svelte:self
