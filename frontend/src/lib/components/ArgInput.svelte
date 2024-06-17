@@ -101,11 +101,7 @@
 				if (inputCat === 'string') {
 					value = nullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
-					if (Array.isArray(enum_) && typeof enum_[0] == 'object') {
-						value = enum_[0].value
-					} else {
-						value = enum_?.[0]
-					}
+					value = enum_?.[0]
 				} else if (inputCat == 'boolean') {
 					value = false
 				} else if (inputCat == 'list') {

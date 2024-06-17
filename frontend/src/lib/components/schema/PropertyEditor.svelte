@@ -126,6 +126,7 @@
 								bind:disableCreate={extra['disableCreate']}
 								bind:disableVariablePicker={extra['disableVariablePicker']}
 								bind:dateFormat={extra['dateFormat']}
+								bind:enumLabels={extra['enumLabels']}
 							/>
 						{:else if type == 'number' || type == 'integer'}
 							<NumberTypeNarrowing

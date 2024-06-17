@@ -390,11 +390,7 @@
 						bind:value
 					>
 						{#each enum_ ?? [] as e}
-							{#if typeof e === 'string'}
-								<option value={e}>{e}</option>
-							{:else}
-								<option value={e.value}>{e.label}</option>
-							{/if}
+							<option value={e}>{extra?.['enumLabels']?.[e] ?? e}</option>
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}
