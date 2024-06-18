@@ -1,4 +1,4 @@
-openapi: "3.0.3"
+openapi: "3.1.0"
 
 info:
   version: 1.345.2
@@ -8386,16 +8386,50 @@ paths:
       tags:
         - service_logs
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - $ref: "#/components/parameters/Before"
         - $ref: "#/components/parameters/After"
-        - $ref: "#/components/parameters/Username"
-        - $ref: "#/components/parameters/Operation"
-        - $ref: "#/components/parameters/ResourceName"
-        - $ref: "#/components/parameters/ActionKind"
 
+
+      responses:
+        "200":
+          description: a list of service logs files
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogFile"
+
+  /service_logs/get_log_stream:
+    post:
+      summary: get log stream (requires superadmin privilege)
+      operationId: listServiceLogsFiles
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+
+      requestBody:
+        description: get list
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timeseries_max_datapoints:
+                  type: integer
+                from_timestamp:
+                  type: string
+                  format: date-time
+                to_timestamp:
+                  type: string
+                  format: date-time
       responses:
         "200":
           description: a list of service logs files
