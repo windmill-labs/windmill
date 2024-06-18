@@ -149,7 +149,7 @@
 								bind:dateFormat={extra['dateFormat']}
 								bind:enumLabels={extra['enumLabels']}
 								originalType={extra['originalType']}
-								allowAddingOrDeletingEnumValues={isFlowInput || isAppInput}
+								overrideAllowKindChange={isFlowInput || isAppInput}
 							/>
 						{:else if type == 'number' || type == 'integer'}
 							<NumberTypeNarrowing

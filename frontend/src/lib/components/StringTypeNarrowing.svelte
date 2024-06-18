@@ -24,7 +24,7 @@
 	export let noExtra = false
 	export let dateFormat: string | undefined
 	export let enumLabels: Record<string, string> = {}
-	export let allowAddingOrDeletingEnumValues: boolean = true
+	export let overrideAllowKindChange: boolean = true
 	export let originalType: string | undefined = undefined
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind(
@@ -34,7 +34,7 @@
 		format
 	)
 
-	const allowKindChange = originalType === 'string'
+	const allowKindChange = overrideAllowKindChange || originalType === 'string'
 
 	let patternStr: string = pattern ?? ''
 	let resource: string | undefined
@@ -206,13 +206,13 @@
 							/>
 						{/if}
 
-						{#if allowAddingOrDeletingEnumValues || allowKindChange}
+						{#if allowKindChange}
 							<Button size="sm" on:click={() => remove(e)}>-</Button>
 						{/if}
 					</div>
 				{/each}
 			</div>
-			{#if allowAddingOrDeletingEnumValues || allowKindChange}
+			{#if allowKindChange}
 				<div class="flex flex-row my-1">
 					<Button color="light" size="sm" on:click={add}>+</Button>
 				</div>
