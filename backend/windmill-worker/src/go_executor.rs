@@ -54,7 +54,7 @@ pub async fn save_cache(
         if let Err(e) = os
             .put(
                 &Path::from(hash_path.clone()),
-                bytes::Bytes::from(std::fs::read(&job_main_path)?),
+                std::fs::read(&job_main_path)?.into(),
             )
             .await
         {
