@@ -192,7 +192,12 @@
 				([section, workers]) =>
 					[
 						section,
-						workers.filter((worker) => worker.worker.toLowerCase().includes(search.toLowerCase()))
+						workers.filter(
+							(worker) =>
+								worker.worker.toLowerCase().includes(search.toLowerCase()) ||
+								worker.worker_instance.toLowerCase().includes(search.toLowerCase()) ||
+								worker.ip.toLowerCase().includes(search.toLowerCase())
+						)
 					] as [string, WorkerPing[]]
 			)
 			.filter(([section, workers]) => workers.length > 0)
@@ -377,7 +382,7 @@
 						)}
 						<Tab value={worker_group[0]}>
 							{`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
-							<Tooltip>Number of workers active in the last 10s</Tooltip>
+							<Tooltip>Number of workers active in the last 15s</Tooltip>
 						</Tab>
 					{:else}
 						<Tab value={name}>
