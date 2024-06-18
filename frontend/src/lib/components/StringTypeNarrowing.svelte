@@ -34,7 +34,6 @@
 		format
 	)
 
-	// if initially the kind is base64 or enum, then the user cannot change the kind
 	const allowKindChange = originalType === 'string'
 
 	let patternStr: string = pattern ?? ''
