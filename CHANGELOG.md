@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.348.0](https://github.com/windmill-labs/windmill/compare/v1.347.1...v1.348.0) (2024-06-18)
+
+
+### Features
+
+* add support for bytea in pg ([#3926](https://github.com/windmill-labs/windmill/issues/3926)) ([b753e4d](https://github.com/windmill-labs/windmill/commit/b753e4d06c431035084ba325be7573354cd3b621))
+* **frontend:** Enable changing kind for string properties ([#3925](https://github.com/windmill-labs/windmill/issues/3925)) ([cfab185](https://github.com/windmill-labs/windmill/commit/cfab1853abb3557a0efc14e4d5ca05872ba27f76))
+* **frontend:** worker page improvements ([#3921](https://github.com/windmill-labs/windmill/issues/3921)) ([b904a36](https://github.com/windmill-labs/windmill/commit/b904a36356849f854aaf6e91b9767653d7c6802b))
+
+
+### Bug Fixes
+
+* **frontend:** fix InlineScriptEditor zIndex ([#3922](https://github.com/windmill-labs/windmill/issues/3922)) ([b56f77b](https://github.com/windmill-labs/windmill/commit/b56f77b1da10085b9f4436a2aac5ba13cf14bdaf))
+
 ## [1.347.1](https://github.com/windmill-labs/windmill/compare/v1.347.0...v1.347.1) (2024-06-18)
 
 
