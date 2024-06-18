@@ -450,7 +450,7 @@
 								<Cell head last>Liveness</Cell>
 							</tr>
 						</Head>
-						<tbody class="divide-y divide-gray-100">
+						<tbody class="divide-y">
 							{#each worker_group[1] as [section, workers]}
 								<tr class="border-t">
 									<Cell
