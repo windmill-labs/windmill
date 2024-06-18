@@ -24,7 +24,7 @@
 
 <div class="flex flex-col w-80 p-2 gap-2">
 	{#if !$enterpriseLicense}
-		<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap ml-8">
+		<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap justify-end">
 			<AlertTriangle size={16} />
 			EE only <Tooltip>Enterprise Edition only feature</Tooltip>
 		</div>
