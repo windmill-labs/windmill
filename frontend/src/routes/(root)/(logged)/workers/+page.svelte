@@ -376,8 +376,8 @@
 							x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 						)}
 						<Tab value={worker_group[0]}>
-							{`${worker_group[0]} ( ${pluralize(activeWorkers?.length, 'worker')}`}
-							<Tooltip>Number of workers active in the last 10s</Tooltip>)
+							{`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
+							<Tooltip>Number of workers active in the last 10s</Tooltip>
 						</Tab>
 					{:else}
 						<Tab value={name}>
@@ -445,7 +445,7 @@
 								<Cell head last>Liveness</Cell>
 							</tr>
 						</Head>
-						<tbody>
+						<tbody class="divide-y divide-gray-100">
 							{#each worker_group[1] as [section, workers]}
 								<tr class="border-t">
 									<Cell
@@ -454,13 +454,19 @@
 											? 11
 											: 9}
 										scope="colgroup"
-										class="bg-surface-secondary/40 !py-1 border-b  !h-1"
+										class="bg-surface-secondary/30 !py-1 border-b !text-xs"
 									>
-										Instance: <Badge small color="gray">{section?.split(splitter)?.[0]}</Badge>
-										IP: <Badge small color="gray">{workers[0].ip}</Badge>
-										{#if workers?.length > 1}
-											{workers?.length} Workers
-										{/if}
+										<div class="flex flex-row w-full">
+											<div class="min-w-64">
+												Host:
+												<span class="font-semibold">{section?.split(splitter)?.[0]}</span>
+											</div>
+											<span class="ml-4">IP: </span>
+											<span class="font-semibold">{workers[0].ip}</span>
+											{#if workers?.length > 1}
+												{workers?.length} Workers
+											{/if}
+										</div>
 									</Cell>
 								</tr>
 
@@ -496,15 +502,27 @@
 													{Math.ceil(occupancy_rate ?? 0 * 100)}%
 												</Cell>
 											{/if}
-											<Cell
-												>{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}<br
-												/>({wm_memory_usage
-													? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
-													: '--'})</Cell
-											>
 											<Cell>
-												{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
-												/ {memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
+												<div class="flex flex-col gap-1">
+													<div>
+														{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}
+													</div>
+													<div>
+														({wm_memory_usage
+															? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
+															: '--'})
+													</div>
+												</div>
+											</Cell>
+											<Cell>
+												<div class="flex flex-col gap-1">
+													<div>
+														{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
+													</div>
+													<div>
+														{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
+													</div>
+												</div>
 											</Cell>
 											<Cell>
 												<div class="!text-2xs">
