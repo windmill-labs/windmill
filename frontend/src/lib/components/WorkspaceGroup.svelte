@@ -806,7 +806,6 @@
 		<Button
 			color="light"
 			size="xs"
-			variant="border"
 			on:click={() => {
 				dirty = false
 				loadNConfig()
@@ -822,7 +821,6 @@
 		<Button
 			color="light"
 			size="xs"
-			variant="border"
 			on:click={() => {
 				navigator.clipboard.writeText(
 					YAML.stringify({
