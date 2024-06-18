@@ -39,17 +39,20 @@
 		}
 		event.preventDefault()
 	}
+
+	// Calculate the handle width based on the length of the max value
+	$: handleWidth = `${max.toString().length ?? 2}em`
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={'grow'}
-	style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; "
+	style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth};"
 	on:pointerdown|stopPropagation
 	on:keydown={handleKeyDown}
 >
 	<RangeSlider
-		id="range-slider"
+		id="range-slider-form"
 		springValues={{ stiffness: 1, damping: 1 }}
 		bind:slider
 		min={min == undefined ? 0 : +min}
@@ -70,31 +73,31 @@
 </div>
 
 <style>
-	:global(#range-slider.rangeSlider) {
+	:global(#range-slider-form.rangeSlider) {
 		font-size: 12px;
 		text-transform: uppercase;
 	}
 
-	:global(.dark #range-slider.rangeSlider) {
+	:global(.dark #range-slider-form.rangeSlider) {
 		background-color: #3b4252;
 	}
 
-	:global(#range-slider.rangeSlider .rangeHandle) {
-		width: 3em !important;
+	:global(#range-slider-form.rangeSlider .rangeHandle) {
+		width: var(--handle-width, 2em) !important;
 		height: 2em;
 		display: flex;
 		justify-items: center;
 		justify-content: center;
 	}
 
-	:global(#range-slider.rangeSlider .rangeFloat) {
+	:global(#range-slider-form.rangeSlider .rangeFloat) {
 		opacity: 1;
 		background: transparent;
 		top: 50%;
 		transform: translate(-50%, -50%);
 	}
 
-	:global(.dark #range-slider.rangeSlider > .rangePips > .pip) {
+	:global(.dark #range-slider-form.rangeSlider > .rangePips > .pip) {
 		color: #eeeeee;
 	}
 </style>
