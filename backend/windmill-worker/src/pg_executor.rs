@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
+use base64::{engine, Engine as _};
 use chrono::Utc;
 use futures::TryStreamExt;
 use native_tls::{Certificate, TlsConnector};
@@ -343,6 +344,7 @@ enum PgType {
     None(Option<bool>),
     Array(Vec<PgType>),
     Json(serde_json::Value),
+    Bytea(Vec<u8>),
 }
 
 impl ToSql for PgType {
@@ -369,6 +371,7 @@ impl ToSql for PgType {
             PgType::None(ref val) => val.to_sql(ty, out),
             PgType::Array(ref val) => val.to_sql(ty, out),
             PgType::Json(ref val) => val.to_sql(ty, out),
+            PgType::Bytea(ref val) => val.to_sql(ty, out),
         }
     }
 
@@ -440,6 +443,12 @@ fn convert_val(value: &Value, arg_t: &String, typ: &Typ) -> windmill_common::err
             let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
                 .unwrap_or_default();
             Ok(PgType::Timestamp(datetime))
+        }
+        Value::String(s) if arg_t == "bytea" => {
+            let bytes = engine::general_purpose::STANDARD
+                .decode(s)
+                .unwrap_or(vec![]);
+            Ok(PgType::Bytea(bytes))
         }
         Value::Object(_) => Ok(PgType::Json(value.clone())),
         Value::String(s) => Ok(PgType::String(s.clone())),
@@ -516,6 +525,9 @@ pub fn pg_cell_to_json_value(
                 .map_err(|_| anyhow::anyhow!("Cannot convert decimal to json"))?)
         })?,
         Type::FLOAT8 => get_basic(row, column, column_i, |a: f64| f64_to_json_number(a))?,
+        Type::BYTEA => get_basic(row, column, column_i, |a: Vec<u8>| {
+            Ok(JSONValue::String(format!("\\x{}", hex::encode(a))))
+        })?,
         // these types require a custom StringCollector struct as an intermediary (see struct at bottom)
         Type::TS_VECTOR => get_basic(row, column, column_i, |a: StringCollector| {
             Ok(JSONValue::String(a.0))
@@ -566,6 +578,9 @@ pub fn pg_cell_to_json_value(
         })?,
         Type::TIMESTAMPTZ_ARRAY => get_array(row, column, column_i, |a: chrono::DateTime<Utc>| {
             Ok(JSONValue::String(a.to_string()))
+        })?,
+        Type::BYTEA_ARRAY => get_array(row, column, column_i, |a: Vec<u8>| {
+            Ok(JSONValue::String(format!("\\x{}", hex::encode(a))))
         })?,
         _ => get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?,
     })

@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.347.1](https://github.com/windmill-labs/windmill/compare/v1.347.0...v1.347.1) (2024-06-18)
+
+
+### Bug Fixes
+
+* add more debug logs around http client errors ([a64b099](https://github.com/windmill-labs/windmill/commit/a64b0990846c41988b4d1717123672e2a59289bd))
+* add more debug logs around http client errors ([631b981](https://github.com/windmill-labs/windmill/commit/631b981b8e75165d4dc2ef706b415af4a1384a48))
+
+## [1.347.0](https://github.com/windmill-labs/windmill/compare/v1.346.2...v1.347.0) (2024-06-17)
+
+
+### Features
+
+* **frontend:** UI customisation improvements + add support for object enums ([#3910](https://github.com/windmill-labs/windmill/issues/3910)) ([25024a9](https://github.com/windmill-labs/windmill/commit/25024a920db2956055a4eec6691f761c3048f6ee))
+* oneOf inputs ([#3893](https://github.com/windmill-labs/windmill/issues/3893)) ([2df9c69](https://github.com/windmill-labs/windmill/commit/2df9c6902369c0f9e9dde98ddcf9d06d38646a3e))
+
+
+### Bug Fixes
+
+* fix permission for scoped tokens on jobs_u paths ([05d2197](https://github.com/windmill-labs/windmill/commit/05d219761892508db8ef9a46ffaf23bac26207f3))
+
+## [1.346.2](https://github.com/windmill-labs/windmill/compare/v1.346.1...v1.346.2) (2024-06-17)
+
+
+### Bug Fixes
+
+* **frontend:** revert range ([#3916](https://github.com/windmill-labs/windmill/issues/3916)) ([c94c76f](https://github.com/windmill-labs/windmill/commit/c94c76f59bfbd852cfc486edf4a51ee6ab8d4501))
+
+## [1.346.1](https://github.com/windmill-labs/windmill/compare/v1.346.0...v1.346.1) (2024-06-17)
+
+
+### Bug Fixes
+
+* job perms and job logs grants ([#3914](https://github.com/windmill-labs/windmill/issues/3914)) ([96dfacb](https://github.com/windmill-labs/windmill/commit/96dfacbfc8a2e418a39a7dc2ebc1082f00ef510f))
+
 ## [1.346.0](https://github.com/windmill-labs/windmill/compare/v1.345.2...v1.346.0) (2024-06-17)
 
 

@@ -26,6 +26,13 @@ pub struct ObjectProperty {
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all(serialize = "lowercase"))]
+pub struct OneOfVariant {
+    pub label: String,
+    pub properties: Vec<ObjectProperty>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all(serialize = "lowercase"))]
 pub enum Typ {
     Str(Option<Vec<String>>),
     Int,
@@ -38,6 +45,7 @@ pub enum Typ {
     Email,
     Sql,
     Object(Vec<ObjectProperty>),
+    OneOf(Vec<OneOfVariant>),
     Unknown,
 }
 

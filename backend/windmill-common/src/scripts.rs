@@ -16,6 +16,7 @@ use crate::{
     utils::http_get_from_hub,
     DB, HUB_BASE_URL,
 };
+use anyhow::Context;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
@@ -401,7 +402,7 @@ pub async fn get_full_hub_script_by_path(
     .await?
     .json::<HubScript>()
     .await
-    .map_err(to_anyhow)?;
+    .context("Decoding hub response to script")?;
     Ok(value)
 }
 

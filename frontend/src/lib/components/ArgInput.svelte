@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { SchemaProperty } from '$lib/common'
+	import type { EnumType, SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -25,6 +25,8 @@
 	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
@@ -36,10 +38,11 @@
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
+	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = true
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let disabled = false
 	export let itemsType:
 		| {
@@ -74,6 +77,20 @@
 	export let order: string[] | undefined = undefined
 	export let editor: SimpleEditor | undefined = undefined
 	export let orderEditable = false
+
+	let oneOfSelected: string | undefined = undefined
+	function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
+		if (oneOf && oneOf.length >= 2 && !oneOfSelected) {
+			oneOfSelected = oneOf[0]['title']
+		}
+	}
+	$: updateOneOfSelected(oneOf)
+	function updateOneOfSelectedValue(oneOfSelected: string | undefined) {
+		if (oneOfSelected) {
+			value = { label: oneOfSelected }
+		}
+	}
+	$: updateOneOfSelectedValue(oneOfSelected)
 
 	const dispatch = createEventDispatcher()
 
@@ -356,6 +373,7 @@
 															{autofocus}
 															bind:value={v}
 															enum_={itemsType?.enum ?? []}
+															enumLabels={extra['enumLabels']}
 														/>
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
@@ -480,7 +498,96 @@
 					{/if}
 				</div>
 			{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
-				{#if properties && Object.keys(properties).length > 0}
+				{#if oneOf && oneOf.length >= 2}
+					<div class="flex flex-col gap-2 w-full">
+						{#if oneOf && oneOf.length >= 2}
+							<ToggleButtonGroup bind:selected={oneOfSelected}>
+								{#each oneOf as obj}
+									<ToggleButton value={obj.title} label={obj.title} />
+								{/each}
+							</ToggleButtonGroup>
+
+							{#if oneOfSelected}
+								{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
+								{@const obj = oneOf[objIdx]}
+								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
+									<div class="p-4 pl-8 border rounded w-full">
+										{#if orderEditable}
+											<SchemaFormDnd
+												{onlyMaskPassword}
+												{disablePortal}
+												{disabled}
+												schema={{
+													properties: Object.fromEntries(
+														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+													),
+													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+													$schema: '',
+													required: obj.required ?? [],
+													type: 'object'
+												}}
+												args={value}
+												dndType={`nested-${title}`}
+												on:reorder={(e) => {
+													if (oneOf && oneOf[objIdx]) {
+														const keys = e.detail
+														oneOf[objIdx].order = keys
+													}
+												}}
+												on:change
+											/>
+										{:else}
+											<SchemaForm
+												{onlyMaskPassword}
+												{disablePortal}
+												{disabled}
+												noDelete
+												schema={{
+													properties: Object.fromEntries(
+														Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+													),
+													order: obj.order?.filter((k) => k !== 'label') ?? undefined,
+													$schema: '',
+													required: obj.required ?? [],
+													type: 'object'
+												}}
+												bind:args={value}
+											/>
+										{/if}
+									</div>
+								{:else if disabled}
+									<textarea disabled />
+								{:else}
+									<JsonEditor
+										bind:editor
+										on:focus={(e) => {
+											dispatch('focus')
+										}}
+										on:blur={(e) => {
+											dispatch('blur')
+										}}
+										code={rawValue}
+										bind:value
+									/>
+								{/if}
+							{/if}
+						{:else if disabled}
+							<textarea disabled />
+						{:else}
+							<JsonEditor
+								bind:editor
+								on:focus={(e) => {
+									dispatch('focus')
+								}}
+								on:blur={(e) => {
+									dispatch('blur')
+								}}
+								code={rawValue}
+								bind:value
+							/>
+						{/if}
+					</div>
+				{:else if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded-md w-full">
 						{#if orderEditable}
 							<SchemaFormDnd
@@ -557,6 +664,7 @@
 						bind:value
 						{enum_}
 						{autofocus}
+						enumLabels={extra['enumLabels']}
 					/>
 				</div>
 			{:else if inputCat == 'date'}

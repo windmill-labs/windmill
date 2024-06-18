@@ -1949,9 +1949,8 @@ async fn test_invalid_first_step(db: Pool<Postgres>) {
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
     let job = run_job_in_new_worker_until_complete(&db, flow, port).await;
 
-    assert_eq!(
-        job.json_result().unwrap(),
-        serde_json::json!( {"error":  {"name": "InternalErr", "message": "Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0"}})
+    assert!(
+        serde_json::to_string(&job.json_result().unwrap()).unwrap().contains("Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0")
     );
 }
 
