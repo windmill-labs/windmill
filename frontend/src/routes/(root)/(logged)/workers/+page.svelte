@@ -18,7 +18,7 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, FileJson, LineChart, Plus } from 'lucide-svelte'
+	import { AlertTriangle, FileJson, LineChart, Plus, Search } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import YAML from 'yaml'
 
@@ -187,13 +187,17 @@
 			return worker_group
 		}
 
-		return [
-			worker_group[0],
-			worker_group[1].map(([section, workers]) => [
-				section,
-				workers.filter((x) => x.worker.toLowerCase().includes(search.toLowerCase()))
-			])
-		]
+		const filteredWorkerGroup: [string, WorkerPing[]][] = worker_group[1]
+			.map(
+				([section, workers]) =>
+					[
+						section,
+						workers.filter((worker) => worker.worker.toLowerCase().includes(search.toLowerCase()))
+					] as [string, WorkerPing[]]
+			)
+			.filter(([section, workers]) => workers.length > 0)
+
+		return [worker_group[0], filteredWorkerGroup]
 	}
 </script>
 
@@ -379,12 +383,13 @@
 						{defaultTagPerWorkspace}
 					/>
 
-					<div class="my-2">
+					<div class="flex flex-row items-center gap-2 relative my-2">
 						<input
-							class="max-w-80 border rounded-md p-2"
+							class="max-w-80 border rounded-md !pl-8"
 							placeholder="Search workers..."
 							bind:value={search}
 						/>
+						<Search class="absolute left-2 " size={14} />
 					</div>
 					<DataTable>
 						<Head>
@@ -502,16 +507,18 @@
 						.filter((x) => !groupedWorkers.some((y) => y[0] == x[0]))
 						.find((x) => x[0] == selectedTab)}
 
-					<WorkspaceGroup
-						{customTags}
-						on:reload={() => {
-							loadWorkerGroups()
-						}}
-						name={worker_group[0]}
-						config={worker_group[1]}
-						activeWorkers={0}
-					/>
-					<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
+					{#if worker_group}
+						<WorkspaceGroup
+							{customTags}
+							on:reload={() => {
+								loadWorkerGroups()
+							}}
+							name={worker_group[0]}
+							config={worker_group[1]}
+							activeWorkers={0}
+						/>
+						<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
+					{/if}
 				{/if}
 			</svelte:fragment>
 		</Tabs>
