@@ -11,7 +11,7 @@ path = "./src/lib.rs"
 
 
 [dependencies]
-progenitor-client = { git = "https://github.com/oxidecomputer/progenitor", rev = "3d96016ae8d422e90513b2d34fb5b63eeab30b01" }
+progenitor-client = { git = "https://github.com/oxidecomputer/progenitor", rev = "a2d1100413e5d755009e9d04ced20393c84352e9" }
 reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 chrono.workspace = true
@@ -23,7 +23,7 @@ openapiv3 = "=1.0.2"
 
 [build-dependencies]
 prettyplease = "0.1.25"
-progenitor = { git = "https://github.com/oxidecomputer/progenitor", rev = "3d96016ae8d422e90513b2d34fb5b63eeab30b01" }
+progenitor = { git = "https://github.com/oxidecomputer/progenitor", rev = "a2d1100413e5d755009e9d04ced20393c84352e9" }
 serde_json = "1.0"
 syn = "1.0"
 openapiv3 = "=1.0.2"

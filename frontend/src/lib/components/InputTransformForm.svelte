@@ -390,6 +390,7 @@
 					bind:description={schema.properties[argName].description}
 					bind:value={arg.value}
 					type={schema.properties[argName].type}
+					oneOf={schema.properties[argName].oneOf}
 					required={schema.required.includes(argName)}
 					bind:pattern={schema.properties[argName].pattern}
 					bind:valid={inputCheck}

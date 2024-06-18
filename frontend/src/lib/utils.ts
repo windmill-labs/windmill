@@ -12,6 +12,7 @@ import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Script } from './gen'
+import type { EnumType } from './common'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -377,6 +378,7 @@ export type InputCat =
 	| 'sql'
 	| 'yaml'
 	| 'currency'
+	| 'oneOf'
 
 export function setInputCat(
 	type: string | undefined,
@@ -411,6 +413,8 @@ export function setInputCat(
 		return 'email'
 	} else if (type == 'string' && format == 'currency') {
 		return 'currency'
+	} else if (type == 'oneOf') {
+		return 'oneOf'
 	} else {
 		return 'string'
 	}
@@ -852,7 +856,7 @@ export function getLocalSetting(name: string) {
 }
 
 export function computeKind(
-	enum_: string[] | undefined,
+	enum_: EnumType,
 	contentEncoding: 'base64' | 'binary' | undefined,
 	pattern: string | undefined,
 	format: string | undefined
@@ -879,7 +883,7 @@ export function computeKind(
 export function shouldDisplayPlaceholder(
 	type: string | undefined,
 	format: string | undefined,
-	enum_: string[] | undefined,
+	enum_: EnumType,
 	contentEncoding: 'base64' | 'binary' | undefined,
 	pattern: string | undefined,
 	extra: Record<string, any> | undefined

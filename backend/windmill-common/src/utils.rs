@@ -13,6 +13,7 @@ use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::server::Smtp;
 use crate::DB;
+use anyhow::Context;
 use gethostname::gethostname;
 use git_version::git_version;
 use mail_send::mail_builder::MessageBuilder;
@@ -144,7 +145,10 @@ pub async fn http_get_from_hub(
         }
     }
 
-    let response = request.send().await.map_err(to_anyhow)?;
+    let response = request
+        .send()
+        .await
+        .context(format!("error fetching script at {url} from hub"))?;
 
     Ok(response)
 }

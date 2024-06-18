@@ -11,7 +11,7 @@ use windmill_common::{
     worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::{
@@ -399,8 +399,7 @@ pub struct AuthedClient {
 
 impl AuthedClient {
     pub async fn get(&self, url: &str, query: Vec<(&str, String)>) -> anyhow::Result<Response> {
-        Ok(self
-            .force_client
+        self.force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
             .get(url)
@@ -414,7 +413,10 @@ impl AuthedClient {
                 reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
             )
             .send()
-            .await?)
+            .await
+            .context(format!(
+                "Executing request from authed http client to {url} with query {query:?}",
+            ))
     }
 
     pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
@@ -424,7 +426,10 @@ impl AuthedClient {
         );
         let response = self.get(&url, vec![]).await?;
         match response.status().as_u16() {
-            200u16 => Ok(response.json::<String>().await?),
+            200u16 => Ok(response
+                .json::<String>()
+                .await
+                .context("decoding oidc token as json string")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
@@ -436,7 +441,10 @@ impl AuthedClient {
         );
         let response = self.get(&url, vec![]).await?;
         match response.status().as_u16() {
-            200u16 => Ok(response.json::<T>().await?),
+            200u16 => Ok(response
+                .json::<T>()
+                .await
+                .context("decoding resource value as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
@@ -448,7 +456,10 @@ impl AuthedClient {
         );
         let response = self.get(&url, vec![]).await?;
         match response.status().as_u16() {
-            200u16 => Ok(response.json::<String>().await?),
+            200u16 => Ok(response
+                .json::<String>()
+                .await
+                .context("decoding variable value as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
@@ -468,7 +479,10 @@ impl AuthedClient {
         }
         let response = self.get(&url, query).await?;
         match response.status().as_u16() {
-            200u16 => Ok(response.json::<T>().await?),
+            200u16 => Ok(response
+                .json::<T>()
+                .await
+                .context("decoding interpolated resource value as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
@@ -489,7 +503,10 @@ impl AuthedClient {
         };
         let response = self.get(&url, query).await?;
         match response.status().as_u16() {
-            200u16 => Ok(response.json::<T>().await?),
+            200u16 => Ok(response
+                .json::<T>()
+                .await
+                .context("decoding completed job result as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
@@ -511,7 +528,10 @@ impl AuthedClient {
         };
         let response = self.get(&url, query).await?;
         match response.status().as_u16() {
-            200u16 => Ok(response.json::<T>().await?),
+            200u16 => Ok(response
+                .json::<T>()
+                .await
+                .context("decoding result by id as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }

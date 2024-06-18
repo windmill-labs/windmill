@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.347.0](https://github.com/windmill-labs/windmill/compare/v1.346.2...v1.347.0) (2024-06-17)
+
+
+### Features
+
+* **frontend:** UI customisation improvements + add support for object enums ([#3910](https://github.com/windmill-labs/windmill/issues/3910)) ([25024a9](https://github.com/windmill-labs/windmill/commit/25024a920db2956055a4eec6691f761c3048f6ee))
+* oneOf inputs ([#3893](https://github.com/windmill-labs/windmill/issues/3893)) ([2df9c69](https://github.com/windmill-labs/windmill/commit/2df9c6902369c0f9e9dde98ddcf9d06d38646a3e))
+
+
+### Bug Fixes
+
+* fix permission for scoped tokens on jobs_u paths ([05d2197](https://github.com/windmill-labs/windmill/commit/05d219761892508db8ef9a46ffaf23bac26207f3))
+
+## [1.346.2](https://github.com/windmill-labs/windmill/compare/v1.346.1...v1.346.2) (2024-06-17)
+
+
+### Bug Fixes
+
+* **frontend:** revert range ([#3916](https://github.com/windmill-labs/windmill/issues/3916)) ([c94c76f](https://github.com/windmill-labs/windmill/commit/c94c76f59bfbd852cfc486edf4a51ee6ab8d4501))
+
+## [1.346.1](https://github.com/windmill-labs/windmill/compare/v1.346.0...v1.346.1) (2024-06-17)
+
+
+### Bug Fixes
+
+* job perms and job logs grants ([#3914](https://github.com/windmill-labs/windmill/issues/3914)) ([96dfacb](https://github.com/windmill-labs/windmill/commit/96dfacbfc8a2e418a39a7dc2ebc1082f00ef510f))
+
+## [1.346.0](https://github.com/windmill-labs/windmill/compare/v1.345.2...v1.346.0) (2024-06-17)
+
+
+### Features
+
+* accelerate bun through caches ([#3909](https://github.com/windmill-labs/windmill/issues/3909)) ([28afe59](https://github.com/windmill-labs/windmill/commit/28afe59a4ab4e97a18e4ca7a893d83c329ee4078))
+* **frontend:** event handlers ([#3902](https://github.com/windmill-labs/windmill/issues/3902)) ([4f0e111](https://github.com/windmill-labs/windmill/commit/4f0e111563f5f5ab7b280aa98a89f48cb3637e59))
+* replace ephemeral tokens by jwt ([#3908](https://github.com/windmill-labs/windmill/issues/3908)) ([21b9acc](https://github.com/windmill-labs/windmill/commit/21b9accca1a8ab5c728fce15b3a7890375f11274))
+
+
+### Bug Fixes
+
+* fix workflow as code ([d518e23](https://github.com/windmill-labs/windmill/commit/d518e2359d522df3c8cf23baaf444eabfb11246f))
+* job perms for agent mode ([#3911](https://github.com/windmill-labs/windmill/issues/3911)) ([e0ac22b](https://github.com/windmill-labs/windmill/commit/e0ac22ba4a59da4ca6c548de1ce0b5f394a49c66))
+
 ## [1.345.2](https://github.com/windmill-labs/windmill/compare/v1.345.1...v1.345.2) (2024-06-13)
 
 
