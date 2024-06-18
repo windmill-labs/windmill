@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.347.1](https://github.com/windmill-labs/windmill/compare/v1.347.0...v1.347.1) (2024-06-18)
+
+
+### Bug Fixes
+
+* add more debug logs around http client errors ([a64b099](https://github.com/windmill-labs/windmill/commit/a64b0990846c41988b4d1717123672e2a59289bd))
+* add more debug logs around http client errors ([631b981](https://github.com/windmill-labs/windmill/commit/631b981b8e75165d4dc2ef706b415af4a1384a48))
+
 ## [1.347.0](https://github.com/windmill-labs/windmill/compare/v1.346.2...v1.347.0) (2024-06-17)
 
 
