@@ -357,7 +357,12 @@
 					}}
 				>
 					{#each Object.keys(workerGroups ?? {}) as name (name)}
-						<option value={name}>{name}</option>
+						<option value={name}
+							>{name} ({pluralize(
+								groupedWorkers.find((x) => x[0] == name)?.[1].length ?? 0,
+								'worker'
+							)})
+						</option>
 					{/each}
 				</select>
 			</div>
