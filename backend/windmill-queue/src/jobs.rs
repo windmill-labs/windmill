@@ -2672,15 +2672,13 @@ fn restructure_cloudevents_metadata(
             .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
         let mut hm = HashMap::new();
         hm.insert("body".to_string(), args);
-        hm.insert("webhook_metadata".to_string(), to_raw_value(&p));
+        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
         Ok(hm)
     } else {
         let mut hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
             .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
             .unwrap_or_else(HashMap::new);
-        if !hm.contains_key("webhook_metadata") {
-            hm.insert("webhook_metadata".to_string(), to_raw_value(&p));
-        }
+            hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
         Ok(hm)
     }
 }
@@ -2726,32 +2724,6 @@ impl PushArgs {
         })?;
         let hm = restructure_cloudevents_metadata(hm).map_err(|e| e.into_response())?;
         Ok(PushArgs { extra, args: hm })
-    }
-
-    async fn from_ce_batch_json(
-        mut extra: HashMap<String, Box<RawValue>>,
-        use_raw: bool,
-        str: String,
-    ) -> Result<Self, Response> {
-        if use_raw {
-            extra.insert("raw_string".to_string(), to_raw_value(&str));
-        }
-        extra.insert("event-batch".to_string(), to_raw_value(&true));
-
-        let batch =
-            serde_json::from_str::<Vec<HashMap<String, Box<RawValue>>>>(&str).map_err(|e| {
-                Error::BadRequest(format!("invalid cloudevents-batch+json: {}", e)).into_response()
-            })?;
-
-        let batch: Vec<HashMap<String, Box<RawValue>>> = batch
-            .into_iter()
-            .map(|el| restructure_cloudevents_metadata(el).map_err(|e| e.into_response()))
-            .try_collect()?;
-
-        Ok(PushArgs {
-            extra,
-            args: HashMap::from([("event-batch".to_string(), to_raw_value(&batch))]),
-        })
     }
 }
 
@@ -2802,7 +2774,7 @@ mod tests {
             .await
             .expect("Failed to parse the cloudevent");
 
-        a1.args.get("webhook_metadata").expect(
+        a1.args.get("WEBHOOK__METADATA__").expect(
             "CloudEvents should generate a neighboring `webhook-metadata` field in PushArgs",
         );
         assert_eq!(
@@ -2812,54 +2784,6 @@ mod tests {
                 .to_string(),
             "1.5"
         );
-    }
-
-    #[tokio::test]
-    async fn test_cloudevents_batch_payload() {
-        let r1 = r#"
-        {
-            "specversion" : "1.0",
-            "type" : "com.example.someevent",
-            "source" : "/mycontext",
-            "subject": null,
-            "id" : "C234-1234-1234",
-            "time" : "2018-04-05T17:31:00Z",
-            "comexampleextension1" : "value",
-            "comexampleothervalue" : 5,
-            "datacontenttype" : "application/json",
-            "data" : {
-                "appinfoA" : "abc",
-                "appinfoB" : 123,
-                "appinfoC" : true
-            }
-        }
-        "#;
-        let r2 = r#"
-        {
-            "specversion" : "1.0",
-            "type" : "com.example.someevent",
-            "source" : "/mycontext",
-            "subject": null,
-            "id" : "C234-1234-1234",
-            "time" : "2018-04-05T17:31:00Z",
-            "comexampleextension1" : "value",
-            "comexampleothervalue" : 5,
-            "datacontenttype" : "application/json",
-            "data" : 1.5
-        }
-        "#;
-        let batch = format!(
-            "[{}, {}, {}, {}]",
-            r1.to_string(),
-            r2.to_string(),
-            r1.to_string(),
-            r2.to_string()
-        );
-        let extra = HashMap::new();
-
-        PushArgs::from_ce_batch_json(extra, false, batch)
-            .await
-            .expect("it parses the batch cloudevents");
     }
 }
 
@@ -2912,13 +2836,7 @@ where
             .unwrap()
             .starts_with("application/cloudevents-batch+json")
         {
-            let bytes = Bytes::from_request(req, _state)
-                .await
-                .map_err(IntoResponse::into_response)?;
-            let str = String::from_utf8(bytes.to_vec())
-                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-
-            PushArgs::from_ce_batch_json(extra, use_raw, str).await
+            Err(Error::BadRequest(format!("Cloud events batching is not supported yet")).into_response())
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
