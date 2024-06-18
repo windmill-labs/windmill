@@ -14,7 +14,7 @@
 		openedDrawers.push(id)
 	}
 
-	let offset = 0
+	export let offset = 0
 
 	export function toggleDrawer() {
 		if (!open) {
