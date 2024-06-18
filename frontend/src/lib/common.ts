@@ -46,6 +46,7 @@ export interface SchemaProperty {
 	title?: string
 	placeholder?: string
 	oneOf?: SchemaProperty[]
+	originalType?: string
 }
 
 export interface ModalSchemaProperty {
