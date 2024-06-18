@@ -374,7 +374,7 @@ async fn create_snapshot_script(
             {
                 let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
                 if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data)
+                    .put(&object_store::path::Path::from(path.clone()), data.into())
                     .await
                 {
                     tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);

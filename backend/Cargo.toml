@@ -235,8 +235,8 @@ tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
 
-datafusion = "38.0.0"
-object_store = { version = "0.9.1", features = ["aws", "azure"] }
+datafusion = "39.0.0"
+object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
 zstd = "=0.12.4"
 aws-config = "^1"
