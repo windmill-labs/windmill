@@ -192,15 +192,10 @@
 				([section, workers]) =>
 					[
 						section,
-						workers.filter(
-							(worker) =>
-								worker?.worker?.toLowerCase()?.includes(search.toLowerCase()) ||
-								worker?.worker_instance?.toLowerCase()?.includes(search.toLowerCase()) ||
-								worker?.ip?.toLowerCase()?.includes(search.toLowerCase())
-						)
+						workers.filter((worker) => worker.worker.toLowerCase().includes(search.toLowerCase()))
 					] as [string, WorkerPing[]]
 			)
-			.filter(([_, workers]) => workers.length > 0)
+			.filter(([section, workers]) => workers.length > 0)
 
 		return [worker_group[0], filteredWorkerGroup]
 	}
@@ -381,7 +376,7 @@
 							x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 						)}
 						<Tab value={worker_group[0]}>
-							{`${worker_group[0]} (${pluralize(activeWorkers?.length, 'worker')}`}
+							{`${worker_group[0]} ( ${pluralize(activeWorkers?.length, 'worker')}`}
 							<Tooltip>Number of workers active in the last 10s</Tooltip>)
 						</Tab>
 					{:else}
@@ -413,7 +408,7 @@
 				<div class="flex flex-row items-center gap-2 relative my-2">
 					<input
 						class="max-w-80 border rounded-md !pl-8"
-						placeholder="Search workers.."
+						placeholder="Search workers by name..."
 						bind:value={search}
 					/>
 					<Search class="absolute left-2 " size={14} />
@@ -450,22 +445,29 @@
 								<Cell head last>Liveness</Cell>
 							</tr>
 						</Head>
-						<tbody class="divide-y">
+						<tbody>
 							{#each worker_group[1] as [section, workers]}
+								<tr class="border-t">
+									<Cell
+										first
+										colspan={(!config || config?.dedicated_worker == undefined) && $superadmin
+											? 11
+											: 9}
+										scope="colgroup"
+										class="bg-surface-secondary/40 !py-1 border-b  !h-1"
+									>
+										Instance: <Badge small color="gray">{section?.split(splitter)?.[0]}</Badge>
+										IP: <Badge small color="gray">{workers[0].ip}</Badge>
+										{#if workers?.length > 1}
+											{workers?.length} Workers
+										{/if}
+									</Cell>
+								</tr>
+
 								{#if workers}
 									{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, current_job_id, current_job_workspace_id, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
 										<tr>
-											<Cell first>
-												<div class="flex flex-col gap-1">
-													<div>{worker}</div>
-													<div>
-														<Badge color="gray">Name: {section?.split(splitter)?.[0]}</Badge>
-													</div>
-													<div>
-														<Badge color="gray">IP: {workers[0].ip}</Badge>
-													</div>
-												</div>
-											</Cell>
+											<Cell first>{worker}</Cell>
 											<Cell>
 												{#if custom_tags && custom_tags?.length > 2}
 													{truncate(custom_tags?.join(', ') ?? '', 10)}
@@ -501,13 +503,8 @@
 													: '--'})</Cell
 											>
 											<Cell>
-												<div class="flex flex-col gap-1">
-													{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
-												</div>
-
-												<div>
-													{memory ? Math.round(memory / 1024 / 1024) + ' MB' : '--'}
-												</div>
+												{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
+												/ {memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
 											</Cell>
 											<Cell>
 												<div class="!text-2xs">
