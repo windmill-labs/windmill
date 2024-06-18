@@ -81,7 +81,9 @@ export const POSTGRES_TYPES = [
 	'JSON',
 	'JSON[]',
 	'JSONB',
-	'JSONB[]'
+	'JSONB[]',
+	'BYTEA',
+	'BYTEA[]'
 ]
 
 export const MYSQL_TYPES = [
