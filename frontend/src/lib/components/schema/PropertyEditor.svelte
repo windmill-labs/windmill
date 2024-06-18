@@ -148,7 +148,7 @@
 								bind:disableVariablePicker={extra['disableVariablePicker']}
 								bind:dateFormat={extra['dateFormat']}
 								bind:enumLabels={extra['enumLabels']}
-								allowKindChange={isFlowInput || isAppInput}
+								originalType={extra['originalType']}
 								allowAddingOrDeletingEnumValues={isFlowInput || isAppInput}
 							/>
 						{:else if type == 'number' || type == 'integer'}
