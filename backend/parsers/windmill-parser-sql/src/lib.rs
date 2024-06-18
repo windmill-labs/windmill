@@ -316,6 +316,7 @@ pub fn parse_pg_typ(typ: &str) -> Typ {
             | "timestamptz"
             | "timestamp with time zone"
             | "timestamp without time zone" => Typ::Datetime,
+            "bytea" => Typ::Bytes,
             _ => Typ::Str(None),
         }
     }
