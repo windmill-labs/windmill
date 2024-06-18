@@ -3091,10 +3091,9 @@ pub async fn run_wait_result_job_by_path_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_r = run_query
-        .payload
-        .map(decode_payload)
-        .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
+    let payload_r = run_query.payload.map(decode_payload).map(|x| {
+        x.map_err(|e| Error::InternalErr(format!("Impossible to decode query payload: {e:#?}")))
+    });
 
     let mut payload_args = if let Some(payload) = payload_r {
         payload?
@@ -3169,11 +3168,11 @@ pub async fn run_wait_result_flow_by_path_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_r = run_query
-        .payload
-        .clone()
-        .map(decode_payload)
-        .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
+    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+        x.map_err(|e| {
+            error::Error::InternalErr(format!("Impossible to decode query payload: {e:#?}"))
+        })
+    });
 
     let mut payload_args = if let Some(payload) = payload_r {
         payload?
