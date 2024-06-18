@@ -14,10 +14,3 @@ pub async fn verify_license_key() -> Result<()> {
         "License always invalid in Windmill CE".to_string(),
     ))
 }
-
-#[cfg(feature = "enterprise")]
-pub async fn jwt_ext_auth(_w_id: Option<&String>, _token: &str) -> Option<(ApiAuthed, usize)> {
-    // Implementation is not open source
-
-    None
-}
