@@ -52,7 +52,7 @@ pub enum Error {
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status: {0}")]
     ExitStatus(i32),
-    #[error("Err: {0:?}")]
+    #[error("Err: {0:#}")]
     Anyhow(#[from] anyhow::Error),
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
