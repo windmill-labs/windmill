@@ -3,7 +3,7 @@
 	import { Badge, Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import type { SchemaProperty } from '$lib/common'
+	import type { EnumType, SchemaProperty } from '$lib/common'
 	import autosize from '$lib/autosize'
 	import Toggle from './Toggle.svelte'
 	import Range from './Range.svelte'
@@ -19,6 +19,8 @@
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import Multiselect from 'svelte-multiselect'
 	import Password from './Password.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -30,10 +32,11 @@
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
+	export let oneOf: SchemaProperty[] | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
-	export let enum_: string[] | undefined = undefined
+	export let enum_: EnumType = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -51,6 +54,20 @@
 	export let render = true
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
+
+	let oneOfSelected: string | undefined = undefined
+	function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
+		if (oneOf && oneOf.length >= 2 && !oneOfSelected) {
+			oneOfSelected = oneOf[0]['title']
+		}
+	}
+	$: updateOneOfSelected(oneOf)
+	function updateOneOfSelectedValue(oneOfSelected) {
+		if (oneOfSelected) {
+			value = { label: oneOfSelected }
+		}
+	}
+	$: updateOneOfSelectedValue(oneOfSelected)
 
 	const dispatch = createEventDispatcher()
 
@@ -241,9 +258,12 @@
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						class={valid && error == ''
-							? ''
-							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
+						class={twMerge(
+							valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30',
+							'w-full'
+						)}
 						bind:checked={value}
 					/>
 					{#if type == 'boolean' && value == undefined}
@@ -350,6 +370,36 @@
 					</div>
 				{:else if inputCat == 'resource-object'}
 					<LightweightObjectResourceInput {format} bind:value />
+				{:else if inputCat == 'object' && oneOf && oneOf.length >= 2}
+					<div class="flex flex-col gap-2 w-full">
+						{#if oneOf && oneOf.length >= 2}
+							<ToggleButtonGroup bind:selected={oneOfSelected}>
+								{#each oneOf as obj}
+									<ToggleButton value={obj.title} label={obj.title} />
+								{/each}
+							</ToggleButtonGroup>
+
+							{#if oneOfSelected}
+								{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
+								{@const obj = oneOf[objIdx]}
+								{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
+									<div class="p-4 pl-8 border rounded w-full">
+										<LightweightSchemaForm
+											schema={{
+												properties: Object.fromEntries(
+													Object.entries(obj.properties).filter(([k, v]) => k !== 'label')
+												),
+												$schema: '',
+												required: obj.required ?? [],
+												type: 'object'
+											}}
+											bind:args={value}
+										/>
+									</div>
+								{/if}
+							{/if}
+						{/if}
+					</div>
 				{:else if inputCat == 'object'}
 					{#if properties && Object.keys(properties).length > 0}
 						<div class="p-4 pl-8 border rounded w-full">
@@ -387,7 +437,7 @@
 						bind:value
 					>
 						{#each enum_ ?? [] as e}
-							<option>{e}</option>
+							<option value={e}>{extra?.['enumLabels']?.[e] ?? e}</option>
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}
