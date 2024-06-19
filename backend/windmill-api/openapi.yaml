@@ -8318,6 +8318,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtendedJobs"
 
+  /w/{workspace}/index/search/job:
+    get:
+      summary: Search through jobs with a string query
+      operationId: searchJobsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: array
+                description: result documents
+                items:
+                  type: string
+
 components:
   securitySchemes:
     bearerAuth:

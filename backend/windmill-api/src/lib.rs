@@ -57,6 +57,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+mod indexer_ee;
 mod inputs;
 mod integration;
 #[cfg(feature = "parquet")]
@@ -69,7 +70,6 @@ mod openai;
 mod raw_apps;
 mod resources;
 mod saml_ee;
-mod indexer_ee;
 mod schedule;
 mod scim_ee;
 mod scripts;
@@ -144,6 +144,7 @@ pub async fn add_webhook_allowed_origin(
 pub async fn run_server(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    search_index: Option<windmill_indexer::indexer_ee::IndexReader>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
@@ -178,11 +179,18 @@ pub async fn run_server(
         .layer(Extension(rsmq))
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
+        .layer(Extension(search_index))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
         .layer(DefaultBodyLimit::max(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
+
+    // let middleware_stack = if let Some(search_index) = search_index {
+    //     middleware_stack.layer(Extension(search_index))
+    // } else {
+    //     middleware_stack
+    // };
 
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])

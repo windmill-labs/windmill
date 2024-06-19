@@ -1,3 +1,1 @@
-fn main() {
-    println!("Hello, world!");
-}
+pub mod indexer_ee;

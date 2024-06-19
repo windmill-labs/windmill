@@ -344,11 +344,21 @@ Windmill Community Edition {GIT_VERSION}
             .await
             .expect("could not create initial server dir");
 
+        let (index_reader, index_writer) = if ("indexer_mode" == "indexer_mode") {
+            let (r, w) = windmill_indexer::indexer_ee::init_index()?;
+            (Some(r), Some(w))
+        } else {
+            (None, None)
+        };
+
+        let indexer_f = windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer.unwrap());
+
         let server_f = async {
             if !is_agent {
                 windmill_api::run_server(
                     db.clone(),
                     rsmq2,
+                    index_reader,
                     addr,
                     server_killpill_rx,
                     base_internal_tx,
@@ -590,7 +600,14 @@ Windmill Community Edition {GIT_VERSION}
             schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
-        futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
+        futures::try_join!(
+            shutdown_signal,
+            workers_f,
+            monitor_f,
+            server_f,
+            metrics_f,
+            indexer_f
+        )?;
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
