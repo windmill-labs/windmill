@@ -30,16 +30,33 @@
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = undefined
 
-	$: groupedWorkers = groupBy(
-		groupBy(
-			workers ?? [],
-			(wp: WorkerPing) => wp.worker_instance + splitter + wp.worker_group,
-			(wp: WorkerPing) => wp.worker
-		),
-		(x) => x[0]?.split(splitter)?.[1],
-		(x) => x[0]?.split(splitter)?.[0]
-	)
+	$: groupedWorkers = groupWorkers(workers, workerGroups)
 
+	function groupWorkers(
+		workers: WorkerPing[] | undefined,
+		workerGroups: Record<string, any> | undefined
+	): [string, [string, WorkerPing[]][]][] {
+		if (!workers && !workerGroups) {
+			return []
+		}
+
+		let grouped = groupBy(
+			groupBy(
+				workers ?? [],
+				(wp: WorkerPing) => wp.worker_instance + splitter + wp.worker_group,
+				(wp: WorkerPing) => wp.worker
+			),
+			(x) => x[0]?.split(splitter)?.[1],
+			(x) => x[0]?.split(splitter)?.[0]
+		).sort((a, b) => b[1].length - a[1].length)
+
+		Object.keys(workerGroups ?? {}).forEach((group) => {
+			if (!grouped.some((x) => x[0] == group)) {
+				grouped.push([group, []])
+			}
+		})
+		return grouped
+	}
 	let timeSinceLastPing = 0
 
 	async function loadWorkers(): Promise<void> {
@@ -370,7 +387,7 @@
 						search = ''
 					}}
 				>
-					{#each Object.keys(workerGroups ?? {}).sort((a, b) => (groupedWorkers.find((x) => x[0] == b)?.[1]?.length ?? 0) - (groupedWorkers.find((x) => x[0] == a)?.[1]?.length ?? 0)) as name (name)}
+					{#each groupedWorkers.map((x) => x[0]) as name (name)}
 						<option value={name}
 							>{name} ({pluralize(
 								groupedWorkers.find((x) => x[0] == name)?.[1].length ?? 0,
@@ -382,7 +399,7 @@
 			</div>
 		{:else}
 			<Tabs bind:selected={selectedTab}>
-				{#each Object.keys(workerGroups ?? {}).sort((a, b) => (groupedWorkers.find((x) => x[0] == b)?.[1]?.length ?? 0) - (groupedWorkers.find((x) => x[0] == a)?.[1]?.length ?? 0)) as name (name)}
+				{#each groupedWorkers.map((x) => x[0]) as name (name)}
 					{@const worker_group = groupedWorkers.find((x) => x[0] == name)}
 
 					{#if worker_group}
@@ -477,8 +494,9 @@
 											</div>
 											<span class="ml-4">IP: </span>
 											<span class="font-semibold">{workers[0].ip}</span>
+
 											{#if workers?.length > 1}
-												{workers?.length} Workers
+												<span class="font-semibold ml-8">{workers?.length} Workers</span>
 											{/if}
 										</div>
 									</Cell>
