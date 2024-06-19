@@ -20,7 +20,6 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
-	import { zIndexes } from '$lib/zIndexes'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -299,7 +298,7 @@
 
 		<!-- {inlineScript.content} -->
 
-		<div class="border-y h-full" style="z-index: {zIndexes.monacoEditor}">
+		<div class="border-y h-full">
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor

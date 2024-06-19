@@ -10,6 +10,7 @@
 	import { Drawer } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { zIndexes } from '$lib/zIndexes'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
@@ -56,7 +57,12 @@
 
 {#if componentInput?.type === 'evalv2'}
 	{#if fullscreen}
-		<Drawer placement="bottom" on:close={() => (fullscreen = false)} open>
+		<Drawer
+			placement="bottom"
+			on:close={() => (fullscreen = false)}
+			open
+			offset={zIndexes.monacoEditor}
+		>
 			<Splitpanes horizontal class="h-full">
 				<Pane size={50}>
 					<SimpleEditor

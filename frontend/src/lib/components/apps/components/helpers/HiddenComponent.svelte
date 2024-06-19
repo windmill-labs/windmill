@@ -28,7 +28,8 @@
 
 	let outputs = initOutput($worldStore, id, {
 		result: result,
-		loading: false
+		loading: false,
+		jobId: undefined
 	})
 </script>
 
