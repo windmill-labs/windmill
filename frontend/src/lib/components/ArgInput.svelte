@@ -6,7 +6,7 @@
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { Badge, Button, SecondsInput } from './common'
+	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
@@ -258,15 +258,7 @@
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				{#if extra['min'] != undefined && extra['max'] != undefined}
-					<div class="flex w-full gap-1">
-						<span>{extra['min']}</span>
-
-						<div class="grow">
-							<Range bind:value min={extra['min']} max={extra['max']} />
-						</div>
-						<span>{extra['max']}</span>
-						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
-					</div>
+					<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
 				{:else if extra['seconds'] !== undefined}
 					<SecondsInput bind:seconds={value} on:focus />
 				{:else if extra?.currency}

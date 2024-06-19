@@ -6,6 +6,7 @@
 	export let initialValue = 0
 	export let value = typeof initialValue === 'string' ? parseInt(initialValue) : initialValue
 	export let disabled: boolean = false
+	export let defaultValue: number | undefined = undefined
 
 	let step: number = 1
 
@@ -44,32 +45,38 @@
 	$: handleWidth = `${Math.max(max.toString().length ?? 2, 2)}em`
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<div
-	class={'grow'}
-	style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth}; --handle-border: 4px;"
-	on:pointerdown|stopPropagation
-	on:keydown={handleKeyDown}
->
-	<RangeSlider
-		id="range-slider-form"
-		springValues={{ stiffness: 1, damping: 1 }}
-		bind:slider
-		min={min == undefined ? 0 : +min}
-		max={max == undefined ? 1 : +max}
-		on:change={(e) => {
-			value = e.detail.value
-		}}
-		{disabled}
-		values={[value]}
-		pips
-		float
-		first="label"
-		last="label"
-		step={step ?? 1}
-		pipstep={(axisStep ?? 1) / (step ?? 1)}
-		formatter={format}
-	/>
+<div class="flex flex-row w-full mx-2 items-center gap-8">
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+
+	<div
+		class={'grow'}
+		style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth}; --handle-border: 4px;"
+		on:pointerdown|stopPropagation
+		on:keydown={handleKeyDown}
+	>
+		<RangeSlider
+			id="range-slider-form"
+			springValues={{ stiffness: 1, damping: 1 }}
+			bind:slider
+			min={min == undefined ? 0 : +min}
+			max={max == undefined ? 1 : +max}
+			on:change={(e) => {
+				value = e.detail.value
+			}}
+			{defaultValue}
+			{disabled}
+			values={[value]}
+			pips
+			float
+			first="label"
+			last="label"
+			step={step ?? 1}
+			pipstep={(axisStep ?? 1) / (step ?? 1)}
+			formatter={format}
+		/>
+	</div>
+
+	<input bind:value type="number" class="!w-16 h-8 !text-xs mb-6" {max} {min} {disabled} />
 </div>
 
 <style>
