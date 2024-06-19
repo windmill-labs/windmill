@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.348.1](https://github.com/windmill-labs/windmill/compare/v1.348.0...v1.348.1) (2024-06-19)
+
+
+### Bug Fixes
+
+* handle better single step parallel flows ([6d4b8a2](https://github.com/windmill-labs/windmill/commit/6d4b8a2e4f1ef5b067c2e04600ac5defa489141c))
+
 ## [1.348.0](https://github.com/windmill-labs/windmill/compare/v1.347.1...v1.348.0) (2024-06-18)
 
 
