@@ -25,7 +25,7 @@
 
 	function computeItems() {
 		return (
-			(schema.order ?? Object.keys(schema.properties ?? {}) ?? []).map((key) => ({
+			(schema?.order ?? Object.keys(schema?.properties ?? {}) ?? []).map((key) => ({
 				id: key,
 				value: key
 			})) ?? []
