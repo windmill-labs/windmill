@@ -17,6 +17,10 @@
 		return range < 100 ? 1 : range / 20
 	}
 
+	$: if (value === null) {
+		value = 0
+	}
+
 	$: axisStep = calculateAxisStep(min, max)
 
 	const format = (v, i, p) => {
