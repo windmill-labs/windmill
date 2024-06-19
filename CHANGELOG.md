@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.349.0](https://github.com/windmill-labs/windmill/compare/v1.348.2...v1.349.0) (2024-06-19)
+
+
+### Features
+
+* **frontend:** improve range ([#3924](https://github.com/windmill-labs/windmill/issues/3924)) ([a1dc0fd](https://github.com/windmill-labs/windmill/commit/a1dc0fd7c22244d97429dbb65ded23e27badec6a))
+
 ## [1.348.2](https://github.com/windmill-labs/windmill/compare/v1.348.1...v1.348.2) (2024-06-19)
 
 
