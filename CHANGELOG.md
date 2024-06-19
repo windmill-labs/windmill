@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.349.1](https://github.com/windmill-labs/windmill/compare/v1.349.0...v1.349.1) (2024-06-19)
+
+
+### Bug Fixes
+
+* show workers without worker groups ([5c5b98e](https://github.com/windmill-labs/windmill/commit/5c5b98e0b8f0926d5f81c1894de8d367201da2d8))
+
 ## [1.349.0](https://github.com/windmill-labs/windmill/compare/v1.348.2...v1.349.0) (2024-06-19)
 
 
