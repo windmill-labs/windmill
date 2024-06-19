@@ -2595,8 +2595,17 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = is_simple_modules(modules, flow);
+            let is_simple = !parallel && is_simple_modules(modules, flow);
 
+            // if is_simple {
+            //     match value {
+            //         FlowModuleValue::Script { input_transforms, .. }
+            //         | FlowModuleValue::RawScript { input_transforms, .. }
+            //         | FlowModuleValue::Flow { input_transforms, .. } => {
+            //             Some(input_transforms.clone())
+            //         }
+            //         _ => None,
+            //     }
             let next_loop_status = next_forloop_status(
                 status_module,
                 by_id,
@@ -2634,14 +2643,18 @@ async fn compute_next_flow_transform(
                     if modules.is_empty() {
                         return Ok(NextFlowTransform::EmptyInnerFlows);
                     } else {
-                        let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
-                        let value = &modules[0].get_value()?;
-                        let continue_payload = if is_simple {
-                            let payload =
-                                payload_from_simple_module(value, db, flow_job, module, inner_path)
-                                    .await?;
-                            ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
-                        } else {
+                        // let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
+                        // let value = &modules[0].get_value()?;
+
+                        // we removed the is_simple_case
+                        // if is_simple {
+                        //     let payload =
+                        //         payload_from_simple_module(value, db, flow_job, module, inner_path)
+                        //             .await?;
+                        //     ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
+                        // } else {
+
+                        let continue_payload = {
                             let payload = {
                                 JobPayloadWithTag {
                                     payload: JobPayload::RawFlow {
@@ -2675,18 +2688,17 @@ async fn compute_next_flow_transform(
                                     index: 0,
                                     itered,
                                 }),
-                                simple_input_transforms: if is_simple {
-                                    match value {
-                                        FlowModuleValue::Script { input_transforms, .. }
-                                        | FlowModuleValue::RawScript { input_transforms, .. }
-                                        | FlowModuleValue::Flow { input_transforms, .. } => {
-                                            Some(input_transforms.clone())
-                                        }
-                                        _ => None,
-                                    }
-                                } else {
-                                    None
-                                },
+                                // we removed the is_simple_case for simple_input_transforms
+                                // if is_simple {
+                                //     match value {
+                                //         FlowModuleValue::Script { input_transforms, .. }
+                                //         | FlowModuleValue::RawScript { input_transforms, .. }
+                                //         | FlowModuleValue::Flow { input_transforms, .. } => {
+                                //             Some(input_transforms.clone())
+                                //         }
+                                //         _ => None,
+                                //     }
+                                simple_input_transforms: None,
                             },
                         ))
                     }
