@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
-	import { Badge, Button } from './common'
+	import { Button } from './common'
 	import { createEventDispatcher, tick } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import type { EnumType, SchemaProperty } from '$lib/common'
@@ -227,14 +227,7 @@
 			<div class="flex space-x-1">
 				{#if inputCat == 'number'}
 					{#if extra['min'] != undefined && extra['max'] != undefined}
-						<div class="flex w-full gap-1">
-							<span>{extra['min']}</span>
-							<div class="grow">
-								<Range bind:value min={extra['min']} max={extra['max']} />
-							</div>
-							<span>{extra['max']}</span>
-							<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
-						</div>
+						<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
 					{:else if extra?.currency}
 						<CurrencyInput
 							inputClasses={{
