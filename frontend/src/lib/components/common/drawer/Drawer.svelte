@@ -64,7 +64,7 @@
 
 <ConditionalPortal condition={shouldUsePortal}>
 	<Disposable
-		{offset}
+		initialOffset={offset}
 		let:handleClickAway
 		let:zIndex
 		bind:open
