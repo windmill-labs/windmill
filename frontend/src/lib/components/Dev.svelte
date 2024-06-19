@@ -417,7 +417,8 @@
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 		enabled: false,
-		summary: undefined
+		summary: undefined,
+		description: undefined
 	})
 	const previewArgsStore = writable<Record<string, any>>({})
 	const scriptEditorDrawer = writable(undefined)

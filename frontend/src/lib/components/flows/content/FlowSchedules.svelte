@@ -9,7 +9,9 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import autosize from '$lib/autosize'
 	import { Calendar } from 'lucide-svelte'
+	import Label from '$lib/components/Label.svelte'
 
 	const { schedule, flowStore, initialPath } = getContext<FlowEditorContext>('FlowEditorContext')
 	let schedules: Schedule[] | undefined = undefined
@@ -33,15 +35,20 @@
 	$: initialPath && loadSchedules()
 </script>
 
-<div class="w-full py-2">
+<div class="w-full flex flex-col gap-4 mb-4">
 	<!-- svelte-ignore a11y-autofocus -->
-	<input
-		autofocus
-		type="text"
-		placeholder="Schedule summary"
-		class="text-sm w-full font-semibold mb-4"
-		bind:value={$schedule.summary}
-	/>
+	<Label label="Summary">
+		<input
+			autofocus
+			type="text"
+			placeholder="Short summary to be displayed when listed"
+			class="text-sm w-full"
+			bind:value={$schedule.summary}
+		/>
+	</Label>
+	<Label label="Description">
+		<textarea bind:value={$schedule.description} use:autosize placeholder="Schedule description" />
+	</Label>
 </div>
 
 <CronInput bind:schedule={$schedule.cron} bind:timezone={$schedule.timezone} />

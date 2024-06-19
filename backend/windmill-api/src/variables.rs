@@ -523,7 +523,7 @@ async fn update_variable(
             }
 
             sqlx::query!(
-                "UPDATE resource SET path = $1, value = $2 WHERE path = $3 AND workspace_id = $4",
+                "UPDATE resource SET path = $1, value = $2, edited_at = now() WHERE path = $3 AND workspace_id = $4",
                 npath,
                 v,
                 path,

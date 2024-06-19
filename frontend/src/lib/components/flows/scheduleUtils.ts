@@ -2,6 +2,7 @@ import { ScheduleService } from '$lib/gen'
 
 export type Schedule = {
 	summary: string | undefined
+	description: string | undefined
 	args: Record<string, any>
 	cron: string
 	timezone: string
@@ -26,6 +27,7 @@ export async function loadFlowSchedule(path: string, workspace: string): Promise
 
 	return {
 		summary: schedule.summary,
+		description: schedule.description,
 		enabled: schedule.enabled,
 		cron: schedule.schedule,
 		timezone: schedule.timezone,

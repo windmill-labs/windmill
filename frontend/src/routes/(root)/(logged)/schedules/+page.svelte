@@ -290,7 +290,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs } (path)}
+				{#each items as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs, description } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const avg_s = jobs
 						? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -320,6 +320,11 @@
 								<div class="text-secondary text-xs truncate text-left font-light">
 									schedule: {path}
 								</div>
+								{#if description}
+									<div class="text-tertiary text-sm truncate text-left font-light">
+										{description}
+									</div>
+								{/if}
 							</a>
 
 							<div class="gap-2 items-center hidden md:flex">

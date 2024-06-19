@@ -16,6 +16,9 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Section from './Section.svelte'
 	import { Eye, Plus } from 'lucide-svelte'
+	import Label from './Label.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { createEventDispatcher } from 'svelte'
 
 	export let name: string
 	let can_write = false
@@ -67,6 +70,7 @@
 	async function loadFolder(): Promise<void> {
 		try {
 			folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
+			summary = folder.summary ?? ''
 			can_write =
 				$userStore != undefined &&
 				(folder?.owners.includes('u/' + $userStore.username) ||
@@ -108,6 +112,7 @@
 	let ownerKind: 'user' | 'group' = 'user'
 	let groupCreated: string | undefined = undefined
 	let newGroupName: string = ''
+	let summary: string = ''
 
 	async function addGroup() {
 		await GroupService.createGroup({
@@ -118,6 +123,19 @@
 		$userStore?.folders?.push(newGroupName)
 		loadGroups()
 		ownerItem = newGroupName
+	}
+
+	const dispatch = createEventDispatcher()
+
+	async function updateFolder() {
+		await FolderService.updateFolder({
+			workspace: $workspaceStore ?? '',
+			name,
+			requestBody: { summary }
+		})
+		sendUserToast('Folder summary updated')
+		dispatch('update')
+		loadFolder()
 	}
 </script>
 
@@ -147,6 +165,15 @@
 		<GroupEditor name={ownerItem} />
 	</DrawerContent>
 </Drawer>
+
+<Section label="Metadata" class="mb-4">
+	<Label label="Summary">
+		<div class="flex flex-row gap-2">
+			<input placeholder="Short summary to be displayed when listed" bind:value={summary} />
+			<Button size="sm" on:click={updateFolder}>Save</Button>
+		</div>
+	</Label>
+</Section>
 
 <Section label={`Permissions (${perms?.length ?? 0})`}>
 	<div class="flex flex-col gap-6">

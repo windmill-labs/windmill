@@ -10,6 +10,8 @@
 	import { Calendar } from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 	import type { ScriptSchedule } from '$lib/scripts'
+	import autosize from '$lib/autosize'
+	import Label from './Label.svelte'
 
 	export let initialPath: string
 	export let schema: Record<string, any> | undefined
@@ -37,15 +39,20 @@
 	$: initialPath && loadSchedules()
 </script>
 
-<div class="w-full py-2">
+<div class="w-full flex flex-col gap-4 mb-4">
 	<!-- svelte-ignore a11y-autofocus -->
-	<input
-		autofocus
-		type="text"
-		placeholder="Schedule summary"
-		class="text-sm w-full font-semibold mb-4"
-		bind:value={$schedule.summary}
-	/>
+	<Label label="Summary">
+		<input
+			autofocus
+			type="text"
+			placeholder="Short summary to be displayed when listed"
+			class="text-sm w-full"
+			bind:value={$schedule.summary}
+		/>
+	</Label>
+	<Label label="Description">
+		<textarea bind:value={$schedule.description} use:autosize placeholder="Schedule description" />
+	</Label>
 </div>
 
 <CronInput bind:schedule={$schedule.cron} bind:timezone={$schedule.timezone} />
