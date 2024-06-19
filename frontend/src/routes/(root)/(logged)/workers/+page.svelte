@@ -163,7 +163,16 @@
 	}
 
 	let queueMetricsDrawer: Drawer
-	let selectedTab: string = groupedWorkers?.[0]?.[0] ?? 'default'
+	let selectedTab: string = 'default'
+
+	$: workerGroups && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
+
+	function updateSelectedTabIfDefaultDoesNotExist() {
+		if (selectedTab == 'default' && !workerGroups?.hasOwnProperty('default')) {
+			selectedTab = Object.keys(workerGroups ?? {})[0] ?? 'default'
+		}
+	}
+
 	let search: string = ''
 
 	$: worker_group = filterWorkerGroupByNames(
@@ -361,7 +370,7 @@
 						search = ''
 					}}
 				>
-					{#each Object.keys(workerGroups ?? {}) as name (name)}
+					{#each Object.keys(workerGroups ?? {}).sort((a, b) => (groupedWorkers.find((x) => x[0] == b)?.[1]?.length ?? 0) - (groupedWorkers.find((x) => x[0] == a)?.[1]?.length ?? 0)) as name (name)}
 						<option value={name}
 							>{name} ({pluralize(
 								groupedWorkers.find((x) => x[0] == name)?.[1].length ?? 0,
@@ -373,7 +382,7 @@
 			</div>
 		{:else}
 			<Tabs bind:selected={selectedTab}>
-				{#each Object.keys(workerGroups ?? {}) as name (name)}
+				{#each Object.keys(workerGroups ?? {}).sort((a, b) => (groupedWorkers.find((x) => x[0] == b)?.[1]?.length ?? 0) - (groupedWorkers.find((x) => x[0] == a)?.[1]?.length ?? 0)) as name (name)}
 					{@const worker_group = groupedWorkers.find((x) => x[0] == name)}
 
 					{#if worker_group}
