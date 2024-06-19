@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.348.2](https://github.com/windmill-labs/windmill/compare/v1.348.1...v1.348.2) (2024-06-19)
+
+
+### Bug Fixes
+
+* add jobid to background runnables and fix zindex issue of inline script editor ([a2b88c0](https://github.com/windmill-labs/windmill/commit/a2b88c0080b8cfa747bf221bde9d22781e8034a9))
+* **frontend:** fix full screen mode of the EvalInputEditor ([#3928](https://github.com/windmill-labs/windmill/issues/3928)) ([c9c017e](https://github.com/windmill-labs/windmill/commit/c9c017e27a71bfe618974fb0906283a6c1a82aa4))
+* handle past inputs with oneOf ([#3932](https://github.com/windmill-labs/windmill/issues/3932)) ([f5e8d71](https://github.com/windmill-labs/windmill/commit/f5e8d71f0b9e527d3658547f3cb193b6dbe4bcb0))
+
 ## [1.348.1](https://github.com/windmill-labs/windmill/compare/v1.348.0...v1.348.1) (2024-06-19)
 
 

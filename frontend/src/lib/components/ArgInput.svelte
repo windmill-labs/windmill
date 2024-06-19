@@ -2,7 +2,7 @@
 	import type { EnumType, SchemaProperty } from '$lib/common'
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
@@ -79,9 +79,20 @@
 	export let orderEditable = false
 
 	let oneOfSelected: string | undefined = undefined
-	function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
-		if (oneOf && oneOf.length >= 2 && !oneOfSelected) {
-			oneOfSelected = oneOf[0]['title']
+	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
+		if (
+			oneOf &&
+			oneOf.length >= 2 &&
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+		) {
+			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
+				const existingValue = JSON.parse(JSON.stringify(value))
+				oneOfSelected = value['label']
+				await tick()
+				value = existingValue
+			} else {
+				oneOfSelected = oneOf[0]['title']
+			}
 		}
 	}
 	$: updateOneOfSelected(oneOf)
