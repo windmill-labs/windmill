@@ -20,6 +20,8 @@
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, FileJson, LineChart, Plus, Search } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
+	import AutoComplete from 'simple-svelte-autocomplete'
+
 	import YAML from 'yaml'
 
 	let workers: WorkerPing[] | undefined = undefined
@@ -295,13 +297,13 @@
 		{/if}
 
 		<div class="py-4 w-full flex justify-between"
-			><h2
-				>Worker Groups <Tooltip
+			><h4
+				>{groupWorkers?.length} Worker Groups <Tooltip
 					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 					>Worker groups are groups of workers that share a config and are meant to be identical.
 					Worker groups are meant to be used with tags. Tags can be assigned to scripts and flows
 					and can be seen as dedicated queues. Only the corresponding
-				</Tooltip></h2
+				</Tooltip></h4
 			>
 			<div />
 			{#if $superadmin}
@@ -378,9 +380,20 @@
 			{/if}</div
 		>
 
-		{#if Object.keys(workerGroups ?? {}).length > 5}
-			<div>
-				<select
+		{#if (groupedWorkers ?? []).length > 5}
+			<div class="flex gap-2 items-center">
+				<div class="text-secondary text-sm">Worker group:</div>
+				<AutoComplete
+					noInputStyles
+					items={groupedWorkers.map((x) => x[0])}
+					bind:selectedItem={selectedTab}
+					hideArrow={true}
+					inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
+					dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
+					className="!font-gray-600 !font-primary !bg-surface-primary"
+				/>
+
+				<!-- <select
 					class="max-w-64"
 					bind:value={selectedTab}
 					on:change={() => {
@@ -395,7 +408,7 @@
 							)})
 						</option>
 					{/each}
-				</select>
+				</select> -->
 			</div>
 		{:else}
 			<Tabs bind:selected={selectedTab}>
