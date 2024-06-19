@@ -55,10 +55,10 @@
 		if (!inputTransforms) return false
 
 		for (const key in inputTransforms) {
-			const required = id ? $flowStateStore[id].schema?.required?.includes(key) : false
+			const required = id ? $flowStateStore?.[id].schema?.required?.includes(key) : false
 
 			if (!required) {
-				return false
+				continue
 			}
 
 			if (inputTransforms.hasOwnProperty(key)) {
