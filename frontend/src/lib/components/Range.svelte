@@ -57,27 +57,32 @@
 		style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth}; --handle-border: 4px;"
 		on:pointerdown|stopPropagation
 		on:keydown={handleKeyDown}
-	>
-		<RangeSlider
-			id="range-slider-form"
-			springValues={{ stiffness: 1, damping: 1 }}
-			bind:slider
-			min={min == undefined ? 0 : +min}
-			max={max == undefined ? 1 : +max}
-			on:change={(e) => {
-				value = e.detail.value
-			}}
-			{defaultValue}
-			{disabled}
-			values={[value]}
-			pips
-			float
-			first="label"
-			last="label"
-			step={step ?? 1}
-			pipstep={(axisStep ?? 1) / (step ?? 1)}
-			formatter={format}
-		/>
+		>{#if max <= min}
+			<div class="text-secondary text-sm"
+				>Impossible to display range: {`max (${max}) <= min (${min})`}</div
+			>
+		{:else}
+			<RangeSlider
+				id="range-slider-form"
+				springValues={{ stiffness: 1, damping: 1 }}
+				bind:slider
+				min={min == undefined ? 0 : +min}
+				max={max == undefined ? 1 : +max}
+				on:change={(e) => {
+					value = e.detail.value
+				}}
+				{defaultValue}
+				{disabled}
+				values={[value]}
+				pips
+				float
+				first="label"
+				last="label"
+				step={step ?? 1}
+				pipstep={(axisStep ?? 1) / (step ?? 1)}
+				formatter={format}
+			/>
+		{/if}
 	</div>
 
 	<input bind:value type="number" class="!w-16 h-8 !text-xs mb-6" {max} {min} {disabled} />
