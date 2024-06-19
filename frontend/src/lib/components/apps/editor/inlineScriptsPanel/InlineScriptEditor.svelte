@@ -299,7 +299,7 @@
 
 		<!-- {inlineScript.content} -->
 
-		<div class="border-y h-full" style="z-index: {zIndexes.monacoEditor}">
+		<div class="border-y h-full">
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
