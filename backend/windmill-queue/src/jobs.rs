@@ -2656,6 +2656,137 @@ pub struct RequestQuery {
     pub include_header: Option<String>,
 }
 
+fn restructure_cloudevents_metadata(
+    mut p: HashMap<String, Box<RawValue>>,
+) -> Result<HashMap<String, Box<RawValue>>, Error> {
+    let data = p
+        .remove("data")
+        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+    let str = data.to_string();
+
+    let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+
+    if wrap_body {
+        let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
+            .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+        let mut hm = HashMap::new();
+        hm.insert("body".to_string(), args);
+        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
+        Ok(hm)
+    } else {
+        let mut hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
+            .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
+            .unwrap_or_else(HashMap::new);
+            hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
+        Ok(hm)
+    }
+}
+
+impl PushArgs {
+    async fn from_json(
+        mut extra: HashMap<String, Box<RawValue>>,
+        use_raw: bool,
+        str: String,
+    ) -> Result<Self, Response> {
+        if use_raw {
+            extra.insert("raw_string".to_string(), to_raw_value(&str));
+        }
+
+        let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+
+        if wrap_body {
+            let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
+                .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
+                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+            let mut hm = HashMap::new();
+            hm.insert("body".to_string(), args);
+            Ok(PushArgs { extra, args: hm })
+        } else {
+            let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
+                .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
+                .unwrap_or_else(HashMap::new);
+            Ok(PushArgs { extra, args: hm })
+        }
+    }
+
+    async fn from_ce_json(
+        mut extra: HashMap<String, Box<RawValue>>,
+        use_raw: bool,
+        str: String,
+    ) -> Result<Self, Response> {
+        if use_raw {
+            extra.insert("raw_string".to_string(), to_raw_value(&str));
+        }
+
+        let hm = serde_json::from_str::<HashMap<String, Box<RawValue>>>(&str).map_err(|e| {
+            Error::BadRequest(format!("invalid cloudevents+json: {}", e)).into_response()
+        })?;
+        let hm = restructure_cloudevents_metadata(hm).map_err(|e| e.into_response())?;
+        Ok(PushArgs { extra, args: hm })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_cloudevents_json_payload() {
+        let r1 = r#"
+        {
+            "specversion" : "1.0",
+            "type" : "com.example.someevent",
+            "source" : "/mycontext",
+            "subject": null,
+            "id" : "C234-1234-1234",
+            "time" : "2018-04-05T17:31:00Z",
+            "comexampleextension1" : "value",
+            "comexampleothervalue" : 5,
+            "datacontenttype" : "application/json",
+            "data" : {
+                "appinfoA" : "abc",
+                "appinfoB" : 123,
+                "appinfoC" : true
+            }
+        }
+        "#;
+        let r2 = r#"
+        {
+            "specversion" : "1.0",
+            "type" : "com.example.someevent",
+            "source" : "/mycontext",
+            "subject": null,
+            "id" : "C234-1234-1234",
+            "time" : "2018-04-05T17:31:00Z",
+            "comexampleextension1" : "value",
+            "comexampleothervalue" : 5,
+            "datacontenttype" : "application/json",
+            "data" : 1.5
+        }
+        "#;
+        let extra = HashMap::new();
+
+        let a1 = PushArgs::from_ce_json(extra.clone(), false, r1.to_string())
+            .await
+            .expect("Failed to parse the cloudevent");
+        let a2 = PushArgs::from_ce_json(extra.clone(), false, r2.to_string())
+            .await
+            .expect("Failed to parse the cloudevent");
+
+        a1.args.get("WEBHOOK__METADATA__").expect(
+            "CloudEvents should generate a neighboring `webhook-metadata` field in PushArgs",
+        );
+        assert_eq!(
+            a2.args
+                .get("body")
+                .expect("Cloud events with a data field with no wrapping curly brackets should be inside of a `body` field in PushArgs")
+                .to_string(),
+            "1.5"
+        );
+    }
+}
+
 #[axum::async_trait]
 impl<S> FromRequest<S, axum::body::Body> for PushArgs
 where
@@ -2689,25 +2820,23 @@ where
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            if use_raw {
-                extra.insert("raw_string".to_string(), to_raw_value(&str));
-            }
+            PushArgs::from_json(extra, use_raw, str).await
+        } else if content_type
+            .unwrap()
+            .starts_with("application/cloudevents+json")
+        {
+            let bytes = Bytes::from_request(req, _state)
+                .await
+                .map_err(IntoResponse::into_response)?;
+            let str = String::from_utf8(bytes.to_vec())
+                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
-
-            if wrap_body {
-                let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
-                    .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
-                    .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
-                let mut hm = HashMap::new();
-                hm.insert("body".to_string(), args);
-                Ok(PushArgs { extra, args: hm })
-            } else {
-                let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
-                    .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
-                    .unwrap_or_else(HashMap::new);
-                Ok(PushArgs { extra, args: hm })
-            }
+            PushArgs::from_ce_json(extra, use_raw, str).await
+        } else if content_type
+            .unwrap()
+            .starts_with("application/cloudevents-batch+json")
+        {
+            Err(Error::BadRequest(format!("Cloud events batching is not supported yet")).into_response())
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")

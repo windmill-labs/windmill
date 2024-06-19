@@ -36,6 +36,7 @@ export function argSigToJsonSchemaType(
 	} else if (t === 'bytes') {
 		newS.type = 'string'
 		newS.contentEncoding = 'base64'
+		newS.originalType = 'bytes'
 	} else if (t === 'datetime') {
 		newS.type = 'string'
 		newS.format = 'date-time'
@@ -78,8 +79,10 @@ export function argSigToJsonSchemaType(
 	} else if (typeof t !== 'string' && `str` in t) {
 		newS.type = 'string'
 		if (t.str) {
+			newS.originalType = 'enum'
 			newS.enum = t.str
 		} else {
+			newS.originalType = 'string'
 			newS.enum = undefined
 		}
 	} else if (typeof t !== 'string' && `resource` in t) {
