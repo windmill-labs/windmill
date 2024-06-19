@@ -20,7 +20,6 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
-	import { zIndexes } from '$lib/zIndexes'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
