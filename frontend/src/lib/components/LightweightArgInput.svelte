@@ -216,11 +216,9 @@
 			<div class="flex space-x-1">
 				{#if inputCat == 'number'}
 					{#if extra['min'] != undefined && extra['max'] != undefined}
-						<div class="flex w-full gap-1">
-							<div class="grow">
-								<Range bind:value min={extra['min']} max={extra['max']} />
-							</div>
-							<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
+						<div class="flex flex-row w-full mx-2 items-center gap-8">
+							<Range bind:value min={extra['min']} max={extra['max']} />
+							<input bind:value type="number" class="!w-16 h-6 !text-xs mb-6" />
 						</div>
 					{:else if extra?.currency}
 						<CurrencyInput

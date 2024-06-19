@@ -41,13 +41,13 @@
 	}
 
 	// Calculate the handle width based on the length of the max value
-	$: handleWidth = `${max.toString().length ?? 2}em`
+	$: handleWidth = `${Math.max(max.toString().length ?? 2, 2)}em`
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={'grow'}
-	style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth};"
+	style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; --handle-width: {handleWidth}; --handle-border: 4px;"
 	on:pointerdown|stopPropagation
 	on:keydown={handleKeyDown}
 >
