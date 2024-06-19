@@ -2678,7 +2678,7 @@ fn restructure_cloudevents_metadata(
         let mut hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
             .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
             .unwrap_or_else(HashMap::new);
-            hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
+        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
         Ok(hm)
     }
 }
@@ -2836,7 +2836,10 @@ where
             .unwrap()
             .starts_with("application/cloudevents-batch+json")
         {
-            Err(Error::BadRequest(format!("Cloud events batching is not supported yet")).into_response())
+            Err(
+                Error::BadRequest(format!("Cloud events batching is not supported yet"))
+                    .into_response(),
+            )
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
