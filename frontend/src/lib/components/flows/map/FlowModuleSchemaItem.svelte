@@ -2,8 +2,10 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import Popover from '$lib/components/Popover.svelte'
+	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import {
+		AlertTriangle,
 		Bed,
 		Database,
 		Gauge,
@@ -16,6 +18,7 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import type { FlowEditorContext } from '../types'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -32,6 +35,51 @@
 	export let bgColor: string = ''
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
+	export let mod: FlowModule
+
+	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	function hasUndefinedTransforms(flowModule: FlowModule): boolean {
+		const type = flowModule?.value?.type
+		if (
+			type === 'forloopflow' ||
+			type === 'whileloopflow' ||
+			type === 'branchone' ||
+			type === 'branchall' ||
+			type === 'identity'
+		) {
+			return false
+		}
+
+		const inputTransforms = flowModule.value.input_transforms
+		if (!inputTransforms) return false
+
+		for (const key in inputTransforms) {
+			const required = id ? $flowStateStore[id].schema?.required?.includes(key) : false
+
+			if (!required) {
+				return false
+			}
+
+			if (inputTransforms.hasOwnProperty(key)) {
+				const transform = inputTransforms[key]
+				if (
+					transform?.type === 'static' &&
+					(transform?.value === undefined || transform?.value === '')
+				) {
+					return true
+				} else if (
+					transform?.type === 'javascript' &&
+					(transform?.expr === undefined || transform?.expr === '')
+				) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	$: allRequiredInputSet = hasUndefinedTransforms(mod)
 
 	const dispatch = createEventDispatcher()
 
@@ -132,6 +180,7 @@
 			</Popover>
 		{/if}
 	</div>
+
 	<div
 		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
 			border border-gray-400 p-2 text-2xs module text-primary"
@@ -166,6 +215,20 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 		>
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
+
+		{#if allRequiredInputSet}
+			<div class="absolute -top-[10px] -left-[10px]">
+				<Popover>
+					<svelte:fragment slot="text">At least one required input is not set.</svelte:fragment>
+					<div
+						class=" rounded-md p-0.5 trash center-center text-primary
+border border-yellow-600 bg-yellow-100 duration-150 hover:bg-yellow-300"
+					>
+						<AlertTriangle size={14} strokeWidth={2} class="text-yellow-600" />
+					</div>
+				</Popover>
+			</div>
+		{/if}
 	{/if}
 </div>
 
