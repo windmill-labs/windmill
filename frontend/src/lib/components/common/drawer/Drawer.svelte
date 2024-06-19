@@ -10,6 +10,7 @@
 	export let size = '600px'
 	export let alwaysOpen = false
 	export let shouldUsePortal: boolean = true
+	export let offset: number = 0
 
 	let disposable: Disposable | undefined = undefined
 
@@ -62,7 +63,15 @@
 </script>
 
 <ConditionalPortal condition={shouldUsePortal}>
-	<Disposable let:handleClickAway let:zIndex bind:open bind:this={disposable} on:open on:close>
+	<Disposable
+		initialOffset={offset}
+		let:handleClickAway
+		let:zIndex
+		bind:open
+		bind:this={disposable}
+		on:open
+		on:close
+	>
 		<aside
 			class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
 			class:open
