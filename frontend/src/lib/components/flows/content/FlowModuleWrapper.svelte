@@ -64,10 +64,10 @@
 		$flowStateStore[module.id] = state
 
 		if ($flowInputsStore) {
-			$flowInputsStore[module.id] = {
+			$flowInputsStore[module?.id] = {
 				requiredInputsFilled: initRequiredInputFilled(
-					module.value,
-					$flowStateStore[module.id].schema
+					module?.value,
+					$flowStateStore[module?.id]?.schema
 				)
 			}
 		}
