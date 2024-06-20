@@ -62,6 +62,15 @@
 
 		flowModule = module
 		$flowStateStore[module.id] = state
+
+		if ($flowInputsStore) {
+			$flowInputsStore[module.id] = {
+				requiredInputsFilled: initRequiredInputFilled(
+					module.value,
+					$flowStateStore[module.id].schema
+				)
+			}
+		}
 	}
 </script>
 
