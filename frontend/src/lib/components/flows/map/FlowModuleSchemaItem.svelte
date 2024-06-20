@@ -179,10 +179,9 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 				<Popover>
 					<svelte:fragment slot="text">At least one required input is not set.</svelte:fragment>
 					<div
-						class=" rounded-md p-0.5 trash center-center text-primary
-border border-yellow-600 bg-yellow-100 duration-150 hover:bg-yellow-300"
+						class="flex items-center justify-center h-full w-full rounded-md p-0.5 border border-yellow-600 text-yellow-600 bg-yellow-100 duration-150 hover:bg-yellow-300"
 					>
-						<AlertTriangle size={14} strokeWidth={2} class="text-yellow-600" />
+						<AlertTriangle size={14} strokeWidth={2} />
 					</div>
 				</Popover>
 			</div>
