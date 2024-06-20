@@ -136,7 +136,6 @@
 					flowModule = module
 					$flowStateStore[module.id] = state
 
-					// Initialize requiredInputsFilled for the new module
 					if ($flowInputsStore) {
 						$flowInputsStore[module.id] = {
 							requiredInputsFilled: initRequiredInputFilled(

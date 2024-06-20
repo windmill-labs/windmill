@@ -370,6 +370,18 @@
 												const { argName } = e.detail
 												setFlowInput(argName)
 											}}
+											on:deleteArg={(e) => {
+												const { argName } = e.detail
+												const requiredInputsFilled =
+													$flowInputsStore?.[flowModule.id]?.requiredInputsFilled
+												if (requiredInputsFilled) {
+													delete requiredInputsFilled[argName]
+													if ($flowInputsStore) {
+														$flowInputsStore[flowModule.id].requiredInputsFilled =
+															requiredInputsFilled
+													}
+												}
+											}}
 										/>
 									</PropPickerWrapper>
 								</div>
