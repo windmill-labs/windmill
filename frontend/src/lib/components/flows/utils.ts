@@ -5,7 +5,8 @@ import {
 	type InputTransform,
 	type Job,
 	type RestartedFrom,
-	type OpenFlow
+	type OpenFlow,
+	type FlowModuleValue
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -186,4 +187,36 @@ export function isInputFilled(
 	}
 
 	return true
+}
+
+export function setRequiredInputFilled(
+	argName: string,
+	flowModuleValue: FlowModuleValue,
+	requiredInputsFilled: Record<string, boolean>,
+	schema: Schema
+) {
+	const type = flowModuleValue.type
+	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+		requiredInputsFilled[argName] = isInputFilled(
+			flowModuleValue.input_transforms,
+			argName,
+			schema ?? {}
+		)
+	}
+
+	return requiredInputsFilled
+}
+
+export function initRequiredInputFilled(flowModuleValue: FlowModuleValue, schema: Schema) {
+	const requiredInputsFilled: Record<string, boolean> = {}
+	const type = flowModuleValue.type
+
+	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+		const keys = Object.keys(flowModuleValue.input_transforms)
+		for (const key of keys) {
+			requiredInputsFilled[key] = isInputFilled(flowModuleValue.input_transforms, key, schema ?? {})
+		}
+	}
+
+	return requiredInputsFilled
 }

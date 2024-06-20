@@ -241,6 +241,10 @@
 					push(history, $flowStore)
 					selectNextId(e.id)
 					removeAtId($flowStore.value.modules, e.id)
+
+					if ($flowInputsStore) {
+						delete $flowInputsStore[e.id]
+					}
 					$flowStore = $flowStore
 				}
 
