@@ -5,7 +5,8 @@ import {
 	type InputTransform,
 	type Job,
 	type RestartedFrom,
-	type OpenFlow
+	type OpenFlow,
+	type FlowModuleValue
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -14,6 +15,7 @@ import type { FlowModuleState } from './flowState'
 import type { PickableProperties } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
+import type { Schema } from '$lib/common'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `
@@ -156,4 +158,65 @@ export function emptyFlowModuleState(): FlowModuleState {
 		schema: emptySchema(),
 		previewResult: NEVER_TESTED_THIS_FAR
 	}
+}
+
+export function isInputFilled(
+	inputTransforms: Record<string, InputTransform>,
+	key: string,
+	schema: Schema
+): boolean {
+	const required = schema?.required?.includes(key) ?? false
+
+	if (!required) {
+		return true
+	}
+
+	if (inputTransforms.hasOwnProperty(key)) {
+		const transform = inputTransforms[key]
+		if (
+			transform?.type === 'static' &&
+			(transform?.value === undefined || transform?.value === '' || transform?.value === null)
+		) {
+			return false
+		} else if (
+			transform?.type === 'javascript' &&
+			(transform?.expr === undefined || transform?.expr === '' || transform?.expr === null)
+		) {
+			return false
+		}
+	}
+
+	return true
+}
+
+export function setRequiredInputFilled(
+	argName: string,
+	flowModuleValue: FlowModuleValue,
+	requiredInputsFilled: Record<string, boolean>,
+	schema: Schema
+) {
+	const type = flowModuleValue.type
+	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+		requiredInputsFilled[argName] = isInputFilled(
+			flowModuleValue.input_transforms,
+			argName,
+			schema ?? {}
+		)
+	}
+
+	return requiredInputsFilled
+}
+
+export function initRequiredInputFilled(flowModuleValue: FlowModuleValue, schema: Schema) {
+	const requiredInputsFilled: Record<string, boolean> = {}
+	const type = flowModuleValue.type
+
+	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+		const keys = Object.keys(flowModuleValue.input_transforms)
+		for (const key of keys) {
+			requiredInputsFilled[key] = isInputFilled(flowModuleValue.input_transforms, key, schema ?? {})
+		}
+	}
+
+	return requiredInputsFilled
 }
