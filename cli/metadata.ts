@@ -100,12 +100,12 @@ export async function generateFlowLockInternal(
   workspace: Workspace,
   justUpdateMetadataLock?: boolean
 ): Promise<string | undefined> {
-  if (folder.endsWith("/")) {
+  if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
   log.info(folder);
   const remote_path = folder
-    .replaceAll("\\", "/")
+    .replaceAll(SEP, "/")
     .substring(0, folder.length - ".flow".length);
   if (!justUpdateMetadataLock) {
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
@@ -186,7 +186,7 @@ export async function generateScriptMetadataInternal(
 ): Promise<string | undefined> {
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
-    .replaceAll("\\", "/");
+    .replaceAll(SEP, "/");
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 

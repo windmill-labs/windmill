@@ -37,7 +37,7 @@ export async function pushApp(
   try {
     app = await AppService.getAppByPath({
       workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
     });
   } catch {
     //ignore
@@ -83,7 +83,7 @@ export async function pushApp(
     log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
     await AppService.updateApp({
       workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       requestBody: {
         deployment_message: message,
         ...localApp,
@@ -95,7 +95,7 @@ export async function pushApp(
     await AppService.createApp({
       workspace,
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localApp,
       },

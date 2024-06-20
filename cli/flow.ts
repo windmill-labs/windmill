@@ -12,7 +12,7 @@ import {
   yamlParse,
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { exts, resolve, track_job } from "./script.ts";
+import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
 import { generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
@@ -104,9 +104,9 @@ export async function pushFlow(
     log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
     await FlowService.updateFlow({
       workspace: workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
       },
@@ -116,7 +116,7 @@ export async function pushFlow(
     await FlowService.createFlow({
       workspace: workspace,
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
       },
