@@ -138,7 +138,6 @@
 					on:click={() => dispatch('select', mod.id)}
 					{...itemProps}
 					{bgColor}
-					{mod}
 				>
 					<div slot="icon">
 						<Repeat size={16} />
@@ -154,7 +153,6 @@
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
 					{bgColor}
-					{mod}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -170,7 +168,6 @@
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
-					{mod}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -192,7 +189,6 @@
 						(mod.value.type === 'rawscript'
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
-					{mod}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

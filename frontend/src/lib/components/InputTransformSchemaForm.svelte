@@ -3,6 +3,7 @@
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
@@ -27,6 +28,9 @@
 	export { clazz as class }
 
 	let inputCheck: { [id: string]: boolean } = {}
+
+	const dispatch = createEventDispatcher()
+
 	$: isValid = allTrue(inputCheck) ?? false
 
 	$: if (args == undefined || typeof args !== 'object') {
@@ -36,6 +40,16 @@
 	export function setArgs(nargs: Record<string, InputTransform | any>) {
 		args = nargs
 	}
+
+	let oldArgs: Record<string, InputTransform | any> = {}
+
+	function aaa(x) {
+		console.log('args changed', x)
+		dispatch('change')
+		oldArgs = JSON.parse(JSON.stringify(x))
+	}
+
+	$: JSON.stringify(oldArgs) !== JSON.stringify(args) && aaa(args)
 
 	function removeExtraKey() {
 		const nargs = {}

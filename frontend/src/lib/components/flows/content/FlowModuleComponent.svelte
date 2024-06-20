@@ -45,6 +45,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
+	import { isInputFilled } from '../utils'
 
 	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, saveDraft } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -342,6 +343,27 @@
 											bind:args={flowModule.value.input_transforms}
 											extraLib={stepPropPicker.extraLib}
 											{enableAi}
+											on:change={() => {
+												const requiredInputsFilled = {}
+
+												if (
+													flowModule.value.type == 'rawscript' ||
+													flowModule.value.type == 'script' ||
+													flowModule.value.type == 'flow'
+												) {
+													for (const key in flowModule.value.input_transforms) {
+														requiredInputsFilled[key] = isInputFilled(
+															flowModule.value.input_transforms,
+															key,
+															$flowStateStore[$selectedId]?.schema ?? {}
+														)
+													}
+
+													console.log(requiredInputsFilled)
+
+													$flowStateStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+												}
+											}}
 										/>
 									</PropPickerWrapper>
 								</div>
