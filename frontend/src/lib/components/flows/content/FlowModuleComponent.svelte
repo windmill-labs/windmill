@@ -45,7 +45,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
-	import { setRequiredInputFilled } from '../utils'
+	import { initRequiredInputFilled, setRequiredInputFilled } from '../utils'
 
 	const {
 		selectedId,
@@ -140,8 +140,12 @@
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
+
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
+				$flowInputsStore![flowModule?.id] = {
+					requiredInputsFilled: initRequiredInputFilled(flowModule.value, schema ?? {})
+				}
 			} else {
 				if (
 					flowModule.value.type == 'rawscript' ||
@@ -369,18 +373,6 @@
 											on:changeArg={(e) => {
 												const { argName } = e.detail
 												setFlowInput(argName)
-											}}
-											on:deleteArg={(e) => {
-												const { argName } = e.detail
-												const requiredInputsFilled =
-													$flowInputsStore?.[flowModule.id]?.requiredInputsFilled
-												if (requiredInputsFilled) {
-													delete requiredInputsFilled[argName]
-													if ($flowInputsStore) {
-														$flowInputsStore[flowModule.id].requiredInputsFilled =
-															requiredInputsFilled
-													}
-												}
 											}}
 										/>
 									</PropPickerWrapper>

@@ -38,19 +38,6 @@
 	}
 
 	export function setArgs(nargs: Record<string, InputTransform | any>) {
-		const newKeys = Object.keys(nargs)
-		const oldKeys = Object.keys(args)
-
-		newKeys.forEach((key) => {
-			dispatch('changeArg', { argName: key })
-		})
-
-		const removedKeys = oldKeys.filter((key) => !newKeys.includes(key))
-
-		removedKeys.forEach((key) => {
-			dispatch('deleteArg', { argName: key })
-		})
-
 		args = nargs
 	}
 
