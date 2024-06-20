@@ -5,6 +5,13 @@ import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { Schedule } from './scheduleUtils'
 
+export type FlowInput = Record<
+	string,
+	{
+		requiredInputsFilled?: Record<string, boolean>
+	}
+>
+
 export type FlowEditorContext = {
 	selectedId: Writable<string>
 	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
@@ -25,4 +32,5 @@ export type FlowEditorContext = {
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void
 	initialPath: string
+	flowInputsStore: Writable<FlowInput | undefined>
 }

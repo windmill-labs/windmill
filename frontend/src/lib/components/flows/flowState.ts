@@ -8,9 +8,6 @@ export type FlowModuleState = {
 	schema: Schema
 	previewResult?: any
 	previewArgs?: any
-
-	// used to know whether all required inputs are filled
-	requiredInputsFilled?: Record<string, boolean>
 }
 
 export type FlowState = Record<string, FlowModuleState>

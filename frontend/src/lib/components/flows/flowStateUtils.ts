@@ -13,7 +13,7 @@ import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/scripts'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
-import { isInputFilled, emptyFlowModuleState } from './utils'
+import { emptyFlowModuleState } from './utils'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { loadSchemaFromModule } from './flowInfers'
 import { nextId } from './flowModuleNextId'
@@ -31,16 +31,9 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 			flowModule.value.input_transforms = input_transforms
 		}
 
-		const requiredInputsFilled: Record<string, boolean> = {}
-
-		for (const key in input_transforms) {
-			requiredInputsFilled[key] = isInputFilled(input_transforms, key, schema)
-		}
-
 		return {
 			schema,
-			previewResult: NEVER_TESTED_THIS_FAR,
-			requiredInputsFilled: requiredInputsFilled
+			previewResult: NEVER_TESTED_THIS_FAR
 		}
 	} catch (e) {
 		console.debug(e)

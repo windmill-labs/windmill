@@ -17,7 +17,8 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext } from '../types'
+	import type { FlowInput } from '../types'
+	import type { Writable } from 'svelte/store'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -35,10 +36,9 @@
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 
-	const store = getContext<FlowEditorContext>('FlowEditorContext')
-
-	const flowStateStore = store.flowStateStore
-
+	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
+		'FlowGraphContext'
+	)
 	const dispatch = createEventDispatcher()
 
 	const { currentStepStore: copilotCurrentStepStore } =
@@ -174,7 +174,7 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
 
-		{#if id && !Object.values($flowStateStore?.[id]?.requiredInputsFilled || {}).every(Boolean)}
+		{#if id && !Object.values($flowInputsStore?.[id]?.requiredInputsFilled || {}).every(Boolean)}
 			<div class="absolute -top-[10px] -left-[10px]">
 				<Popover>
 					<svelte:fragment slot="text">At least one required input is not set.</svelte:fragment>

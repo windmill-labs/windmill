@@ -47,8 +47,15 @@
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { isInputFilled } from '../utils'
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, saveDraft } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		selectedId,
+		previewArgs,
+		flowStateStore,
+		flowStore,
+		pathStore,
+		saveDraft,
+		flowInputsStore
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
@@ -346,8 +353,12 @@
 											on:changeArg={(e) => {
 												const { argName } = e.detail
 
+												if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
+													$flowInputsStore[flowModule.id] = {}
+												}
+
 												const requiredInputsFilled =
-													$flowStateStore[flowModule.id].requiredInputsFilled ?? {}
+													$flowInputsStore?.[flowModule.id].requiredInputsFilled ?? {}
 
 												if (
 													flowModule.value.type == 'rawscript' ||
@@ -361,9 +372,10 @@
 													)
 												}
 
-												$flowStateStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
-
-												console.log('requiredInputsFilled', requiredInputsFilled)
+												if ($flowInputsStore) {
+													$flowInputsStore[flowModule.id].requiredInputsFilled =
+														requiredInputsFilled
+												}
 											}}
 										/>
 									</PropPickerWrapper>
