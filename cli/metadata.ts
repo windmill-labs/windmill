@@ -103,6 +103,7 @@ export async function generateFlowLockInternal(
   if (folder.endsWith("/")) {
     folder = folder.substring(0, folder.length - 1);
   }
+  log.info(folder);
   const remote_path = folder
     .replaceAll("\\", "/")
     .substring(0, folder.length - ".flow".length);
