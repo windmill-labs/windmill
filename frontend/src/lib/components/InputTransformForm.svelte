@@ -390,6 +390,7 @@
 					on:blur={() => {
 						focused = false
 					}}
+					shouldDispatchChanges
 					on:change={() => {
 						dispatch('change', { argName })
 					}}
