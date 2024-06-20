@@ -146,19 +146,21 @@ export async function generateFlowLockInternal(
     );
     //removeChangedLocks
     flowValue.value = await updateFlow(workspace, flowValue.value, remote_path);
+
+    const inlineScripts = extractInlineScriptsForFlows(
+      flowValue.value.modules,
+      newPathAssigner("bun")
+    );
+    inlineScripts
+      .filter((s) => s.path.endsWith(".lock"))
+      .forEach((s) => {
+        Deno.writeTextFileSync(
+          Deno.cwd() + SEP + folder + SEP + s.path,
+          s.content
+        );
+      });
   }
-  const inlineScripts = extractInlineScriptsForFlows(
-    flowValue.value.modules,
-    newPathAssigner("bun")
-  );
-  inlineScripts
-    .filter((s) => s.path.endsWith(".lock"))
-    .forEach((s) => {
-      Deno.writeTextFileSync(
-        Deno.cwd() + SEP + folder + SEP + s.path,
-        s.content
-      );
-    });
+
   hashes = await generateFlowHash(folder);
 
   for (const [path, hash] of Object.entries(hashes)) {
