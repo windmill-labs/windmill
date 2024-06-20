@@ -143,8 +143,10 @@
 
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
-				$flowInputsStore![flowModule?.id] = {
-					requiredInputsFilled: initRequiredInputFilled(flowModule.value, schema ?? {})
+				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
+					$flowInputsStore![flowModule?.id] = {
+						requiredInputsFilled: initRequiredInputFilled(flowModule.value, schema ?? {})
+					}
 				}
 			} else {
 				if (
