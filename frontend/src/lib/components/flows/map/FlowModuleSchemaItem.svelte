@@ -35,7 +35,9 @@
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 
-	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const store = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const flowStateStore = store.flowStateStore
 
 	const dispatch = createEventDispatcher()
 

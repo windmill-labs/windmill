@@ -343,24 +343,27 @@
 											bind:args={flowModule.value.input_transforms}
 											extraLib={stepPropPicker.extraLib}
 											{enableAi}
-											on:change={() => {
-												const requiredInputsFilled = {}
+											on:changeArg={(e) => {
+												const { argName } = e.detail
+
+												const requiredInputsFilled =
+													$flowStateStore[flowModule.id].requiredInputsFilled ?? {}
 
 												if (
 													flowModule.value.type == 'rawscript' ||
 													flowModule.value.type == 'script' ||
 													flowModule.value.type == 'flow'
 												) {
-													for (const key in flowModule.value.input_transforms) {
-														requiredInputsFilled[key] = isInputFilled(
-															flowModule.value.input_transforms,
-															key,
-															$flowStateStore[$selectedId]?.schema ?? {}
-														)
-													}
-
-													$flowStateStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+													requiredInputsFilled[argName] = isInputFilled(
+														flowModule.value.input_transforms,
+														e.detail.argName,
+														$flowStateStore[$selectedId]?.schema ?? {}
+													)
 												}
+
+												$flowStateStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+
+												console.log('requiredInputsFilled', requiredInputsFilled)
 											}}
 										/>
 									</PropPickerWrapper>

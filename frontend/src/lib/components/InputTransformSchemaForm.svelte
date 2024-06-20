@@ -41,15 +41,6 @@
 		args = nargs
 	}
 
-	let oldArgs: Record<string, InputTransform | any> = {}
-
-	function dispatchChange(x) {
-		dispatch('change')
-		oldArgs = JSON.parse(JSON.stringify(x))
-	}
-
-	$: JSON.stringify(oldArgs) !== JSON.stringify(args) && dispatchChange(args)
-
 	function removeExtraKey() {
 		const nargs = {}
 		Object.keys(args ?? {}).forEach((key) => {
@@ -107,6 +98,10 @@
 						{noDynamicToggle}
 						{pickableProperties}
 						{enableAi}
+						on:change={(e) => {
+							const { argName } = e.detail
+							dispatch('changeArg', { argName })
+						}}
 					/>
 				</div>
 			{/if}

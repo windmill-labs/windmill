@@ -233,6 +233,12 @@
 	let itemsLimit = 50
 
 	$: validateInput(pattern, value, required)
+
+	let oldValue = value
+	$: if (JSON.stringify(oldValue) !== JSON.stringify(value)) {
+		oldValue = value
+		dispatch('change')
+	}
 </script>
 
 <S3FilePicker
