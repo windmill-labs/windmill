@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
+  "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
   "describe": {
     "columns": [
       {
@@ -21,5 +21,5 @@
       false
     ]
   },
-  "hash": "f1f7a27738deae46de6acc10cbff701ff0c3872cc5b387e304bd9a058bb0c8a8"
+  "hash": "aa923ddc251f5daf4bf075cb251dfddf87877f12fbbc8fbf3cfd08f43bbad8a0"
 }
