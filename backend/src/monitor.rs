@@ -1185,7 +1185,7 @@ async fn handle_zombie_flows(
         SELECT *
         FROM queue
         WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
+            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval AND canceled = false
         "#,
     ).bind(FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str())
     .fetch_all(db)
@@ -1205,7 +1205,7 @@ async fn handle_zombie_flows(
             );
             // if the flow hasn't started and is a zombie, we can simply restart it
             sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null WHERE id = $1",
+                "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
                 flow.id
             )
             .execute(db)
@@ -1237,11 +1237,12 @@ async fn handle_zombie_flows(
     .await?;
 
     for flow in flows2 {
-        let in_queue =
-            sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1 AND running = true")
-                .bind(flow.parent_flow_id)
-                .fetch_optional(db)
-                .await?;
+        let in_queue = sqlx::query_as::<_, QueuedJob>(
+            "SELECT * FROM queue WHERE id = $1 AND running = true AND canceled = false",
+        )
+        .bind(flow.parent_flow_id)
+        .fetch_optional(db)
+        .await?;
         if let Some(job) = in_queue {
             tracing::error!(
                 "parallel Zombie flow detected: {} in workspace {}. Last ping was: {:?}.",
@@ -1271,7 +1272,7 @@ async fn cancel_zombie_flow_job(
         flow.id,
         flow.workspace_id
     );
-    let (mut ntx, _) = cancel_job(
+    let (ntx, _) = cancel_job(
         "monitor",
         Some(message),
         flow.id,
@@ -1282,12 +1283,6 @@ async fn cancel_zombie_flow_job(
         false,
         false,
     )
-    .await?;
-    sqlx::query!(
-        "UPDATE queue SET running = false, started_at = null WHERE id = $1",
-        flow.id
-    )
-    .execute(&mut *ntx)
     .await?;
     ntx.commit().await?;
     Ok(())
