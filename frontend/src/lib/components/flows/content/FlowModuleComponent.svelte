@@ -359,8 +359,6 @@
 														)
 													}
 
-													console.log(requiredInputsFilled)
-
 													$flowStateStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
 												}
 											}}

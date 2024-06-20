@@ -10,7 +10,6 @@ export type FlowModuleState = {
 	previewArgs?: any
 
 	// used to know whether all required inputs are filled
-	// and the module is ready to be executed
 	requiredInputsFilled?: Record<string, boolean>
 }
 
