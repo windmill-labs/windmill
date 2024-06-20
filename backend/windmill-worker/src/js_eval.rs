@@ -686,7 +686,6 @@ pub async fn eval_fetch_timeout(
         // let instant = Instant::now();
 
         let mut js_runtime: JsRuntime = JsRuntime::new(options);
-        tracing::error!("js_runtime created");
         // tracing::info!("ttc: {:?}", instant.elapsed());
 
         js_runtime.add_near_heap_limit_callback(move |x,y| {
