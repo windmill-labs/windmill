@@ -43,13 +43,12 @@
 
 	let oldArgs: Record<string, InputTransform | any> = {}
 
-	function aaa(x) {
-		console.log('args changed', x)
+	function dispatchChange(x) {
 		dispatch('change')
 		oldArgs = JSON.parse(JSON.stringify(x))
 	}
 
-	$: JSON.stringify(oldArgs) !== JSON.stringify(args) && aaa(args)
+	$: JSON.stringify(oldArgs) !== JSON.stringify(args) && dispatchChange(args)
 
 	function removeExtraKey() {
 		const nargs = {}
