@@ -13,7 +13,7 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { afterUpdate, getContext, tick } from 'svelte'
+	import { afterUpdate, getContext, onMount, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -183,9 +183,40 @@
 	})
 
 	let forceReload = 0
-
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
+
+	function setFlowInput(argName: string) {
+		if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
+			$flowInputsStore[flowModule.id] = {}
+		}
+
+		const requiredInputsFilled = $flowInputsStore?.[flowModule.id].requiredInputsFilled ?? {}
+
+		if (
+			flowModule.value.type == 'rawscript' ||
+			flowModule.value.type == 'script' ||
+			flowModule.value.type == 'flow'
+		) {
+			requiredInputsFilled[argName] = isInputFilled(
+				flowModule.value.input_transforms,
+				argName,
+				$flowStateStore[$selectedId]?.schema ?? {}
+			)
+		}
+
+		if ($flowInputsStore) {
+			$flowInputsStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+		}
+	}
+
+	onMount(() => {
+		const properties = $flowStateStore[flowModule.id].schema.properties
+
+		Object.keys(properties).forEach((key) => {
+			setFlowInput(key)
+		})
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -352,30 +383,7 @@
 											{enableAi}
 											on:changeArg={(e) => {
 												const { argName } = e.detail
-
-												if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
-													$flowInputsStore[flowModule.id] = {}
-												}
-
-												const requiredInputsFilled =
-													$flowInputsStore?.[flowModule.id].requiredInputsFilled ?? {}
-
-												if (
-													flowModule.value.type == 'rawscript' ||
-													flowModule.value.type == 'script' ||
-													flowModule.value.type == 'flow'
-												) {
-													requiredInputsFilled[argName] = isInputFilled(
-														flowModule.value.input_transforms,
-														e.detail.argName,
-														$flowStateStore[$selectedId]?.schema ?? {}
-													)
-												}
-
-												if ($flowInputsStore) {
-													$flowInputsStore[flowModule.id].requiredInputsFilled =
-														requiredInputsFilled
-												}
+												setFlowInput(argName)
 											}}
 										/>
 									</PropPickerWrapper>
