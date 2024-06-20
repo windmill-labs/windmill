@@ -30,7 +30,11 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		) {
 			flowModule.value.input_transforms = input_transforms
 		}
-		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
+
+		return {
+			schema,
+			previewResult: NEVER_TESTED_THIS_FAR
+		}
 	} catch (e) {
 		console.debug(e)
 		return emptyFlowModuleState()

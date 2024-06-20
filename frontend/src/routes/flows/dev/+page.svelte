@@ -4,7 +4,7 @@
 	import { onDestroy, onMount, setContext } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import type { FlowEditorContext, FlowInput } from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
 	import { OpenAPI, type FlowModule, type OpenFlow } from '$lib/gen'
 	import { initHistory } from '$lib/history'
@@ -95,7 +95,8 @@
 		flowStore,
 		testStepStore,
 		saveDraft: () => {},
-		initialPath: ''
+		initialPath: '',
+		flowInputsStore: writable<FlowInput | undefined>(undefined)
 	})
 
 	type LastEdit = {

@@ -45,9 +45,17 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
+	import { initRequiredInputFilled, setRequiredInputFilled } from '../utils'
 
-	const { selectedId, previewArgs, flowStateStore, flowStore, pathStore, saveDraft } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		selectedId,
+		previewArgs,
+		flowStateStore,
+		flowStore,
+		pathStore,
+		saveDraft,
+		flowInputsStore
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
@@ -132,8 +140,14 @@
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
+
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
+				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
+					$flowInputsStore![flowModule?.id] = {
+						requiredInputsFilled: initRequiredInputFilled(flowModule.value, schema ?? {})
+					}
+				}
 			} else {
 				if (
 					flowModule.value.type == 'rawscript' ||
@@ -175,9 +189,25 @@
 	})
 
 	let forceReload = 0
-
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
+
+	function setFlowInput(argName: string) {
+		if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
+			$flowInputsStore[flowModule.id] = {}
+		}
+
+		if ($flowInputsStore) {
+			const requiredInputsFilled = setRequiredInputFilled(
+				argName,
+				flowModule.value,
+				$flowInputsStore[flowModule.id].requiredInputsFilled ?? {},
+				$flowStateStore[$selectedId]?.schema
+			)
+
+			$flowInputsStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -342,6 +372,10 @@
 											bind:args={flowModule.value.input_transforms}
 											extraLib={stepPropPicker.extraLib}
 											{enableAi}
+											on:changeArg={(e) => {
+												const { argName } = e.detail
+												setFlowInput(argName)
+											}}
 										/>
 									</PropPickerWrapper>
 								</div>

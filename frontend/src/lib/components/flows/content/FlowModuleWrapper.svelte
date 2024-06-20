@@ -18,12 +18,13 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
+	import { initRequiredInputFilled } from '../utils'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
 	export let enableAi = false
 
-	const { selectedId, schedule, flowStateStore } =
+	const { selectedId, schedule, flowStateStore, flowInputsStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
@@ -134,6 +135,15 @@
 
 					flowModule = module
 					$flowStateStore[module.id] = state
+
+					if ($flowInputsStore) {
+						$flowInputsStore[module.id] = {
+							requiredInputsFilled: initRequiredInputFilled(
+								module.value,
+								$flowStateStore[module.id].schema
+							)
+						}
+					}
 				}}
 				failureModule={$selectedId === 'failure'}
 			/>
