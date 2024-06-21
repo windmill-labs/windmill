@@ -235,7 +235,7 @@
 					/>
 				{/if}
 			</div>
-			<div class="col-span-2 flex flex-col gap-2">
+			<div class="col-span-2 flex flex-col gap-4">
 				{#if flowModule.suspend}
 					{#if emptyString($enterpriseLicense)}
 						<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
