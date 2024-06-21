@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.350.3](https://github.com/windmill-labs/windmill/compare/v1.350.2...v1.350.3) (2024-06-21)
+
+
+### Bug Fixes
+
+* **cli:** fix push flow support for windows ([1042a06](https://github.com/windmill-labs/windmill/commit/1042a06a12ae31d31facd1dfab10cbd2b10c86f5))
+
 ## [1.350.2](https://github.com/windmill-labs/windmill/compare/v1.350.1...v1.350.2) (2024-06-21)
 
 
