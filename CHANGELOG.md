@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.350.1](https://github.com/windmill-labs/windmill/compare/v1.350.0...v1.350.1) (2024-06-20)
+
+
+### Bug Fixes
+
+* **cli:** fix inital sync pull generating wrong flow lockfile ([a43923b](https://github.com/windmill-labs/windmill/commit/a43923b3266b7b5781b0a5dc672c401377ae6e20))
+
+## [1.350.0](https://github.com/windmill-labs/windmill/compare/v1.349.1...v1.350.0) (2024-06-20)
+
+
+### Features
+
+* **frontend:** add indicator when required field are missing ([#3935](https://github.com/windmill-labs/windmill/issues/3935)) ([7007f14](https://github.com/windmill-labs/windmill/commit/7007f14a1073f8f43b2500fae9c75d4222928802))
+
 ## [1.349.1](https://github.com/windmill-labs/windmill/compare/v1.349.0...v1.349.1) (2024-06-19)
 
 

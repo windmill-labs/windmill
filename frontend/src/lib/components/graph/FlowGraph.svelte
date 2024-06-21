@@ -25,6 +25,7 @@
 	import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 	import { deepEqual } from 'fast-equals'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import type { FlowInput } from '../flows/types'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -43,8 +44,14 @@
 	export let download = false
 	export let fullSize = false
 	export let disableAi = false
+	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
+		undefined
+	)
 
-	setContext<{ selectedId: Writable<string | undefined> }>('FlowGraphContext', { selectedId })
+	setContext<{
+		selectedId: Writable<string | undefined>
+		flowInputsStore: Writable<FlowInput | undefined>
+	}>('FlowGraphContext', { selectedId, flowInputsStore })
 
 	let idGenerator: Generator
 	let nestedNodes: NestedNodes

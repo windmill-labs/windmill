@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { EnumType, SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { setInputCat as computeInputCat, debounce, emptyString } from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
@@ -29,6 +29,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let label: string = ''
 	export let value: any
@@ -77,6 +78,7 @@
 	export let order: string[] | undefined = undefined
 	export let editor: SimpleEditor | undefined = undefined
 	export let orderEditable = false
+	export let shouldDispatchChanges: boolean = false
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -233,6 +235,18 @@
 	let itemsLimit = 50
 
 	$: validateInput(pattern, value, required)
+
+	let oldValue = value
+
+	function compareValues(value) {
+		if (!deepEqual(oldValue, value)) {
+			oldValue = value
+			dispatch('change')
+		}
+	}
+
+	let debounced = debounce(() => compareValues(value), 50)
+	$: shouldDispatchChanges && debounced(value)
 </script>
 
 <S3FilePicker

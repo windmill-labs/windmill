@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
@@ -8,11 +8,13 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { initRequiredInputFilled } from '../utils'
 
 	export let noEditor = false
 	export let enableAi = false
 
-	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStore, flowStateStore, flowInputsStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
@@ -24,6 +26,25 @@
 			seenModules.push(m.id)
 		}
 	}
+
+	onMount(() => {
+		$flowStore?.value?.modules?.forEach((module) => {
+			if (!module) {
+				return
+			}
+
+			if (!$flowStateStore) {
+				$flowInputsStore = {}
+			}
+
+			$flowInputsStore![module?.id] = {
+				requiredInputsFilled: initRequiredInputFilled(
+					module.value,
+					$flowStateStore?.[module?.id]?.schema ?? {}
+				)
+			}
+		})
+	})
 </script>
 
 {#if $selectedId?.startsWith('settings')}
