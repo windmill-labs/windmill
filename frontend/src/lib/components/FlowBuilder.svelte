@@ -214,7 +214,7 @@
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
-			const { cron, timezone, args, enabled, summary, description } = $scheduleStore
+			const { cron, timezone, args, enabled, summary } = $scheduleStore
 			if (newFlow) {
 				try {
 					localStorage.removeItem('flow')
@@ -260,8 +260,7 @@
 						JSON.stringify(schedule.args) != JSON.stringify(args) ||
 						schedule.schedule != cron ||
 						schedule.timezone != timezone ||
-						schedule.summary != summary ||
-						schedule.description != description
+						schedule.summary != summary
 					) {
 						await ScheduleService.updateSchedule({
 							workspace: $workspaceStore ?? '',
@@ -347,7 +346,6 @@
 
 	const scheduleStore = writable<Schedule>({
 		summary: undefined,
-		description: undefined,
 		args: {},
 		cron: '',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -390,7 +388,6 @@
 			.catch(() => {
 				scheduleStore.set({
 					summary: undefined,
-					description: undefined,
 					cron: '0 */5 * * *',
 					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 					args: {},

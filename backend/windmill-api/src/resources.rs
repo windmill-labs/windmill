@@ -134,6 +134,7 @@ struct EditResource {
 pub struct ListResourceQuery {
     resource_type: Option<String>,
     resource_type_exclude: Option<String>,
+    path_start: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -247,6 +248,10 @@ async fn list_resources(
         for rt in rt.split(',') {
             sqlb.and_where_ne("resource_type", "?".bind(&rt));
         }
+    }
+
+    if let Some(path_start) = &lq.path_start {
+        sqlb.and_where_like_left("resource.path", path_start);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;

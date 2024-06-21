@@ -41,7 +41,6 @@ export function scriptLangToEditorLang(lang: Script['language'] | undefined) {
 
 export type ScriptSchedule = {
 	summary: string | undefined
-	description: string | undefined
 	args: Record<string, any>
 	cron: string
 	timezone: string
@@ -69,7 +68,6 @@ export async function loadScriptSchedule(
 
 	return {
 		summary: schedule.summary,
-		description: schedule.description,
 		enabled: schedule.enabled,
 		cron: schedule.schedule,
 		timezone: schedule.timezone,

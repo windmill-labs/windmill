@@ -11,7 +11,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import autosize from '$lib/autosize'
 	import {
 		FlowService,
 		ScheduleService,
@@ -95,7 +94,6 @@
 		itemKind = nis_flow ? 'flow' : 'script'
 		initialScriptPath = initial_script_path ?? ''
 		summary = ''
-		description = ''
 		no_flow_overlap = false
 		path = initialScriptPath
 		initialPath = initialScriptPath
@@ -156,7 +154,6 @@
 	let enabled: boolean = false
 	let pathError = ''
 	let summary = ''
-	let description = ''
 	let no_flow_overlap = false
 	let tag: string | undefined = undefined
 
@@ -252,7 +249,6 @@
 			schedule = s.schedule
 			timezone = s.timezone
 			summary = s.summary ?? ''
-			description = s.description ?? ''
 			script_path = s.script_path ?? ''
 			await loadScript(script_path)
 
@@ -332,7 +328,6 @@
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
-					description: description != '' ? description : undefined,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag
 				}
@@ -361,7 +356,6 @@
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
-					description: description != '' ? description : undefined,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag
 				}
@@ -506,10 +500,6 @@
 							<!-- <span class="font-mono text-sm break-all">{path}</span> -->
 						</div>
 					{/if}
-				</Label>
-
-				<Label label="Description">
-					<textarea bind:value={description} use:autosize placeholder="Schedule description" />
 				</Label>
 			</div>
 

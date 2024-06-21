@@ -2373,6 +2373,10 @@ paths:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: path_start
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: variable list
@@ -2851,6 +2855,10 @@ paths:
             type: string
         - name: resource_type_exclude
           description: resource_types to not list from, separated by ',',
+          in: query
+          schema:
+            type: string
+        - name: path_start
           in: query
           schema:
             type: string
@@ -6440,6 +6448,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: schedule list
@@ -9972,8 +9984,6 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         summary:
           type: string
-        description:
-          type: string
         no_flow_overlap:
           type: boolean
         tag:
@@ -10051,8 +10061,6 @@ components:
           type: boolean
         summary:
           type: string
-        description:
-          type: string
         tag:
           type: string
       required:
@@ -10094,8 +10102,6 @@ components:
         no_flow_overlap:
           type: boolean
         summary:
-          type: string
-        description:
           type: string
         tag:
           type: string

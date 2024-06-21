@@ -130,11 +130,6 @@
       },
       {
         "ordinal": 25,
-        "name": "description",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 26,
         "name": "jobs",
         "type_info": "JsonArray"
       }
@@ -171,7 +166,6 @@
       true,
       true,
       false,
-      true,
       true,
       null
     ]

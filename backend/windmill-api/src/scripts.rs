@@ -242,10 +242,10 @@ async fn list_scripts(
         sqlb.and_where_eq("archived", false);
     }
     if let Some(ps) = &lq.path_start {
-        sqlb.and_where_like_left("path", "?".bind(ps));
+        sqlb.and_where_like_left("o.path", ps);
     }
     if let Some(p) = &lq.path_exact {
-        sqlb.and_where_eq("path", "?".bind(p));
+        sqlb.and_where_eq("o.path", "?".bind(p));
     }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));

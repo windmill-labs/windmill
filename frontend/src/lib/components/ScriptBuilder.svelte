@@ -82,7 +82,6 @@
 
 	let scheduleStore = writable<ScriptSchedule>({
 		summary: '',
-		description: '',
 		cron: '0 */5 * * *',
 		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 		args: {},
@@ -249,7 +248,7 @@
 				}
 			})
 
-			const { enabled, timezone, args, cron, summary, description } = $scheduleStore
+			const { enabled, timezone, args, cron, summary } = $scheduleStore
 			const scheduleExists = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
 				path: script.path
@@ -264,8 +263,7 @@
 					JSON.stringify(schedule.args) != JSON.stringify(args) ||
 					schedule.schedule != cron ||
 					schedule.timezone != timezone ||
-					schedule.summary != summary ||
-					schedule.description != script.description
+					schedule.summary != summary
 				) {
 					await ScheduleService.updateSchedule({
 						workspace: $workspaceStore ?? '',
@@ -274,8 +272,7 @@
 							schedule: formatCron(cron),
 							timezone,
 							args,
-							summary,
-							description
+							summary
 						}
 					})
 				}

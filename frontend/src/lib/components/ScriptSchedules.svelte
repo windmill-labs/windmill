@@ -10,7 +10,6 @@
 	import { Calendar } from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 	import type { ScriptSchedule } from '$lib/scripts'
-	import autosize from '$lib/autosize'
 	import Label from './Label.svelte'
 
 	export let initialPath: string
@@ -49,9 +48,6 @@
 			class="text-sm w-full"
 			bind:value={$schedule.summary}
 		/>
-	</Label>
-	<Label label="Description">
-		<textarea bind:value={$schedule.description} use:autosize placeholder="Schedule description" />
 	</Label>
 </div>
 

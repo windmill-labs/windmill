@@ -122,6 +122,7 @@
 	let preFilteredItems: typeof filteredItems | undefined = []
 	let filter = ''
 	let ownerFilter: string | undefined = undefined
+	let nbDisplayed = 15
 
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = 'all'
 
@@ -290,7 +291,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs, description } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const avg_s = jobs
 						? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -320,11 +321,6 @@
 								<div class="text-secondary text-xs truncate text-left font-light">
 									schedule: {path}
 								</div>
-								{#if description}
-									<div class="text-tertiary text-sm truncate text-left font-light">
-										{description}
-									</div>
-								{/if}
 							</a>
 
 							<div class="gap-2 items-center hidden md:flex">
@@ -483,6 +479,12 @@
 			<NoItemFound />
 		{/if}
 	</div>
+	{#if items && items?.length > 15 && nbDisplayed < items.length}
+		<span class="text-xs"
+			>{nbDisplayed} items out of {items.length}
+			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+		>
+	{/if}
 </CenteredPage>
 
 <ShareModal

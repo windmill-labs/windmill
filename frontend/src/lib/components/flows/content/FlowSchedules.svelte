@@ -9,7 +9,6 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import autosize from '$lib/autosize'
 	import { Calendar } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 
@@ -45,9 +44,6 @@
 			class="text-sm w-full"
 			bind:value={$schedule.summary}
 		/>
-	</Label>
-	<Label label="Description">
-		<textarea bind:value={$schedule.description} use:autosize placeholder="Schedule description" />
 	</Label>
 </div>
 
