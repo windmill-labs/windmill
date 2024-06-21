@@ -244,13 +244,12 @@
 	let newFolder: Drawer
 	let viewFolder: Drawer
 	let newFolderName: string
-	let newFolderSummary: string
 	let folderCreated: string | undefined = undefined
 
 	async function addFolder() {
 		await FolderService.createFolder({
 			workspace: $workspaceStore ?? '',
-			requestBody: { name: newFolderName, summary: newFolderSummary || undefined }
+			requestBody: { name: newFolderName }
 		})
 		folderCreated = newFolderName
 		$userStore?.folders?.push(newFolderName)
@@ -282,7 +281,6 @@
 		{#if !folderCreated}
 			<div class="flex flex-col gap-2">
 				<input placeholder="New folder name" bind:value={newFolderName} />
-				<input placeholder="Optional description" bind:value={newFolderSummary} />
 				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
 					New&nbsp;folder
 				</Button>
