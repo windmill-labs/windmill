@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { GripVertical, Pen } from 'lucide-svelte'
+	import { GripVertical, Pen, Trash } from 'lucide-svelte'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { Drawer, DrawerContent } from '../common'
 	import AddProperty from './AddProperty.svelte'
@@ -56,7 +56,7 @@
 	}
 
 	const yOffset = 49
-	let jsonView: boolean = false
+	export let jsonView: boolean = false
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let editor: SimpleEditor | undefined = undefined
 	let error: string | undefined = undefined
@@ -80,7 +80,17 @@
 	/>
 </div>
 
-<AddProperty on:change bind:schema bind:this={addProperty} />
+<AddProperty
+	on:change={() => {
+		if (jsonView) {
+			schemaString = JSON.stringify(schema, null, '\t')
+			editor?.setCode(schemaString)
+		}
+		dispatch('change', schema)
+	}}
+	bind:schema
+	bind:this={addProperty}
+/>
 
 {#if !jsonView}
 	<div
@@ -111,6 +121,15 @@
 							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<div class="flex flex-row gap-1 item-center h-full justify-center">
+								<Button
+									iconOnly
+									size="xs2"
+									color="light"
+									startIcon={{ icon: Trash }}
+									on:click={() => {
+										addProperty?.handleDeleteArgument([item.value])
+									}}
+								/>
 								<Button
 									iconOnly
 									size="xs2"
@@ -172,6 +191,7 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
+	<div class="mt-2" />
 	<SimpleEditor
 		bind:this={editor}
 		small

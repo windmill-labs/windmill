@@ -341,7 +341,11 @@
 							{#if !noEditor}
 								<div class="border-t">
 									{#key forceReload}
-										<FlowModuleScript path={flowModule.value.path} hash={flowModule.value.hash} />
+										<FlowModuleScript
+											showAllCode={false}
+											path={flowModule.value.path}
+											hash={flowModule.value.hash}
+										/>
 									{/key}
 								</div>
 							{/if}
