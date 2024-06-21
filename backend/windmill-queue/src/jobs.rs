@@ -538,7 +538,7 @@ pub async fn add_completed_job<
     flow_is_done: bool,
 ) -> Result<Uuid, Error> {
     // tracing::error!("Start");
-    // let start = tokio::time::Instant::now();
+    let start = tokio::time::Instant::now();
 
     if !result.is_valid_json() {
         return Err(Error::InternalErr(
@@ -626,7 +626,7 @@ pub async fn add_completed_job<
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e:#}")))?;
-    // tracing::error!("2 {:?}", start.elapsed());
+    tracing::error!("2 {:?}", start.elapsed());
 
     if !queued_job.is_flow_step {
         if _duration > 500
@@ -659,7 +659,7 @@ pub async fn add_completed_job<
     // tracing::error!("Added completed job {:#?}", queued_job);
     let mut skip_downstream_error_handlers = false;
     tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
-    // tracing::error!("3 {:?}", start.elapsed());
+    tracing::error!("3 {:?}", start.elapsed());
 
     if queued_job.is_flow_step {
         if let Some(parent_job) = queued_job.parent_job {
@@ -675,6 +675,8 @@ pub async fn add_completed_job<
             )
             .execute(&mut tx)
             .await?;
+            tracing::error!("4 {:?}", start.elapsed());
+
             if flow_is_done {
                 let r = sqlx::query_scalar!(
                     "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
@@ -688,6 +690,7 @@ pub async fn add_completed_job<
                     );
                 }
             }
+            tracing::error!("5 {:?}", start.elapsed());
         }
     } else {
         if queued_job.schedule_path.is_some() && queued_job.script_path.is_some() {
@@ -818,13 +821,19 @@ pub async fn add_completed_job<
         tracing::debug!("decremented concurrency counter");
     }
 
+    tracing::error!("7 {:?}", start.elapsed());
+
     if JOB_TOKEN.is_none() {
         sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
             .execute(&mut tx)
             .await?;
     }
 
+    tracing::error!("8 {:?}", start.elapsed());
+
     tx.commit().await?;
+    tracing::error!("9 {:?}", start.elapsed());
+
     tracing::info!(
         %job_id,
         root_job = ?queued_job.root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),

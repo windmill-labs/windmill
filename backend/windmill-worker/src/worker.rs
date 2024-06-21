@@ -590,6 +590,8 @@ async fn handle_receive_completed_job<
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
     let canceled_by = jc.canceled_by.clone();
+    let id = job.id.clone();
+    let instant = Instant::now();
     if let Err(err) = process_completed_job(
         jc,
         &client,
@@ -620,6 +622,7 @@ async fn handle_receive_completed_job<
         )
         .await;
     }
+    tracing::error!("Processed job {id} in {:?}", instant.elapsed());
 }
 
 #[allow(dead_code)]
@@ -2016,6 +2019,8 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             save_in_cache(db, client, &job, cached_path.to_string(), &result).await;
         }
 
+        let instant = Instant::now();
+
         #[cfg(feature = "prometheus")]
         let timer = _worker_save_completed_job_duration
             .as_ref()
@@ -2032,6 +2037,7 @@ pub async fn process_completed_job<R: rsmq_async::RsmqConnection + Send + Sync +
             false,
         )
         .await?;
+        tracing::error!("completed job {} took {:?}", job.id, instant.elapsed());
 
         #[cfg(feature = "prometheus")]
         timer.map(|x| x.stop_and_record());
