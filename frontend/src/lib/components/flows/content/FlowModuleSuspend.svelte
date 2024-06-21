@@ -237,6 +237,7 @@
 					</div>
 					<AddProperty
 						on:change={(e) => {
+							jsonView = false
 							if (flowModule.suspend) {
 								flowModule.suspend.resume_form = {
 									schema: e.detail
