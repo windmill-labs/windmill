@@ -12,7 +12,7 @@ import {
   yamlParse,
 } from "./deps.ts";
 import { GlobalOptions, isSuperset } from "./types.ts";
-import { readInlinePath, readInlinePathSync } from "./utils.ts";
+import { readInlinePathSync } from "./utils.ts";
 
 export interface AppFile {
   value: any;
