@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.350.2](https://github.com/windmill-labs/windmill/compare/v1.350.1...v1.350.2) (2024-06-21)
+
+
+### Bug Fixes
+
+* **cli:** support windows more thoroughly + fix generate flow locks ([#3944](https://github.com/windmill-labs/windmill/issues/3944)) ([3f0cd63](https://github.com/windmill-labs/windmill/commit/3f0cd6349de37358f3942772254e2509383305b4))
+
 ## [1.350.1](https://github.com/windmill-labs/windmill/compare/v1.350.0...v1.350.1) (2024-06-20)
 
 
