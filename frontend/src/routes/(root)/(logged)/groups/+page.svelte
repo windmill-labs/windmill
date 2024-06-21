@@ -14,6 +14,10 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { Pen, Plus, Trash } from 'lucide-svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import Row from '$lib/components/table/Row.svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -110,15 +114,15 @@
 	</PageHeader>
 
 	<div class="relative mb-20 pt-8">
-		<TableCustom>
-			<tr slot="header-row">
-				<th class="!px-0" />
-				<th>Name</th>
-				<th>Summary</th>
-				<th>Members</th>
-				<th />
-			</tr>
-			<tbody slot="body">
+		<DataTable>
+			<Head>
+				<tr>
+					<Cell head first>Name</Cell>
+					<Cell head>Members</Cell>
+					<Cell head last />
+				</tr>
+			</Head>
+			<tbody class="divide-y">
 				{#if groups === undefined}
 					{#each new Array(4) as _}
 						<tr>
@@ -129,23 +133,29 @@
 					{/each}
 				{:else}
 					{#each groups as { name, summary, extra_perms, canWrite } (name)}
-						<tr>
-							<td class="!px-0 text-center">
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</td>
-							<td>
-								<a
-									href="#{name}"
-									on:click={() => {
-										editGroupName = name
-										groupDrawer.openDrawer()
-									}}
-									>{name}
-								</a>
-							</td>
-							<td>{summary ?? ''}</td>
-							<td><GroupInfo {name} /></td>
-							<td>
+						<Row
+							hoverable
+							on:click={() => {
+								editGroupName = name
+								groupDrawer.openDrawer()
+							}}
+						>
+							<Cell first>
+								<div class="flex flex-row gap-2 justify-between">
+									<div>
+										<span class="text-blue-500">{name}</span>
+										{#if summary}
+											<br />
+											<span class="text-gray-500">{summary}</span>
+										{/if}
+									</div>
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+								</div>
+							</Cell>
+							<Cell>
+								<GroupInfo {name} />
+							</Cell>
+							<Cell>
 								<Dropdown
 									items={[
 										{
@@ -170,12 +180,12 @@
 										}
 									]}
 								/>
-							</td>
-						</tr>
+							</Cell>
+						</Row>
 					{/each}
 				{/if}
 			</tbody>
-		</TableCustom>
+		</DataTable>
 	</div>
 
 	{#if instanceGroups && instanceGroups.length > 0}

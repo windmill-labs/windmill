@@ -1,17 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE resource SET path = $1, value = $2 WHERE path = $3 AND workspace_id = $4",
+  "query": "UPDATE resource_type SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
         "Varchar",
-        "Jsonb",
         "Text",
         "Text"
       ]
     },
     "nullable": []
   },
-  "hash": "8c0131a9cc61f2daa258d49767242bcaab6bb34a977ff7fb0c18aa9202d11f47"
+  "hash": "d1b508e1d8496e5e7aee9db555f9740128d87fe5183f9b7b72f550a5502e1cbb"
 }
