@@ -1599,3 +1599,19 @@ pub async fn clean_cache() -> error::Result<()> {
     tracing::info!("Finished cleaning cache");
     Ok(())
 }
+
+lazy_static::lazy_static! {
+    static ref RE_FLOW_ROOT: Regex = Regex::new(r"(?i)(.*?)(?:/branchone-\d+/|/branchall-\d+/|/loop-\d+/)").unwrap();
+
+}
+
+pub fn use_flow_root_path(flow_path: &str) -> String {
+    if let Some(captures) = RE_FLOW_ROOT.captures(flow_path) {
+        return captures
+            .get(1)
+            .map(|m| format!("{}/flow", m.as_str()))
+            .unwrap_or_else(|| flow_path.to_string());
+    } else {
+        return flow_path.to_string();
+    }
+}
