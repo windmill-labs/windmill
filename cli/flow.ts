@@ -17,6 +17,7 @@ import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
 import { generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
+import { readInlinePathSync } from "./utils.ts";
 
 export interface FlowFile {
   summary: string;
@@ -46,7 +47,7 @@ export function replaceInlineScripts(
       ) {
         const path = lock.split(" ")[1];
         try {
-          m.value.lock = Deno.readTextFileSync(localPath + path);
+          m.value.lock = readInlinePathSync(localPath + path);
         } catch {
           log.error(`Lock file ${path} not found`);
         }

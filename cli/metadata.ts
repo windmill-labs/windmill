@@ -257,7 +257,8 @@ export async function generateScriptMetadataInternal(
       metadataParsedContent.lock = "";
     }
   } else {
-    metadataParsedContent.lock = "!inline " + remotePath + ".script.lock";
+    metadataParsedContent.lock =
+      "!inline " + remotePath.replaceAll(SEP, "/") + ".script.lock";
   }
 
   let metaPath = remotePath + ".script.yaml";
