@@ -214,11 +214,11 @@ export function extractInlineScriptsForFlows(
       const path = basePath + ext;
       const content = m.value.content;
       const r = [{ path: path, content: content }];
-      m.value.content = "!inline " + path;
+      m.value.content = "!inline " + path.replaceAll(SEP, "/");
       const lock = m.value.lock;
       if (lock && lock != "") {
         const lockPath = basePath + "lock";
-        m.value.lock = "!inline " + lockPath;
+        m.value.lock = "!inline " + lockPath.replaceAll(SEP, "/");
         r.push({ path: lockPath, content: lock });
       }
       return r;
@@ -264,7 +264,7 @@ export function extractInlineScriptsForApps(
         const r = [];
         if (o["content"]) {
           const content = o["content"];
-          o["content"] = "!inline " + basePath + ext;
+          o["content"] = "!inline " + basePath.replaceAll(SEP, "/") + ext;
           r.push({
             path: basePath + ext,
             content: content,
@@ -272,7 +272,7 @@ export function extractInlineScriptsForApps(
         }
         if (o["lock"] && o["lock"] != "") {
           const lock = o["lock"];
-          o["lock"] = "!inline " + basePath + "lock";
+          o["lock"] = "!inline " + basePath.replaceAll(SEP, "/") + "lock";
           r.push({
             path: basePath + "lock",
             content: lock,
@@ -437,7 +437,10 @@ function ZipFSElement(
               parsed["lock"] != "" &&
               parsed["codebase"] == undefined
             ) {
-              parsed["lock"] = "!inline " + removeSuffix(p, ".json") + ".lock";
+              parsed["lock"] =
+                "!inline " +
+                removeSuffix(p.replaceAll(SEP, "/"), ".json") +
+                ".lock";
             } else {
               parsed["lock"] = undefined;
             }
@@ -1127,7 +1130,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
 
   log.info(
     colors.gray(
-      "Computing the files to update on the remote to match local (taking .wmillignore into account)"
+      "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
     )
   );
   const remote = ZipFSElement(
