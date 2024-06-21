@@ -117,7 +117,7 @@
 			<svelte:fragment slot="header">
 				<Tooltip light>
 					Will be displayed in the input field when the field is empty. If not set, the default
-					value will be used. The placeholder is disabled depending on the field typ, format, etc.
+					value will be used. The placeholder is disabled depending on the field type, format, etc.
 				</Tooltip>
 			</svelte:fragment>
 
