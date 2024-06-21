@@ -191,6 +191,7 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
+	<div class="mt-2" />
 	<SimpleEditor
 		bind:this={editor}
 		small
