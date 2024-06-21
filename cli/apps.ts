@@ -12,6 +12,7 @@ import {
   yamlParse,
 } from "./deps.ts";
 import { GlobalOptions, isSuperset } from "./types.ts";
+import { readInlinePathSync } from "./utils.ts";
 
 export interface AppFile {
   value: any;
@@ -37,7 +38,7 @@ export async function pushApp(
   try {
     app = await AppService.getAppByPath({
       workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
     });
   } catch {
     //ignore
@@ -59,11 +60,11 @@ export async function pushApp(
           const o: Record<string, any> = v as any;
           if (o["content"] && o["content"].startsWith("!inline")) {
             const basePath = localPath + o["content"].split(" ")[1];
-            o["content"] = Deno.readTextFileSync(basePath);
+            o["content"] = readInlinePathSync(basePath);
           }
           if (o["lock"] && o["lock"].startsWith("!inline")) {
             const basePath = localPath + o["lock"].split(" ")[1];
-            o["lock"] = Deno.readTextFileSync(basePath);
+            o["lock"] = readInlinePathSync(basePath);
           }
         } else {
           replaceInlineScripts(v);
@@ -83,7 +84,7 @@ export async function pushApp(
     log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
     await AppService.updateApp({
       workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       requestBody: {
         deployment_message: message,
         ...localApp,
@@ -95,7 +96,7 @@ export async function pushApp(
     await AppService.createApp({
       workspace,
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localApp,
       },

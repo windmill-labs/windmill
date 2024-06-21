@@ -12,11 +12,12 @@ import {
   yamlParse,
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { exts, resolve, track_job } from "./script.ts";
+import { resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
 import { generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "./sync.ts";
+import { readInlinePathSync } from "./utils.ts";
 
 export interface FlowFile {
   summary: string;
@@ -46,7 +47,7 @@ export function replaceInlineScripts(
       ) {
         const path = lock.split(" ")[1];
         try {
-          m.value.lock = Deno.readTextFileSync(localPath + path);
+          m.value.lock = readInlinePathSync(localPath + path);
         } catch {
           log.error(`Lock file ${path} not found`);
         }
@@ -104,9 +105,9 @@ export async function pushFlow(
     log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
     await FlowService.updateFlow({
       workspace: workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
       },
@@ -116,7 +117,7 @@ export async function pushFlow(
     await FlowService.createFlow({
       workspace: workspace,
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
       },

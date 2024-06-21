@@ -3767,7 +3767,7 @@ async fn run_flow_dependencies_job(
         PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
         &w_id,
         JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
-        PushArgs::empty(),
+        HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]).into(),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
