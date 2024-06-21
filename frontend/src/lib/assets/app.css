@@ -157,5 +157,7 @@
 
 .app-editor-input {
 	@apply rounded-component border border-gray-300 dark:border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
-	@apply placeholder:text-gray-400 dark:placeholder:text-gray-600;
+	@apply placeholder:text-gray-400 dark:placeholder:text-gray-200;
+	@apply bg-surface;
+	@apply disabled:placeholder:text-gray-200 disabled:placeholder:dark:text-gray-500 disabled:text-gray-200 disabled:dark:text-gray-500 disabled:border-gray-200 disabled:dark:border-gray-600;
 }

@@ -723,7 +723,7 @@ const config = {
 					}
 				},
 				input: {
-					backgroundColor: theme('colors.surface-secondary') + ' !important'
+					//backgroundColor: theme('colors.surface-secondary') + ' !important'
 				},
 				textarea: {
 					backgroundColor: theme('colors.surface-secondary') + ' !important'
