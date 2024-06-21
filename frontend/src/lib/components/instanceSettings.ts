@@ -131,7 +131,8 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Private hub base url',
-			description: 'Base url of your private hub instance',
+			description: 'Base url of your private hub instance, without trailing slash',
+			placeholder: 'https://hub.company.com',
 			key: 'hub_base_url',
 			fieldType: 'text',
 			storage: 'setting',
