@@ -56,7 +56,7 @@
 	}
 
 	const yOffset = 49
-	let jsonView: boolean = false
+	export let jsonView: boolean = false
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let editor: SimpleEditor | undefined = undefined
 	let error: string | undefined = undefined
@@ -80,7 +80,17 @@
 	/>
 </div>
 
-<AddProperty on:change bind:schema bind:this={addProperty} />
+<AddProperty
+	on:change={() => {
+		if (jsonView) {
+			schemaString = JSON.stringify(schema, null, '\t')
+			editor?.setCode(schemaString)
+		}
+		dispatch('change', schema)
+	}}
+	bind:schema
+	bind:this={addProperty}
+/>
 
 {#if !jsonView}
 	<div

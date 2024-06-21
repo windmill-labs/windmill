@@ -48,6 +48,8 @@
 			loadGroups()
 		}
 	}
+
+	let jsonView: boolean = false
 </script>
 
 <Section label="Suspend/Approval/Prompt" class="w-full">
@@ -207,12 +209,14 @@
 								})
 							}
 						}}
+						{jsonView}
 					/>
+				{:else if emptyString($enterpriseLicense)}
+					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
 				{:else}
 					<div class="flex flex-col items-end mb-2 w-full">
 						<Toggle
 							checked={false}
-							disabled
 							label="JSON View"
 							size="xs"
 							options={{
@@ -221,6 +225,14 @@
 									'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 							}}
 							lightMode
+							on:change={() => {
+								if (flowModule.suspend) {
+									flowModule.suspend.resume_form = {
+										schema: emptySchema()
+									}
+								}
+								jsonView = true
+							}}
 						/>
 					</div>
 					<AddProperty
