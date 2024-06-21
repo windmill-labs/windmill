@@ -191,7 +191,7 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="grid grid-cols-4 mt-4 gap-2">
+		<div class="grid grid-cols-4 mt-4 gap-8">
 			<div class="col-span-2">
 				{#if flowModule?.suspend?.resume_form}
 					<EditableSchemaDrawer
