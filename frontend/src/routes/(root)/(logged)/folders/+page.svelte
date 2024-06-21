@@ -74,13 +74,7 @@
 
 <Drawer bind:this={folderDrawer}>
 	<DrawerContent title="Folder {editFolderName}" on:close={folderDrawer.closeDrawer}>
-		<FolderEditor
-			on:update={loadFolders}
-			name={editFolderName}
-			on:update={() => {
-				loadFolders()
-			}}
-		/>
+		<FolderEditor on:update={loadFolders} name={editFolderName} />
 	</DrawerContent>
 </Drawer>
 
