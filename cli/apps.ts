@@ -12,6 +12,7 @@ import {
   yamlParse,
 } from "./deps.ts";
 import { GlobalOptions, isSuperset } from "./types.ts";
+import { readInlinePath, readInlinePathSync } from "./utils.ts";
 
 export interface AppFile {
   value: any;
@@ -59,11 +60,11 @@ export async function pushApp(
           const o: Record<string, any> = v as any;
           if (o["content"] && o["content"].startsWith("!inline")) {
             const basePath = localPath + o["content"].split(" ")[1];
-            o["content"] = Deno.readTextFileSync(basePath);
+            o["content"] = readInlinePathSync(basePath);
           }
           if (o["lock"] && o["lock"].startsWith("!inline")) {
             const basePath = localPath + o["lock"].split(" ")[1];
-            o["lock"] = Deno.readTextFileSync(basePath);
+            o["lock"] = readInlinePathSync(basePath);
           }
         } else {
           replaceInlineScripts(v);

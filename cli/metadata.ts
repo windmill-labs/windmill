@@ -39,7 +39,7 @@ import {
   newPathAssigner,
   yamlOptions,
 } from "./sync.ts";
-import { generateHash } from "./utils.ts";
+import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile, replaceInlineScripts } from "./flow.ts";
 
@@ -348,7 +348,7 @@ async function updateScriptLock(
     }
     const lockPath = remotePath + ".script.lock";
     await Deno.writeTextFile(lockPath, lock);
-    metadataContent.lock = "!inline " + lockPath;
+    metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
   } catch (e) {
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
@@ -607,14 +607,14 @@ export function argSigToJsonSchemaType(
 // end of refactoring TODO                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-export async function replaceLock(o?: { lock?: string | string[] }) {
+export function replaceLock(o?: { lock?: string | string[] }) {
   if (Array.isArray(o?.lock)) {
     o.lock = o.lock.join("\n");
   }
   if (o?.lock?.startsWith("!inline ")) {
     try {
       const lockPath = o?.lock?.split(" ")[1];
-      o.lock = await Deno.readTextFile(lockPath);
+      o.lock = readInlinePathSync(lockPath);
     } catch (e) {
       log.info(
         colors.yellow(`Failed to read lockfile, doing as if it was empty: ${e}`)
@@ -648,7 +648,7 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
       const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
-      await replaceLock(payload);
+      replaceLock(payload);
 
       return {
         path: metadataFilePath,
@@ -688,7 +688,7 @@ export async function parseMetadataFile(
           scriptInitialMetadata = yamlParse(
             await Deno.readTextFile(metadataFilePath)
           ) as ScriptMetadata;
-          await replaceLock(scriptInitialMetadata);
+          replaceLock(scriptInitialMetadata);
         } catch (e) {
           log.info(
             colors.yellow(
