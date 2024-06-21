@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
+import { SEP, colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
 import { pushApp } from "./apps.ts";
 import { pushFolder } from "./folder.ts";
 import { pushFlow } from "./flow.ts";
@@ -111,14 +111,14 @@ export async function pushObj(
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    const appName = p.split(".app" + path.sep)[0];
+    const appName = p.split(".app" + SEP)[0];
     await pushApp(workspace, appName, appName + ".app", message);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
     await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    const flowName = p.split(".flow" + path.sep)[0];
+    const flowName = p.split(".flow" + SEP)[0];
     await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
     await pushResource(workspace, p, befObj, newObj);
@@ -169,10 +169,10 @@ export function getTypeStrFromPath(
   | "user"
   | "group"
   | "settings" {
-  if (p.includes(".flow" + path.sep)) {
+  if (p.includes(".flow" + SEP)) {
     return "flow";
   }
-  if (p.includes(".app" + path.sep)) {
+  if (p.includes(".app" + SEP)) {
     return "app";
   }
   const parsed = path.parse(p);

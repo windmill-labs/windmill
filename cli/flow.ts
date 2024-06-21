@@ -79,6 +79,7 @@ export async function pushFlow(
     return;
   }
   alreadySynced.push(localPath);
+  remotePath = remotePath.replaceAll(SEP, "/");
   let flow: Flow | undefined = undefined;
   try {
     flow = await FlowService.getFlowByPath({
