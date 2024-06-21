@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+  "query": "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE name = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -27,13 +27,27 @@
         "ordinal": 4,
         "name": "extra_perms",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -41,8 +55,11 @@
       false,
       false,
       false,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
-  "hash": "8543f029d9784234e4c6a6dcd7b03e62d544b98be261334ee210594e0bb839f2"
+  "hash": "cb20f04352364f112ec564617722354577dc5f77169fd4573317454e47361d65"
 }

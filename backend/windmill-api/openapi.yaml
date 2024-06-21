@@ -2373,6 +2373,10 @@ paths:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: path_start
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: variable list
@@ -2851,6 +2855,10 @@ paths:
             type: string
         - name: resource_type_exclude
           description: resource_types to not list from, separated by ',',
+          in: query
+          schema:
+            type: string
+        - name: path_start
           in: query
           schema:
             type: string
@@ -6440,6 +6448,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: schedule list
@@ -6917,6 +6929,8 @@ paths:
               properties:
                 name:
                   type: string
+                summary:
+                  type: string
                 owners:
                   type: array
                   items:
@@ -6951,6 +6965,8 @@ paths:
             schema:
               type: object
               properties:
+                summary:
+                  type: string
                 owners:
                   type: array
                   items:
@@ -9842,6 +9858,11 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        created_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
       required:
         - path
         - resource_type
@@ -9875,6 +9896,11 @@ components:
           type: boolean
         account:
           type: number
+        created_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
       required:
         - path
         - resource_type
@@ -9892,6 +9918,11 @@ components:
         schema: {}
         description:
           type: string
+        created_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
       required:
         - name
 
@@ -10126,6 +10157,13 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        summary:
+          type: string
+        created_by:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
       required:
         - name
         - owners

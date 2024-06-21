@@ -313,6 +313,7 @@ pub struct ListScheduleQuery {
     pub path: Option<String>,
     pub is_flow: Option<bool>,
     pub args: Option<String>,
+    pub path_start: Option<String>,
 }
 
 async fn list_schedule(
@@ -338,6 +339,9 @@ async fn list_schedule(
     }
     if let Some(args) = &lsq.args {
         sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+    }
+    if let Some(path_start) = &lsq.path_start {
+        sqlb.and_where_like_left("path", path_start);
     }
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let rows = sqlx::query_as::<_, Schedule>(&sql)

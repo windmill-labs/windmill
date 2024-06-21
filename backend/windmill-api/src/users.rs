@@ -589,8 +589,7 @@ where
                         parts.extensions.insert(authed.clone());
                         if authed.scopes.is_some()
                             && (path_vec.len() < 3
-                                || (path_vec[4] != "jobs"
-                                && path_vec[4] != "jobs_u"))
+                                || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
                         {
                             return Err((
                                 StatusCode::UNAUTHORIZED,
@@ -2835,6 +2834,24 @@ async fn update_username_in_workpsace<'c>(
 
     // ---- resources----
     sqlx::query!(
+        r#"UPDATE resource SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE resource_type SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         r#"UPDATE resource SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
@@ -3036,6 +3053,15 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     // ---- folders ----
+
+    sqlx::query!(
+        "UPDATE folder SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
 
     sqlx::query!(
         "UPDATE folder SET owners = ARRAY_REPLACE(owners, 'u/' || $2, 'u/' || $1) WHERE  ('u/' || $2) = ANY(owners) AND workspace_id = $3",

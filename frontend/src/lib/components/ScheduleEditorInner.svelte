@@ -27,6 +27,7 @@
 	import { List, Loader2, Save } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
+	import Label from './Label.svelte'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'retries' = 'error_handler'
 
@@ -441,16 +442,16 @@
 		</svelte:fragment>
 
 		<div class="flex flex-col gap-12">
-			<div>
+			<div class="flex flex-col gap-4">
 				<div>
-					<h2 class="text-base font-semibold">Metadata</h2>
-					<div class="w-full py-2">
+					<h2 class="text-base font-semibold mb-2">Metadata</h2>
+					<Label label="Summary">
 						<!-- svelte-ignore a11y-autofocus -->
 						<input
 							autofocus
 							type="text"
-							placeholder="Schedule summary"
-							class="text-sm w-full font-semibold"
+							placeholder="Short summary to be displayed when listed"
+							class="text-sm w-full"
 							bind:value={summary}
 							on:keyup={() => {
 								if (!edit && summary?.length > 0 && !dirtyPath) {
@@ -464,40 +465,42 @@
 								}
 							}}
 						/>
-					</div>
+					</Label>
 				</div>
-				{#if !edit}
-					<Path
-						bind:dirty={dirtyPath}
-						bind:this={pathC}
-						checkInitialPathExistence
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						namePlaceholder="schedule"
-						kind="schedule"
-					/>
-				{:else}
-					<div class="flex justify-start w-full">
-						<Badge
-							color="gray"
-							class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
-						>
-							Schedule path (not editable)
-						</Badge>
-						<input
-							type="text"
-							readonly
-							value={path}
-							size={path?.length || 50}
-							class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-							on:focus={({ currentTarget }) => {
-								currentTarget.select()
-							}}
+				<Label label="Path">
+					{#if !edit}
+						<Path
+							bind:dirty={dirtyPath}
+							bind:this={pathC}
+							checkInitialPathExistence
+							bind:error={pathError}
+							bind:path
+							{initialPath}
+							namePlaceholder="schedule"
+							kind="schedule"
 						/>
-						<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-					</div>
-				{/if}
+					{:else}
+						<div class="flex justify-start w-full">
+							<Badge
+								color="gray"
+								class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
+							>
+								Schedule path (not editable)
+							</Badge>
+							<input
+								type="text"
+								readonly
+								value={path}
+								size={path?.length || 50}
+								class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+								on:focus={({ currentTarget }) => {
+									currentTarget.select()
+								}}
+							/>
+							<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+						</div>
+					{/if}
+				</Label>
 			</div>
 
 			<Section label="Schedule">
