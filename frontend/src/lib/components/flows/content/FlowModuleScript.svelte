@@ -73,7 +73,7 @@
 		left: 0;
 		right: 0;
 		height: 100px;
-		background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #2e3440);
+		background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgb(var(--color-surface)));
 		pointer-events: none;
 	}
 </style>
