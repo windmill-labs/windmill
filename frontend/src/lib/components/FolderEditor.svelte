@@ -170,7 +170,7 @@
 	<Label label="Summary">
 		<div class="flex flex-row gap-2">
 			<input placeholder="Short summary to be displayed when listed" bind:value={summary} />
-			<Button size="sm" on:click={updateFolder}>Save</Button>
+			<Button size="sm" on:click={updateFolder} disabled={!can_write}>Save</Button>
 		</div>
 	</Label>
 </Section>
