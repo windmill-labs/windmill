@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { GripVertical, Pen } from 'lucide-svelte'
+	import { GripVertical, Pen, Trash } from 'lucide-svelte'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { Drawer, DrawerContent } from '../common'
 	import AddProperty from './AddProperty.svelte'
@@ -111,6 +111,15 @@
 							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<div class="flex flex-row gap-1 item-center h-full justify-center">
+								<Button
+									iconOnly
+									size="xs2"
+									color="light"
+									startIcon={{ icon: Trash }}
+									on:click={() => {
+										addProperty?.handleDeleteArgument([item.value])
+									}}
+								/>
 								<Button
 									iconOnly
 									size="xs2"

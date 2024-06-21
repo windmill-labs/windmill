@@ -149,6 +149,7 @@
 				throw Error('Argument not found!')
 			}
 			syncOrders()
+			dispatch('change', schema)
 		} catch (err) {
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}

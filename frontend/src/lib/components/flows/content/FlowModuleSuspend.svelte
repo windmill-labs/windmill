@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 
 	import { Alert, Tab, Tabs } from '$lib/components/common'
 	import { GroupService, type FlowModule } from '$lib/gen'
@@ -16,6 +16,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
+	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
@@ -191,6 +192,49 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-4 mt-4 gap-2">
+			<div class="col-span-2">
+				{#if flowModule?.suspend?.resume_form}
+					<EditableSchemaDrawer
+						bind:schema={flowModule.suspend.resume_form.schema}
+						on:change={(e) => {
+							const schema = e.detail
+
+							// If the schema is empty, remove the form
+							if (Object.keys(schema?.properties ?? {}).length === 0) {
+								tick().then(() => {
+									if (!flowModule.suspend) return
+									flowModule.suspend.resume_form = undefined
+								})
+							}
+						}}
+					/>
+				{:else}
+					<div class="flex flex-col items-end mb-2 w-full">
+						<Toggle
+							checked={false}
+							disabled
+							label="JSON View"
+							size="xs"
+							options={{
+								right: 'JSON Editor',
+								rightTooltip:
+									'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+							}}
+							lightMode
+						/>
+					</div>
+					<AddProperty
+						on:change={(e) => {
+							if (flowModule.suspend) {
+								flowModule.suspend.resume_form = {
+									schema: e.detail
+								}
+							}
+						}}
+						schema={{}}
+					/>
+				{/if}
+			</div>
 			<div class="col-span-2 flex flex-col gap-2">
 				{#if flowModule.suspend}
 					{#if emptyString($enterpriseLicense)}
@@ -198,25 +242,6 @@
 					{/if}
 
 					<div class="flex flex-col gap-2">
-						<Toggle
-							checked={Boolean(flowModule.suspend.resume_form)}
-							size="xs"
-							options={{
-								right: 'Add a form to the approval page'
-							}}
-							disabled={emptyString($enterpriseLicense)}
-							on:change={(e) => {
-								if (flowModule.suspend) {
-									if (e.detail) {
-										flowModule.suspend.resume_form = {
-											schema: emptySchema()
-										}
-									} else {
-										flowModule.suspend.resume_form = undefined
-									}
-								}
-							}}
-						/>
 						<div class="flex">
 							<SuspendDrawer text="Default args & Dynamic enums help" />
 						</div>
@@ -231,17 +256,6 @@
 						}}
 						disabled={!Boolean(flowModule?.suspend?.resume_form)}
 					/>
-				{/if}
-			</div>
-			<div class="col-span-2">
-				{#if flowModule?.suspend?.resume_form}
-					<EditableSchemaDrawer bind:schema={flowModule.suspend.resume_form.schema} />
-				{:else}
-					<div
-						class="bg-gray-50 border-gray-200 border dark:bg-gray-900/40 dark:border-gray-700/40 rounded-md p-2 text-xs"
-					>
-						No form
-					</div>
 				{/if}
 			</div>
 		</div>
