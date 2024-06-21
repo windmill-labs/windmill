@@ -32,13 +32,13 @@ export async function pushApp(
     return;
   }
   alreadySynced.push(localPath);
-
+  remotePath.replaceAll(SEP, "/");
   let app: any = undefined;
   // deleting old app if it exists in raw mode
   try {
     app = await AppService.getAppByPath({
       workspace,
-      path: remotePath.replaceAll(SEP, "/"),
+      path: remotePath,
     });
   } catch {
     //ignore
@@ -84,7 +84,7 @@ export async function pushApp(
     log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
     await AppService.updateApp({
       workspace,
-      path: remotePath.replaceAll(SEP, "/"),
+      path: remotePath,
       requestBody: {
         deployment_message: message,
         ...localApp,
@@ -96,7 +96,7 @@ export async function pushApp(
     await AppService.createApp({
       workspace,
       requestBody: {
-        path: remotePath.replaceAll(SEP, "/"),
+        path: remotePath,
         deployment_message: message,
         ...localApp,
       },
