@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.351.0](https://github.com/windmill-labs/windmill/compare/v1.350.3...v1.351.0) (2024-06-21)
+
+
+### Features
+
+* **frontend:** improve approval form edition + add a delete button t… ([#3946](https://github.com/windmill-labs/windmill/issues/3946)) ([25a460b](https://github.com/windmill-labs/windmill/commit/25a460be858ce020c40cd120e5aef2a79ba362d6))
+
+
+### Bug Fixes
+
+* improve support of relative paths in subflows and apps ([ba76d87](https://github.com/windmill-labs/windmill/commit/ba76d8749a9524ed356611c09f874da60f3b954a))
+
 ## [1.350.3](https://github.com/windmill-labs/windmill/compare/v1.350.2...v1.350.3) (2024-06-21)
 
 
