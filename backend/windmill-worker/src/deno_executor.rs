@@ -355,7 +355,8 @@ async fn build_import_map(
     base_internal_url: &str,
     job_dir: &str,
 ) -> error::Result<()> {
-    let script_path_split = script_path.split("/");
+    let rooted_path = crate::common::use_flow_root_path(script_path);
+    let script_path_split = rooted_path.split("/");
     let script_path_parts_len = script_path_split.clone().count();
     let mut relative_mounts = "".to_string();
     for c in 0..script_path_parts_len {
