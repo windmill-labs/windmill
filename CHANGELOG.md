@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.352.0](https://github.com/windmill-labs/windmill/compare/v1.351.0...v1.352.0) (2024-06-22)
+
+
+### Features
+
+* add extra metadata to folders/resources/types + path prefix filtering for all + improve groups UI ([#3936](https://github.com/windmill-labs/windmill/issues/3936)) ([b57afc8](https://github.com/windmill-labs/windmill/commit/b57afc8f68f691ad5ef7fb16aafe6fae7d1138e9))
+* fallback to default hub if official script not found on private hub ([#3951](https://github.com/windmill-labs/windmill/issues/3951)) ([0c66122](https://github.com/windmill-labs/windmill/commit/0c661220cf1fb7eb37ad7f39b1fa6d29570edda2))
+
+
+### Bug Fixes
+
+* cache wasm ([53eeef0](https://github.com/windmill-labs/windmill/commit/53eeef05032f04637249c2557d6d864f9446a9a1))
+* improve perf of forloop with parallelism massively ([e0479e0](https://github.com/windmill-labs/windmill/commit/e0479e05f7b1a212906afd8c5e268f3d48266311))
+
 ## [1.351.0](https://github.com/windmill-labs/windmill/compare/v1.350.3...v1.351.0) (2024-06-21)
 
 
