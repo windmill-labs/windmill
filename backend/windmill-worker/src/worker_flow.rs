@@ -425,29 +425,18 @@ pub async fn update_flow_status_after_job_completion_internal<
                     tx.commit().await?;
 
                     if parallelism.is_some() {
-                        // this ensure that the lock is taken in the same order and thus avoid deadlocks
-                        let ids = sqlx::query_scalar!(
-                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend",
-                            flow
+                        sqlx::query!(
+                            "UPDATE queue SET suspend = 0 WHERE parent_job = $1 AND suspend = $2",
+                            flow,
+                            nindex
                         )
-                        .fetch_all(db)
+                        .execute(db)
                         .await
                         .map_err(|e| {
-                            Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e:#}"))
+                            Error::InternalErr(format!(
+                                "error resuming job at suspend {nindex} and parent {flow}: {e:#}"
+                            ))
                         })?;
-                        for id in ids {
-                            sqlx::query!(
-                                "UPDATE queue SET suspend = suspend - 1 WHERE id = $1 AND suspend > 0",
-                                id
-                            )
-                            .execute(db)
-                            .await
-                            .map_err(|e| {
-                                Error::InternalErr(format!(
-                                    "error decreasing suspend for {id}: {e:#}"
-                                ))
-                            })?;
-                        }
                     }
 
                     sqlx::query!(
@@ -1986,6 +1975,17 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
 
     for i in (0..len).into_iter() {
+        if i % 100 == 0 && i != 0 {
+            tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
+            sqlx::query!(
+                "UPDATE queue
+                SET last_ping = now()
+                WHERE id = $1 AND last_ping < now()",
+                flow_job.id,
+            )
+            .execute(db)
+            .await?;
+        }
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushing job {i} of {len}");
         let payload_tag = match &job_payloads {
             ContinuePayload::SingleJob(payload) => payload.clone(),
