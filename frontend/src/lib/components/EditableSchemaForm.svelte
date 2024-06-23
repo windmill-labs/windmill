@@ -260,48 +260,50 @@
 									<div class="flex flex-row gap-2">
 										{argName}
 										{#if !uiOnly}
-											<Popup
-												floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-												containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-												let:close
-											>
-												<svelte:fragment slot="button">
-													<Button
-														color="light"
-														size="xs2"
-														nonCaptureEvent
-														startIcon={{ icon: Pen }}
-														iconOnly
-													/>
-												</svelte:fragment>
-												<Label label="Name">
-													<div class="flex flex-col gap-2">
-														<input
-															type="text"
-															class="w-full !bg-surface"
-															value={argName}
-															id={argName + i}
-															on:keydown={(event) => {
-																if (event.key === 'Enter') {
+											<div on:click|preventDefault|stopPropagation>
+												<Popup
+													floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+													containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+													let:close
+												>
+													<svelte:fragment slot="button">
+														<Button
+															color="light"
+															size="xs2"
+															nonCaptureEvent
+															startIcon={{ icon: Pen }}
+															iconOnly
+														/>
+													</svelte:fragment>
+													<Label label="Name">
+														<div class="flex flex-col gap-2">
+															<input
+																type="text"
+																class="w-full !bg-surface"
+																value={argName}
+																id={argName + i}
+																on:keydown={(event) => {
+																	if (event.key === 'Enter') {
+																		renameProperty(argName, argName + i)
+																		close(null)
+																	}
+																}}
+															/>
+															<Button
+																variant="border"
+																color="light"
+																size="xs"
+																on:click={() => {
 																	renameProperty(argName, argName + i)
 																	close(null)
-																}
-															}}
-														/>
-														<Button
-															variant="border"
-															color="light"
-															size="xs"
-															on:click={() => {
-																renameProperty(argName, argName + i)
-																close(null)
-															}}
-														>
-															Rename
-														</Button>
-													</div>
-												</Label>
-											</Popup>
+																}}
+															>
+																Rename
+															</Button>
+														</div>
+													</Label>
+												</Popup>
+											</div>
 										{/if}
 									</div>
 

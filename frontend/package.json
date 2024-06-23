@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.352.0",
+	"version": "1.352.3",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -115,6 +115,7 @@
 		"highlight.js": "^11.8.0",
 		"lucide-svelte": "^0.293.0",
 		"monaco-editor": "npm:@codingame/monaco-editor-treemended@>=1.83.5 <1.84.0",
+		"monaco-editor-workers": "^0.44.0",
 		"monaco-graphql": "^1.5.1",
 		"monaco-languageclient": "~7.0.1",
 		"ol": "^7.4.0",
@@ -243,6 +244,16 @@
 			"types": "./package/components/SchemaForm.svelte.d.ts",
 			"svelte": "./package/components/SchemaForm.svelte",
 			"default": "./package/components/SchemaForm.svelte"
+		},
+		"./components/EditableSchemaWrapper.svelte": {
+			"types": "./package/components/schema/EditableSchemaWrapper.svelte.d.ts",
+			"svelte": "./package/components/schema/EditableSchemaWrapper.svelte",
+			"default": "./package/components/schema/EditableSchemaWrapper.svelte"
+		},
+		"./components/ResourceEditor.svelte": {
+			"types": "./package/components/ResourceEditor.svelte.d.ts",
+			"svelte": "./package/components/ResourceEditor.svelte",
+			"default": "./package/components/ResourceEditor.svelte"
 		},
 		"./components/SchemaEditor.svelte": {
 			"types": "./package/components/EditableSchemaForm.svelte.d.ts",
@@ -375,6 +386,9 @@
 			],
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
+			],
+			"components/EditableSchemaWrapper.svelte": [
+				"./package/components/schema/EditableSchemaWrapper.svelte.d.ts"
 			],
 			"utils": [
 				"./package/utils.d.ts"

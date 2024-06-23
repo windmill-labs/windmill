@@ -7,11 +7,11 @@ import type { Environment } from 'monaco-editor/esm/vs/editor/editor.api.js'
 // import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker&inline'
 // import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker&inline'
 
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+// import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+// import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+// import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+// import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+// import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
 interface MonacoEnvironmentEnhanced extends Environment {
 	workerOverrideGlobals: WorkerOverrideGlobals
@@ -49,23 +49,42 @@ export function buildWorkerDefinition(
 	monEnv.workerOverrideGlobals = workerOverrideGlobals
 
 	const getWorker = (_: string, label: string) => {
+		const buildWorker = (
+			globals: WorkerOverrideGlobals,
+			label: string,
+			workerName: string,
+			editorType: string
+		) => {
+			globals.workerOptions.name = label
+
+			const workerFilename =
+				globals.workerOptions.type === 'module' ? `${workerName}-es.js` : `${workerName}-iife.js`
+			const workerPathLocal = `${globals.workerPath}/${workerFilename}`
+			const workerUrl = new URL(workerPathLocal, globals.basePath)
+			console.log(
+				`${editorType}: url: ${workerUrl.href} created from basePath: ${globals.basePath} and file: ${workerPathLocal}`
+			)
+
+			return new Worker(workerUrl.href, globals.workerOptions)
+		}
+
 		console.log('getWorker: workerId: ' + _ + ' label: ' + label)
 
 		switch (label) {
 			case 'template':
 			case 'typescript':
 			case 'javascript':
-				return new tsWorker()
+				return buildWorker(workerOverrideGlobals, label, 'tsWorker', 'TS Worker')
 			case 'html':
 			case 'handlebars':
 			case 'razor':
-				return new htmlWorker()
+				return buildWorker(workerOverrideGlobals, label, 'htmlWorker', 'HTML Worker')
 			case 'css':
 			case 'scss':
 			case 'less':
-				return new cssWorker()
+				return buildWorker(workerOverrideGlobals, label, 'cssWorker', 'CSS Worker')
 			case 'json':
-				return new jsonWorker()
+				return buildWorker(workerOverrideGlobals, label, 'jsonWorker', 'JSON Worker')
 			case 'graphql':
 				const workerFilename = `graphql.worker.bundle.js`
 				const workerPathLocal = `${workerOverrideGlobals.workerPath}/${workerFilename}`
@@ -74,7 +93,7 @@ export function buildWorkerDefinition(
 					name: label
 				})
 			default:
-				return new editorWorker()
+				return buildWorker(workerOverrideGlobals, label, 'editorWorker', 'Editor Worker')
 		}
 	}
 

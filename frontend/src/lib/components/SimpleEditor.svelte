@@ -61,7 +61,7 @@
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	buildWorkerDefinition('./node_modules/monaco-editor-workers/dist/workers', import.meta.url, false)
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''

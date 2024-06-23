@@ -6,10 +6,10 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import { Button } from './common'
-	import ResourceEditor from './ResourceEditor.svelte'
 	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
+	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -67,7 +67,7 @@
 	$: dispatch('change', value)
 
 	let appConnect: AppConnect
-	let resourceEditor: ResourceEditor
+	let resourceEditor: ResourceEditorDrawer
 
 	let darkMode: boolean = false
 </script>
@@ -88,7 +88,7 @@
 	bind:this={appConnect}
 />
 
-<ResourceEditor
+<ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
