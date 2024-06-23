@@ -13,7 +13,7 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from './build_workers'
 
-	buildWorkerDefinition('./node_modules/monaco-editor-workers/dist/workers', import.meta.url, false)
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 

@@ -148,7 +148,7 @@
 
 	console.log('uri', uri)
 
-	buildWorkerDefinition('./node_modules/monaco-editor-workers/dist/workers', import.meta.url, false)
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
