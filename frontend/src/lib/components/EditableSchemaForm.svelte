@@ -260,7 +260,7 @@
 									<div class="flex flex-row gap-2">
 										{argName}
 										{#if !uiOnly}
-											<div on:click|preventDefault|stopPropagation>
+											<div on:click|stopPropagation|preventDefault>
 												<Popup
 													floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 													containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
