@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { EnumType, SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { setInputCat as computeInputCat, debounce, emptyString } from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { Badge, Button, SecondsInput } from './common'
+	import { Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
@@ -29,6 +29,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let label: string = ''
 	export let value: any
@@ -77,11 +78,23 @@
 	export let order: string[] | undefined = undefined
 	export let editor: SimpleEditor | undefined = undefined
 	export let orderEditable = false
+	export let shouldDispatchChanges: boolean = false
 
 	let oneOfSelected: string | undefined = undefined
-	function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
-		if (oneOf && oneOf.length >= 2 && !oneOfSelected) {
-			oneOfSelected = oneOf[0]['title']
+	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
+		if (
+			oneOf &&
+			oneOf.length >= 2 &&
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+		) {
+			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
+				const existingValue = JSON.parse(JSON.stringify(value))
+				oneOfSelected = value['label']
+				await tick()
+				value = existingValue
+			} else {
+				oneOfSelected = oneOf[0]['title']
+			}
 		}
 	}
 	$: updateOneOfSelected(oneOf)
@@ -222,6 +235,18 @@
 	let itemsLimit = 50
 
 	$: validateInput(pattern, value, required)
+
+	let oldValue = value
+
+	function compareValues(value) {
+		if (!deepEqual(oldValue, value)) {
+			oldValue = value
+			dispatch('change')
+		}
+	}
+
+	let debounced = debounce(() => compareValues(value), 50)
+	$: shouldDispatchChanges && debounced(value)
 </script>
 
 <S3FilePicker
@@ -258,15 +283,7 @@
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				{#if extra['min'] != undefined && extra['max'] != undefined}
-					<div class="flex w-full gap-1">
-						<span>{extra['min']}</span>
-
-						<div class="grow">
-							<Range bind:value min={extra['min']} max={extra['max']} />
-						</div>
-						<span>{extra['max']}</span>
-						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
-					</div>
+					<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
 				{:else if extra['seconds'] !== undefined}
 					<SecondsInput bind:seconds={value} on:focus />
 				{:else if extra?.currency}

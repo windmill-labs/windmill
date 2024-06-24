@@ -20,6 +20,8 @@
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, FileJson, LineChart, Plus, Search } from 'lucide-svelte'
 	import { onDestroy, onMount } from 'svelte'
+	import AutoComplete from 'simple-svelte-autocomplete'
+
 	import YAML from 'yaml'
 
 	let workers: WorkerPing[] | undefined = undefined
@@ -30,16 +32,33 @@
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = undefined
 
-	$: groupedWorkers = groupBy(
-		groupBy(
-			workers ?? [],
-			(wp: WorkerPing) => wp.worker_instance + splitter + wp.worker_group,
-			(wp: WorkerPing) => wp.worker
-		),
-		(x) => x[0]?.split(splitter)?.[1],
-		(x) => x[0]?.split(splitter)?.[0]
-	)
+	$: groupedWorkers = groupWorkers(workers, workerGroups)
 
+	function groupWorkers(
+		workers: WorkerPing[] | undefined,
+		workerGroups: Record<string, any> | undefined
+	): [string, [string, WorkerPing[]][]][] {
+		if (!workers && !workerGroups) {
+			return []
+		}
+
+		let grouped = groupBy(
+			groupBy(
+				workers ?? [],
+				(wp: WorkerPing) => wp.worker_instance + splitter + wp.worker_group,
+				(wp: WorkerPing) => wp.worker
+			),
+			(x) => x[0]?.split(splitter)?.[1],
+			(x) => x[0]?.split(splitter)?.[0]
+		).sort((a, b) => b[1].length - a[1].length)
+
+		Object.keys(workerGroups ?? {}).forEach((group) => {
+			if (!grouped.some((x) => x[0] == group)) {
+				grouped.push([group, []])
+			}
+		})
+		return grouped
+	}
 	let timeSinceLastPing = 0
 
 	async function loadWorkers(): Promise<void> {
@@ -163,7 +182,16 @@
 	}
 
 	let queueMetricsDrawer: Drawer
-	let selectedTab: string = groupedWorkers?.[0]?.[0] ?? 'default'
+	let selectedTab: string = 'default'
+
+	$: workerGroups && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
+
+	function updateSelectedTabIfDefaultDoesNotExist() {
+		if (selectedTab == 'default' && !workerGroups?.hasOwnProperty('default')) {
+			selectedTab = Object.keys(workerGroups ?? {})[0] ?? 'default'
+		}
+	}
+
 	let search: string = ''
 
 	$: worker_group = filterWorkerGroupByNames(
@@ -269,13 +297,13 @@
 		{/if}
 
 		<div class="py-4 w-full flex justify-between"
-			><h2
-				>Worker Groups <Tooltip
+			><h4
+				>{groupWorkers?.length} Worker Groups <Tooltip
 					documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
 					>Worker groups are groups of workers that share a config and are meant to be identical.
 					Worker groups are meant to be used with tags. Tags can be assigned to scripts and flows
 					and can be seen as dedicated queues. Only the corresponding
-				</Tooltip></h2
+				</Tooltip></h4
 			>
 			<div />
 			{#if $superadmin}
@@ -352,16 +380,27 @@
 			{/if}</div
 		>
 
-		{#if Object.keys(workerGroups ?? {}).length > 5}
-			<div>
-				<select
+		{#if (groupedWorkers ?? []).length > 5}
+			<div class="flex gap-2 items-center">
+				<div class="text-secondary text-sm">Worker group:</div>
+				<AutoComplete
+					noInputStyles
+					items={groupedWorkers.map((x) => x[0])}
+					bind:selectedItem={selectedTab}
+					hideArrow={true}
+					inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
+					dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
+					className="!font-gray-600 !font-primary !bg-surface-primary"
+				/>
+
+				<!-- <select
 					class="max-w-64"
 					bind:value={selectedTab}
 					on:change={() => {
 						search = ''
 					}}
 				>
-					{#each Object.keys(workerGroups ?? {}) as name (name)}
+					{#each groupedWorkers.map((x) => x[0]) as name (name)}
 						<option value={name}
 							>{name} ({pluralize(
 								groupedWorkers.find((x) => x[0] == name)?.[1].length ?? 0,
@@ -369,11 +408,11 @@
 							)})
 						</option>
 					{/each}
-				</select>
+				</select> -->
 			</div>
 		{:else}
 			<Tabs bind:selected={selectedTab}>
-				{#each Object.keys(workerGroups ?? {}) as name (name)}
+				{#each groupedWorkers.map((x) => x[0]) as name (name)}
 					{@const worker_group = groupedWorkers.find((x) => x[0] == name)}
 
 					{#if worker_group}
@@ -468,8 +507,9 @@
 											</div>
 											<span class="ml-4">IP: </span>
 											<span class="font-semibold">{workers[0].ip}</span>
+
 											{#if workers?.length > 1}
-												{workers?.length} Workers
+												<span class="font-semibold ml-8">{workers?.length} Workers</span>
 											{/if}
 										</div>
 									</Cell>

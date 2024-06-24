@@ -148,7 +148,7 @@ pub async fn cancel_single_job<'c>(
         && !force_cancel
     {
         let id = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
             username,
             reason,
             job_running.id,
@@ -160,32 +160,39 @@ pub async fn cancel_single_job<'c>(
             tracing::info!("Soft cancelling job {}", id);
         }
     } else {
-        let reason: String = reason
-            .clone()
-            .unwrap_or_else(|| "unexplicited reasons".to_string());
-        let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
-        append_logs(
-            &job_running.id,
-            w_id.to_string(),
-            format!("canceled by {username}: (force cancel: {force_cancel})"),
-            db,
-        )
-        .await;
-        let add_job = add_completed_job_error(
-            &db,
-            job_running,
-            job_running.mem_peak.unwrap_or(0),
-            Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
-            e,
-            rsmq.clone(),
-            "server",
-            false,
-        )
-        .await;
+        let username = username.to_string();
+        let job_running = job_running.clone();
+        let w_id = w_id.to_string();
+        let db = db.clone();
+        let rsmq = rsmq.clone();
+        tokio::task::spawn(async move {
+            let reason: String = reason
+                .clone()
+                .unwrap_or_else(|| "unexplicited reasons".to_string());
+            let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
+            append_logs(
+                &job_running.id,
+                w_id.to_string(),
+                format!("canceled by {username}: (force cancel: {force_cancel})"),
+                &db,
+            )
+            .await;
+            let add_job = add_completed_job_error(
+                &db,
+                &job_running,
+                job_running.mem_peak.unwrap_or(0),
+                Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
+                e,
+                rsmq.clone(),
+                "server",
+                false,
+            )
+            .await;
 
-        if let Err(e) = add_job {
-            tracing::error!("Failed to add canceled job: {}", e);
-        }
+            if let Err(e) = add_job {
+                tracing::error!("Failed to add canceled job: {}", e);
+            }
+        });
     }
     if let Some(mut rsmq) = rsmq.clone() {
         rsmq.change_message_visibility(&job_running.tag, &job_running.id.to_string(), 0)
@@ -235,6 +242,7 @@ pub async fn cancel_job<'c>(
         jobs.extend(new_jobs.clone());
         jobs_to_cancel.extend(new_jobs);
     }
+    jobs.reverse();
 
     let (ntx, _) = cancel_single_job(
         username,
@@ -661,7 +669,7 @@ pub async fn add_completed_job<
                 parent_job
             );
             sqlx::query!(
-                "UPDATE queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2",
+                "UPDATE queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2 AND canceled = false",
                 parent_job,
                 &queued_job.workspace_id
             )
@@ -2678,7 +2686,7 @@ fn restructure_cloudevents_metadata(
         let mut hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
             .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
             .unwrap_or_else(HashMap::new);
-            hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
+        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
         Ok(hm)
     }
 }
@@ -2836,7 +2844,10 @@ where
             .unwrap()
             .starts_with("application/cloudevents-batch+json")
         {
-            Err(Error::BadRequest(format!("Cloud events batching is not supported yet")).into_response())
+            Err(
+                Error::BadRequest(format!("Cloud events batching is not supported yet"))
+                    .into_response(),
+            )
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")

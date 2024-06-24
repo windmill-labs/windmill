@@ -12,6 +12,7 @@ import {
   Confirm,
   ListableVariable,
   log,
+  SEP,
   Table,
   VariableService,
 } from "./deps.ts";
@@ -60,7 +61,7 @@ export async function pushVariable(
   try {
     variable = await VariableService.getVariable({
       workspace: workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       decryptSecret: plainSecrets,
       includeEncrypted: true,
     });
@@ -79,7 +80,7 @@ export async function pushVariable(
 
     await VariableService.updateVariable({
       workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       alreadyEncrypted: !plainSecrets,
       requestBody: {
         ...localVariable,
@@ -93,7 +94,7 @@ export async function pushVariable(
       workspace,
       alreadyEncrypted: !plainSecrets,
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         ...localVariable,
       },
     });

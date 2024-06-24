@@ -143,7 +143,7 @@ export async function handleFile(
     alreadySynced.push(path);
     const remotePath = path
       .substring(0, path.indexOf("."))
-      .replaceAll("\\", "/");
+      .replaceAll(SEP, "/");
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
@@ -186,7 +186,7 @@ export async function handleFile(
     try {
       remote = await ScriptService.getScriptByPath({
         workspace: workspaceId,
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
       });
       log.debug(`Script ${remotePath} exists on remote`);
     } catch {
@@ -214,7 +214,7 @@ export async function handleFile(
       content,
       description: typed?.description ?? "",
       language: language as NewScript["language"],
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       summary: typed?.summary ?? "",
       kind: typed?.kind,
       lock: typed?.lock,

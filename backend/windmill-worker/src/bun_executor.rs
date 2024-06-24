@@ -85,7 +85,10 @@ pub async fn gen_lockfile(
                     .replace("W_ID", w_id)
                     .replace("BASE_INTERNAL_URL", base_internal_url)
                     .replace("TOKEN", token)
-                    .replace("CURRENT_PATH", script_path)
+                    .replace(
+                        "CURRENT_PATH",
+                        &crate::common::use_flow_root_path(script_path)
+                    )
                     .replace("RAW_GET_ENDPOINT", "raw")
             ),
         )
@@ -305,7 +308,10 @@ pub async fn build_loader(
         .replace("W_ID", w_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
         .replace("TOKEN", token)
-        .replace("CURRENT_PATH", current_path)
+        .replace(
+            "CURRENT_PATH",
+            &crate::common::use_flow_root_path(current_path),
+        )
         .replace("RAW_GET_ENDPOINT", "raw_unpinned");
     if nodejs_mode {
         write_file(

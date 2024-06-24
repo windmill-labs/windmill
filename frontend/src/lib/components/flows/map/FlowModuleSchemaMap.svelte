@@ -39,7 +39,7 @@
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	const { selectedId, moving, history, flowStateStore, flowStore } =
+	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
@@ -233,6 +233,7 @@
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
 			{selectedId}
+			{flowInputsStore}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
@@ -240,6 +241,10 @@
 					push(history, $flowStore)
 					selectNextId(e.id)
 					removeAtId($flowStore.value.modules, e.id)
+
+					if ($flowInputsStore) {
+						delete $flowInputsStore[e.id]
+					}
 					$flowStore = $flowStore
 				}
 

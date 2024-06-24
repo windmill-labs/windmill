@@ -247,13 +247,13 @@ pub async fn handle_python_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let script_path = job.script_path();
+    let script_path = crate::common::use_flow_root_path(job.script_path());
     let additional_python_paths = handle_python_deps(
         job_dir,
         requirements_o,
         inner_content,
         &job.workspace_id,
-        script_path,
+        &script_path,
         &job.id,
         db,
         worker_name,
@@ -281,7 +281,7 @@ pub async fn handle_python_job(
         transforms,
         spread,
         main_name,
-    ) = prepare_wrapper(job_dir, inner_content, script_path, job.args.as_ref()).await?;
+    ) = prepare_wrapper(job_dir, inner_content, &script_path, job.args.as_ref()).await?;
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
 

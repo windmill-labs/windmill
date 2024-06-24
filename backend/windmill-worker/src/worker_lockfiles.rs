@@ -527,15 +527,27 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
             "status": "Flow lock generation was canceled",
         })));
     }
+    let skip_flow_update = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("skip_flow_update")
+                .map(|v| serde_json::from_str::<bool>(v.get()).ok())
+                .flatten()
+        })
+        .flatten()
+        .unwrap_or(false);
 
-    sqlx::query!(
-        "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-        new_flow_value,
-        job_path,
-        job.workspace_id
-    )
-    .execute(db)
-    .await?;
+    if !skip_flow_update {
+        sqlx::query!(
+            "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+            new_flow_value,
+            job_path,
+            job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    }
     tx.commit().await?;
 
     if let Err(e) = handle_deployment_metadata(
@@ -785,7 +797,10 @@ async fn lock_modules<'c>(
             worker_dir,
             base_internal_url,
             token,
-            &path.clone().unwrap_or_else(|| job_path.to_string()),
+            &format!(
+                "{}/flow",
+                &path.clone().unwrap_or_else(|| job_path.to_string())
+            ),
             false,
         )
         .await;
@@ -913,7 +928,7 @@ async fn lock_modules_app(
                                 worker_dir,
                                 base_internal_url,
                                 token,
-                                job.script_path(),
+                                &format!("{}/app", job.script_path()),
                                 false,
                             )
                             .await;

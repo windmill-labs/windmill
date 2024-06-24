@@ -410,6 +410,12 @@ interface Console {
     log(...data: any[]): void;
 }
 
+
+declare function setTimeout(callback: (...args: any[]) => void, ms: number, ...args: any[]): number;
+declare function setInterval(callback: (...args: any[]) => void, ms: number, ...args: any[]): number;
+declare function clearTimeout(timeoutId: number): void;
+declare function clearInterval(intervalId: number): void;
+
 declare var console: Console;
 
 declare var process: Process

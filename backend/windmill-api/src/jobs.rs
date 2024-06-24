@@ -346,18 +346,26 @@ async fn cancel_job_api(
         },
     };
 
-    let (mut tx, job_option) = windmill_queue::cancel_job(
-        &audit_author.username,
-        reason,
-        id,
-        &w_id,
-        tx,
-        &db,
-        rsmq,
-        false,
-        opt_authed.is_none(),
+    let (mut tx, job_option) = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        windmill_queue::cancel_job(
+            &audit_author.username,
+            reason,
+            id,
+            &w_id,
+            tx,
+            &db,
+            rsmq,
+            false,
+            opt_authed.is_none(),
+        ),
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
+        ))
+    })??;
 
     if let Some(id) = job_option {
         audit_log(
@@ -453,18 +461,26 @@ async fn force_cancel(
         },
     };
 
-    let (mut tx, job_option) = windmill_queue::cancel_job(
-        &audit_author.username,
-        reason,
-        id,
-        &w_id,
-        tx,
-        &db,
-        rsmq,
-        true,
-        opt_authed.is_none(),
+    let (mut tx, job_option) = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        windmill_queue::cancel_job(
+            &audit_author.username,
+            reason,
+            id,
+            &w_id,
+            tx,
+            &db,
+            rsmq,
+            true,
+            opt_authed.is_none(),
+        ),
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
+        ))
+    })??;
 
     if let Some(id) = job_option {
         audit_log(
@@ -3751,7 +3767,7 @@ async fn run_flow_dependencies_job(
         PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
         &w_id,
         JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
-        PushArgs::empty(),
+        HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]).into(),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),

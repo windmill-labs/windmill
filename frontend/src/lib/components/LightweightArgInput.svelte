@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
-	import { Badge, Button } from './common'
-	import { createEventDispatcher } from 'svelte'
+	import { Button } from './common'
+	import { createEventDispatcher, tick } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import type { EnumType, SchemaProperty } from '$lib/common'
 	import autosize from '$lib/autosize'
@@ -56,9 +56,20 @@
 	export let placeholder: string | undefined = undefined
 
 	let oneOfSelected: string | undefined = undefined
-	function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
-		if (oneOf && oneOf.length >= 2 && !oneOfSelected) {
-			oneOfSelected = oneOf[0]['title']
+	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
+		if (
+			oneOf &&
+			oneOf.length >= 2 &&
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+		) {
+			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
+				const existingValue = JSON.parse(JSON.stringify(value))
+				oneOfSelected = value['label']
+				await tick()
+				value = existingValue
+			} else {
+				oneOfSelected = oneOf[0]['title']
+			}
 		}
 	}
 	$: updateOneOfSelected(oneOf)
@@ -216,14 +227,7 @@
 			<div class="flex space-x-1">
 				{#if inputCat == 'number'}
 					{#if extra['min'] != undefined && extra['max'] != undefined}
-						<div class="flex w-full gap-1">
-							<span>{extra['min']}</span>
-							<div class="grow">
-								<Range bind:value min={extra['min']} max={extra['max']} />
-							</div>
-							<span>{extra['max']}</span>
-							<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
-						</div>
+						<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
 					{:else if extra?.currency}
 						<CurrencyInput
 							inputClasses={{

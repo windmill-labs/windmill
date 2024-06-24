@@ -1568,13 +1568,14 @@ pub async fn save_in_cache(
 
     if let Err(e) = sqlx::query!(
         "INSERT INTO resource
-    (workspace_id, path, value, resource_type)
-    VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path)
-    DO UPDATE SET value = $3",
+    (workspace_id, path, value, resource_type, created_by, edited_at)
+    VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (workspace_id, path)
+    DO UPDATE SET value = $3, edited_at = now()",
         job.workspace_id,
         cached_path,
         raw_json as sqlx::types::Json<CachedResource>,
-        "cache"
+        "cache",
+        job.created_by
     )
     .execute(db)
     .await
@@ -1598,4 +1599,20 @@ pub async fn clean_cache() -> error::Result<()> {
     tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
     tracing::info!("Finished cleaning cache");
     Ok(())
+}
+
+lazy_static::lazy_static! {
+    static ref RE_FLOW_ROOT: Regex = Regex::new(r"(?i)(.*?)(?:/branchone-\d+/|/branchall-\d+/|/loop-\d+/)").unwrap();
+
+}
+
+pub fn use_flow_root_path(flow_path: &str) -> String {
+    if let Some(captures) = RE_FLOW_ROOT.captures(flow_path) {
+        return captures
+            .get(1)
+            .map(|m| format!("{}/flow", m.as_str()))
+            .unwrap_or_else(|| flow_path.to_string());
+    } else {
+        return flow_path.to_string();
+    }
 }

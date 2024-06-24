@@ -2189,6 +2189,11 @@ This is a paragraph.
 					value: true,
 
 					tooltip: 'Set the width of the options popup to 100% of the select width'
+				},
+				disabled: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
 				}
 			}
 		}
@@ -2627,6 +2632,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: undefined,
 					fieldType: 'datetime'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -2893,6 +2903,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: 'Selected file',
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -3551,7 +3566,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								fieldType: 'template',
 								connections: [],
 								onDemandOnly: true
-							} as EvalV2AppInput
+							} as EvalV2AppInput,
+							disabled: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean'
+							}
 						}
 					}
 				} as const

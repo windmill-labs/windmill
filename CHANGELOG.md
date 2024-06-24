@@ -1,5 +1,82 @@
 # Changelog
 
+## [1.352.0](https://github.com/windmill-labs/windmill/compare/v1.351.0...v1.352.0) (2024-06-22)
+
+
+### Features
+
+* add extra metadata to folders/resources/types + path prefix filtering for all + improve groups UI ([#3936](https://github.com/windmill-labs/windmill/issues/3936)) ([b57afc8](https://github.com/windmill-labs/windmill/commit/b57afc8f68f691ad5ef7fb16aafe6fae7d1138e9))
+* fallback to default hub if official script not found on private hub ([#3951](https://github.com/windmill-labs/windmill/issues/3951)) ([0c66122](https://github.com/windmill-labs/windmill/commit/0c661220cf1fb7eb37ad7f39b1fa6d29570edda2))
+
+
+### Bug Fixes
+
+* cache wasm ([53eeef0](https://github.com/windmill-labs/windmill/commit/53eeef05032f04637249c2557d6d864f9446a9a1))
+* improve perf of forloop with parallelism massively ([e0479e0](https://github.com/windmill-labs/windmill/commit/e0479e05f7b1a212906afd8c5e268f3d48266311))
+
+## [1.351.0](https://github.com/windmill-labs/windmill/compare/v1.350.3...v1.351.0) (2024-06-21)
+
+
+### Features
+
+* **frontend:** improve approval form edition + add a delete button t… ([#3946](https://github.com/windmill-labs/windmill/issues/3946)) ([25a460b](https://github.com/windmill-labs/windmill/commit/25a460be858ce020c40cd120e5aef2a79ba362d6))
+
+
+### Bug Fixes
+
+* improve support of relative paths in subflows and apps ([ba76d87](https://github.com/windmill-labs/windmill/commit/ba76d8749a9524ed356611c09f874da60f3b954a))
+
+## [1.350.3](https://github.com/windmill-labs/windmill/compare/v1.350.2...v1.350.3) (2024-06-21)
+
+
+### Bug Fixes
+
+* **cli:** fix push flow support for windows ([1042a06](https://github.com/windmill-labs/windmill/commit/1042a06a12ae31d31facd1dfab10cbd2b10c86f5))
+
+## [1.350.2](https://github.com/windmill-labs/windmill/compare/v1.350.1...v1.350.2) (2024-06-21)
+
+
+### Bug Fixes
+
+* **cli:** support windows more thoroughly + fix generate flow locks ([#3944](https://github.com/windmill-labs/windmill/issues/3944)) ([3f0cd63](https://github.com/windmill-labs/windmill/commit/3f0cd6349de37358f3942772254e2509383305b4))
+
+## [1.350.1](https://github.com/windmill-labs/windmill/compare/v1.350.0...v1.350.1) (2024-06-20)
+
+
+### Bug Fixes
+
+* **cli:** fix inital sync pull generating wrong flow lockfile ([a43923b](https://github.com/windmill-labs/windmill/commit/a43923b3266b7b5781b0a5dc672c401377ae6e20))
+
+## [1.350.0](https://github.com/windmill-labs/windmill/compare/v1.349.1...v1.350.0) (2024-06-20)
+
+
+### Features
+
+* **frontend:** add indicator when required field are missing ([#3935](https://github.com/windmill-labs/windmill/issues/3935)) ([7007f14](https://github.com/windmill-labs/windmill/commit/7007f14a1073f8f43b2500fae9c75d4222928802))
+
+## [1.349.1](https://github.com/windmill-labs/windmill/compare/v1.349.0...v1.349.1) (2024-06-19)
+
+
+### Bug Fixes
+
+* show workers without worker groups ([5c5b98e](https://github.com/windmill-labs/windmill/commit/5c5b98e0b8f0926d5f81c1894de8d367201da2d8))
+
+## [1.349.0](https://github.com/windmill-labs/windmill/compare/v1.348.2...v1.349.0) (2024-06-19)
+
+
+### Features
+
+* **frontend:** improve range ([#3924](https://github.com/windmill-labs/windmill/issues/3924)) ([a1dc0fd](https://github.com/windmill-labs/windmill/commit/a1dc0fd7c22244d97429dbb65ded23e27badec6a))
+
+## [1.348.2](https://github.com/windmill-labs/windmill/compare/v1.348.1...v1.348.2) (2024-06-19)
+
+
+### Bug Fixes
+
+* add jobid to background runnables and fix zindex issue of inline script editor ([a2b88c0](https://github.com/windmill-labs/windmill/commit/a2b88c0080b8cfa747bf221bde9d22781e8034a9))
+* **frontend:** fix full screen mode of the EvalInputEditor ([#3928](https://github.com/windmill-labs/windmill/issues/3928)) ([c9c017e](https://github.com/windmill-labs/windmill/commit/c9c017e27a71bfe618974fb0906283a6c1a82aa4))
+* handle past inputs with oneOf ([#3932](https://github.com/windmill-labs/windmill/issues/3932)) ([f5e8d71](https://github.com/windmill-labs/windmill/commit/f5e8d71f0b9e527d3658547f3cb193b6dbe4bcb0))
+
 ## [1.348.1](https://github.com/windmill-labs/windmill/compare/v1.348.0...v1.348.1) (2024-06-19)
 
 
