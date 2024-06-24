@@ -10326,9 +10326,12 @@ name = "windmill-indexer"
 version = "1.342.0"
 dependencies = [
  "anyhow",
+ "serde",
+ "serde_json",
  "sqlx",
  "tantivy",
  "tokio",
+ "tracing",
  "windmill-common",
 ]
 

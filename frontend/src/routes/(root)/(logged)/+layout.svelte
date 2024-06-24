@@ -43,7 +43,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/GlobalSearchModal.svelte'
-	import { onDestroy, onMount } from 'svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
