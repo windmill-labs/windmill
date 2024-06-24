@@ -38,7 +38,6 @@ use windmill_common::{
     jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
-    stats_ee::get_user_usage,
     users::truncate_token,
     utils::{now_from_db, rd_string},
     worker::{
