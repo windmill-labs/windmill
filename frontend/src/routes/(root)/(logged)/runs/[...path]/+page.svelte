@@ -588,16 +588,6 @@
 					{#if isSelectingJobsToCancel}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
 							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-							<Button
 								startIcon={{ icon: X }}
 								size="xs"
 								color="gray"
@@ -607,6 +597,16 @@
 									selectedIds = []
 								}}
 							/>
+							<Button
+								disabled={selectedIds.length == 0}
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
+							>
+								Cancel {jobCountString(selectedIds.length)}
+							</Button>
 						</div>
 					{:else if !$userStore?.is_admin && !$superadmin}
 						<DropdownV2
@@ -877,16 +877,6 @@
 					{#if isSelectingJobsToCancel}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
 							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-							<Button
 								startIcon={{ icon: X }}
 								size="xs"
 								color="gray"
@@ -896,6 +886,16 @@
 									selectedIds = []
 								}}
 							/>
+							<Button
+								disabled={selectedIds.length == 0}
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
+							>
+								Cancel {jobCountString(selectedIds.length)}
+							</Button>
 						</div>
 					{:else if !$userStore?.is_admin && !$superadmin}
 						<DropdownV2
