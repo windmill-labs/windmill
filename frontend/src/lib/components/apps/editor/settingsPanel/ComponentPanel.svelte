@@ -22,7 +22,7 @@
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import StylePanel from './StylePanel.svelte'
-	import { ChevronLeft, ExternalLink, ArrowBigUp } from 'lucide-svelte'
+	import { ChevronLeft, ArrowBigUp } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
@@ -30,6 +30,7 @@
 	import type { ResultAppInput } from '../../inputType'
 	import GridGroup from './GridGroup.svelte'
 	import { secondaryMenuLeft } from './secondaryMenu'
+	import DocLink from './DocLink.svelte'
 
 	import ComponentControl from './ComponentControl.svelte'
 	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
@@ -175,20 +176,11 @@
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
-	<div class="flex justify-between items-center px-3 py-2 bg-surface-secondary">
+	<div class="flex justify-between items-center px-3 py-1 bg-surface-secondary">
 		<div class="text-xs text-primary font-semibold"
 			>{components[componentSettings.item.data.type]?.name ?? 'Unknown'}</div
 		>
-		<a
-			href={components[componentSettings.item.data.type]?.documentationLink}
-			target="_blank"
-			class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
-		>
-			<div class="flex flex-row gap-2">
-				See documentation
-				<ExternalLink size="16" />
-			</div>
-		</a>
+		<DocLink docLink={components[componentSettings.item.data.type]?.documentationLink} />
 	</div>
 
 	<div class="flex min-h-[calc(100%-32px)] flex-col min-w-[150px] w-full divide-y">
@@ -205,16 +197,19 @@
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">
-						{#if componentSettings.item.data.type !== 'plotlycomponentv2'}
-							<span
+						<div class="flex flex-row gap-1 justify-center items-center">
+							<DocLink
+								docLink={'https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable'}
+							/>
+							<div
 								class={classNames(
-									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
+									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm',
 									'bg-indigo-500'
 								)}
 							>
 								{`${component.id}`}
-							</span>
-						{/if}
+							</div>
+						</div>
 					</svelte:fragment>
 
 					{#if componentSettings.item.data.componentInput}

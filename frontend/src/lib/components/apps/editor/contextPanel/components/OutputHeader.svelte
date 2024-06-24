@@ -8,6 +8,7 @@
 	import IdEditor from './IdEditor.svelte'
 	import type { AppComponent } from '../../component'
 	import type { Runnable } from '$lib/components/apps/inputType'
+	import DocLink from '../../settingsPanel/DocLink.svelte'
 
 	export let id: string
 	export let name: string
@@ -263,6 +264,8 @@
 			{/if}
 		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
+			<DocLink docLink={`/docs/components/${id}`} size="xs2" />
+
 			{name}
 			<div class={classNames('bg-surface-secondary rounded-sm')}>
 				{#if !open}
