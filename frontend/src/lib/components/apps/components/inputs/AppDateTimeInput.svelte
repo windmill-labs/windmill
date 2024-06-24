@@ -138,6 +138,7 @@
 					e.stopPropagation()
 					$selectedComponent = [id]
 				}}
+				inputClass={twMerge('windmillapp w-full py-1.5 px-2 text-sm', 'app-editor-input')}
 				minDate={resolvedConfig.minDateTime
 					? formatDate(resolvedConfig.minDateTime, 'yyyy-MM-dd')
 					: undefined}
@@ -145,6 +146,7 @@
 					? formatDate(resolvedConfig.maxDateTime, 'yyyy-MM-dd')
 					: undefined}
 				on:focus={() => ($selectedComponent = [id])}
+				disabled={resolvedConfig.disabled}
 			/>
 		{/if}
 	</div>
