@@ -69,7 +69,6 @@ import type {
 	StaticAppInput,
 	TemplateV2AppInput
 } from '../../inputType'
-import { disable } from 'ol/rotationconstraint'
 
 export type BaseComponent<T extends string> = {
 	type: T
