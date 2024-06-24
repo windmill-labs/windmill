@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.350.2",
+	"version": "1.352.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -249,6 +249,11 @@
 			"svelte": "./package/components/EditableSchemaForm.svelte",
 			"default": "./package/components/EditableSchemaForm.svelte"
 		},
+		"./components/ScriptEditor.svelte": {
+			"types": "./package/components/ScriptEditor.svelte.d.ts",
+			"svelte": "./package/components/ScriptEditor.svelte",
+			"default": "./package/components/ScriptEditor.svelte"
+		},
 		"./components/scriptEditor/LogPanel.svelte": {
 			"types": "./package/components/scriptEditor/LogPanel.svelte.d.ts",
 			"svelte": "./package/components/scriptEditor/LogPanel.svelte",
@@ -327,6 +332,9 @@
 			],
 			"components/scriptEditor/LogPanel.svelte": [
 				"./package/components/scriptEditor/LogPanel.svelte.d.ts"
+			],
+			"components/ScriptEditor.svelte": [
+				"./package/components/ScriptEditor.svelte.d.ts"
 			],
 			"components/common/kbd/Kbd.svelte": [
 				"./package/components/common/kbd/Kbd.svelte.d.ts"

@@ -797,7 +797,10 @@ async fn lock_modules<'c>(
             worker_dir,
             base_internal_url,
             token,
-            &path.clone().unwrap_or_else(|| job_path.to_string()),
+            &format!(
+                "{}/flow",
+                &path.clone().unwrap_or_else(|| job_path.to_string())
+            ),
             false,
         )
         .await;
@@ -925,7 +928,7 @@ async fn lock_modules_app(
                                 worker_dir,
                                 base_internal_url,
                                 token,
-                                job.script_path(),
+                                &format!("{}/app", job.script_path()),
                                 false,
                             )
                             .await;
