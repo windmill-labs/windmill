@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.342.0",
+	"version": "1.352.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -95,6 +95,7 @@
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.9",
+		"@windmill-labs/svelte-dnd-action": "latest",
 		"ag-charts-community": "^9.0.1",
 		"ag-charts-enterprise": "^9.0.1",
 		"ag-grid-community": "^31.0.0",
@@ -122,7 +123,6 @@
 		"quill": "^1.3.7",
 		"svelte-carousel": "^1.0.25",
 		"svelte-chartjs": "^3.1.5",
-		"svelte-dnd-action": "^0.9.38",
 		"svelte-exmarkdown": "^3.0.3",
 		"svelte-infinite-loading": "^1.3.8",
 		"svelte-portal": "^2.2.1",
@@ -132,7 +132,7 @@
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.0.8",
 		"vscode-ws-jsonrpc": "~3.1.0",
-		"windmill-parser-wasm": "^1.335.0",
+		"windmill-parser-wasm": "^1.347.1",
 		"windmill-sql-datatype-parser-wasm": "^1.318.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
@@ -245,9 +245,14 @@
 			"default": "./package/components/SchemaForm.svelte"
 		},
 		"./components/SchemaEditor.svelte": {
-			"types": "./package/components/SchemaEditor.svelte.d.ts",
-			"svelte": "./package/components/SchemaEditor.svelte",
-			"default": "./package/components/SchemaEditor.svelte"
+			"types": "./package/components/EditableSchemaForm.svelte.d.ts",
+			"svelte": "./package/components/EditableSchemaForm.svelte",
+			"default": "./package/components/EditableSchemaForm.svelte"
+		},
+		"./components/ScriptEditor.svelte": {
+			"types": "./package/components/ScriptEditor.svelte.d.ts",
+			"svelte": "./package/components/ScriptEditor.svelte",
+			"default": "./package/components/ScriptEditor.svelte"
 		},
 		"./components/scriptEditor/LogPanel.svelte": {
 			"types": "./package/components/scriptEditor/LogPanel.svelte.d.ts",
@@ -327,6 +332,9 @@
 			],
 			"components/scriptEditor/LogPanel.svelte": [
 				"./package/components/scriptEditor/LogPanel.svelte.d.ts"
+			],
+			"components/ScriptEditor.svelte": [
+				"./package/components/ScriptEditor.svelte.d.ts"
 			],
 			"components/common/kbd/Kbd.svelte": [
 				"./package/components/common/kbd/Kbd.svelte.d.ts"

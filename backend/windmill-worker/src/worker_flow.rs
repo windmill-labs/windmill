@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use crate::common::{hash_args, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, KEEP_JOB_DIR};
+use crate::{AuthedClient, PreviousResult, SameWorkerPayload, SendResult, JOB_TOKEN, KEEP_JOB_DIR};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -25,6 +25,8 @@ use sqlx::FromRow;
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
+use windmill_common::auth::JobPerms;
+use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator, JobResult,
 };
@@ -423,29 +425,18 @@ pub async fn update_flow_status_after_job_completion_internal<
                     tx.commit().await?;
 
                     if parallelism.is_some() {
-                        // this ensure that the lock is taken in the same order and thus avoid deadlocks
-                        let ids = sqlx::query_scalar!(
-                            "SELECT id FROM queue WHERE parent_job = $1 AND suspend > 0 ORDER by suspend",
-                            flow
+                        sqlx::query!(
+                            "UPDATE queue SET suspend = 0 WHERE parent_job = $1 AND suspend = $2",
+                            flow,
+                            nindex
                         )
-                        .fetch_all(db)
+                        .execute(db)
                         .await
                         .map_err(|e| {
-                            Error::InternalErr(format!("error while locking jobs to decrease parallelism of: {e:#}"))
+                            Error::InternalErr(format!(
+                                "error resuming job at suspend {nindex} and parent {flow}: {e:#}"
+                            ))
                         })?;
-                        for id in ids {
-                            sqlx::query!(
-                                "UPDATE queue SET suspend = suspend - 1 WHERE id = $1 AND suspend > 0",
-                                id
-                            )
-                            .execute(db)
-                            .await
-                            .map_err(|e| {
-                                Error::InternalErr(format!(
-                                    "error decreasing suspend for {id}: {e:#}"
-                                ))
-                            })?;
-                        }
                     }
 
                     sqlx::query!(
@@ -742,7 +733,7 @@ pub async fn update_flow_status_after_job_completion_internal<
             } else {
                 "Flow job completed with error\n".to_string()
             };
-            append_logs(flow_job.id, w_id.to_string(), logs, db).await;
+            append_logs(&flow_job.id, w_id, logs, db).await;
         }
         #[cfg(feature = "enterprise")]
         if flow_job.parent_job.is_none() {
@@ -852,8 +843,8 @@ pub async fn update_flow_status_after_job_completion_internal<
             Err(err) => {
                 let e = json!({"message": err.to_string(), "name": "InternalError"});
                 append_logs(
-                    flow_job.id,
-                    w_id.to_string(),
+                    &flow_job.id,
+                    w_id,
                     format!("Unexpected error during flow chaining:\n{:#?}", e),
                     db,
                 )
@@ -1039,7 +1030,7 @@ async fn has_failure_module<'c>(
 fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
     (status.fail_count <= MAX_RETRY_ATTEMPTS)
         .then(|| &retry)
-        .and_then(|retry| retry.interval(status.fail_count))
+        .and_then(|retry| retry.interval(status.fail_count, false))
         .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
 }
 
@@ -1135,12 +1126,6 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
     } else {
         Ok(Step::FailureStep)
     }
-}
-
-#[derive(serde::Deserialize)]
-pub struct ErrorValue<'a> {
-    #[serde(borrow)]
-    pub error: Option<&'a RawValue>,
 }
 
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
@@ -1275,15 +1260,6 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 pub struct Iter {
     index: i32,
     value: Box<RawValue>,
-}
-
-#[derive(Serialize)]
-pub struct MergeArgs<'a> {
-    #[serde(flatten)]
-    b: &'a Iter,
-
-    #[serde(flatten)]
-    a: HashMap<String, Box<RawValue>>,
 }
 
 #[derive(FromRow)]
@@ -1681,7 +1657,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 let result: Value = json!({ "error": {"message": logs, "name": error_name}});
 
-                append_logs(flow_job.id, flow_job.workspace_id.clone(), logs.clone(), db).await;
+                append_logs(&flow_job.id, &flow_job.workspace_id, logs.clone(), db).await;
 
                 job_completed_tx
                     .send(SendResult::UpdateFlow {
@@ -1999,6 +1975,18 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
 
     for i in (0..len).into_iter() {
+        if i % 100 == 0 && i != 0 {
+            tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
+            sqlx::query!(
+                "UPDATE queue
+                SET last_ping = now()
+                WHERE id = $1 AND last_ping < now()",
+                flow_job.id,
+            )
+            .execute(db)
+            .await?;
+        }
+        tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushing job {i} of {len}");
         let payload_tag = match &job_payloads {
             ContinuePayload::SingleJob(payload) => payload.clone(),
             ContinuePayload::BranchAllJobs(payloads) => payloads[i].clone(),
@@ -2037,7 +2025,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 args.insert("iter".to_string(), to_raw_value(new_args));
                 if let Some(input_transforms) = simple_input_transforms {
-                    let ctx = get_transform_context(&flow_job, &previous_id, &status).await?;
+                    //previous id is none because we do not want to use previous id if we are in a for loop
+                    let ctx = get_transform_context(&flow_job, "", &status).await?;
                     transform_inp = transform_input(
                         Arc::new(args),
                         arc_last_job_result.clone(),
@@ -2097,6 +2086,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             Err(e) => (None, Some(e)),
         };
 
+        tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");
+
         let value_with_parallel = module.get_value_with_parallel()?;
 
         let root_job = if {
@@ -2108,6 +2099,27 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         } else {
             flow_job.root_job.or_else(|| Some(flow_job.id))
         };
+
+        // forward root job permissions to the new job
+        let job_perms: Option<Authed> = if JOB_TOKEN.is_none() {
+            if let Some(root_job) = &flow_job.root_job.or_else(|| Some(flow_job.id)) {
+                sqlx::query_as!(
+                    JobPerms,
+                    "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+                    root_job,
+                    flow_job.workspace_id,
+                )
+                .fetch_optional(&mut tx)
+                .await?
+                .map(|x| x.into())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
 
         let tx2 = PushIsolationLevel::Transaction(tx);
         let (uuid, mut inner_tx) = push(
@@ -2139,6 +2151,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             payload_tag.timeout,
             Some(module.id.clone()),
             new_job_priority_override,
+            job_perms.as_ref(),
         )
         .await?;
 
@@ -2146,6 +2159,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
         if value_with_parallel.type_ == "forloopflow" {
             if let Some(p) = value_with_parallel.parallelism {
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid}");
+
                 if i as u16 >= p {
                     sqlx::query!(
                         "UPDATE queue
@@ -2157,6 +2172,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     .execute(&mut inner_tx)
                     .await?;
                 }
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updated suspend for {uuid}");
             }
         }
 
@@ -2198,6 +2214,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             )
             .execute(&mut tx)
             .await?;
+            tracing::debug!(id = %flow_job.id, root_id = %job_root, "updated parallel monitor lock for {uuid}");
         }
     }
     let first_uuid = uuids[0];
@@ -2587,8 +2604,17 @@ async fn compute_next_flow_transform(
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
         FlowModuleValue::ForloopFlow { modules, iterator, parallel, .. } => {
             // if it's a simple single step flow, we will collapse it as an optimization and need to pass flow_input as an arg
-            let is_simple = is_simple_modules(modules, flow);
+            let is_simple = !parallel && is_simple_modules(modules, flow);
 
+            // if is_simple {
+            //     match value {
+            //         FlowModuleValue::Script { input_transforms, .. }
+            //         | FlowModuleValue::RawScript { input_transforms, .. }
+            //         | FlowModuleValue::Flow { input_transforms, .. } => {
+            //             Some(input_transforms.clone())
+            //         }
+            //         _ => None,
+            //     }
             let next_loop_status = next_forloop_status(
                 status_module,
                 by_id,
@@ -2626,14 +2652,18 @@ async fn compute_next_flow_transform(
                     if modules.is_empty() {
                         return Ok(NextFlowTransform::EmptyInnerFlows);
                     } else {
-                        let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
-                        let value = &modules[0].get_value()?;
-                        let continue_payload = if is_simple {
-                            let payload =
-                                payload_from_simple_module(value, db, flow_job, module, inner_path)
-                                    .await?;
-                            ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
-                        } else {
+                        // let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
+                        // let value = &modules[0].get_value()?;
+
+                        // we removed the is_simple_case
+                        // if is_simple {
+                        //     let payload =
+                        //         payload_from_simple_module(value, db, flow_job, module, inner_path)
+                        //             .await?;
+                        //     ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
+                        // } else {
+
+                        let continue_payload = {
                             let payload = {
                                 JobPayloadWithTag {
                                     payload: JobPayload::RawFlow {
@@ -2667,18 +2697,17 @@ async fn compute_next_flow_transform(
                                     index: 0,
                                     itered,
                                 }),
-                                simple_input_transforms: if is_simple {
-                                    match value {
-                                        FlowModuleValue::Script { input_transforms, .. }
-                                        | FlowModuleValue::RawScript { input_transforms, .. }
-                                        | FlowModuleValue::Flow { input_transforms, .. } => {
-                                            Some(input_transforms.clone())
-                                        }
-                                        _ => None,
-                                    }
-                                } else {
-                                    None
-                                },
+                                // we removed the is_simple_case for simple_input_transforms
+                                // if is_simple {
+                                //     match value {
+                                //         FlowModuleValue::Script { input_transforms, .. }
+                                //         | FlowModuleValue::RawScript { input_transforms, .. }
+                                //         | FlowModuleValue::Flow { input_transforms, .. } => {
+                                //             Some(input_transforms.clone())
+                                //         }
+                                //         _ => None,
+                                //     }
+                                simple_input_transforms: None,
                             },
                         ))
                     }

@@ -22,6 +22,8 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let componentInput: AppInput | undefined
+	export let onNext: string[] | undefined = undefined
+	export let onPrevious: string[] | undefined = undefined
 
 	const {
 		app,
@@ -30,7 +32,8 @@
 		selectedComponent,
 		componentControl,
 		connectingInput,
-		mode
+		mode,
+		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected = tabs[0]
@@ -206,6 +209,7 @@
 						on:click={(e) => {
 							e.preventDefault()
 							directionClicked = 'left'
+							onPrevious?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 							runStep(selectedIndex - 1)
 						}}
 					>
@@ -227,6 +231,7 @@
 						on:click={(e) => {
 							e.preventDefault()
 							directionClicked = 'right'
+							onNext?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 							runStep(selectedIndex + 1)
 						}}
 					>

@@ -16,7 +16,6 @@
 	import Required from '$lib/components/Required.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -31,7 +30,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType } from '$lib/gen'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
-	import {  userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
 	import { convert } from '@redocly/json-to-json-schema'
@@ -50,6 +49,7 @@
 	} from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import autosize from '$lib/autosize'
+	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -414,13 +414,13 @@
 			>
 			<div>
 				<div class="mb-1 font-semibold text-secondary">Schema</div>
-				<SchemaEditor bind:schema={editResourceType.schema} />
+				<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
 			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={resourceTypeDrawer} size="800px">
+<Drawer bind:this={resourceTypeDrawer} size="1200px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button startIcon={{ icon: Save }} on:click={addResourceType}>Save</Button>
@@ -479,8 +479,8 @@
 						</Button>
 					</div>
 				</div>
-				<SchemaEditor bind:schema={newResourceType.schema} />
 			</div>
+			<EditableSchemaWrapper bind:schema={newResourceType.schema} fullHeight />
 		</div>
 	</DrawerContent>
 </Drawer>

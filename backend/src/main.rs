@@ -25,10 +25,11 @@ use windmill_common::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING, PIP_INDEX_URL_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
     stats_ee::schedule_stats,
     utils::{rd_string, Mode},
@@ -53,9 +54,9 @@ use windmill_common::METRICS_ADDR;
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    BUN_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR,
-    GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
-    TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    BUN_CACHE_DIR, BUN_TAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
 };
 
 use crate::monitor::{
@@ -63,9 +64,10 @@ use crate::monitor::{
     load_tag_per_workspace_enabled, monitor_db, monitor_pool, reload_base_url_setting,
     reload_bunfig_install_scopes_setting, reload_critical_error_channels_setting,
     reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
-    reload_job_default_timeout_setting, reload_license_key, reload_npm_config_registry_setting,
-    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_server_config, reload_worker_config,
+    reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_pip_index_url_setting,
+    reload_retention_period_setting, reload_scim_token_setting, reload_server_config,
+    reload_worker_config,
 };
 
 #[cfg(feature = "parquet")]
@@ -163,7 +165,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
                 if std::env::var("JOB_TOKEN").is_err() {
-                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still create one ephemeral token per job and the DATABASE_URL need to be of a role that can INSERT into the token table")
+                    tracing::warn!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
                 }
 
                 #[cfg(not(feature = "enterprise"))]
@@ -546,6 +548,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         tracing::error!(error = %e, "Could not reload critical error emails setting");
                                                     }
                                                 },
+                                                JWT_SECRET_SETTING => {
+                                                    if let Err(e) = reload_jwt_secret_setting(&db).await {
+                                                        tracing::error!(error = %e, "Could not reload jwt secret setting");
+                                                    }
+                                                },
                                                 a @_ => {
                                                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                 }
@@ -726,6 +733,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
         BUN_CACHE_DIR,
+        BUN_TAR_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         HUB_CACHE_DIR,

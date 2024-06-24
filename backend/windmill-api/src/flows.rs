@@ -143,10 +143,10 @@ async fn list_flows(
     sqlb.and_where_eq("archived", lq.show_archived.unwrap_or(false));
 
     if let Some(ps) = &lq.path_start {
-        sqlb.and_where_like_left("path", "?".bind(ps));
+        sqlb.and_where_like_left("o.path", ps);
     }
     if let Some(p) = &lq.path_exact {
-        sqlb.and_where_eq("path", "?".bind(p));
+        sqlb.and_where_eq("o.path", "?".bind(p));
     }
     if let Some(cb) = &lq.edited_by {
         sqlb.and_where_eq("edited_by", "?".bind(cb));
@@ -393,6 +393,7 @@ async fn create_flow(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
 
@@ -539,7 +540,7 @@ async fn update_flow(
         clear_schedule(tx.transaction_mut(), &schedule.path, &w_id).await?;
 
         if schedule.enabled {
-            tx = push_scheduled_job(&db, tx, &schedule).await?;
+            tx = push_scheduled_job(&db, tx, &schedule, None).await?;
         }
     }
 
@@ -609,6 +610,7 @@ async fn update_flow(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     sqlx::query!(
@@ -1130,7 +1132,7 @@ mod tests {
                 None
             ],
             (0..4)
-                .map(|previous_attempts| retry.interval(previous_attempts))
+                .map(|previous_attempts| retry.interval(previous_attempts, false))
                 .collect::<Vec<_>>()
         );
 
@@ -1157,7 +1159,7 @@ mod tests {
                 None,
             ],
             (0..5)
-                .map(|previous_attempts| retry.interval(previous_attempts))
+                .map(|previous_attempts| retry.interval(previous_attempts, false))
                 .collect::<Vec<_>>()
         );
 

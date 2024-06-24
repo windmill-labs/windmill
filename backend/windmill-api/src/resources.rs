@@ -69,6 +69,8 @@ pub struct ResourceType {
     pub name: String,
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -92,6 +94,8 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -102,6 +106,8 @@ pub struct ListableResource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_linked: Option<bool>,
     pub is_refreshed: Option<bool>,
     pub is_oauth: Option<bool>,
@@ -128,6 +134,7 @@ struct EditResource {
 pub struct ListResourceQuery {
     resource_type: Option<String>,
     resource_type_exclude: Option<String>,
+    path_start: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -209,6 +216,8 @@ async fn list_resources(
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
+            "resource.created_by",
+            "resource.edited_at",
         ])
         .left()
         .join("variable")
@@ -239,6 +248,10 @@ async fn list_resources(
         for rt in rt.split(',') {
             sqlb.and_where_ne("resource_type", "?".bind(&rt));
         }
+    }
+
+    if let Some(path_start) = &lq.path_start {
+        sqlb.and_where_like_left("resource.path", path_start);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -642,14 +655,15 @@ async fn create_resource(
 
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type)
-            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = $3, description = $4, resource_type = $5",
+            (workspace_id, path, value, description, resource_type, created_by, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = $3, description = $4, resource_type = $5, edited_at = now()",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
+        authed.username
     )
     .execute(&mut *tx)
     .await?;
@@ -772,6 +786,8 @@ async fn update_resource(
         sqlb.set_str("description", ndesc);
     }
 
+    sqlb.set_str("edited_at", "now()");
+
     sqlb.returning("path");
     let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
 
@@ -853,7 +869,7 @@ async fn update_resource_value(
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
-        "UPDATE resource SET value = $1 WHERE path = $2 AND workspace_id = $3",
+        "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3",
         nv.value,
         path,
         w_id
@@ -979,12 +995,13 @@ async fn create_resource_type(
 
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description)
-            VALUES ($1, $2, $3, $4)",
+            (workspace_id, name, schema, description, created_by, edited_at)
+            VALUES ($1, $2, $3, $4, $5, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
         resource_type.description,
+        authed.username
     )
     .execute(&mut *tx)
     .await?;
@@ -1120,6 +1137,7 @@ async fn update_resource_type(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
+    sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 

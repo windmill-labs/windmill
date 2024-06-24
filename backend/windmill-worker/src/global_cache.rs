@@ -21,7 +21,6 @@ pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
 ) -> error::Result<()> {
-    use bytes::Bytes;
     use object_store::path::Path;
 
     tracing::info!("Started building and pushing piptar {folder}");
@@ -48,7 +47,7 @@ pub async fn build_tar_and_push(
     if let Err(e) = s3_client
         .put(
             &Path::from(format!("/tar/pip/{folder_name}.tar")),
-            Bytes::from(std::fs::read(&tar_path)?),
+            std::fs::read(&tar_path)?.into(),
         )
         .await
     {

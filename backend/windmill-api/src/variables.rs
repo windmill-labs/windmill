@@ -81,10 +81,16 @@ async fn list_contextual_variables(
     ))
 }
 
+#[derive(Deserialize)]
+struct ListVariableQuery {
+    path_start: Option<String>,
+}
+
 async fn list_variables(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(lq): Query<ListVariableQuery>,
 ) -> JsonResult<Vec<ListableVariable>> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -97,10 +103,13 @@ async fn list_variables(
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
-         WHERE variable.workspace_id = $1 AND variable.path NOT LIKE 'u/' || $2 || '/secret_arg/%' ORDER BY path",
+         WHERE variable.workspace_id = $1 AND variable.path NOT LIKE 'u/' || $2 || '/secret_arg/%' 
+            AND variable.path LIKE $3 || '%'
+         ORDER BY path",
     )
     .bind(&w_id)
     .bind(&authed.username)
+    .bind(&lq.path_start.unwrap_or_default())
     .fetch_all(&mut *tx)
     .await?;
 
@@ -523,7 +532,7 @@ async fn update_variable(
             }
 
             sqlx::query!(
-                "UPDATE resource SET path = $1, value = $2 WHERE path = $3 AND workspace_id = $4",
+                "UPDATE resource SET path = $1, value = $2, edited_at = now() WHERE path = $3 AND workspace_id = $4",
                 npath,
                 v,
                 path,

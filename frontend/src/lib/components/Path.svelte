@@ -279,8 +279,8 @@
 		}}
 	>
 		{#if !folderCreated}
-			<div class="flex flex-row">
-				<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
+			<div class="flex flex-col gap-2">
+				<input placeholder="New folder name" bind:value={newFolderName} />
 				<Button size="md" startIcon={{ icon: Plus }} disabled={!newFolderName} on:click={addFolder}>
 					New&nbsp;folder
 				</Button>

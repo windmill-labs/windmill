@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
 	import { Clock } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -11,6 +12,8 @@
 	export let useDropdown: boolean = false
 	export let minDate: string | undefined = undefined
 	export let maxDate: string | undefined = undefined
+	export let disabled: boolean | undefined = undefined
+	export let inputClass: string | undefined = undefined
 
 	let date: string | undefined = undefined
 	let time: string | undefined = undefined
@@ -72,17 +75,25 @@
 		type="date"
 		bind:value={date}
 		{autofocus}
-		class="!w-3/4 app-editor-input"
+		{disabled}
+		class={twMerge('h-8 text-sm !w-3/4 ', inputClass)}
 		min={minDate}
 		max={maxDate}
 	/>
-	<input type="time" bind:value={time} class="!w-1/4 min-w-[100px] app-editor-input" />
+	<input
+		type="time"
+		bind:value={time}
+		class={twMerge('h-8 text-sm !w-1/4 min-w-[100px] ', inputClass)}
+		{disabled}
+	/>
 	<Button
 		variant="border"
 		color="light"
+		wrapperClasses="h-8"
 		startIcon={{
 			icon: Clock
 		}}
+		{disabled}
 		size="xs"
 		portalTarget={`#${randomId}`}
 		dropdownItems={useDropdown

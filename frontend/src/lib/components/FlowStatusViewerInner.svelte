@@ -237,11 +237,14 @@
 			timeout && clearTimeout(timeout)
 			innerModules = []
 			if (flowJobIds) {
-				let common = {
-					iteration_from: Math.max(flowJobIds.flowJobs.length - 20, 0),
-					iteration_total: flowJobIds?.length
-				}
 				let modId = flowJobIds?.moduleId ?? ''
+
+				let common = {
+					iteration_from:
+						$localDurationStatuses?.[modId]?.iteration_from ??
+						Math.max(flowJobIds.flowJobs.length - 20, 0),
+					iteration_total: $localDurationStatuses?.[modId]?.iteration_total ?? flowJobIds?.length
+				}
 				$localDurationStatuses[modId] = {
 					...($localDurationStatuses[modId] ?? { byJob: {} }),
 					...common
@@ -812,7 +815,7 @@
 						/>
 					</div>
 					<div
-						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col"
+						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col z-0"
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>

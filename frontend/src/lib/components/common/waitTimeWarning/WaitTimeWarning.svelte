@@ -36,7 +36,7 @@
 </script>
 
 <Popover notClickable>
-	<svete:frament slot="text">
+	<svelte:fragment slot="text">
 		<div class="mb-5">
 			{#if self_wait_time_ms != undefined}
 				<div>
@@ -66,7 +66,7 @@
 			</div>
 		{/if}
 		<div> In a healthy queue, jobs are expected to start in under 50ms. </div>
-	</svete:frament>
+	</svelte:fragment>
 	{#if variant === 'icon'}
 		<Hourglass class={classFromColorName(waitColorTresholds(total_wait))} size={14} />
 	{:else if variant === 'badge'}

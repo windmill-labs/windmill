@@ -219,7 +219,7 @@ async fn create_schedule(
     .await?;
 
     if ns.enabled.unwrap_or(true) {
-        tx = push_scheduled_job(&db, tx, &schedule).await?
+        tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into())).await?
     }
     tx.commit().await?;
 
@@ -299,7 +299,7 @@ async fn edit_schedule(
     .await?;
 
     if schedule.enabled {
-        tx = push_scheduled_job(&db, tx, &schedule).await?;
+        tx = push_scheduled_job(&db, tx, &schedule, None).await?;
     }
     tx.commit().await?;
 
@@ -313,6 +313,7 @@ pub struct ListScheduleQuery {
     pub path: Option<String>,
     pub is_flow: Option<bool>,
     pub args: Option<String>,
+    pub path_start: Option<String>,
 }
 
 async fn list_schedule(
@@ -338,6 +339,9 @@ async fn list_schedule(
     }
     if let Some(args) = &lsq.args {
         sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+    }
+    if let Some(path_start) = &lsq.path_start {
+        sqlb.and_where_like_left("path", path_start);
     }
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let rows = sqlx::query_as::<_, Schedule>(&sql)
@@ -506,7 +510,7 @@ pub async fn set_enabled(
     .await?;
 
     if payload.enabled {
-        tx = push_scheduled_job(&db, tx, &schedule).await?;
+        tx = push_scheduled_job(&db, tx, &schedule, None).await?;
     }
     tx.commit().await?;
 
@@ -554,7 +558,7 @@ pub async fn set_enabled(
 //     .await?;
 
 //     if payload.enabled {
-//         tx = push_scheduled_job(&db, tx, &schedule).await?;
+//         tx = push_scheduled_job(&db, tx, &schedule, None).await?;
 //     }
 //     tx.commit().await?;
 
@@ -809,8 +813,8 @@ pub struct SetEnabled {
     pub enabled: bool,
 }
 
-#[derive(Deserialize)]
-pub struct Catchup {
-    pub from: DateTime<Utc>,
-    pub to: Option<DateTime<Utc>>,
-}
+// #[derive(Deserialize)]
+// pub struct Catchup {
+//     pub from: DateTime<Utc>,
+//     pub to: Option<DateTime<Utc>>,
+// }

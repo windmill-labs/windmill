@@ -14,8 +14,9 @@ use std::{
 use crate::{
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB, HUB_BASE_URL,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
+use anyhow::Context;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
@@ -367,9 +368,11 @@ pub async fn get_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let content = http_get_from_hub(
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw/{}.ts", *HUB_BASE_URL.read().await, path),
+        &format!("{}/raw/{}.ts", hub_base_url, path),
         true,
         None,
         db,
@@ -377,8 +380,39 @@ pub async fn get_hub_script_by_path(
     .await?
     .text()
     .await
-    .map_err(to_anyhow)?;
-    Ok(content)
+    .map_err(to_anyhow);
+
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            if hub_base_url != DEFAULT_HUB_BASE_URL
+                && path
+                    .split("/")
+                    .next()
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+            {
+                tracing::info!(
+                    "Not found on private hub, fallback to default hub for {}",
+                    path
+                );
+                let content = http_get_from_hub(
+                    http_client,
+                    &format!("{}/raw/{}.ts", DEFAULT_HUB_BASE_URL, path),
+                    true,
+                    None,
+                    db,
+                )
+                .await?
+                .text()
+                .await
+                .map_err(to_anyhow)?;
+
+                Ok(content)
+            } else {
+                Err(e)?
+            }
+        }
+    }
 }
 
 pub async fn get_full_hub_script_by_path(
@@ -391,9 +425,11 @@ pub async fn get_full_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let value = http_get_from_hub(
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw2/{}", *HUB_BASE_URL.read().await, path),
+        &format!("{}/raw2/{}", hub_base_url, path),
         true,
         None,
         db,
@@ -401,8 +437,39 @@ pub async fn get_full_hub_script_by_path(
     .await?
     .json::<HubScript>()
     .await
-    .map_err(to_anyhow)?;
-    Ok(value)
+    .context("Decoding hub response to script");
+
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            if hub_base_url != DEFAULT_HUB_BASE_URL
+                && path
+                    .split("/")
+                    .next()
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+            {
+                tracing::info!(
+                    "Not found on private hub, fallback to default hub for {}",
+                    path
+                );
+                let value = http_get_from_hub(
+                    http_client,
+                    &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                    true,
+                    None,
+                    db,
+                )
+                .await?
+                .json::<HubScript>()
+                .await
+                .context("Decoding hub response to script")?;
+
+                Ok(value)
+            } else {
+                Err(e)?
+            }
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]

@@ -52,7 +52,7 @@ pub enum Error {
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status: {0}")]
     ExitStatus(i32),
-    #[error(transparent)]
+    #[error("Err: {0:#}")]
     Anyhow(#[from] anyhow::Error),
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
@@ -66,6 +66,10 @@ impl Error {
     /// https://docs.rs/anyhow/1/anyhow/struct.Error.html#display-representations
     pub fn alt(&self) -> String {
         format!("{:#}", self)
+    }
+
+    pub fn dbg(&self) -> String {
+        format!("{:?}", self)
     }
 }
 

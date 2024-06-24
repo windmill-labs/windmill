@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO resource_type\n            (workspace_id, name, schema, description, created_by, edited_at)\n            VALUES ($1, $2, $3, $4, $5, now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d249343a1d9fce2f7ca9e6e447eb32d7d11b61acdab80dda24db4a9ba3e1f7e6"
+}

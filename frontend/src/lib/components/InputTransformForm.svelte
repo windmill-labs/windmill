@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -41,6 +41,8 @@
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
+
+	const dispatch = createEventDispatcher()
 
 	$: inputCat = computeInputCat(
 		schema.properties[argName].type,
@@ -372,6 +374,9 @@
 							}}
 							bind:code={arg.value}
 							fontSize={14}
+							on:change={() => {
+								dispatch('change', { argName })
+							}}
 						/>
 					{/if}
 				</div>
@@ -385,11 +390,16 @@
 					on:blur={() => {
 						focused = false
 					}}
+					shouldDispatchChanges
+					on:change={() => {
+						dispatch('change', { argName })
+					}}
 					label={argName}
 					bind:editor={monaco}
 					bind:description={schema.properties[argName].description}
 					bind:value={arg.value}
 					type={schema.properties[argName].type}
+					oneOf={schema.properties[argName].oneOf}
 					required={schema.required.includes(argName)}
 					bind:pattern={schema.properties[argName].pattern}
 					bind:valid={inputCheck}
@@ -415,6 +425,9 @@
 					<SimpleEditor
 						bind:this={monaco}
 						bind:code={arg.expr}
+						on:change={() => {
+							dispatch('change', { argName })
+						}}
 						{extraLib}
 						lang="javascript"
 						shouldBindKey={false}
@@ -424,6 +437,9 @@
 								monaco?.insertAtCursor(path)
 								return false
 							})
+						}}
+						on:change={() => {
+							dispatch('change', { argName })
 						}}
 						on:blur={() => {
 							focused = false

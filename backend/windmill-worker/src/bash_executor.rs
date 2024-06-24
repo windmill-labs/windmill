@@ -45,7 +45,7 @@ pub async fn handle_bash_job(
     envs: HashMap<String, String>,
 ) -> Result<Box<RawValue>, Error> {
     let logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
-    append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
     write_file(job_dir, "main.sh", &format!("set -e\n{content}")).await?;
     write_file(
@@ -252,7 +252,7 @@ pub async fn handle_powershell_job(
 
     if !install_string.is_empty() {
         logs1.push_str("\n\nInstalling modules...");
-        append_logs(job.id, job.workspace_id.clone(), logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
         let child = Command::new("pwsh")
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())
@@ -277,7 +277,7 @@ pub async fn handle_powershell_job(
 
     let mut logs2 = "".to_string();
     logs2.push_str("\n\n--- POWERSHELL CODE EXECUTION ---\n");
-    append_logs(job.id, job.workspace_id.clone(), logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
     // make sure default (only allhostsallusers) modules are loaded, disable autoload (cache can be large to explore especially on cloud) and add /tmp/windmill/cache to PSModulePath
     let profile = format!(

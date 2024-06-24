@@ -32,7 +32,7 @@
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history'
-	import type { FlowEditorContext } from './flows/types'
+	import type { FlowEditorContext, FlowInput } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
@@ -439,7 +439,8 @@
 		flowStore,
 		testStepStore,
 		saveDraft: () => {},
-		initialPath: ''
+		initialPath: '',
+		flowInputsStore: writable<FlowInput | undefined>(undefined)
 	})
 
 	$: updateFlow($flowStore)

@@ -10,6 +10,7 @@
 	let c: string = ''
 	export { c as class }
 	export let style = ''
+	export let cancelText: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -87,7 +88,9 @@
 							color="light"
 							size="sm"
 						>
-							<span class="inline-flex gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
+							<span class="inline-flex gap-2"
+								>{cancelText ?? 'Cancel'}<Badge color="dark-gray">Escape</Badge></span
+							>
 						</Button>
 					</div>
 				</div>

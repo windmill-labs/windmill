@@ -10,13 +10,13 @@ use axum::body::Body;
 use axum::http::HeaderValue;
 use serde_json::value::RawValue;
 use sqlx::Pool;
-use tower::ServiceBuilder;
 use std::collections::HashMap;
 #[cfg(feature = "prometheus")]
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
 #[cfg(feature = "prometheus")]
 use tokio::time::Instant;
+use tower::ServiceBuilder;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, CompletedJobWithFormattedResult, FormattedResult,
@@ -29,6 +29,7 @@ use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
 use crate::add_webhook_allowed_origin;
+use crate::concurrency_groups::join_concurrency_key;
 use crate::db::ApiAuthed;
 
 use crate::{
@@ -191,7 +192,8 @@ pub fn workspaced_service() -> Router {
         )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
-        .route("/queue/cancel_all", post(cancel_all))
+        .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
+        .route("/queue/cancel_selection", post(cancel_selection))
         .route("/completed/count", get(count_completed_jobs))
         .route(
             "/completed/list",
@@ -236,6 +238,7 @@ pub fn workspaced_service() -> Router {
             get(get_result_by_id).layer(cors.clone()),
         )
         .route("/run/dependencies", post(run_dependencies_job))
+        .route("/run/flow_dependencies", post(run_flow_dependencies_job))
 }
 
 pub fn global_service() -> Router {
@@ -343,18 +346,26 @@ async fn cancel_job_api(
         },
     };
 
-    let (mut tx, job_option) = windmill_queue::cancel_job(
-        &audit_author.username,
-        reason,
-        id,
-        &w_id,
-        tx,
-        &db,
-        rsmq,
-        false,
-        opt_authed.is_none(),
+    let (mut tx, job_option) = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        windmill_queue::cancel_job(
+            &audit_author.username,
+            reason,
+            id,
+            &w_id,
+            tx,
+            &db,
+            rsmq,
+            false,
+            opt_authed.is_none(),
+        ),
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
+        ))
+    })??;
 
     if let Some(id) = job_option {
         audit_log(
@@ -450,18 +461,26 @@ async fn force_cancel(
         },
     };
 
-    let (mut tx, job_option) = windmill_queue::cancel_job(
-        &audit_author.username,
-        reason,
-        id,
-        &w_id,
-        tx,
-        &db,
-        rsmq,
-        true,
-        opt_authed.is_none(),
+    let (mut tx, job_option) = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        windmill_queue::cancel_job(
+            &audit_author.username,
+            reason,
+            id,
+            &w_id,
+            tx,
+            &db,
+            rsmq,
+            true,
+            opt_authed.is_none(),
+        ),
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
+        ))
+    })??;
 
     if let Some(id) = job_option {
         audit_log(
@@ -993,6 +1012,7 @@ pub struct ListQueueQuery {
     pub is_flow_step: Option<bool>,
     pub has_null_parent: Option<bool>,
     pub is_not_schedule: Option<bool>,
+    pub concurrency_key: Option<String>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1021,6 +1041,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             is_flow_step: lcq.is_flow_step,
             has_null_parent: lcq.has_null_parent,
             is_not_schedule: lcq.is_not_schedule,
+            concurrency_key: lcq.concurrency_key,
         }
     }
 }
@@ -1216,23 +1237,20 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
-async fn cancel_all(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+#[derive(Deserialize, FromRow)]
+struct JobToCancel {
+    id: Uuid,
+    is_flow_step: Option<bool>,
+    running: bool,
+}
 
-    Path(w_id): Path<String>,
+async fn cancel_jobs(
+    jobs: Vec<JobToCancel>,
+    db: &DB,
+    username: &str,
+    w_id: &str,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    let jobs = sqlx::query!(
-        "SELECT id, running, is_flow_step FROM queue WHERE scheduled_for < now() AND workspace_id = $1 AND schedule_path IS NULL",
-        w_id,
-    )
-    .fetch_all(&db)
-    .await?;
-
-    let username = authed.username;
     let mut uuids = vec![];
     for j in jobs.iter() {
         let r = sqlx::query!(
@@ -1240,7 +1258,7 @@ async fn cancel_all(
             username,
             j.id,
         )
-        .fetch_optional(&db)
+        .fetch_optional(db)
         .await;
 
         if r.as_ref().is_ok_and(|x| x.is_some()) {
@@ -1252,8 +1270,8 @@ async fn cancel_all(
 
                 if let Some(job_running) = job_running {
                     append_logs(
-                        j.id,
-                        w_id.clone(),
+                        &j.id,
+                        w_id,
                         format!("canceled by {username}: cancel_all"),
                         db.clone(),
                     )
@@ -1283,6 +1301,60 @@ async fn cancel_all(
     }
 
     Ok(Json(uuids))
+}
+
+async fn cancel_selection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+
+    Path(w_id): Path<String>,
+    Json(jobs): Json<Vec<Uuid>>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+    let jobs_to_cancel = sqlx::query_as!(
+        JobToCancel,
+        "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
+        &jobs
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    cancel_jobs(
+        jobs_to_cancel,
+        &db,
+        authed.username.as_str(),
+        w_id.as_str(),
+        rsmq,
+    )
+    .await
+}
+
+async fn list_filtered_uuids(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+
+    Path(w_id): Path<String>,
+    Query(lq): Query<ListQueueQuery>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut sqlb = SqlBuilder::select_from("queue").fields(&["id"]).clone();
+
+    sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
+
+    sqlb.and_where_is_null("schedule_path");
+
+    sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str(), false);
+
+    let sql = sqlb.query()?;
+    let jobs = sqlx::query_scalar(sql.as_str()).fetch_all(&db).await?;
+
+    Ok(Json(jobs))
 }
 
 #[derive(Serialize, Debug, FromRow)]
@@ -2566,6 +2638,7 @@ pub async fn run_flow_by_path(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -2655,6 +2728,7 @@ pub async fn restart_flow(
         None,
         None,
         completed_job.priority,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -2707,6 +2781,7 @@ pub async fn run_script_by_path(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -2783,6 +2858,7 @@ pub async fn run_workflow_as_code(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     sqlx::query!(
@@ -3031,10 +3107,9 @@ pub async fn run_wait_result_job_by_path_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_r = run_query
-        .payload
-        .map(decode_payload)
-        .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
+    let payload_r = run_query.payload.map(decode_payload).map(|x| {
+        x.map_err(|e| Error::InternalErr(format!("Impossible to decode query payload: {e:#?}")))
+    });
 
     let mut payload_args = if let Some(payload) = payload_r {
         payload?
@@ -3081,6 +3156,7 @@ pub async fn run_wait_result_job_by_path_get(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3108,11 +3184,11 @@ pub async fn run_wait_result_flow_by_path_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_r = run_query
-        .payload
-        .clone()
-        .map(decode_payload)
-        .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
+    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+        x.map_err(|e| {
+            error::Error::InternalErr(format!("Impossible to decode query payload: {e:#?}"))
+        })
+    });
 
     let mut payload_args = if let Some(payload) = payload_r {
         payload?
@@ -3200,6 +3276,7 @@ async fn run_wait_result_script_by_path_internal(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3280,6 +3357,7 @@ pub async fn run_wait_result_script_by_hash(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3362,6 +3440,7 @@ async fn run_wait_result_flow_by_path_internal(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3429,6 +3508,7 @@ async fn run_preview_script(
         run_query.timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3510,6 +3590,7 @@ async fn run_bundle_preview_script(
                 run_query.timeout,
                 None,
                 None,
+                Some(&authed.clone().into()),
             )
             .await?;
             job_id = Some(uuid);
@@ -3534,7 +3615,7 @@ async fn run_bundle_preview_script(
             {
                 let path = windmill_common::s3_helpers::bundle(&w_id, &id);
                 if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data)
+                    .put(&object_store::path::Path::from(path.clone()), data.into())
                     .await
                 {
                     tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
@@ -3586,14 +3667,13 @@ pub struct RunDependenciesResponse {
     pub dependencies: String,
 }
 
-pub async fn run_dependencies_job(
+async fn run_dependencies_job(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(req): Json<RunDependenciesRequest>,
 ) -> error::Result<Response> {
-    check_scopes(&authed, || format!("runscript"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -3649,6 +3729,62 @@ pub async fn run_dependencies_job(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    wait_result
+}
+
+#[derive(Deserialize)]
+pub struct RunFlowDependenciesRequest {
+    pub path: String,
+    pub flow_value: FlowValue,
+}
+
+#[derive(Serialize)]
+pub struct RunFlowDependenciesResponse {
+    pub dependencies: String,
+}
+
+async fn run_flow_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunFlowDependenciesRequest>,
+) -> error::Result<Response> {
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run dependencies jobs for security reasons".to_string(),
+        ));
+    }
+
+    let (uuid, tx) = push(
+        &db,
+        PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
+        &w_id,
+        JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
+        HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]).into(),
+        authed.display_username(),
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3755,6 +3891,7 @@ async fn add_batch_jobs(
                     None,
                     None,
                     None,
+                    Some(&authed.clone().into()),
                 )
                 .await?;
                 tx = PushIsolationLevel::Transaction(ntx);
@@ -3824,13 +3961,16 @@ async fn add_batch_jobs(
         )
         .fetch_all(&db)
         .await?;
-    sqlx::query!(
-        "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
-        custom_concurrency_key,
-        &uuids
-    )
-    .execute(&db)
-    .await?;
+
+    if let Some(custom_concurrency_key) = custom_concurrency_key {
+        sqlx::query!(
+            "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
+            custom_concurrency_key,
+            &uuids
+        )
+        .execute(&db)
+        .await?;
+    }
 
     Ok(Json(uuids))
 }
@@ -3881,6 +4021,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -3957,6 +4098,7 @@ pub async fn run_job_by_hash(
         timeout,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tx.commit().await?;
@@ -4024,6 +4166,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
         ));
     }
 
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     return Err(error::Error::NotFound(format!(
         "File not found on server logs volume /tmp/windmill/logs and no distributed logs s3 storage for {}",
         file_p
@@ -4271,6 +4414,7 @@ pub struct ListCompletedQuery {
     pub has_null_parent: Option<bool>,
     pub label: Option<String>,
     pub is_not_schedule: Option<bool>,
+    pub concurrency_key: Option<String>,
 }
 
 async fn list_completed_jobs(
