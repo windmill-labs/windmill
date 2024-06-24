@@ -329,6 +329,7 @@
 						on:click={() => {
 							focusProp(argName, 'connect', (path) => {
 								connectProperty(path)
+								dispatch('change', { argName })
 								return true
 							})
 						}}
