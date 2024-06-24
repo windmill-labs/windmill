@@ -404,7 +404,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 if types.len() > 1 {
                     let one_of_values: Vec<OneOfVariant> = types
                     .into_iter()
-                    .filter_map(parse_type)
+                    .map_while(parse_one_of_type)
                     .collect();
 
                     if one_of_values.len() == types.len() {
@@ -471,18 +471,18 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
     }
 }
 
-fn parse_type(x: &Box<TsType>) -> Option<OneOfVariant> {
+fn parse_one_of_type(x: &Box<TsType>) -> Option<OneOfVariant> {
     match &**x {
         TsType::TsTypeLit(TsTypeLit { members, .. }) => {
-            let label = match_label(members)?;
-            let properties = match_properties(members);
+            let label = one_of_label(members)?;
+            let properties = one_of_properties(members);
             Some(OneOfVariant { label, properties })
         }
         _ => None,
     }
  }
 
-fn match_label(members: &Vec<TsTypeElement>) -> Option<String> {
+fn one_of_label(members: &Vec<TsTypeElement>) -> Option<String> {
     members.iter().find_map(|y| {
         let TsTypeElement::TsPropertySignature(TsPropertySignature { key, type_ann, .. }) = y else { return None; };
             
@@ -496,7 +496,7 @@ fn match_label(members: &Vec<TsTypeElement>) -> Option<String> {
     })
 }
 
-fn match_properties(members: &Vec<TsTypeElement>) -> Vec<ObjectProperty> {
+fn one_of_properties(members: &Vec<TsTypeElement>) -> Vec<ObjectProperty> {
     members.iter().filter_map(|x| {
         let TsTypeElement::TsPropertySignature(TsPropertySignature { key, type_ann, .. }) = x else { return None; };
             
