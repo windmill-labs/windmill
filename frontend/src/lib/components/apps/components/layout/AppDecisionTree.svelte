@@ -211,7 +211,7 @@
 				<SubGridEditor
 					visible={render && node.id === currentNodeId}
 					{id}
-					class={twMerge(css?.container?.class, 'wm-conditional-tabs')}
+					class={twMerge(css?.container?.class, 'wm-decision-tree')}
 					style={css?.container?.style}
 					subGridId={`${id}-${i}`}
 					containerHeight={componentContainerHeight - 40}
