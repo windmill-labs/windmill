@@ -1,8 +1,14 @@
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '../../types'
+	import { findGridItem, findGridItemParentGrid } from '../appUtils'
 
 	export let type: string
+	export let id: string
+
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	const tables = [
 		'aggridcomponent',
@@ -36,6 +42,39 @@
 		contextVariables.push({
 			label: 'iter',
 			description: 'The current iteration of the list. Iter is an object with keys index and value.'
+		})
+	}
+
+	function findParent(id: string) {
+		if (id.includes('_')) {
+			const parentId = id.split('_')[0]
+			return findGridItem($app, parentId)
+		} else {
+			const subgrid = findGridItemParentGrid($app, id)
+
+			if (subgrid && subgrid.includes('-')) {
+				const parentId = subgrid.split('-')[0]
+				return findGridItem($app, parentId)
+			}
+		}
+	}
+
+	const parent = findParent(id)
+
+	if (parent?.data.type === 'containercomponent') {
+		contextVariables.push({
+			label: 'group',
+			description: 'The group name of the container.'
+		})
+	} else if (parent?.data.type === 'listcomponent') {
+		contextVariables.push({
+			label: 'iter',
+			description: 'The current iteration of the list. Iter is an object with keys index and value.'
+		})
+	} else if (parent?.data.type && tables.includes(parent?.data.type)) {
+		contextVariables.push({
+			label: 'row',
+			description: 'The current row of a table. Row is an object with keys index and value.'
 		})
 	}
 </script>
