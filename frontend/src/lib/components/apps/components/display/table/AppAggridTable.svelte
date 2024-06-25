@@ -586,7 +586,7 @@
 	</SyncColumnDefs>
 </RunnableWrapper>
 
-<style>
+<style global>
 	.ag-theme-alpine {
 		--ag-row-border-style: solid;
 		--ag-border-color: rgb(209 213 219);
