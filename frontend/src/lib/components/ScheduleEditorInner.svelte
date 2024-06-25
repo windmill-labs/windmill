@@ -81,6 +81,8 @@
 		runnable = undefined
 		is_flow = nis_flow
 		schedule = '0 0 12 * *'
+		paused_until = undefined
+		showPauseUntil = false
 		let defaultErrorHandlerMaybe = undefined
 		let defaultRecoveryHandlerMaybe = undefined
 		if ($workspaceStore) {
@@ -251,6 +253,7 @@
 			schedule = s.schedule
 			timezone = s.timezone
 			paused_until = s.paused_until
+			showPauseUntil = paused_until !== undefined
 			summary = s.summary ?? ''
 			script_path = s.script_path ?? ''
 			await loadScript(script_path)
@@ -396,6 +399,9 @@
 
 	let pathC: Path
 	let dirtyPath = false
+
+	let showPauseUntil = false
+	$: !showPauseUntil && (paused_until = undefined)
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
@@ -513,18 +519,14 @@
 					<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 				</svelte:fragment>
 				<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
-				<Label label="Pause until">
-					<div class="flex flex-row gap-1">
-						<DateTimeInput bind:value={paused_until} />
-						<Button
-							size="xs"
-							color="light"
-							on:click={() => {
-								paused_until = undefined
-							}}>Reset</Button
-						>
-					</div>
-				</Label>
+				<Toggle
+					options={{ right: 'Pause schedule until...' }}
+					bind:checked={showPauseUntil}
+					size="xs"
+				/>
+				{#if showPauseUntil}
+					<DateTimeInput bind:value={paused_until} />
+				{/if}
 			</Section>
 			<Section label="Runnable">
 				{#if !edit}

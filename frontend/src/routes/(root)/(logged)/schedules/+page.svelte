@@ -325,7 +325,7 @@
 								</div>
 							</a>
 
-							{#if paused_until}
+							{#if paused_until && new Date(paused_until) > new Date()}
 								<div class="pb-1">
 									<Badge color="yellow"
 										>Paused until {new Date(paused_until).toLocaleString()}</Badge
