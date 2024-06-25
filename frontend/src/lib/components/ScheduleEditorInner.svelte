@@ -28,6 +28,7 @@
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'retries' = 'error_handler'
 
@@ -36,6 +37,7 @@
 	let edit = true
 	let schedule: string = '0 0 12 * *'
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+	let paused_until: string | undefined = undefined
 
 	let itemKind: 'flow' | 'script' = 'script'
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
@@ -248,6 +250,7 @@
 			enabled = s.enabled
 			schedule = s.schedule
 			timezone = s.timezone
+			paused_until = s.paused_until
 			summary = s.summary ?? ''
 			script_path = s.script_path ?? ''
 			await loadScript(script_path)
@@ -329,7 +332,8 @@
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
-					tag: tag
+					tag: tag,
+					paused_until: paused_until
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -357,7 +361,8 @@
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
-					tag: tag
+					tag: tag,
+					paused_until: paused_until
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -508,6 +513,18 @@
 					<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 				</svelte:fragment>
 				<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
+				<Label label="Pause until">
+					<div class="flex flex-row gap-1">
+						<DateTimeInput bind:value={paused_until} />
+						<Button
+							size="xs"
+							color="light"
+							on:click={() => {
+								paused_until = undefined
+							}}>Reset</Button
+						>
+					</div>
+				</Label>
 			</Section>
 			<Section label="Runnable">
 				{#if !edit}
