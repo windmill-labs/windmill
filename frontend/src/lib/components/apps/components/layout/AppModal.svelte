@@ -175,7 +175,7 @@
 					}
 				}}
 			>
-				<div class="px-4 py-2 border-b flex justify-between items-center h-full">
+				<div class="px-4 py-2 border-b flex justify-between items-center">
 					<div>{resolvedConfig.modalTitle}</div>
 					<div class="w-8">
 						<button
