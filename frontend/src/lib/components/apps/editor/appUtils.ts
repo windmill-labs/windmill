@@ -152,6 +152,26 @@ function findGridItemById(
 	return undefined
 }
 
+export function findEveryParentGridItem(app: App, id: string): string[] {
+	const parentGrids: string[] = []
+
+	function findParents(currentApp: App, currentId: string) {
+		const parentGrid = findGridItemParentGrid(currentApp, currentId)
+		if (parentGrid) {
+			parentGrids.push(parentGrid)
+
+			const parentId = parentGrid.split('-')[0]
+
+			if (parentId) {
+				findParents(currentApp, parentId)
+			}
+		}
+	}
+
+	findParents(app, id)
+
+	return parentGrids
+}
 export function findGridItemParentGrid(app: App, id: string): string | undefined {
 	const gridItem = app.grid.find((x) => x.id === id)
 	if (gridItem || app.subgrids === undefined) {

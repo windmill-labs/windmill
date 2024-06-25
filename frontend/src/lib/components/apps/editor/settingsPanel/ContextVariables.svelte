@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
-	import { findGridItem, findGridItemParentGrid } from '../appUtils'
+	import { findEveryParentGridItem, findGridItem } from '../appUtils'
 
 	export let type: string
 	export let id: string
@@ -45,43 +45,49 @@
 		)
 	}
 
+	function addGridItemContext(parentId: string) {
+		if (!parentId) return
+		const gridItem = findGridItem($app, parentId)
+		addParentContextVariable(gridItem)
+	}
+
+	function processParents(parents: string[]) {
+		parents.forEach((subgrid) => {
+			if (subgrid) {
+				const parentId = subgrid.includes('-') ? subgrid.split('-')[0] : subgrid
+				addGridItemContext(parentId)
+			}
+		})
+	}
+
 	function findParent(id: string): GridItem | undefined {
 		if (!id) return
-
-		if (id?.includes('_')) {
-			// This is an action of a table
-			const parentId = id.split('_')?.[0]
-
-			if (!parentId) return
-
-			return findGridItem($app, parentId)
+		if (id.includes('_')) {
+			const parentId = id.split('_')[0]
+			const allParents = [parentId, ...findEveryParentGridItem($app, parentId)]
+			processParents(allParents)
 		} else {
-			const subgrid = findGridItemParentGrid($app, id)
-
-			if (subgrid && subgrid.includes('-')) {
-				const parentId = subgrid?.split('-')?.[0]
-
-				if (!parentId) return
-
-				return findGridItem($app, parentId)
-			}
+			const allParents = findEveryParentGridItem($app, id)
+			processParents(allParents)
 		}
 	}
 
-	const parent = findParent(id)
+	findParent(id)
 
-	if (parent?.data?.type === 'containercomponent') {
-		addContextVariable('group', 'The group name of the container.')
-	} else if (parent?.data?.type === 'listcomponent') {
-		addContextVariable(
-			'iter',
-			'The current iteration of the list. Iter is an object with keys index and value.'
-		)
-	} else if (parent?.data?.type && tables.includes(parent?.data?.type)) {
-		addContextVariable(
-			'row',
-			'The current row of a table. Row is an object with keys index and value.'
-		)
+	function addParentContextVariable(parent: GridItem | undefined) {
+		if (parent?.data?.type === 'containercomponent') {
+			addContextVariable('group', 'The group name of the container.')
+		} else if (parent?.data?.type === 'listcomponent') {
+			addContextVariable(
+				'iter',
+				'The current iteration of the list. Iter is an object with keys index and value.'
+			)
+		} else if (parent?.data?.type && tables.includes(parent?.data?.type)) {
+			addContextVariable(
+				'row',
+				'The current row of a table. Row is an object with keys index and value.'
+			)
+		}
 	}
 </script>
 
