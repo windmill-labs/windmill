@@ -76,6 +76,8 @@
 			disposable?.closeDrawer()
 		}
 	}
+
+	let wrapperHeight: number = 0
 </script>
 
 <InitializeComponent {id} />
@@ -162,7 +164,11 @@
 		>
 			<div
 				style={css?.popup?.style}
-				class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
+				class={twMerge(
+					'mx-24 mt-8 bg-surface rounded-lg relative  max-h-[calc(100%-42px)] overflow-hidden ',
+					css?.popup?.class
+				)}
+				bind:clientHeight={wrapperHeight}
 				use:clickOutside={false}
 				on:click_outside={(e) => {
 					if ($mode !== 'dnd' && !unclickableOutside) {
@@ -184,7 +190,7 @@
 					</div>
 				</div>
 				<div
-					class="wm-modal"
+					class="wm-modal overflow-y-auto"
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
@@ -197,11 +203,13 @@
 					}}
 				>
 					{#if $app.subgrids?.[`${id}-0`]}
+						{wrapperHeight}
 						<SubGridEditor
 							visible={open && render}
 							{id}
 							noPadding
 							subGridId={`${id}-0`}
+							containerHeight={wrapperHeight}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
