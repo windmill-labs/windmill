@@ -303,10 +303,18 @@ pub async fn update_flow_status_after_job_completion_internal<
         let skip_branch_failure = match module_status {
             FlowStatusModule::InProgress {
                 branchall: Some(BranchAllStatus { branch, .. }),
+                parallel,
                 ..
-            } => compute_skip_branchall_failure(flow, old_status.step, *branch, db)
-                .await?
-                .unwrap_or(false),
+            } => compute_skip_branchall_failure(
+                flow,
+                job_id_for_status,
+                old_status.step,
+                *branch,
+                *parallel,
+                db,
+            )
+            .await?
+            .unwrap_or(false),
             _ => false,
         };
 
@@ -964,17 +972,45 @@ async fn compute_skip_loop_failures_and_parallelism(
 
 async fn compute_skip_branchall_failure<'c>(
     flow: Uuid,
+    job: &Uuid,
     step: i32,
     branch: usize,
+    parallel: bool,
     db: &DB,
 ) -> Result<Option<bool>, Error> {
+    let branch = if parallel {
+        sqlx::query_scalar!("SELECT script_path FROM completed_job WHERE id = $1", job)
+            .fetch_one(db)
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!("error during retrieval of branchall index: {e:#}"))
+            })?
+            .map(|p| {
+                p.split('/')
+                    .last()
+                    .map(|x| {
+                        x.strip_prefix("branchall-")
+                            .map(|x| x.parse::<i32>().ok())
+                            .flatten()
+                    })
+                    .flatten()
+                    .ok_or(Error::InternalErr(format!(
+                        "could not parse branchall index from path: {p}"
+                    )))
+            })
+            .ok_or_else(|| {
+                Error::InternalErr(format!("no branchall script path found for job {job}"))
+            })??
+    } else {
+        branch as i32
+    };
     sqlx::query_as(
         "SELECT (raw_flow->'modules'->$1->'value'->'branches'->$2->>'skip_failure')::bool
         FROM queue
         WHERE id = $3",
     )
     .bind(step)
-    .bind(branch as i32)
+    .bind(branch)
     .bind(flow)
     .fetch_one(db)
     .await
