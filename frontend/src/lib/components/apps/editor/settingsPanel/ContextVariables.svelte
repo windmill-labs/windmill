@@ -60,7 +60,7 @@
 		})
 	}
 
-	function findParent(id: string): GridItem | undefined {
+	function findParentsContextVariables(id: string): void {
 		if (!id) return
 		if (id.includes('_')) {
 			const parentId = id.split('_')?.[0]
@@ -74,7 +74,7 @@
 		}
 	}
 
-	findParent(id)
+	findParentsContextVariables(id)
 
 	function addParentContextVariable(parent: GridItem | undefined) {
 		if (parent?.data?.type === 'containercomponent') {
