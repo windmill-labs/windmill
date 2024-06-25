@@ -76,8 +76,7 @@
 			disposable?.closeDrawer()
 		}
 	}
-
-	let wrapperHeight: number = 0
+	let wrapperHeight = 0
 </script>
 
 <InitializeComponent {id} />
@@ -161,14 +160,14 @@
 				open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
 			)}
 			style="z-index: {zIndex}"
+			bind:clientHeight={wrapperHeight}
 		>
 			<div
 				style={css?.popup?.style}
 				class={twMerge(
-					'mx-24 mt-8 bg-surface rounded-lg relative  max-h-[calc(100%-42px)] overflow-hidden ',
+					'mx-24 mt-8 bg-surface rounded-lg relative min-h-0 max-h-[calc(100%-42px)] ',
 					css?.popup?.class
 				)}
-				bind:clientHeight={wrapperHeight}
 				use:clickOutside={false}
 				on:click_outside={(e) => {
 					if ($mode !== 'dnd' && !unclickableOutside) {
@@ -176,7 +175,7 @@
 					}
 				}}
 			>
-				<div class="px-4 py-2 border-b flex justify-between items-center">
+				<div class="px-4 py-2 border-b flex justify-between items-center h-full">
 					<div>{resolvedConfig.modalTitle}</div>
 					<div class="w-8">
 						<button
@@ -203,13 +202,12 @@
 					}}
 				>
 					{#if $app.subgrids?.[`${id}-0`]}
-						{wrapperHeight}
 						<SubGridEditor
 							visible={open && render}
 							{id}
 							noPadding
 							subGridId={`${id}-0`}
-							containerHeight={wrapperHeight}
+							containerHeight={wrapperHeight - 49 - 32}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
