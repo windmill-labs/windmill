@@ -9,20 +9,13 @@
 use regex::Regex;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
+    auth::is_super_admin_email,
     error::{self, Error},
-    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     DB,
 };
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
-    if email == SUPERADMIN_SECRET_EMAIL || email == SUPERADMIN_NOTIFICATION_EMAIL {
-        return Ok(());
-    }
-    let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e:#}")))?
-        .unwrap_or(false);
+    let is_admin = is_super_admin_email(db, email).await?;
 
     if !is_admin {
         Err(Error::NotAuthorized(

@@ -197,7 +197,7 @@ pub async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let child_process = start_child_process(child_cmd, "pip-compile").await?;
-    append_logs(job_id.clone(), w_id.to_string(), logs, db).await;
+    append_logs(&job_id, &w_id, logs, db).await;
     handle_child(
         job_id,
         db,
@@ -247,13 +247,13 @@ pub async fn handle_python_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let script_path = job.script_path();
+    let script_path = crate::common::use_flow_root_path(job.script_path());
     let additional_python_paths = handle_python_deps(
         job_dir,
         requirements_o,
         inner_content,
         &job.workspace_id,
-        script_path,
+        &script_path,
         &job.id,
         db,
         worker_name,
@@ -264,8 +264,8 @@ pub async fn handle_python_job(
     .await?;
 
     append_logs(
-        job.id.clone(),
-        job.workspace_id.to_string(),
+        &job.id,
+        &job.workspace_id,
         "\n\n--- PYTHON CODE EXECUTION ---\n".to_string(),
         db,
     )
@@ -281,7 +281,7 @@ pub async fn handle_python_job(
         transforms,
         spread,
         main_name,
-    ) = prepare_wrapper(job_dir, inner_content, script_path, job.args.as_ref()).await?;
+    ) = prepare_wrapper(job_dir, inner_content, &script_path, job.args.as_ref()).await?;
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
@@ -855,8 +855,8 @@ pub async fn handle_python_reqs(
             }
             if pulled.len() > 0 {
                 append_logs(
-                    job_id.clone(),
-                    w_id.to_string(),
+                    &job_id,
+                    &w_id,
                     format!(
                         "pulled {} from distributed cache in {}ms",
                         pulled.join(", "),
@@ -873,7 +873,7 @@ pub async fn handle_python_reqs(
         let mut logs1 = String::new();
         logs1.push_str("\n\n--- PIP INSTALL ---\n");
         logs1.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
-        append_logs(job_id.clone(), w_id.to_string(), logs1, db).await;
+        append_logs(&job_id, w_id, logs1, db).await;
 
         tracing::info!(
             workspace_id = %w_id,

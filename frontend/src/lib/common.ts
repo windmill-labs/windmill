@@ -15,12 +15,14 @@ export interface PropertyDisplayInfo {
 	propertiesNumber: number
 }
 
+export type EnumType = string[] | undefined
+
 export interface SchemaProperty {
 	type: string | undefined
 	description?: string
 	pattern?: string
 	default?: any
-	enum?: string[]
+	enum?: EnumType
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
 	items?: {
@@ -43,6 +45,8 @@ export interface SchemaProperty {
 	dateFormat?: string
 	title?: string
 	placeholder?: string
+	oneOf?: SchemaProperty[]
+	originalType?: string
 }
 
 export interface ModalSchemaProperty {
@@ -57,7 +61,7 @@ export interface ModalSchemaProperty {
 	multiselect?: boolean
 	format?: string
 	pattern?: string
-	enum_?: string[]
+	enum_?: EnumType
 	default?: any
 	items?: { type?: 'string' | 'number'; enum?: string[] }
 	contentEncoding?: 'base64' | 'binary'
@@ -69,6 +73,7 @@ export interface ModalSchemaProperty {
 	dateFormat?: string
 	title?: string
 	placeholder?: string
+	oneOf?: SchemaProperty[]
 }
 
 export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -94,7 +99,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 		nullable: schema.nullable,
 		dateFormat: schema.dateFormat,
 		title: schema.title,
-		placeholder: schema.placeholder
+		placeholder: schema.placeholder,
+		oneOf: schema.oneOf
 	}
 }
 export type Schema = {

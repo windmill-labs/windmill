@@ -242,10 +242,10 @@ async fn list_scripts(
         sqlb.and_where_eq("archived", false);
     }
     if let Some(ps) = &lq.path_start {
-        sqlb.and_where_like_left("path", "?".bind(ps));
+        sqlb.and_where_like_left("o.path", ps);
     }
     if let Some(p) = &lq.path_exact {
-        sqlb.and_where_eq("path", "?".bind(p));
+        sqlb.and_where_eq("o.path", "?".bind(p));
     }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
@@ -374,7 +374,7 @@ async fn create_snapshot_script(
             {
                 let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
                 if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data)
+                    .put(&object_store::path::Path::from(path.clone()), data.into())
                     .await
                 {
                     tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
@@ -648,7 +648,7 @@ async fn create_script_internal<'c>(
             clear_schedule(tx.transaction_mut(), &schedule.path, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(&db, tx, &schedule).await?;
+                tx = push_scheduled_job(&db, tx, &schedule, None).await?;
             }
         }
     } else {
@@ -751,6 +751,7 @@ async fn create_script_internal<'c>(
             None,
             None,
             None,
+            Some(&authed.clone().into()),
         )
         .await?;
         Ok((hash, new_tx))

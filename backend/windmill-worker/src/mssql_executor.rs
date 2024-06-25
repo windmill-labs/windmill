@@ -84,7 +84,7 @@ pub async fn do_mssql(
 
     if readonly_intent {
         let logs = format!("\nSetting ApplicationIntent to ReadOnly");
-        append_logs(job.id, job.workspace_id.clone(), logs, db).await;
+        append_logs(&job.id, &job.workspace_id, logs, db).await;
     }
 
     // Using SQL Server authentication.

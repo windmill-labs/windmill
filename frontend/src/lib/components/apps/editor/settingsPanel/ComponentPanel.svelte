@@ -9,7 +9,6 @@
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import { classNames, getModifierKey, isMac } from '$lib/utils'
 	import { buildExtraLib } from '../../utils'
-	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
 	import AlignmentEditor from './AlignmentEditor.svelte'
@@ -23,7 +22,7 @@
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import StylePanel from './StylePanel.svelte'
-	import { ChevronLeft, ExternalLink, ArrowBigUp } from 'lucide-svelte'
+	import { ChevronLeft, ArrowBigUp } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
@@ -31,6 +30,7 @@
 	import type { ResultAppInput } from '../../inputType'
 	import GridGroup from './GridGroup.svelte'
 	import { secondaryMenuLeft } from './secondaryMenu'
+	import DocLink from './DocLink.svelte'
 
 	import ComponentControl from './ComponentControl.svelte'
 	import GridAgGridLicenseKey from './GridAgGridLicenseKey.svelte'
@@ -40,6 +40,7 @@
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ContextVariables from './ContextVariables.svelte'
+	import EventHandlers from './EventHandlers.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -175,20 +176,11 @@
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
-	<div class="flex justify-between items-center px-3 py-2 bg-surface-secondary">
+	<div class="flex justify-between items-center px-3 py-1 bg-surface-secondary">
 		<div class="text-xs text-primary font-semibold"
 			>{components[componentSettings.item.data.type]?.name ?? 'Unknown'}</div
 		>
-		<a
-			href={components[componentSettings.item.data.type]?.documentationLink}
-			target="_blank"
-			class="text-frost-500 dark:text-frost-300 font-semibold text-xs"
-		>
-			<div class="flex flex-row gap-2">
-				See documentation
-				<ExternalLink size="16" />
-			</div>
-		</a>
+		<DocLink docLink={components[componentSettings.item.data.type]?.documentationLink} />
 	</div>
 
 	<div class="flex min-h-[calc(100%-32px)] flex-col min-w-[150px] w-full divide-y">
@@ -205,16 +197,19 @@
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">
-						{#if componentSettings.item.data.type !== 'plotlycomponentv2'}
-							<span
+						<div class="flex flex-row gap-1 justify-center items-center">
+							<DocLink
+								docLink={'https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable'}
+							/>
+							<div
 								class={classNames(
-									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
+									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm',
 									'bg-indigo-500'
 								)}
 							>
 								{`${component.id}`}
-							</span>
-						{/if}
+							</div>
+						</div>
 					</svelte:fragment>
 
 					{#if componentSettings.item.data.componentInput}
@@ -402,46 +397,8 @@
 				{ccomponents[component.type].name} has no configuration
 			</div>
 		{/if}
-		{#if (`recomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.recomputeIds)) || componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent' || componentSettings.item.data.type === 'checkboxcomponent'}
-			<Recompute
-				bind:recomputeIds={componentSettings.item.data.recomputeIds}
-				ownId={component.id}
-			/>
-		{/if}
-		{#if (`onOpenRecomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.onOpenRecomputeIds)) || componentSettings.item.data.type === 'modalcomponent' || componentSettings.item.data.type === 'drawercomponent'}
-			<Recompute
-				bind:recomputeIds={componentSettings.item.data.onOpenRecomputeIds}
-				ownId={component.id}
-				title="Trigger runnables on open"
-				tooltip="Select components to recompute after this component was opened"
-			/>
-		{/if}
-		{#if (`onCloseRecomputeIds` in componentSettings.item.data && Array.isArray(componentSettings.item.data.onCloseRecomputeIds)) || componentSettings.item.data.type === 'modalcomponent' || componentSettings.item.data.type === 'drawercomponent'}
-			<Recompute
-				bind:recomputeIds={componentSettings.item.data.onCloseRecomputeIds}
-				ownId={component.id}
-				title="Trigger runnables on close"
-				tooltip="Select components to recompute after this component was closed"
-			/>
-		{/if}
-		{#if componentSettings.item.data.type === 'checkboxcomponent'}
-			<Recompute
-				title="Recompute on toggle"
-				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue'}
-				documentationLink={undefined}
-				bind:recomputeIds={componentSettings.item.data.onToggle}
-				ownId={component.id}
-			/>
-		{/if}
-		{#if componentSettings.item.data.type === 'resourceselectcomponent' || componentSettings.item.data.type === 'selectcomponent'}
-			<Recompute
-				title="Recompute on select"
-				tooltip={'Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue'}
-				documentationLink={undefined}
-				bind:recomputeIds={componentSettings.item.data.onSelect}
-				ownId={component.id}
-			/>
-		{/if}
+
+		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
 
 		<div class="grow shrink" />
 

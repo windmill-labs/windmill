@@ -4,6 +4,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
 	import {
+		AlertTriangle,
 		Bed,
 		Database,
 		Gauge,
@@ -16,6 +17,8 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import type { FlowInput } from '../types'
+	import type { Writable } from 'svelte/store'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -32,7 +35,11 @@
 	export let bgColor: string = ''
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
+	export let warningMessage: string | undefined = undefined
 
+	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
+		'FlowGraphContext'
+	)
 	const dispatch = createEventDispatcher()
 
 	const { currentStepStore: copilotCurrentStepStore } =
@@ -132,6 +139,7 @@
 			</Popover>
 		{/if}
 	</div>
+
 	<div
 		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
 			border border-gray-400 p-2 text-2xs module text-primary"
@@ -166,6 +174,21 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 		>
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
+
+		{#if (id && !Object.values($flowInputsStore?.[id]?.requiredInputsFilled || {}).every(Boolean)) || Boolean(warningMessage)}
+			<div class="absolute -top-[10px] -left-[10px]">
+				<Popover>
+					<svelte:fragment slot="text"
+						>{warningMessage ?? 'At least one required input is not set.'}
+					</svelte:fragment>
+					<div
+						class="flex items-center justify-center h-full w-full rounded-md p-0.5 border border-yellow-600 text-yellow-600 bg-yellow-100 duration-150 hover:bg-yellow-300"
+					>
+						<AlertTriangle size={14} strokeWidth={2} />
+					</div>
+				</Popover>
+			</div>
+		{/if}
 	{/if}
 </div>
 

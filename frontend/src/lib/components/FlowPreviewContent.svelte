@@ -308,8 +308,9 @@
 		{/if}
 		<FlowProgressBar {job} bind:reset={jobProgressReset} />
 	</div>
+
 	<div class="overflow-y-auto grow flex flex-col pr-4">
-		<div class="max-h-1/2 overflow-auto border-b">
+		<div class="border-b">
 			<SchemaForm
 				noVariablePicker
 				compact

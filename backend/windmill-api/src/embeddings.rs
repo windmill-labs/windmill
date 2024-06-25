@@ -27,6 +27,7 @@ use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 use hf_hub::{api::sync::Api, Cache, Repo};
 #[cfg(feature = "embedding")]
 use serde::Deserialize;
+#[cfg(feature = "embedding")]
 use serde::Serialize;
 #[cfg(feature = "embedding")]
 use sqlx::{Pool, Postgres};
@@ -63,6 +64,7 @@ struct HubScriptsQuery {
     app: Option<String>,
 }
 
+#[cfg(feature = "embedding")]
 #[derive(Serialize)]
 pub struct HubScriptResult {
     ask_id: i64,
@@ -100,6 +102,7 @@ struct ResourceTypesQuery {
     limit: Option<i64>,
 }
 
+#[cfg(feature = "embedding")]
 #[derive(Serialize)]
 pub struct ResourceTypeResult {
     name: String,

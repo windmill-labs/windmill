@@ -38,10 +38,7 @@ const TWO_HUNDRED: &str = "200.html";
 
 fn serve_path(path: &str) -> Response<Body> {
     if path.starts_with("api/") {
-        return Response::builder()
-            .status(404)
-            .body(Body::empty())
-            .unwrap();
+        return Response::builder().status(404).body(Body::empty()).unwrap();
     }
     match Asset::get(path) {
         Some(content) => {
@@ -50,7 +47,7 @@ fn serve_path(path: &str) -> Response<Body> {
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-            if mime.as_ref() == mime::APPLICATION_JAVASCRIPT {
+            if mime.as_ref() == mime::APPLICATION_JAVASCRIPT || path.ends_with(".wasm") {
                 res = res.header(header::CACHE_CONTROL, "max-age=31536000");
             } else if (mime.type_(), mime.subtype()) == (mime::TEXT, mime::CSS) {
                 res = res.header(header::CACHE_CONTROL, "max-age=31536000");
@@ -62,10 +59,9 @@ fn serve_path(path: &str) -> Response<Body> {
 
             res.body(body).unwrap()
         }
-        None if path.starts_with("_app/") => Response::builder()
-            .status(404)
-            .body(Body::empty())
-            .unwrap(),
+        None if path.starts_with("_app/") => {
+            Response::builder().status(404).body(Body::empty()).unwrap()
+        }
         None => serve_path(TWO_HUNDRED),
     }
 }

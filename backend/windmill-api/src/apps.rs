@@ -279,6 +279,14 @@ async fn list_apps(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
+    if let Some(path_start) = &lq.path_start {
+        sqlb.and_where_like_left("app.path", path_start);
+    }
+
+    if let Some(path_exact) = &lq.path_exact {
+        sqlb.and_where_eq("app.path", "?".bind(path_exact));
+    }
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
@@ -648,6 +656,7 @@ async fn create_app(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -938,6 +947,7 @@ async fn update_app(
         None,
         None,
         None,
+        Some(&authed.clone().into()),
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1147,6 +1157,7 @@ async fn execute_component(
         None,
         true,
         tag,
+        None,
         None,
         None,
         None,

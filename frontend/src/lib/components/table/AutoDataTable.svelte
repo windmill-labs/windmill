@@ -318,7 +318,7 @@
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each slicedData as { _id, rowData }, index (index)}
+						{#each slicedData.filter((x) => x) as { _id, rowData }, index (index)}
 							<Row dividable selected={selection.includes(_id) && colSelection.length == 0}>
 								<Cell first={true} last={false} class="w-6">
 									<input

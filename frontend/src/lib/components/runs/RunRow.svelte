@@ -32,12 +32,17 @@
 	export let containerWidth: number = 0
 	export let containsLabel: boolean = false
 	export let activeLabel: string | null
+	export let isSelectingJobsToCancel: boolean = false
 
 	let scheduleEditor: ScheduleEditor
 
 	$: isExternal = job && job.id === '-'
 
 	let triggeredByWidth: number = 0
+
+	function isJobCancelable(j: Job): boolean {
+		return j.type === 'QueuedJob' && !j.schedule_path
+	}
 </script>
 
 <Portal>
@@ -53,10 +58,17 @@
 	)}
 	style="width: {containerWidth}px"
 	on:click={() => {
-		dispatch('select')
+		if (!isSelectingJobsToCancel || isJobCancelable(job)) {
+			dispatch('select')
+		}
 	}}
 >
 	<div class="w-1/12 flex justify-center">
+		{#if isSelectingJobsToCancel && isJobCancelable(job)}
+		<div class="px-2">
+			<input type="checkbox" checked={selected}/>
+		</div>
+		{/if}
 		{#if isExternal}
 			<Badge color="gray" baseClass="!px-1.5">
 				<ShieldQuestion size={14} />

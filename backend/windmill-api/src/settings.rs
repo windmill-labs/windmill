@@ -129,7 +129,7 @@ pub async fn test_s3_bucket(
     ));
     tracing::info!("Testing blob storage at path: {path}");
     client
-        .put(&path, Bytes::from_static(b"hello"))
+        .put(&path, object_store::PutPayload::from_static(b"hello"))
         .await
         .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e:#}"))?;
     let content = client

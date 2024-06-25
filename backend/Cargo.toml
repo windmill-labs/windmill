@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.342.0"
+version = "1.353.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -24,7 +24,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.342.0"
+version = "1.353.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -50,7 +50,7 @@ parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/p
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
-cloud = ["windmill-queue/cloud"]
+cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 
 [dependencies]
@@ -159,19 +159,20 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_fetch = "0.162.0"
-deno_tls = "0.125.0"
-deno_console = "0.138.0"
-deno_url = "0.138.0"
-deno_webidl = "0.138.0"
-deno_web = "0.169.0"
-deno_core = "0.262.0"
-deno_ast = { version = "0.33.3", features = ["transpiling"] }
+deno_fetch = "0.179.0"
+deno_tls = "0.142.0"
+deno_console = "0.155.0"
+deno_url = "0.155.0"
+deno_webidl = "0.155.0"
+deno_web = "0.186.0"
+deno_net = "0.147.0"
+deno_core = "0.284.0"
+deno_ast = { version = "0.39.0", features = ["transpiling"] }
 async-recursion = "^1"
-swc_common = "=0.33.17"
-swc_ecma_parser = "=0.143.3"
-swc_ecma_ast = "=0.112.2"
-swc_ecma_visit = "=0.98.2"
+swc_common = "=0.33.26"
+swc_ecma_parser = "=0.144.1"
+swc_ecma_ast = "=0.113.4"
+swc_ecma_visit = "=0.99.1"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
@@ -234,10 +235,10 @@ tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
 
-datafusion = "38.0.0"
-object_store = { version = "0.9.1", features = ["aws", "azure"] }
+datafusion = "39.0.0"
+object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
-
+zstd = "=0.12.4"
 aws-config = "^1"
 aws-sdk-sts = "^1"
 

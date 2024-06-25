@@ -56,11 +56,15 @@ pub struct Folder {
     pub display_name: String,
     pub owners: Vec<String>,
     pub extra_perms: serde_json::Value,
+    pub summary: Option<String>,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
 pub struct NewFolder {
     pub name: String,
+    pub summary: Option<String>,
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
@@ -68,6 +72,7 @@ pub struct NewFolder {
 
 #[derive(Deserialize)]
 pub struct UpdateFolder {
+    pub summary: Option<String>,
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
@@ -90,7 +95,7 @@ async fn list_folders(
 
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -199,12 +204,14 @@ async fn create_folder(
 
     sqlx::query_as!(
         Folder,
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
         w_id,
         ng.name,
         ng.display_name.unwrap_or(ng.name.clone()),
         &owners,
         extra_perms,
+        ng.summary,
+        authed.username
     )
     .execute(&mut *tx)
     .await?;
@@ -282,6 +289,12 @@ async fn update_folder(
     if let Some(display_name) = ng.display_name {
         sqlb.set("display_name", "?".bind(&display_name));
     }
+
+    if let Some(summary) = ng.summary {
+        sqlb.set("summary", "?".bind(&summary));
+    }
+
+    sqlb.set("edited_at", "now()");
 
     if !authed.is_admin {
         let prefixed_username = format!("u/{}", authed.username);
@@ -380,7 +393,7 @@ pub async fn get_folderopt<'c>(
 ) -> Result<Option<Folder>> {
     let folderopt = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE name = $1 AND workspace_id = $2",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )
@@ -601,32 +614,6 @@ async fn add_owner(
     );
 
     Ok(format!("Added {} to folder {}", owner, name))
-}
-
-pub async fn get_folders_for_user(
-    w_id: &str,
-    username: &str,
-    groups: &[String],
-    db: &DB,
-) -> Result<Vec<(String, bool, bool)>> {
-    let mut perms = groups
-        .into_iter()
-        .map(|x| format!("g/{}", x))
-        .collect::<Vec<_>>();
-    perms.insert(0, format!("u/{}", username));
-    let folders = sqlx::query!(
-        "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder
-        WHERE extra_perms ?| $1  AND workspace_id = $2",
-        &perms[..],
-        w_id,
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|x| (x.name, x.write.unwrap_or(false), x.owner.unwrap_or(false)))
-    .collect();
-
-    Ok(folders)
 }
 
 async fn remove_owner(

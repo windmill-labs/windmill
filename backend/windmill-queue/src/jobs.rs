@@ -45,6 +45,7 @@ use windmill_audit::ActionKind;
 #[cfg(not(feature = "enterprise"))]
 use windmill_common::worker::PriorityTags;
 use windmill_common::{
+    auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     db::{Authed, UserDB},
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -111,6 +112,7 @@ lazy_static::lazy_static! {
         .build().unwrap();
 
 
+    pub static ref JOB_TOKEN: Option<String> = std::env::var("JOB_TOKEN").ok();
 }
 
 #[cfg(feature = "cloud")]
@@ -146,7 +148,7 @@ pub async fn cancel_single_job<'c>(
         && !force_cancel
     {
         let id = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
             username,
             reason,
             job_running.id,
@@ -158,32 +160,39 @@ pub async fn cancel_single_job<'c>(
             tracing::info!("Soft cancelling job {}", id);
         }
     } else {
-        let reason: String = reason
-            .clone()
-            .unwrap_or_else(|| "unexplicited reasons".to_string());
-        let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
-        append_logs(
-            job_running.id,
-            w_id.to_string(),
-            format!("canceled by {username}: (force cancel: {force_cancel})"),
-            db,
-        )
-        .await;
-        let add_job = add_completed_job_error(
-            &db,
-            job_running,
-            job_running.mem_peak.unwrap_or(0),
-            Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
-            e,
-            rsmq.clone(),
-            "server",
-            false,
-        )
-        .await;
+        let username = username.to_string();
+        let job_running = job_running.clone();
+        let w_id = w_id.to_string();
+        let db = db.clone();
+        let rsmq = rsmq.clone();
+        tokio::task::spawn(async move {
+            let reason: String = reason
+                .clone()
+                .unwrap_or_else(|| "unexplicited reasons".to_string());
+            let e = serde_json::json!({"message": format!("Job canceled: {reason} by {username}"), "name": "Canceled", "reason": reason, "canceler": username});
+            append_logs(
+                &job_running.id,
+                w_id.to_string(),
+                format!("canceled by {username}: (force cancel: {force_cancel})"),
+                &db,
+            )
+            .await;
+            let add_job = add_completed_job_error(
+                &db,
+                &job_running,
+                job_running.mem_peak.unwrap_or(0),
+                Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
+                e,
+                rsmq.clone(),
+                "server",
+                false,
+            )
+            .await;
 
-        if let Err(e) = add_job {
-            tracing::error!("Failed to add canceled job: {}", e);
-        }
+            if let Err(e) = add_job {
+                tracing::error!("Failed to add canceled job: {}", e);
+            }
+        });
     }
     if let Some(mut rsmq) = rsmq.clone() {
         rsmq.change_message_visibility(&job_running.tag, &job_running.id.to_string(), 0)
@@ -233,6 +242,7 @@ pub async fn cancel_job<'c>(
         jobs.extend(new_jobs.clone());
         jobs_to_cancel.extend(new_jobs);
     }
+    jobs.reverse();
 
     let (ntx, _) = cancel_single_job(
         username,
@@ -293,7 +303,7 @@ pub async fn cancel_job<'c>(
 /* TODO retry this? */
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn append_logs(
-    job_id: uuid::Uuid,
+    job_id: &uuid::Uuid,
     workspace: impl AsRef<str>,
     logs: impl AsRef<str>,
     db: impl Borrow<Pool<Postgres>>,
@@ -659,7 +669,7 @@ pub async fn add_completed_job<
                 parent_job
             );
             sqlx::query!(
-                "UPDATE queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2",
+                "UPDATE queue SET last_ping = now() WHERE id = $1 AND workspace_id = $2 AND canceled = false",
                 parent_job,
                 &queued_job.workspace_id
             )
@@ -806,6 +816,12 @@ pub async fn add_completed_job<
             tracing::error!("Could not update concurrency_key: {}", e);
         }
         tracing::debug!("decremented concurrency counter");
+    }
+
+    if JOB_TOKEN.is_none() {
+        sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
+            .execute(&mut tx)
+            .await?;
     }
 
     tx.commit().await?;
@@ -1015,6 +1031,7 @@ pub async fn add_completed_job<
                     queued_job.timeout,
                     None,
                     queued_job.priority,
+                    None,
                 )
                 .await?;
                 if let Err(e) = tx.commit().await {
@@ -1220,7 +1237,7 @@ pub async fn handle_maybe_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clon
     if schedule.enabled && script_path == schedule.script_path {
         let push_next_job_future = async {
             let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-            tx = push_scheduled_job(db, tx, &schedule).await?;
+            tx = push_scheduled_job(db, tx, &schedule, None).await?;
             tx.commit().await?;
             Ok::<(), Error>(())
         };
@@ -1504,6 +1521,7 @@ pub async fn push_error_handler<
         None,
         None,
         priority,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1610,6 +1628,7 @@ async fn handle_recovered_schedule<
         None,
         true,
         tag,
+        None,
         None,
         None,
         None,
@@ -1832,7 +1851,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         let job_log_event = format!(
             "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds",
         );
-        let _ = append_logs(job_uuid, pulled_job.workspace_id, job_log_event, db).await;
+        let _ = append_logs(&job_uuid, pulled_job.workspace_id, job_log_event, db).await;
         if rsmq.is_some() {
             // if let Some(ref mut rsmq) = tx.rsmq {
             // if using redis, only one message at a time can be poped from the queue. Process only this message and move to the next elligible job
@@ -2645,6 +2664,137 @@ pub struct RequestQuery {
     pub include_header: Option<String>,
 }
 
+fn restructure_cloudevents_metadata(
+    mut p: HashMap<String, Box<RawValue>>,
+) -> Result<HashMap<String, Box<RawValue>>, Error> {
+    let data = p
+        .remove("data")
+        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+    let str = data.to_string();
+
+    let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+
+    if wrap_body {
+        let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
+            .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+        let mut hm = HashMap::new();
+        hm.insert("body".to_string(), args);
+        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
+        Ok(hm)
+    } else {
+        let mut hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
+            .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?
+            .unwrap_or_else(HashMap::new);
+        hm.insert("WEBHOOK__METADATA__".to_string(), to_raw_value(&p));
+        Ok(hm)
+    }
+}
+
+impl PushArgs {
+    async fn from_json(
+        mut extra: HashMap<String, Box<RawValue>>,
+        use_raw: bool,
+        str: String,
+    ) -> Result<Self, Response> {
+        if use_raw {
+            extra.insert("raw_string".to_string(), to_raw_value(&str));
+        }
+
+        let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+
+        if wrap_body {
+            let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
+                .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
+                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+            let mut hm = HashMap::new();
+            hm.insert("body".to_string(), args);
+            Ok(PushArgs { extra, args: hm })
+        } else {
+            let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
+                .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
+                .unwrap_or_else(HashMap::new);
+            Ok(PushArgs { extra, args: hm })
+        }
+    }
+
+    async fn from_ce_json(
+        mut extra: HashMap<String, Box<RawValue>>,
+        use_raw: bool,
+        str: String,
+    ) -> Result<Self, Response> {
+        if use_raw {
+            extra.insert("raw_string".to_string(), to_raw_value(&str));
+        }
+
+        let hm = serde_json::from_str::<HashMap<String, Box<RawValue>>>(&str).map_err(|e| {
+            Error::BadRequest(format!("invalid cloudevents+json: {}", e)).into_response()
+        })?;
+        let hm = restructure_cloudevents_metadata(hm).map_err(|e| e.into_response())?;
+        Ok(PushArgs { extra, args: hm })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_cloudevents_json_payload() {
+        let r1 = r#"
+        {
+            "specversion" : "1.0",
+            "type" : "com.example.someevent",
+            "source" : "/mycontext",
+            "subject": null,
+            "id" : "C234-1234-1234",
+            "time" : "2018-04-05T17:31:00Z",
+            "comexampleextension1" : "value",
+            "comexampleothervalue" : 5,
+            "datacontenttype" : "application/json",
+            "data" : {
+                "appinfoA" : "abc",
+                "appinfoB" : 123,
+                "appinfoC" : true
+            }
+        }
+        "#;
+        let r2 = r#"
+        {
+            "specversion" : "1.0",
+            "type" : "com.example.someevent",
+            "source" : "/mycontext",
+            "subject": null,
+            "id" : "C234-1234-1234",
+            "time" : "2018-04-05T17:31:00Z",
+            "comexampleextension1" : "value",
+            "comexampleothervalue" : 5,
+            "datacontenttype" : "application/json",
+            "data" : 1.5
+        }
+        "#;
+        let extra = HashMap::new();
+
+        let a1 = PushArgs::from_ce_json(extra.clone(), false, r1.to_string())
+            .await
+            .expect("Failed to parse the cloudevent");
+        let a2 = PushArgs::from_ce_json(extra.clone(), false, r2.to_string())
+            .await
+            .expect("Failed to parse the cloudevent");
+
+        a1.args.get("WEBHOOK__METADATA__").expect(
+            "CloudEvents should generate a neighboring `webhook-metadata` field in PushArgs",
+        );
+        assert_eq!(
+            a2.args
+                .get("body")
+                .expect("Cloud events with a data field with no wrapping curly brackets should be inside of a `body` field in PushArgs")
+                .to_string(),
+            "1.5"
+        );
+    }
+}
+
 #[axum::async_trait]
 impl<S> FromRequest<S, axum::body::Body> for PushArgs
 where
@@ -2678,25 +2828,26 @@ where
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            if use_raw {
-                extra.insert("raw_string".to_string(), to_raw_value(&str));
-            }
+            PushArgs::from_json(extra, use_raw, str).await
+        } else if content_type
+            .unwrap()
+            .starts_with("application/cloudevents+json")
+        {
+            let bytes = Bytes::from_request(req, _state)
+                .await
+                .map_err(IntoResponse::into_response)?;
+            let str = String::from_utf8(bytes.to_vec())
+                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
-
-            if wrap_body {
-                let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
-                    .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
-                    .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
-                let mut hm = HashMap::new();
-                hm.insert("body".to_string(), args);
-                Ok(PushArgs { extra, args: hm })
-            } else {
-                let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
-                    .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
-                    .unwrap_or_else(HashMap::new);
-                Ok(PushArgs { extra, args: hm })
-            }
+            PushArgs::from_ce_json(extra, use_raw, str).await
+        } else if content_type
+            .unwrap()
+            .starts_with("application/cloudevents-batch+json")
+        {
+            Err(
+                Error::BadRequest(format!("Cloud events batching is not supported yet"))
+                    .into_response(),
+            )
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
@@ -2785,6 +2936,11 @@ lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
 }
 
+#[derive(sqlx::FromRow)]
+struct FlowRawValue {
+    pub value: sqlx::types::Json<Box<RawValue>>,
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
@@ -2808,6 +2964,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     custom_timeout: Option<i32>,
     flow_step_id: Option<String>,
     _priority_override: Option<i16>,
+    authed: Option<&Authed>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -2869,7 +3026,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     && email != SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
-                    && email != SUPERADMIN_SYNC_EMAIL
+                    && permissioned_as != SUPERADMIN_SYNC_EMAIL
                     && email != SUPERADMIN_NOTIFICATION_EMAIL
                 {
                     let user_usage = if let Some(user_usage) = user_usage {
@@ -3106,28 +3263,44 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
         ),
+        JobPayload::RawFlowDependencies { path, flow_value } => (
+            None,
+            Some(path),
+            None,
+            JobKind::FlowDependencies,
+            Some(flow_value.clone()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
         JobPayload::FlowDependencies { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_scalar!(
+                sqlx::query_as::<_, FlowRawValue>(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    path,
-                    workspace_id
-                ),
+                )
+                .bind(&path)
+                .bind(&workspace_id),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {path}: {err:?}"
-                ))
-            })?;
+            let value =
+                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
+                    Error::InternalErr(format!(
+                        "could not convert json to flow for {path}: {err:?}"
+                    ))
+                })?;
             (
                 None,
                 Some(path),
                 None,
                 JobKind::FlowDependencies,
                 Some(value.clone()),
-                Some(FlowStatus::new(&value)), // this is a new flow being pushed, flow_status is set to flow_value
+                None,
                 None,
                 None,
                 None,
@@ -3275,19 +3448,20 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
         JobPayload::Flow { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_scalar!(
+                sqlx::query_as::<_, FlowRawValue>(
                     "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                    path,
-                    workspace_id
-                ),
+                )
+                .bind(&path)
+                .bind(&workspace_id),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let mut value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {path}: {err:?}"
-                ))
-            })?;
+            let mut value =
+                serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
+                    Error::InternalErr(format!(
+                        "could not convert json to flow for {path}: {err:?}"
+                    ))
+                })?;
             let priority = value.priority;
             add_virtual_items_if_necessary(&mut value.modules);
             let cache_ttl = value.cache_ttl.map(|x| x as i32).clone();
@@ -3584,8 +3758,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
         schedule_path,
-        raw_flow.map(|f| serde_json::json!(f)),
-        flow_status.map(|f| serde_json::json!(f)),
+        raw_flow.map(Json) as Option<Json<FlowValue>>,
+        flow_status.map(Json) as Option<Json<FlowStatus>>,
         is_flow_step,
         language as Option<ScriptLang>,
         same_worker,
@@ -3611,9 +3785,59 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         QUEUE_PUSH_COUNT.inc();
     }
 
+    if JOB_TOKEN.is_none() {
+        let job_authed = match authed {
+            Some(authed)
+                if authed.email == email
+                    && authed.username == permissioned_as_to_username(&permissioned_as) =>
+            {
+                authed.clone()
+            }
+            _ => {
+                if authed.is_some() {
+                    tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
+                }
+                fetch_authed_from_permissioned_as(
+                    permissioned_as.clone(),
+                    email.to_string(),
+                    workspace_id,
+                    _db,
+                )
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "Could not get permissions directly for job {job_id}: {e:#}"
+                    ))
+                })?
+            }
+        };
+
+        let folders = job_authed
+            .folders
+            .iter()
+            .filter_map(|x| serde_json::to_value(x).ok())
+            .collect::<Vec<_>>();
+
+        if let Err(err) = sqlx::query!("INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
+            values ($1, $2, $3, $4, $5, $6, $7, $8) 
+            ON CONFLICT (job_id) DO UPDATE SET email = $2, username = $3, is_admin = $4, is_operator = $5, folders = $6, groups = $7, workspace_id = $8",
+            job_id,
+            job_authed.email,
+            job_authed.username,
+            job_authed.is_admin,
+            job_authed.is_operator,
+            folders.as_slice(),
+            job_authed.groups.as_slice(),
+            workspace_id,
+        ).execute(&mut tx).await {
+            tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
+        }
+    }
+
     {
         let uuid_string = job_id.to_string();
         let uuid_str = uuid_string.as_str();
+
         let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
 
         let s: String;

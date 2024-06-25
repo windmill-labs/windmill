@@ -34,8 +34,10 @@
 		.map((x) => x.resume_id)
 		.includes(new Number($page.params.resume).valueOf())
 
+	let dynamicSchema: any = {}
+
 	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
-	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema
+	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let error: string | undefined = undefined
 	let default_payload: any = {}
@@ -91,6 +93,9 @@
 		description = job_result?.description
 		default_payload = job_result?.default_args ?? {}
 		enum_payload = job_result?.enums ?? {}
+		if (job_result?.schema) {
+			dynamicSchema = job_result?.schema ?? {}
+		}
 	}
 
 	async function getJob() {

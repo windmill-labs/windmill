@@ -54,7 +54,7 @@ pub async fn save_cache(
         if let Err(e) = os
             .put(
                 &Path::from(hash_path.clone()),
-                bytes::Bytes::from(std::fs::read(&job_main_path)?),
+                std::fs::read(&job_main_path)?.into(),
             )
             .await
         {
@@ -70,8 +70,8 @@ pub async fn save_cache(
     if !*CLOUD_HOSTED {
         tokio::fs::copy(&job_main_path, bin_path).await?;
         append_logs(
-            job.id.clone(),
-            job.workspace_id.to_string(),
+            &job.id,
+            &job.workspace_id,
             format!(
                 "\nwrite cached binary: {} (backed by object store: {_cached_to_s3})\n",
                 bin_path
@@ -81,8 +81,8 @@ pub async fn save_cache(
         .await;
     } else if _cached_to_s3 {
         append_logs(
-            job.id.clone(),
-            job.workspace_id.to_string(),
+            &job.id,
+            &job.workspace_id,
             format!("write cached binary to object store {}\n", bin_path),
             db,
         )
@@ -178,7 +178,7 @@ pub async fn handle_go_job(
 
     let cache_logs = if !cache {
         let logs1 = format!("{cache_logs}\n\n--- GO DEPENDENCIES SETUP ---\n");
-        append_logs(job.id.clone(), job.workspace_id.to_string(), logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
         install_go_dependencies(
             &job.id,
@@ -326,7 +326,7 @@ func Run(req Req) (interface{{}}, error){{
     };
 
     let logs2 = format!("{cache_logs}\n\n--- GO CODE EXECUTION ---\n");
-    append_logs(job.id.clone(), job.workspace_id.to_string(), logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
     let client = &client.get_authed().await;
 
@@ -494,7 +494,7 @@ pub async fn install_go_dependencies(
         .await?
         {
             let logs1 = format!("\nfound cached resolution: {}", hash);
-            append_logs(job_id.clone(), w_id.to_string(), logs1, db).await;
+            append_logs(&job_id, w_id, logs1, db).await;
             gen_go_mod(code, job_dir, &cached).await?;
             skip_tidy = true;
             new_lockfile = false;

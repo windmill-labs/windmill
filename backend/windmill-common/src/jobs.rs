@@ -323,6 +323,10 @@ pub enum JobPayload {
         path: String,
         version: i64,
     },
+    RawFlowDependencies {
+        path: String,
+        flow_value: FlowValue,
+    },
     RawScriptDependencies {
         script_path: String,
         content: String,

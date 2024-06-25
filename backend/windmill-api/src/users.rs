@@ -18,7 +18,7 @@ use crate::utils::{
     get_instance_username_or_create_pending,
 };
 use crate::{
-    db::DB, folders::get_folders_for_user, utils::require_super_admin, webhook_util::WebhookShared,
+    db::DB, utils::require_super_admin, webhook_util::WebhookShared,
     workspaces::invite_user_to_all_auto_invite_worspaces, BASE_URL, COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
@@ -30,6 +30,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use chrono::TimeZone;
 use hyper::{header::LOCATION, StatusCode};
 use lazy_static::lazy_static;
 use quick_cache::sync::Cache;
@@ -47,9 +48,10 @@ use windmill_common::users::truncate_token;
 use windmill_common::utils::{paginate, send_email};
 use windmill_common::worker::{CLOUD_HOSTED, SERVER_CONFIG};
 use windmill_common::{
+    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, JWT_SECRET},
     db::UserDB,
     error::{self, Error, JsonResult, Result},
-    users::SUPERADMIN_SECRET_EMAIL,
+    users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_git_sync::handle_deployment_metadata;
@@ -163,6 +165,78 @@ impl AuthCache {
         match s {
             Some(ExpiringAuthCache { authed, expiry }) if expiry > chrono::Utc::now() => {
                 Some(authed)
+            }
+            #[cfg(feature = "enterprise")]
+            _ if token.starts_with("jwt_ext_") => {
+                let authed_and_exp =
+                    crate::ee::jwt_ext_auth(w_id.as_ref(), token.trim_start_matches("jwt_ext_"))
+                        .await;
+
+                if let Some((authed, exp)) = authed_and_exp.clone() {
+                    self.cache.insert(
+                        key,
+                        ExpiringAuthCache {
+                            authed: authed.clone(),
+                            expiry: chrono::Utc.timestamp_nanos(exp as i64 * 1_000_000_000),
+                        },
+                    );
+
+                    Some(authed)
+                } else {
+                    None
+                }
+            }
+            _ if token.starts_with("jwt_") => {
+                let jwt_secret = JWT_SECRET.read().await;
+                if !jwt_secret.is_empty() {
+                    let jwt_token = token.trim_start_matches("jwt_");
+
+                    let jwt_result = jsonwebtoken::decode::<JWTAuthClaims>(
+                        jwt_token,
+                        &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
+                        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+                    );
+
+                    match jwt_result {
+                        Ok(payload) => {
+                            if w_id.is_some_and(|w_id| w_id != payload.claims.workspace_id) {
+                                tracing::error!("JWT auth error: workspace_id mismatch");
+                                return None;
+                            }
+
+                            let username_override =
+                                username_override_from_label(payload.claims.label);
+                            let authed = crate::db::ApiAuthed {
+                                email: payload.claims.email,
+                                username: payload.claims.username,
+                                is_admin: payload.claims.is_admin,
+                                is_operator: payload.claims.is_operator,
+                                groups: payload.claims.groups,
+                                folders: payload.claims.folders,
+                                scopes: None,
+                                username_override,
+                            };
+
+                            self.cache.insert(
+                                key,
+                                ExpiringAuthCache {
+                                    authed: authed.clone(),
+                                    expiry: chrono::Utc
+                                        .timestamp_nanos(payload.claims.exp as i64 * 1_000_000_000),
+                                },
+                            );
+
+                            Some(authed)
+                        }
+                        Err(err) => {
+                            tracing::error!("JWT auth error: {:?}", err);
+                            None
+                        }
+                    }
+                } else {
+                    tracing::error!("JWT auth error: no jwt secret set");
+                    None
+                }
             }
             _ => {
                 let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool, Option<Vec<String>>, Option<String>)>(
@@ -513,7 +587,9 @@ where
                 {
                     if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
                         parts.extensions.insert(authed.clone());
-                        if authed.scopes.is_some() && (path_vec.len() < 3 || path_vec[4] != "jobs")
+                        if authed.scopes.is_some()
+                            && (path_vec.len() < 3
+                                || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
                         {
                             return Err((
                                 StatusCode::UNAUTHORIZED,
@@ -623,32 +699,6 @@ pub struct WorkspaceInvite {
     pub operator: bool,
 }
 
-#[derive(FromRow, Serialize)]
-pub struct InviteCode {
-    pub code: String,
-    pub seats_left: i32,
-    pub seats_given: i32,
-}
-
-#[derive(Deserialize)]
-pub struct NewInviteCode {
-    pub code: String,
-    pub seats: i32,
-}
-
-#[derive(FromRow)]
-pub struct MagicLink {
-    pub email: String,
-    pub token: String,
-    pub expiration: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Deserialize)]
-pub struct UseMagicLink {
-    pub email: String,
-    pub token: String,
-}
-
 #[derive(Deserialize)]
 pub struct NewUser {
     pub email: String,
@@ -708,19 +758,6 @@ pub struct NewToken {
 pub struct Login {
     pub email: String,
     pub password: String,
-}
-
-#[derive(Deserialize)]
-pub struct Signup {
-    pub email: String,
-    pub password: String,
-    pub name: Option<String>,
-    pub company: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct LostPassword {
-    pub email: String,
 }
 
 #[derive(Deserialize)]
@@ -857,22 +894,6 @@ async fn update_tutorial_progress(
     .await?;
     Ok("tutorial progress updated".to_string())
 }
-
-// async fn list_invite_codes(
-//     authed: ApiAuthed,
-//     Extension(db): Extension<DB>,
-//     Query(pagination): Query<Pagination>
-// ) -> JsonResult<Vec<InviteCode>> {
-//     let mut tx = db.begin().await?;
-//     require_super_admin(&mut tx, authed.email).await?;
-//     let (per_page, offset) = crate::utils::paginate(pagination);
-
-//     let rows = sqlx::query_as!(InviteCode, "SELECT * from invite_code LIMIT $1 OFFSET $2", per_page as i32, offset as i32)
-//         .fetch_all(&mut tx)
-//         .await?;
-//     tx.commit().await?;
-//     Ok(Json(rows))
-// }
 
 async fn list_usernames(
     authed: ApiAuthed,
@@ -1101,24 +1122,6 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     }))
 }
 
-pub async fn get_groups_for_user(
-    w_id: &str,
-    username: &str,
-    email: &str,
-    db: &DB,
-) -> Result<Vec<String>> {
-    let groups = sqlx::query_scalar!(
-        "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2 UNION ALL SELECT igroup FROM email_to_igroup WHERE email = $3",
-        username,
-        w_id,
-        email
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter().filter_map(|x| x)
-    .collect();
-    Ok(groups)
-}
 pub async fn is_owner_of_path(
     authed: ApiAuthed,
     Path((_w_id, path)): Path<(String, StripPath)>,
@@ -1747,10 +1750,8 @@ async fn create_user(
 
     nu.email = nu.email.to_lowercase();
 
-    if nu.email == SUPERADMIN_SECRET_EMAIL {
-        return Err(Error::BadRequest(
-            "The superadmin email is a reserved email".into(),
-        ));
+    if nu.email == SUPERADMIN_SECRET_EMAIL || nu.email == SUPERADMIN_NOTIFICATION_EMAIL {
+        return Err(Error::BadRequest("This email address is reserved".into()));
     }
 
     check_nb_of_user(&db).await?;
@@ -2535,6 +2536,8 @@ async fn get_all_runnables(
     Ok(Json(runnables))
 }
 
+//used by oauth
+#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 pub struct LoginUserInfo {
     pub email: Option<String>,
@@ -2831,6 +2834,24 @@ async fn update_username_in_workpsace<'c>(
 
     // ---- resources----
     sqlx::query!(
+        r#"UPDATE resource SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE resource_type SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         r#"UPDATE resource SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
@@ -3032,6 +3053,15 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     // ---- folders ----
+
+    sqlx::query!(
+        "UPDATE folder SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
 
     sqlx::query!(
         "UPDATE folder SET owners = ARRAY_REPLACE(owners, 'u/' || $2, 'u/' || $1) WHERE  ('u/' || $2) = ANY(owners) AND workspace_id = $3",

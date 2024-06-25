@@ -41,7 +41,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
-	import type { FlowEditorContext } from './flows/types'
+	import type { FlowEditorContext, FlowInput } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
 	import { Calendar, Pen, Save, DiffIcon } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -377,7 +377,8 @@
 		pathStore,
 		testStepStore,
 		saveDraft,
-		initialPath
+		initialPath,
+		flowInputsStore: writable<FlowInput | undefined>({})
 	})
 
 	async function loadSchedule() {
