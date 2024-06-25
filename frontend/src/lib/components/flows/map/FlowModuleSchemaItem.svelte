@@ -35,6 +35,7 @@
 	export let bgColor: string = ''
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
+	export let warningMessage: string | undefined = undefined
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
 		'FlowGraphContext'
@@ -174,10 +175,12 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
 
-		{#if id && !Object.values($flowInputsStore?.[id]?.requiredInputsFilled || {}).every(Boolean)}
+		{#if (id && !Object.values($flowInputsStore?.[id]?.requiredInputsFilled || {}).every(Boolean)) || Boolean(warningMessage)}
 			<div class="absolute -top-[10px] -left-[10px]">
 				<Popover>
-					<svelte:fragment slot="text">At least one required input is not set.</svelte:fragment>
+					<svelte:fragment slot="text"
+						>{warningMessage ?? 'At least one required input is not set.'}
+					</svelte:fragment>
 					<div
 						class="flex items-center justify-center h-full w-full rounded-md p-0.5 border border-yellow-600 text-yellow-600 bg-yellow-100 duration-150 hover:bg-yellow-300"
 					>
