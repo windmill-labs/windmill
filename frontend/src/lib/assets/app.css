@@ -28,6 +28,7 @@
 		list-style-type: '- ';
 		padding-left: 3rem;
 	}
+
 	.autocomplete-list-item-create {
 		@apply !text-primary-inverse !bg-surface-inverse;
 	}
@@ -48,6 +49,18 @@
 		@apply !bg-surface;
 	}
 
+<<<<<<< HEAD
+=======
+	/* Components */
+	.component-wrapper {
+		@apply rounded-component border overflow-hidden border-gray-300 dark:border-gray-600;
+	}
+
+	.app-editor-input {
+		@apply rounded-component border border-gray-300 dark:border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
+		@apply placeholder:text-gray-400 dark:placeholder:text-gray-600;
+	}
+>>>>>>> e54caa357 (remove uncessary app.css)
 }
 
 @layer components {
@@ -91,10 +104,6 @@
 	z-index: 5000 !important;
 }
 
-.foo {
-	color: red !important;
-}
-
 svelte-virtual-list-row {
 	overflow: visible !important;
 }
@@ -106,10 +115,6 @@ svelte-virtual-list-contents > * + * {
 
 .monaco-editor textarea:focus {
 	box-shadow: none !important;
-}
-
-.Template-editor span.mtk20 {
-	color: black !important;
 }
 
 .grid-cell-centered {
