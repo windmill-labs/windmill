@@ -23,6 +23,7 @@
 	export let path: string = ''
 	export let newResource: boolean = false
 	export let hidePath: boolean = false
+	export let watchChanges: boolean = false
 
 	let isValid = true
 	let jsonError = ''
@@ -44,9 +45,11 @@
 	let editDescription = false
 	let viewJsonSchema = false
 
-	let rawCode: string | undefined = undefined
-
 	const dispatch = createEventDispatcher()
+
+	$: watchChanges && dispatch('change', { path, args, description })
+
+	let rawCode: string | undefined = undefined
 
 	async function initEdit() {
 		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path })

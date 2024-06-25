@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.352.6",
+	"version": "1.352.9",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -204,6 +204,11 @@
 			"svelte": "./package/components/common/tabs/Tab.svelte",
 			"default": "./package/components/common/tabs/Tab.svelte"
 		},
+		"./components/common/tabs/AppTheme.svelte": {
+			"types": "./package/components/AppTheme.svelte.d.ts",
+			"svelte": "./package/components/AppTheme.svelte",
+			"default": "./package/components/AppTheme.svelte"
+		},
 		"./components/common/alert/Alert.svelte": {
 			"types": "./package/components/common/alert/Alert.svelte.d.ts",
 			"svelte": "./package/components/common/alert/Alert.svelte",
@@ -393,6 +398,9 @@
 			],
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
+			],
+			"components/AppTheme.svelte": [
+				"./package/components/AppTheme.svelte.d.ts"
 			],
 			"components/EditableSchemaWrapper.svelte": [
 				"./package/components/schema/EditableSchemaWrapper.svelte.d.ts"

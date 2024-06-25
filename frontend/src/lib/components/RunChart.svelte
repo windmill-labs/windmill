@@ -103,10 +103,15 @@
 		}
 	}
 
-	function getBackgorundColor(): string {
-		const isDark = document.documentElement.classList.contains('dark')
+	function isDark(): boolean {
+		return document.documentElement.classList.contains('dark')
+	}
 
-		return isDark ? '#2e3440' : '#ffffff'
+	ChartJS.defaults.color = isDark() ? '#ccc' : '#666'
+	ChartJS.defaults.borderColor = isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+
+	function getBackgorundColor(): string {
+		return isDark() ? '#2e3440' : '#ffffff'
 	}
 	function hexToRgb(hexColor: string): number[] {
 		hexColor = hexColor.replace(/^#/, '')
@@ -265,7 +270,6 @@
 	} as any
 
 	$: data && scatterOptions && highlightSelectedPoints(selectedIds)
-
 </script>
 
 <!-- {JSON.stringify(minTime)}

@@ -28,33 +28,6 @@
 		list-style-type: '- ';
 		padding-left: 3rem;
 	}
-	.splitpanes--vertical > .splitpanes__pane {
-		transition: none !important;
-	}
-
-	.splitpanes--horizontal > .splitpanes__pane {
-		transition: none !important;
-	}
-
-	.monaco-workbench > .notifications-toasts.visible {
-		display: none !important;
-	}
-
-	.monaco-editor .suggest-widget {
-		z-index: 10001 !important;
-	}
-
-	.nowrap pre code.hljs {
-		whitespace: normal !important;
-	}
-
-	.z5000 {
-		z-index: 5000 !important;
-	}
-
-	.foo {
-		color: red !important;
-	}
 	.autocomplete-list-item-create {
 		@apply !text-primary-inverse !bg-surface-inverse;
 	}
@@ -74,25 +47,23 @@
 	.autocomplete-list {
 		@apply !bg-surface;
 	}
-	pre code.hljs {
-		overflow: visible !important;
+
+	.ol-overlaycontainer-stopevent {
+		@apply flex flex-col justify-start items-end;
+	}
+	.ol-control button {
+		@apply w-7 h-7 center-center bg-surface border text-secondary 
+		rounded mt-1 mr-1 shadow duration-200 hover:bg-surface-hover focus:bg-surface-hover;
 	}
 
-	svelte-virtual-list-row {
-		overflow: visible !important;
+	/* Components */
+	.component-wrapper {
+		@apply rounded-component border overflow-hidden border-gray-300 dark:border-gray-600;
 	}
 
-	svelte-virtual-list-contents > * + * {
-		border-top-width: 1px !important;
-		border-bottom-width: 0px !important;
-	}
-
-	.monaco-editor textarea:focus {
-		box-shadow: none !important;
-	}
-
-	.Template-editor span.mtk20 {
-		color: black !important;
+	.app-editor-input {
+		@apply rounded-component border border-gray-300 dark:border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
+		@apply placeholder:text-gray-400 dark:placeholder:text-gray-600;
 	}
 }
 
@@ -117,6 +88,47 @@
 	}
 }
 
+.splitpanes--vertical > .splitpanes__pane {
+	transition: none !important;
+}
+
+.splitpanes--horizontal > .splitpanes__pane {
+	transition: none !important;
+}
+
+.monaco-workbench > .notifications-toasts.visible {
+	display: none !important;
+}
+
+.monaco-editor .suggest-widget {
+	z-index: 10001 !important;
+}
+
+.z5000 {
+	z-index: 5000 !important;
+}
+
+.foo {
+	color: red !important;
+}
+
+svelte-virtual-list-row {
+	overflow: visible !important;
+}
+
+svelte-virtual-list-contents > * + * {
+	border-top-width: 1px !important;
+	border-bottom-width: 0px !important;
+}
+
+.monaco-editor textarea:focus {
+	box-shadow: none !important;
+}
+
+.Template-editor span.mtk20 {
+	color: black !important;
+}
+
 .grid-cell-centered {
 	display: flex;
 	align-items: center;
@@ -128,22 +140,4 @@
 
 .grid-cell-centered .selected-item {
 	margin-top: -4px;
-}
-
-.ol-overlaycontainer-stopevent {
-	@apply flex flex-col justify-start items-end;
-}
-.ol-control button {
-	@apply w-7 h-7 center-center bg-surface border text-secondary 
-	rounded mt-1 mr-1 shadow duration-200 hover:bg-surface-hover focus:bg-surface-hover;
-}
-
-/* Components */
-.component-wrapper {
-	@apply rounded-component border overflow-hidden border-gray-300 dark:border-gray-600;
-}
-
-.app-editor-input {
-	@apply rounded-component border border-gray-300 dark:border-gray-500 focus:border-gray-300 focus:dark:border-gray-500 focus:!ring-1 focus:!ring-blue-300;
-	@apply placeholder:text-gray-400 dark:placeholder:text-gray-600;
 }
