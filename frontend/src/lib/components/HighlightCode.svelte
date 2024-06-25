@@ -13,6 +13,7 @@
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { ClipboardCopy } from 'lucide-svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let code: string = ''
 	export let language: Script['language'] | 'frontend' | undefined
@@ -56,6 +57,8 @@
 
 	$: lang = getLang(language)
 </script>
+
+<HighlightTheme />
 
 <div class="relative overflow-x-auto">
 	<Button

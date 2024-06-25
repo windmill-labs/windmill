@@ -11,14 +11,12 @@
 	import { twMerge } from 'tailwind-merge'
 
 	import { setContext } from 'svelte'
-	import github from 'svelte-highlight/styles/github'
 	import { writable } from 'svelte/store'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Login from '$lib/components/Login.svelte'
 	import { getUserExt } from '$lib/user'
 	import { User, UserRoundX } from 'lucide-svelte'
-	import ChartHighlightTheme from '$lib/components/ChartHighlightTheme.svelte'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
@@ -66,12 +64,6 @@
 		document.documentElement.classList.remove('dark')
 	}
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
-
-<ChartHighlightTheme />
 
 <div
 	class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()

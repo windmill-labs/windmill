@@ -888,6 +888,9 @@ const config = {
 				'.dark .inner-border': {
 					boxShadow: `inset 0 0 0 1px ${darkTheme.border}`
 				},
+				'.z5000': {
+					zIndex: '5000 !important'
+				},
 				'.ellipsize': {
 					overflow: 'hidden',
 					whiteSpace: 'nowrap',
