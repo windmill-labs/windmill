@@ -160,7 +160,7 @@ export function findEveryParentGridItem(app: App, id: string): string[] {
 		if (parentGrid) {
 			parentGrids.push(parentGrid)
 
-			const parentId = parentGrid.split('-')[0]
+			const parentId = parentGrid?.split('-')?.[0]
 
 			if (parentId) {
 				findParents(currentApp, parentId)

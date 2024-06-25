@@ -52,10 +52,10 @@
 	}
 
 	function processParents(parents: string[]) {
-		parents.forEach((subgrid) => {
-			if (subgrid) {
-				const parentId = subgrid.includes('-') ? subgrid.split('-')[0] : subgrid
-				addGridItemContext(parentId)
+		parents.forEach((parentId) => {
+			if (parentId) {
+				const parsedParentId = parentId?.includes('-') ? parentId?.split('-')[0] : parentId
+				addGridItemContext(parsedParentId)
 			}
 		})
 	}
@@ -63,7 +63,9 @@
 	function findParent(id: string): GridItem | undefined {
 		if (!id) return
 		if (id.includes('_')) {
-			const parentId = id.split('_')[0]
+			const parentId = id.split('_')?.[0]
+
+			if (!parentId) return
 			const allParents = [parentId, ...findEveryParentGridItem($app, parentId)]
 			processParents(allParents)
 		} else {
