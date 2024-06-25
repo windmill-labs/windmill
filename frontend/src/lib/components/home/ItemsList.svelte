@@ -76,7 +76,8 @@
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
 			showArchived: archived ? true : undefined,
-			hideWithoutMain: hideWithoutMain ? true : undefined
+			hideWithoutMain: hideWithoutMain ? true : undefined,
+			showDraftOnly: true
 		})
 
 		scripts = loadedScripts.map((script: Script) => {

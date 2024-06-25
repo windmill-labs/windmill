@@ -45,7 +45,7 @@
 			}))
 		} else if (itemKind == 'script') {
 			items = (
-				await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kinds.join(','), hideDraftOnly: true })
+				await ScriptService.listScripts({ workspace: $workspaceStore!, kinds: kinds.join(',') })
 			).map((script) => ({
 				value: script.path,
 				label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`

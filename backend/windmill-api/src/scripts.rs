@@ -230,6 +230,10 @@ async fn list_scripts(
         sqlb.and_where("o.no_main_func IS NOT TRUE");
     }
 
+    if !lq.show_draft_only.unwrap_or(false) {
+        sqlb.and_where("draft_only IS NOT TRUE");
+    }
+
     if lq.show_archived.unwrap_or(false) {
         sqlb.and_where_eq(
             "o.created_at",

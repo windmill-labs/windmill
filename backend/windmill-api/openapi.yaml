@@ -3516,10 +3516,10 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: hide_draft_only
+        - name: show_draft_only
           description: |
             (default false)
-            hide the scripts that have no deployed version
+            include scripts that have no deployed version
           in: query
           schema:
             type: boolean
