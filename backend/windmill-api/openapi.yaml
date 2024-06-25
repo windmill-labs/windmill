@@ -9988,6 +9988,9 @@ components:
           type: boolean
         tag:
           type: string
+        paused_until:
+          type: string
+          format: date-time
       required:
         - path
         - edited_by
@@ -10063,6 +10066,9 @@ components:
           type: string
         tag:
           type: string
+        paused_until:
+          type: string
+          format: date-time
       required:
         - path
         - schedule
@@ -10105,6 +10111,9 @@ components:
           type: string
         tag:
           type: string
+        paused_until:
+          type: string
+          format: date-time
       required:
         - schedule
         - timezone
