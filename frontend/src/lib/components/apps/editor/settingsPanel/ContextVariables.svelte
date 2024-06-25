@@ -54,7 +54,7 @@
 	function processParents(parents: string[]) {
 		parents.forEach((parentId) => {
 			if (parentId) {
-				const parsedParentId = parentId?.includes('-') ? parentId?.split('-')[0] : parentId
+				const parsedParentId = parentId?.includes('-') ? parentId.split('-')[0] : parentId
 				addGridItemContext(parsedParentId)
 			}
 		})
