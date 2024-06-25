@@ -133,7 +133,8 @@
 						<div class="text-sm font-bold whitespace-nowrap">
 							Iterator expression
 							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
-								List to iterate over.
+								The JavaScript expression that will be evaluated to get the list of items to iterate
+								over. Example : ["banana", "apple", flow_input.my_fruit].
 							</Tooltip>
 						</div>
 						{#if enableAi}
