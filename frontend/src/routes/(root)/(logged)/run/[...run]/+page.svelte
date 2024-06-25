@@ -83,6 +83,7 @@
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -274,6 +275,8 @@
 
 	let scheduleEditor: ScheduleEditor
 </script>
+
+<HighlightTheme />
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
