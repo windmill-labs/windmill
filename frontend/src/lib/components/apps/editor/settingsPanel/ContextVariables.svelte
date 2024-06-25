@@ -23,26 +23,26 @@
 		description: string
 	}[] = []
 
+	function addContextVariable(label: string, description: string): void {
+		if (!contextVariables.some((variable) => variable.label === label)) {
+			contextVariables.push({ label, description })
+		}
+	}
+
 	if (tables.includes(type)) {
-		contextVariables.push({
-			label: 'row',
-			description: 'The current row of a table. Row is an object with keys index and value.'
-		})
+		addContextVariable(
+			'row',
+			'The current row of a table. Row is an object with keys index and value.'
+		)
 	} else if (type === 's3fileinputcomponent' || type === 'fileinputcomponent') {
-		contextVariables.push({
-			label: 'file',
-			description: 'The current file being processed.'
-		})
+		addContextVariable('file', 'The current file being processed.')
 	} else if (type === 'containercomponent') {
-		contextVariables.push({
-			label: 'group',
-			description: 'The group name of the container.'
-		})
+		addContextVariable('group', 'The group name of the container.')
 	} else if (type === 'listcomponent') {
-		contextVariables.push({
-			label: 'iter',
-			description: 'The current iteration of the list. Iter is an object with keys index and value.'
-		})
+		addContextVariable(
+			'iter',
+			'The current iteration of the list. Iter is an object with keys index and value.'
+		)
 	}
 
 	function findParent(id: string): GridItem | undefined {
@@ -71,20 +71,17 @@
 	const parent = findParent(id)
 
 	if (parent?.data?.type === 'containercomponent') {
-		contextVariables.push({
-			label: 'group',
-			description: 'The group name of the container.'
-		})
+		addContextVariable('group', 'The group name of the container.')
 	} else if (parent?.data?.type === 'listcomponent') {
-		contextVariables.push({
-			label: 'iter',
-			description: 'The current iteration of the list. Iter is an object with keys index and value.'
-		})
+		addContextVariable(
+			'iter',
+			'The current iteration of the list. Iter is an object with keys index and value.'
+		)
 	} else if (parent?.data?.type && tables.includes(parent?.data?.type)) {
-		contextVariables.push({
-			label: 'row',
-			description: 'The current row of a table. Row is an object with keys index and value.'
-		})
+		addContextVariable(
+			'row',
+			'The current row of a table. Row is an object with keys index and value.'
+		)
 	}
 </script>
 
