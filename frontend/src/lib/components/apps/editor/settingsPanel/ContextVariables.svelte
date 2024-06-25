@@ -2,7 +2,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, GridItem } from '../../types'
 	import { findGridItem, findGridItemParentGrid } from '../appUtils'
 
 	export let type: string
@@ -45,15 +45,24 @@
 		})
 	}
 
-	function findParent(id: string) {
-		if (id.includes('_')) {
-			const parentId = id.split('_')[0]
+	function findParent(id: string): GridItem | undefined {
+		if (!id) return
+
+		if (id?.includes('_')) {
+			// This is an action of a table
+			const parentId = id.split('_')?.[0]
+
+			if (!parentId) return
+
 			return findGridItem($app, parentId)
 		} else {
 			const subgrid = findGridItemParentGrid($app, id)
 
 			if (subgrid && subgrid.includes('-')) {
-				const parentId = subgrid.split('-')[0]
+				const parentId = subgrid?.split('-')?.[0]
+
+				if (!parentId) return
+
 				return findGridItem($app, parentId)
 			}
 		}
@@ -61,17 +70,17 @@
 
 	const parent = findParent(id)
 
-	if (parent?.data.type === 'containercomponent') {
+	if (parent?.data?.type === 'containercomponent') {
 		contextVariables.push({
 			label: 'group',
 			description: 'The group name of the container.'
 		})
-	} else if (parent?.data.type === 'listcomponent') {
+	} else if (parent?.data?.type === 'listcomponent') {
 		contextVariables.push({
 			label: 'iter',
 			description: 'The current iteration of the list. Iter is an object with keys index and value.'
 		})
-	} else if (parent?.data.type && tables.includes(parent?.data.type)) {
+	} else if (parent?.data?.type && tables.includes(parent?.data?.type)) {
 		contextVariables.push({
 			label: 'row',
 			description: 'The current row of a table. Row is an object with keys index and value.'
