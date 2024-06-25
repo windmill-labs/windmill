@@ -19,6 +19,7 @@
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
+			hideDraftOnly: true,
 			perPage: 300
 		})
 

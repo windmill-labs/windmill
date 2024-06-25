@@ -3516,6 +3516,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: hide_draft_only
+          description: |
+            (default false)
+            hide the scripts that have no deployed version
+          in: query
+          schema:
+            type: boolean
         - name: is_template
           description: |
             (default regardless)
