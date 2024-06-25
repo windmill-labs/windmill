@@ -126,6 +126,7 @@
 
 		{#if value && value != ''}
 			<Button
+				color="light"
 				variant="border"
 				size="xs"
 				on:click={() => resourceEditor?.initEdit?.(value ?? '')}

@@ -14,13 +14,16 @@
 
 	let path: string | undefined = undefined
 
+	let newResource = false
 	export async function initEdit(p: string): Promise<void> {
 		resource_type = undefined
+		newResource = false
 		path = p
 		drawer.openDrawer?.()
 	}
 
 	export async function initNew(resourceType: string): Promise<void> {
+		newResource = true
 		path = undefined
 		resource_type = resourceType
 		drawer.openDrawer?.()
@@ -30,7 +33,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title={path ? 'Edit ' + path : 'Add a resource'} on:close={drawer.closeDrawer}>
 		<ResourceEditor
-			newResource
+			{newResource}
 			{path}
 			{resource_type}
 			on:refresh

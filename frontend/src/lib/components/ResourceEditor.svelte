@@ -201,14 +201,15 @@
 
 			<GfmMarkdown md={description} />
 		{/if}
-		<div class="flex w-full justify-between max-w-lg items-center mt-4">
+		<div class="flex w-full justify-between items-center mt-4">
+			<div />
+			<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
 			<Toggle
 				on:change={(e) => switchTab(e.detail)}
 				options={{
 					right: 'As JSON'
 				}}
 			/>
-			<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
 		</div>
 		<div class="text-sm">
 			{#if loadingSchema}
