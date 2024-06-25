@@ -18,6 +18,7 @@
 	export let returnFileNames = false
 	export let submittedText: string | undefined = undefined
 	export let defaultFile: string | undefined = undefined
+	export let disabled: boolean | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
@@ -133,6 +134,7 @@
 	on:dragover={handleDragOver}
 	on:drop={handleDrop}
 	{style}
+	{disabled}
 >
 	{#if !hideIcon && !files}
 		<FileUp size={iconSize} class="mb-2" />

@@ -23,6 +23,7 @@
 	export let minTimeSet: string | undefined = undefined
 	export let maxTimeSet: string | undefined = undefined
 	export let selectedIds: string[] = []
+	export let canSelect: boolean = true
 
 	const dispatch = createEventDispatcher()
 	const SUCCESS_COLOR = '#4ade80'
@@ -147,7 +148,7 @@
 	}
 
 	function highlightSelectedPoints(ids: string[]) {
-		if (ids.length === 0) {
+		if (!canSelect || ids.length === 0) {
 			data.datasets[0].backgroundColor = FAIL_COLOR
 			data.datasets[1].backgroundColor = SUCCESS_COLOR
 		} else {
@@ -242,8 +243,10 @@
 			}
 		},
 		onClick: (e, u) => {
-			const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
-			selectedIds = ids
+			if (canSelect) {
+				const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
+				selectedIds = ids
+			}
 		},
 
 		scales: {
