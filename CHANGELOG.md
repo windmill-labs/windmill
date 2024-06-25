@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.354.0](https://github.com/windmill-labs/windmill/compare/v1.353.0...v1.354.0) (2024-06-25)
+
+
+### Features
+
+* **frontend:** app editor help box ([#3970](https://github.com/windmill-labs/windmill/issues/3970)) ([cab248c](https://github.com/windmill-labs/windmill/commit/cab248cefff73bab818c477b4e40220b3d81eac9))
+* schedule pausing ([#3976](https://github.com/windmill-labs/windmill/issues/3976)) ([f8dc215](https://github.com/windmill-labs/windmill/commit/f8dc21542fd3a57e4272d874a034a3af1cdd8348))
+
 ## [1.353.0](https://github.com/windmill-labs/windmill/compare/v1.352.0...v1.353.0) (2024-06-24)
 
 
