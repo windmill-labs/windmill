@@ -165,7 +165,7 @@
 			<div
 				style={css?.popup?.style}
 				class={twMerge(
-					'mx-24 mt-8 bg-surface rounded-lg relative min-h-0 max-h-[calc(100%-42px)] ',
+					'mx-24 mt-8 bg-surface rounded-lg relative min-h-0 max-h-[calc(100%-42px)] overflow-hidden',
 					css?.popup?.class
 				)}
 				use:clickOutside={false}
