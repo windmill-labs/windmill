@@ -21,7 +21,7 @@ RUN apt-get -y update \
 RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
 RUN make
 
-FROM ghcr.io/windmill-labs/windmill-ee:dev as downloader
+FROM ghcr.io/windmill-labs/windmill-ee:dev
 
 RUN apt-get update && apt-get install -y libprotobuf-dev libnl-route-3-dev
 
