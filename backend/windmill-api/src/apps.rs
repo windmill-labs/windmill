@@ -287,7 +287,7 @@ async fn list_apps(
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
     }
 
-    if authed.is_operator {
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("app.draft_only IS NOT TRUE");
     }
 

@@ -440,7 +440,13 @@ export function removeExtensionToPath(path: string): string {
   throw new Error("Invalid extension: " + path);
 }
 
-async function list(opts: GlobalOptions & { showArchived?: boolean }) {
+async function list(
+  opts: GlobalOptions & {
+    showArchived?: boolean;
+    includeWithoutMain?: boolean;
+    includeDraftOnly?: boolean;
+  }
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -453,6 +459,8 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
       page,
       perPage,
       showArchived: opts.showArchived ?? false,
+      includeWithoutMain: opts.includeWithoutMain ?? false,
+      includeDraftOnly: opts.includeDraftOnly ?? true,
     });
     page += 1;
     total.push(...res);

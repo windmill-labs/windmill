@@ -336,8 +336,8 @@ pub struct ListScriptQuery {
     pub is_template: Option<bool>,
     pub kinds: Option<String>,
     pub starred_only: Option<bool>,
-    pub hide_without_main: Option<bool>,
-    pub show_draft_only: Option<bool>,
+    pub include_without_main: Option<bool>,
+    pub include_draft_only: Option<bool>,
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {

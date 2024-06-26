@@ -155,7 +155,7 @@ async fn list_flows(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
-    if authed.is_operator {
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("o.draft_only IS NOT TRUE");
     }
 

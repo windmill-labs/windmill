@@ -226,11 +226,11 @@ async fn list_scripts(
         .limit(per_page)
         .clone();
 
-    if authed.is_operator || lq.hide_without_main.unwrap_or(false) {
+    if !lq.include_without_main.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("o.no_main_func IS NOT TRUE");
     }
 
-    if !lq.show_draft_only.unwrap_or(false) || authed.is_operator {
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("draft_only IS NOT TRUE");
     }
 
