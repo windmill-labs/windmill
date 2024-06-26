@@ -5,7 +5,7 @@
 	import { initCss } from '../../utils'
 	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
-	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput, maxHeight, ROW_GAP_Y, ROW_HEIGHT } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import Portal from 'svelte-portal'
 	import { clickOutside } from '$lib/utils'
@@ -35,7 +35,8 @@
 		connectingInput,
 		mode,
 		componentControl,
-		runnableComponents
+		runnableComponents,
+		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -76,6 +77,15 @@
 			disposable?.closeDrawer()
 		}
 	}
+	let wrapperHeight: number = 0
+	let headerHeight: number = 0
+
+	$: containerHeight = Math.min(
+		// 8px * 2 of padding
+		maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y) + 16,
+		// 32px (2rem) of top and bottom margin
+		wrapperHeight - headerHeight - 64
+	)
 </script>
 
 <InitializeComponent {id} />
@@ -134,7 +144,6 @@
 		</AlignWrapper>
 	</div>
 {/if}
-
 <Portal target="#app-editor-top-level-drawer">
 	<Disposable
 		{id}
@@ -159,6 +168,7 @@
 				open ? ' bg-black bg-opacity-60' : 'h-0 overflow-hidden invisible'
 			)}
 			style="z-index: {zIndex}"
+			bind:clientHeight={wrapperHeight}
 		>
 			<div
 				style={css?.popup?.style}
@@ -170,7 +180,10 @@
 					}
 				}}
 			>
-				<div class="px-4 py-2 border-b flex justify-between items-center">
+				<div
+					class="px-4 py-2 border-b flex justify-between items-center"
+					bind:clientHeight={headerHeight}
+				>
 					<div>{resolvedConfig.modalTitle}</div>
 					<div class="w-8">
 						<button
@@ -183,8 +196,9 @@
 						</button>
 					</div>
 				</div>
+
 				<div
-					class="wm-modal"
+					class={twMerge('wm-modal h-full', 'overflow-y-auto')}
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
@@ -200,7 +214,7 @@
 						<SubGridEditor
 							visible={open && render}
 							{id}
-							noPadding
+							{containerHeight}
 							subGridId={`${id}-0`}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
