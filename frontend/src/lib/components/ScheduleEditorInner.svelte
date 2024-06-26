@@ -520,7 +520,11 @@
 				</svelte:fragment>
 				<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
 				<Toggle
-					options={{ right: 'Pause schedule until...' }}
+					options={{
+						right: 'Pause schedule until...',
+						rightTooltip:
+							'Pausing the schedule will program the next job to run as if the schedule starts at the time the pause is lifted, instead of now.'
+					}}
 					bind:checked={showPauseUntil}
 					size="xs"
 				/>
