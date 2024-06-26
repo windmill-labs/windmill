@@ -1,0 +1,33 @@
+ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
+
+FROM ${PYTHON_IMAGE}
+
+ARG APP=/usr/src/app
+
+RUN apt-get update \
+    && apt-get install -y ca-certificates wget curl git jq unzip build-essential unixodbc xmlsec1  software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
+RUN apt-get -y update && apt-get install -y curl nodejs awscli
+
+ENV TZ=Etc/UTC
+
+RUN /usr/local/bin/python3 -m pip install pip-tools
+
+COPY --from=oven/bun:1.1.8 /usr/local/bin/bun /usr/bin/bun
+
+# add the docker client to call docker from a worker if enabled
+COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
+
+WORKDIR ${APP}
+
+COPY --from=ghcr.io/windmill-labs/windmill-ee:dev --chmod=755  ${APP}/windmill ${APP}/windmill
+
+RUN ln -s ${APP}/windmill /usr/local/bin/windmill
+
+RUN windmill cache
+
+EXPOSE 8000
+
+CMD ["windmill"]
