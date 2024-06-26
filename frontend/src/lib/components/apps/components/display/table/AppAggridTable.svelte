@@ -586,7 +586,7 @@
 	</SyncColumnDefs>
 </RunnableWrapper>
 
-<style>
+<style global>
 	.ag-theme-alpine {
 		--ag-row-border-style: solid;
 		--ag-border-color: rgb(209 213 219);
@@ -598,5 +598,18 @@
 	.ag-theme-alpine-dark {
 		--ag-border-color: #4b5563;
 		--ag-alpine-active-color: #64748b;
+	}
+
+	.grid-cell-centered {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.grid-cell-centered .svelte-select {
+		height: 32px !important;
+	}
+
+	.grid-cell-centered .selected-item {
+		margin-top: -4px;
 	}
 </style>

@@ -14,7 +14,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -50,6 +49,7 @@
 	import { onMount } from 'svelte'
 	import autosize from '$lib/autosize'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
+	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -80,7 +80,7 @@
 		schema: emptySchema(),
 		description: ''
 	}
-	let resourceEditor: ResourceEditor | undefined
+	let resourceEditor: ResourceEditorDrawer | undefined
 	let shareModal: ShareModal
 	let appConnect: AppConnect
 	let supabaseConnect: SupabaseConnect
@@ -895,7 +895,7 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<ResourceEditor bind:this={resourceEditor} on:refresh={loadResources} />
+<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
 
 <ShareModal
 	bind:this={shareModal}
