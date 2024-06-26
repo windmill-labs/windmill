@@ -986,13 +986,9 @@ async fn compute_skip_branchall_failure<'c>(
                 Error::InternalErr(format!("error during retrieval of branchall index: {e:#}"))
             })?
             .map(|p| {
-                p.split('/')
-                    .last()
-                    .map(|x| {
-                        x.strip_prefix("branchall-")
-                            .map(|x| x.parse::<i32>().ok())
-                            .flatten()
-                    })
+                BRANCHALL_INDEX_RE
+                    .captures(&p)
+                    .map(|x| x.get(1).unwrap().as_str().parse::<i32>().ok())
                     .flatten()
                     .ok_or(Error::InternalErr(format!(
                         "could not parse branchall index from path: {p}"
@@ -1317,6 +1313,8 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<usize>().ok());
 
     static ref CRASH_STEP_COUNTER: AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    static ref BRANCHALL_INDEX_RE: regex::Regex = regex::Regex::new(r"/branchall-(\d+)$").unwrap();
 }
 
 #[inline(always)]
