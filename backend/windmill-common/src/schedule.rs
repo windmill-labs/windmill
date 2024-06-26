@@ -51,6 +51,8 @@ pub struct Schedule {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused_until: Option<DateTime<chrono::Utc>>,
 }
 
 impl Schedule {

@@ -11,6 +11,7 @@
 	import { tutorialsToDo } from '$lib/stores'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
+	import DocLink from '../settingsPanel/DocLink.svelte'
 
 	const PREFIX = 'script-selector-' as const
 
@@ -81,6 +82,9 @@
 </script>
 
 <PanelSection title="Runnables" id="app-editor-runnable-panel">
+	<svelte:fragment slot="action">
+		<DocLink docLink="https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable" />
+	</svelte:fragment>
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="flex flex-col gap-2 w-full">

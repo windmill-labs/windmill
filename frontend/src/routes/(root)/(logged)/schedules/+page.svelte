@@ -127,7 +127,7 @@
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = 'all'
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
-	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
+	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind =
 		(getLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING) as 'schedule' | 'script_flow') ?? 'schedule'
 	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
@@ -203,20 +203,22 @@
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled) {
-		setQuery(new URL(window.location.href), 'scheduleFilterKind', selectedFilterKind).then(() => {
-			setQuery(new URL(window.location.href), 'filterUserFolders', String(filterUserFolders)).then(
-				() => {
-					setQuery(new URL(window.location.href), 'filterEnabledDisabled', filterEnabledDisabled)
-				}
-			)
+		setQuery(new URL(window.location.href), 'filter_kind', selectedFilterKind).then(() => {
+			setQuery(
+				new URL(window.location.href),
+				'user_and_folders_only',
+				String(filterUserFolders)
+			).then(() => {
+				setQuery(new URL(window.location.href), 'status', filterEnabledDisabled)
+			})
 		})
 	}
 
 	function loadQueryFilters() {
 		let url = new URL(window.location.href)
-		let queryFilterKind = url.searchParams.get('scheduleFilterKind')
-		let queryFilterUserFolders = url.searchParams.get('filterUserFolders')
-		let queryFilterEnabledDisabled = url.searchParams.get('filterEnabledDisabled')
+		let queryFilterKind = url.searchParams.get('filter_kind')
+		let queryFilterUserFolders = url.searchParams.get('user_and_folders_only')
+		let queryFilterEnabledDisabled = url.searchParams.get('status')
 		if (queryFilterKind) {
 			selectedFilterKind = queryFilterKind as 'schedule' | 'script_flow'
 		}
@@ -291,7 +293,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs, paused_until } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const avg_s = jobs
 						? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -322,6 +324,14 @@
 									schedule: {path}
 								</div>
 							</a>
+
+							{#if paused_until && new Date(paused_until) > new Date()}
+								<div class="pb-1">
+									<Badge color="yellow"
+										>Paused until {new Date(paused_until).toLocaleString()}</Badge
+									>
+								</div>
+							{/if}
 
 							<div class="gap-2 items-center hidden md:flex">
 								<Badge large color="blue">{schedule}</Badge>

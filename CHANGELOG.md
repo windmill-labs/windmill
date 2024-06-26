@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.354.0](https://github.com/windmill-labs/windmill/compare/v1.353.0...v1.354.0) (2024-06-25)
+
+
+### Features
+
+* **frontend:** app editor help box ([#3970](https://github.com/windmill-labs/windmill/issues/3970)) ([cab248c](https://github.com/windmill-labs/windmill/commit/cab248cefff73bab818c477b4e40220b3d81eac9))
+* schedule pausing ([#3976](https://github.com/windmill-labs/windmill/issues/3976)) ([f8dc215](https://github.com/windmill-labs/windmill/commit/f8dc21542fd3a57e4272d874a034a3af1cdd8348))
+
+## [1.353.0](https://github.com/windmill-labs/windmill/compare/v1.352.0...v1.353.0) (2024-06-24)
+
+
+### Features
+
+* **frontend:** add an indicator when a for loop has no iterator expression ([#3961](https://github.com/windmill-labs/windmill/issues/3961)) ([ee7db8c](https://github.com/windmill-labs/windmill/commit/ee7db8c8e33eb990279d5badc95dc54b0c6124dd))
+
+
+### Bug Fixes
+
+* **frontend:** Add missing on change event when connecting an input ([#3964](https://github.com/windmill-labs/windmill/issues/3964)) ([a804e01](https://github.com/windmill-labs/windmill/commit/a804e013c2672478469edd5e512d7ce63ba92bcd))
+* **frontend:** improve disable style of the select component ([#3938](https://github.com/windmill-labs/windmill/issues/3938)) ([183361d](https://github.com/windmill-labs/windmill/commit/183361df85e5efbcea4a53bddc3e641cbf73acd2))
+* Improve cancel selected jobs action ([#3960](https://github.com/windmill-labs/windmill/issues/3960)) ([4ef3823](https://github.com/windmill-labs/windmill/commit/4ef38233c1a21b143456fe79d5675b2ad8f3606e))
+
 ## [1.352.0](https://github.com/windmill-labs/windmill/compare/v1.351.0...v1.352.0) (2024-06-22)
 
 

@@ -41,6 +41,7 @@
 	export let edit = true
 	export let noHistory = false
 	export let saveToWorkspace = false
+	export let watchChanges = false
 
 	let websocketAlive = {
 		pyright: false,
@@ -49,6 +50,12 @@
 		ruff: false,
 		shellcheck: false
 	}
+
+	const dispatch = createEventDispatcher()
+
+	$: watchChanges &&
+		(code != undefined || schema != undefined) &&
+		dispatch('change', { code, schema })
 
 	let width = 1200
 
@@ -190,8 +197,6 @@
 	onDestroy(() => {
 		disableCollaboration()
 	})
-
-	const dispatch = createEventDispatcher()
 
 	function asKind(str: string | undefined) {
 		return str as 'script' | 'approval' | 'trigger' | undefined

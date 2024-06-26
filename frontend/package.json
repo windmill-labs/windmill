@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.352.0",
+	"version": "1.353.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -244,6 +244,16 @@
 			"svelte": "./package/components/SchemaForm.svelte",
 			"default": "./package/components/SchemaForm.svelte"
 		},
+		"./components/EditableSchemaWrapper.svelte": {
+			"types": "./package/components/schema/EditableSchemaWrapper.svelte.d.ts",
+			"svelte": "./package/components/schema/EditableSchemaWrapper.svelte",
+			"default": "./package/components/schema/EditableSchemaWrapper.svelte"
+		},
+		"./components/ResourceEditor.svelte": {
+			"types": "./package/components/ResourceEditor.svelte.d.ts",
+			"svelte": "./package/components/ResourceEditor.svelte",
+			"default": "./package/components/ResourceEditor.svelte"
+		},
 		"./components/SchemaEditor.svelte": {
 			"types": "./package/components/EditableSchemaForm.svelte.d.ts",
 			"svelte": "./package/components/EditableSchemaForm.svelte",
@@ -383,6 +393,9 @@
 			],
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
+			],
+			"components/EditableSchemaWrapper.svelte": [
+				"./package/components/schema/EditableSchemaWrapper.svelte.d.ts"
 			],
 			"utils": [
 				"./package/utils.d.ts"

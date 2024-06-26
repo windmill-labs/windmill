@@ -62,7 +62,7 @@
 		{#if module.cache_ttl != undefined}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleCache')}
 			>
 				<Database size={14} />
@@ -92,8 +92,7 @@
 		{#if module.sleep}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200
-				dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleSleep')}
 			>
 				<Bed size={14} />
@@ -103,7 +102,7 @@
 		{#if module.mock?.enabled}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100  text-blue-800 border border-blue-300 hover:bg-blue-200"
+				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleMock')}
 			>
 				<Voicemail size={14} />

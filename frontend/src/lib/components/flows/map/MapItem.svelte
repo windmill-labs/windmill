@@ -138,6 +138,11 @@
 					on:click={() => dispatch('select', mod.id)}
 					{...itemProps}
 					{bgColor}
+					warningMessage={mod?.value?.type === 'forloopflow' &&
+					mod?.value?.iterator?.type === 'javascript' &&
+					mod?.value?.iterator?.expr === ''
+						? 'Iterator expression is empty'
+						: ''}
 				>
 					<div slot="icon">
 						<Repeat size={16} />

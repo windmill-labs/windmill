@@ -5,6 +5,7 @@
 	import type { AppViewerContext } from '../../../types'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { zIndexes } from '$lib/zIndexes'
+	import DocLink from '../DocLink.svelte'
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let right: boolean
@@ -35,7 +36,12 @@
 			>
 				<CloseButton on:close={() => secondaryMenu?.close()} />
 				{#if $secondaryMenu?.props?.type === 'style'}
-					<div class="text-xs font-bold"> Style Panel</div>
+					<div class="flex flex-row items-center gap-1">
+						<div class="text-xs font-bold"> Style Panel</div>
+						<DocLink
+							docLink="https://www.windmill.dev/docs/apps/app_configuration_settings/app_styling"
+						/>
+					</div>
 				{/if}
 			</div>
 			<div class="relative h-full overflow-y-auto">
