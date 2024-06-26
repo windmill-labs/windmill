@@ -662,7 +662,10 @@ export function toCamel(s: string) {
 	})
 }
 
-export function cleanExpr(expr: string): string {
+export function cleanExpr(expr: string | undefined): string {
+	if (!expr) {
+		return ''
+	}
 	return expr
 		.split('\n')
 		.filter((x) => x != '' && !x.startsWith(`import `))
