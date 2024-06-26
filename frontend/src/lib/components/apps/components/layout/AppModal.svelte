@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { afterUpdate, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
-	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput, maxHeight, ROW_GAP_Y, ROW_HEIGHT } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import Portal from 'svelte-portal'
 	import { clickOutside } from '$lib/utils'
@@ -35,7 +35,8 @@
 		connectingInput,
 		mode,
 		componentControl,
-		runnableComponents
+		runnableComponents,
+		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -77,12 +78,13 @@
 		}
 	}
 	let wrapperHeight: number = 0
-	let modalWrapper: HTMLDivElement | undefined = undefined
-	let modalOffset: number = 0
+	let headerHeight: number = 0
 
-	afterUpdate(() => {
-		modalOffset = modalWrapper?.offsetTop ?? 0
-	})
+	$: containerHeight = Math.min(
+		maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y),
+		// 32px (2rem) of top and bottom margin
+		wrapperHeight - headerHeight - 64
+	)
 </script>
 
 <InitializeComponent {id} />
@@ -181,7 +183,10 @@
 					}
 				}}
 			>
-				<div class="px-4 py-2 border-b flex justify-between items-center">
+				<div
+					class="px-4 py-2 border-b flex justify-between items-center"
+					bind:clientHeight={headerHeight}
+				>
 					<div>{resolvedConfig.modalTitle}</div>
 					<div class="w-8">
 						<button
@@ -197,7 +202,6 @@
 
 				<div
 					class="wm-modal overflow-y-auto"
-					bind:this={modalWrapper}
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
@@ -213,9 +217,8 @@
 						<SubGridEditor
 							visible={open && render}
 							{id}
-							noPadding
+							{containerHeight}
 							subGridId={`${id}-0`}
-							containerHeight={wrapperHeight - modalOffset - 48}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
@@ -225,7 +228,6 @@
 									}
 								}
 							}}
-							applyContainerHeight
 						/>
 					{/if}
 				</div>
