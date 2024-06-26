@@ -144,7 +144,6 @@
 		</AlignWrapper>
 	</div>
 {/if}
-
 <Portal target="#app-editor-top-level-drawer">
 	<Disposable
 		{id}
@@ -199,7 +198,10 @@
 				</div>
 
 				<div
-					class="wm-modal overflow-y-auto h-full"
+					class={twMerge(
+						'wm-modal h-full',
+						$focusedGrid?.parentComponentId == id ? 'overflow-visible' : 'overflow-y-auto'
+					)}
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
