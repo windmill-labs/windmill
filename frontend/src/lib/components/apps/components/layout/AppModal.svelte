@@ -81,7 +81,7 @@
 	let headerHeight: number = 0
 
 	$: containerHeight = Math.min(
-		maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y),
+		maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y) + 16,
 		// 32px (2rem) of top and bottom margin
 		wrapperHeight - headerHeight - 64
 	)
@@ -198,7 +198,7 @@
 				</div>
 
 				<div
-					class="wm-modal overflow-y-auto"
+					class="wm-modal overflow-y-auto h-full"
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
