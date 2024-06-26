@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { afterUpdate, getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -76,7 +76,13 @@
 			disposable?.closeDrawer()
 		}
 	}
-	let wrapperHeight = 0
+	let wrapperHeight: number = 0
+	let modalWrapper: HTMLDivElement | undefined = undefined
+	let modalOffset: number = 0
+
+	afterUpdate(() => {
+		modalOffset = modalWrapper?.offsetTop ?? 0
+	})
 </script>
 
 <InitializeComponent {id} />
@@ -188,8 +194,10 @@
 						</button>
 					</div>
 				</div>
+
 				<div
 					class="wm-modal overflow-y-auto"
+					bind:this={modalWrapper}
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
@@ -207,7 +215,7 @@
 							{id}
 							noPadding
 							subGridId={`${id}-0`}
-							containerHeight={wrapperHeight - 49 - 32}
+							containerHeight={wrapperHeight - modalOffset - 32}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
@@ -217,6 +225,7 @@
 									}
 								}
 							}}
+							applyContainerHeight
 						/>
 					{/if}
 				</div>

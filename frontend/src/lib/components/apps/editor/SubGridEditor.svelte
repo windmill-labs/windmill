@@ -6,7 +6,14 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
-	import { expandGriditem, findGridItem, maxHeight, selectId } from './appUtils'
+	import {
+		expandGriditem,
+		findGridItem,
+		maxHeight,
+		ROW_GAP_Y,
+		ROW_HEIGHT,
+		selectId
+	} from './appUtils'
 	import Component from './component/Component.svelte'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
@@ -23,6 +30,7 @@
 	export let visible: boolean = true
 	export let id: string
 	export let shouldHighlight: boolean = true
+	export let applyContainerHeight: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -67,7 +75,15 @@
 
 	let container: HTMLElement | undefined = undefined
 
-	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+	$: maxRow = maxHeight(
+		$app.subgrids?.[subGridId] ?? [],
+		applyContainerHeight ? 0 : containerHeight ?? 0,
+		$breakpoint
+	)
+
+	$: actualContainerHeight = applyContainerHeight
+		? Math.min(maxRow * (ROW_HEIGHT + ROW_GAP_Y), containerHeight ?? 0)
+		: containerHeight
 </script>
 
 <div
@@ -84,7 +100,7 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		style="{containerHeight ? `height: ${containerHeight - 2}px;` : ''} {style ?? ''}"
+		style="{actualContainerHeight ? `height: ${actualContainerHeight - 2}px;` : ''} {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
 			<div
