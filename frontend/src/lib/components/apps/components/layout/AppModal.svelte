@@ -172,10 +172,7 @@
 		>
 			<div
 				style={css?.popup?.style}
-				class={twMerge(
-					'mx-24 mt-8 bg-surface rounded-lg relative overflow-hidden',
-					css?.popup?.class
-				)}
+				class={twMerge('mx-24 mt-8 bg-surface rounded-lg relative', css?.popup?.class)}
 				use:clickOutside={false}
 				on:click_outside={(e) => {
 					if ($mode !== 'dnd' && !unclickableOutside) {
