@@ -139,7 +139,9 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   log.info(colors.bold.underline.green("Flow pushed"));
 }
 
-async function list(opts: GlobalOptions & { showArchived?: boolean }) {
+async function list(
+  opts: GlobalOptions & { showArchived?: boolean; includeDraftOnly?: boolean }
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -152,6 +154,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
       page,
       perPage,
       showArchived: opts.showArchived ?? false,
+      includeDraftOnly: opts.includeDraftOnly ?? false,
     });
     page += 1;
     total.push(...res);
