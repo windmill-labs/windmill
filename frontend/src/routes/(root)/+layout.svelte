@@ -11,7 +11,6 @@
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
-	import ChartHighlightTheme from '$lib/components/ChartHighlightTheme.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 
 	const monacoEditorUnhandledErrors = [
@@ -168,7 +167,5 @@
 		document.documentElement.classList.remove('dark')
 	}
 </script>
-
-<ChartHighlightTheme />
 
 <slot />

@@ -13,6 +13,7 @@
 	import { oauthStore, workspaceStore } from '$lib/stores'
 	import Password from './Password.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	let drawer: Drawer
 	let token: undefined | string = undefined
@@ -97,6 +98,8 @@
 		drawer.closeDrawer?.()
 	}
 </script>
+
+<HighlightTheme />
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="Add a Supabase Database" on:close={drawer.closeDrawer}>

@@ -3,6 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import AddProperty from './AddProperty.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let schema: Schema | undefined | any
 	export let offset: number = 0
@@ -10,6 +11,11 @@
 	export let noPreview: boolean = false
 	export let fullHeight: boolean = true
 	export let lightweightMode: boolean = false
+	export let watchChanges: boolean = false
+
+	const dispatch = createEventDispatcher()
+
+	$: watchChanges && dispatch('change', { schema })
 
 	let addProperty: AddProperty | undefined = undefined
 </script>

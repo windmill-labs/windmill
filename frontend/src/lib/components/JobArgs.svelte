@@ -10,6 +10,7 @@
 	import Cell from './table/Cell.svelte'
 	import Head from './table/Head.svelte'
 	import Row from './table/Row.svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let args: any
 	export let argLabel: string | undefined = undefined
@@ -90,6 +91,8 @@ ${Object.entries(args)
 		</tbody>
 	</DataTable>
 </div>
+
+<HighlightTheme />
 
 <Drawer bind:this={jsonViewer} size="900px">
 	<DrawerContent title="Expanded Args" on:close={jsonViewer.closeDrawer}>

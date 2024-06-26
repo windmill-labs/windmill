@@ -11,6 +11,7 @@
 	import { Clipboard } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let flow: {
 		summary: string
@@ -44,6 +45,8 @@
 		return x as any
 	}
 </script>
+
+<HighlightTheme />
 
 <Tabs bind:selected={tab}>
 	{#if !noGraph}

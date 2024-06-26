@@ -17,6 +17,7 @@
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
+	import HighlightTheme from '../HighlightTheme.svelte'
 
 	let userSettings: UserSettings
 
@@ -181,6 +182,8 @@ done`
 }`
 	}
 </script>
+
+<HighlightTheme />
 
 <UserSettings
 	bind:this={userSettings}
