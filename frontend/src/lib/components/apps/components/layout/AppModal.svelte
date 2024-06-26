@@ -81,6 +81,7 @@
 	let headerHeight: number = 0
 
 	$: containerHeight = Math.min(
+		// 8px * 2 of padding
 		maxHeight($app.subgrids?.[`${id}-0`] ?? [], 0, $breakpoint) * (ROW_HEIGHT + ROW_GAP_Y) + 16,
 		// 32px (2rem) of top and bottom margin
 		wrapperHeight - headerHeight - 64
