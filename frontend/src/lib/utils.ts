@@ -905,3 +905,11 @@ export function shouldDisplayPlaceholder(
 
 	return type === undefined
 }
+
+export function usernameToPermissionedAs(user: string): string {
+	if (user.includes('@')) {
+		return user
+	} else {
+		return `u/${user}`
+	}
+}

@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
+	import {
+		displayDate,
+		msToSec,
+		truncateHash,
+		truncateRev,
+		usernameToPermissionedAs
+	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -64,9 +70,9 @@
 >
 	<div class="w-1/12 flex justify-center">
 		{#if isSelectingJobsToCancel && isJobCancelable(job)}
-		<div class="px-2">
-			<input type="checkbox" checked={selected}/>
-		</div>
+			<div class="px-2">
+				<input type="checkbox" checked={selected} />
+			</div>
 		{/if}
 		{#if isExternal}
 			<Badge color="gray" baseClass="!px-1.5">
@@ -251,9 +257,13 @@
 				</Button>
 			</div>
 		{:else}
+			{@const createdByAsPermissionedAs = usernameToPermissionedAs(job.created_by ?? '')}
 			<div class="flex flex-row gap-1 items-center">
 				<div class="text-xs">
-					{job.created_by}
+					{job.permissioned_as}
+					{#if createdByAsPermissionedAs != job.permissioned_as}
+						(end user: {job.created_by})
+					{/if}
 				</div>
 				{#if !isExternal}
 					<Button
