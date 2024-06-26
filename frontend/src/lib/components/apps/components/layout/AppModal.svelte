@@ -198,10 +198,7 @@
 				</div>
 
 				<div
-					class={twMerge(
-						'wm-modal h-full',
-						$focusedGrid?.parentComponentId == id ? 'overflow-visible' : 'overflow-y-auto'
-					)}
+					class={twMerge('wm-modal h-full', 'overflow-y-auto')}
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						if (!$connectingInput.opened) {
