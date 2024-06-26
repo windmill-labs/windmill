@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.355.1](https://github.com/windmill-labs/windmill/compare/v1.355.0...v1.355.1) (2024-06-26)
+
+
+### Bug Fixes
+
+* fix build ([17c586e](https://github.com/windmill-labs/windmill/commit/17c586ed8f7bbad4e5e5db26a909e8a06521696d))
+
 ## [1.355.0](https://github.com/windmill-labs/windmill/compare/v1.354.0...v1.355.0) (2024-06-26)
 
 
