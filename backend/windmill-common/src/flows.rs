@@ -551,6 +551,7 @@ pub struct ListFlowQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub starred_only: Option<bool>,
+    pub include_draft_only: Option<bool>,
 }
 
 pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {

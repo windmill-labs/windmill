@@ -287,6 +287,10 @@ async fn list_apps(
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
     }
 
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
+        sqlb.and_where("app.draft_only IS NOT TRUE");
+    }
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
