@@ -171,7 +171,7 @@
 			<div
 				style={css?.popup?.style}
 				class={twMerge(
-					'mx-24 mt-8 bg-surface rounded-lg relative min-h-0 max-h-[calc(100%-42px)] overflow-hidden',
+					'mx-24 mt-8 bg-surface rounded-lg relative overflow-hidden',
 					css?.popup?.class
 				)}
 				use:clickOutside={false}
@@ -215,7 +215,7 @@
 							{id}
 							noPadding
 							subGridId={`${id}-0`}
-							containerHeight={wrapperHeight - modalOffset - 32}
+							containerHeight={wrapperHeight - modalOffset - 48}
 							on:focus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
