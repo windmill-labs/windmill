@@ -23,6 +23,8 @@ ENV SQLX_OFFLINE=true
 
 FROM node:20-alpine as frontend
 
+ARG WITH_DENO=true
+
 # install dependencies
 WORKDIR /frontend
 COPY ./frontend/package.json ./frontend/package-lock.json ./
@@ -85,11 +87,16 @@ SHELL ["/bin/bash", "-c"]
 RUN apt update -y
 RUN apt install -y unzip curl
 
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.44.1/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.44.1/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
-
 
 RUN unzip deno.zip && rm deno.zip
+
+ARG BUILD_ENV=copy
+
+# FROM alpine as build_copy
+# ONBUILD COPY file /file
+
+# FROM alpine as build_no_copy
+# ONBUILD RUN echo "I don't copy"
 
 FROM ${PYTHON_IMAGE}
 
@@ -104,7 +111,6 @@ ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
 ARG WITH_GO=true
 ARG WITH_BUN=true
-ARG WITH_DENO=true
 ARG WITH_PYTHON=true
 
 
