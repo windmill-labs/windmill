@@ -80,6 +80,14 @@
 				<div class="grow">
 					<input bind:value={mod.summary} placeholder={'Summary'} />
 				</div>
+				<div class="justify-end">
+					<Button
+						on:click={() => (previewOpen = true)}
+						startIcon={{ icon: Play }}
+						color="dark"
+						size="sm">Test an iteration</Button
+					>
+				</div>
 			</div>
 		</div>
 
@@ -115,14 +123,6 @@
 								pickableProperties={stepPropPicker.pickableProperties}
 							/>
 						{/if}
-						<div class="flex w-full justify-end">
-							<Button
-								on:click={() => (previewOpen = true)}
-								startIcon={{ icon: Play }}
-								color="dark"
-								size="sm">Test an iteration</Button
-							>
-						</div>
 					</div>
 
 					{#if mod.value.iterator.type == 'javascript'}
