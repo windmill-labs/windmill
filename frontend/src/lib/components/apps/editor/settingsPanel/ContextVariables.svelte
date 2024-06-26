@@ -66,6 +66,9 @@
 
 		if (!allParents) return
 
+		// Remove last element as it is the current component
+		allParents.pop()
+
 		processParents(allParents)
 	}
 
