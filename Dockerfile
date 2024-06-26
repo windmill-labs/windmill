@@ -102,6 +102,11 @@ ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
 ARG WITH_HELM=true
+ARG WITH_GO=true
+ARG WITH_BUN=true
+ARG WITH_DENO=true
+ARG WITH_PYTHON=true
+
 
 
 RUN apt-get update \
@@ -137,7 +142,8 @@ RUN if [ "$WITH_KUBECTL" = "true" ]; then \
     else echo 'Building the image without kubectl'; fi
 
 
-RUN set -eux; \
+RUN if [ "$WITH_GO" = "true" ]; then \
+    set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
     'amd64') \
@@ -151,7 +157,8 @@ RUN set -eux; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
-    wget "https://golang.org/dl/$targz" -nv && tar -C /usr/local -xzf "$targz" && rm "$targz";
+    wget "https://golang.org/dl/$targz" -nv && tar -C /usr/local -xzf "$targz" && rm "$targz"; \
+    else echo 'Building the image without go'; fi
 
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
@@ -160,7 +167,9 @@ RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
 RUN apt-get -y update && apt-get install -y curl nodejs awscli
 
 # go build is slower the first time it is ran, so we prewarm it in the build
-RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
+RUN if [ "$WITH_GO" = "true" ]; then \
+    mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm \
+    else echo 'Building the image without go'; fi
 
 ENV TZ=Etc/UTC
 
