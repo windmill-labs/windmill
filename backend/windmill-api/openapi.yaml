@@ -3502,7 +3502,7 @@ paths:
         - name: show_archived
           description: |
             (default false)
-            show also the archived files.
+            show only the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
             are 
             ed.
@@ -4268,7 +4268,7 @@ paths:
         - name: show_archived
           description: |
             (default false)
-            show also the archived files.
+            show only the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
             are displayed.
           in: query

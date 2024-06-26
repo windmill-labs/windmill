@@ -442,7 +442,7 @@
 					<div>
 						<span class="text-sm font-semibold">Filters</span>
 						<div class="flex flex-col gap-2 mt-2">
-							<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+							<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
 							{#if $userStore && !$userStore.operator}
 								<Toggle
 									size="xs"
