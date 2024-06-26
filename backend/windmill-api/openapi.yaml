@@ -3502,17 +3502,24 @@ paths:
         - name: show_archived
           description: |
             (default false)
-            show also the archived files.
+            show only the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
             are 
             ed.
           in: query
           schema:
             type: boolean
-        - name: hide_without_main
+        - name: include_without_main
           description: |
             (default false)
-            hide the scripts without an exported main function
+            include scripts without an exported main function
+          in: query
+          schema:
+            type: boolean
+        - name: include_draft_only
+          description: |
+            (default false)
+            include scripts that have no deployed version
           in: query
           schema:
             type: boolean
@@ -4261,7 +4268,7 @@ paths:
         - name: show_archived
           description: |
             (default false)
-            show also the archived files.
+            show only the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
             are displayed.
           in: query
@@ -4271,6 +4278,13 @@ paths:
           description: |
             (default false)
             show only the starred items
+          in: query
+          schema:
+            type: boolean
+        - name: include_draft_only
+          description: |
+            (default false)
+            include items that have no deployed version
           in: query
           schema:
             type: boolean
@@ -4624,6 +4638,13 @@ paths:
           description: |
             (default false)
             show only the starred items
+          in: query
+          schema:
+            type: boolean
+        - name: include_draft_only
+          description: |
+            (default false)
+            include items that have no deployed version
           in: query
           schema:
             type: boolean

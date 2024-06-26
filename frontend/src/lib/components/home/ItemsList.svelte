@@ -72,11 +72,12 @@
 
 	let nbDisplayed = 15
 
-	async function loadScripts(hideWithoutMain: boolean): Promise<void> {
+	async function loadScripts(includeWithoutMain: boolean): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
 			showArchived: archived ? true : undefined,
-			hideWithoutMain: hideWithoutMain ? true : undefined
+			includeWithoutMain: includeWithoutMain ? true : undefined,
+			includeDraftOnly: true
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
@@ -92,7 +93,8 @@
 		flows = (
 			await FlowService.listFlows({
 				workspace: $workspaceStore!,
-				showArchived: archived ? true : undefined
+				showArchived: archived ? true : undefined,
+				includeDraftOnly: true
 			})
 		).map((x: Flow) => {
 			return {
@@ -107,15 +109,17 @@
 	}
 
 	async function loadApps(): Promise<void> {
-		apps = (await AppService.listApps({ workspace: $workspaceStore! })).map((app: ListableApp) => {
-			return {
-				canWrite:
-					canWrite(app.path!, app.extra_perms!, $userStore) &&
-					app.workspace_id == $workspaceStore &&
-					!$userStore?.operator,
-				...app
+		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
+			(app: ListableApp) => {
+				return {
+					canWrite:
+						canWrite(app.path!, app.extra_perms!, $userStore) &&
+						app.workspace_id == $workspaceStore &&
+						!$userStore?.operator,
+					...app
+				}
 			}
-		})
+		)
 		loading = false
 	}
 
@@ -201,7 +205,7 @@
 
 	$: {
 		if ($userStore && $workspaceStore) {
-			loadScripts(hideWithoutMain)
+			loadScripts(includeWithoutMain)
 			loadFlows()
 			if (!archived) {
 				loadApps()
@@ -274,14 +278,16 @@
 
 	const TREE_VIEW_SETTING_NAME = 'treeView'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
-	const HIDE_WITHOUT_MAIN_SETTING = 'hideWithoutMain'
+	const INCLUDE_WITHOUT_MAIN_SETTING_NAME = 'includeWithoutMain'
 	let treeView = getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true'
 	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
-	let hideWithoutMain = getLocalSetting(HIDE_WITHOUT_MAIN_SETTING) == 'true'
+	let includeWithoutMain = getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME)
+		? getLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME) == 'true'
+		: true
 
 	$: storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
 	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
-	$: storeLocalSetting(HIDE_WITHOUT_MAIN_SETTING, hideWithoutMain ? 'true' : undefined)
+	$: storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 
 	let contentSearch: ContentSearch
 
@@ -436,12 +442,12 @@
 					<div>
 						<span class="text-sm font-semibold">Filters</span>
 						<div class="flex flex-col gap-2 mt-2">
-							<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} />
+							<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
 							{#if $userStore && !$userStore.operator}
 								<Toggle
 									size="xs"
-									bind:checked={hideWithoutMain}
-									options={{ right: 'Hide without main function' }}
+									bind:checked={includeWithoutMain}
+									options={{ right: 'Include without main function' }}
 								/>
 							{/if}
 						</div>
@@ -493,12 +499,12 @@
 				{nbDisplayed}
 				{collapseAll}
 				isSearching={filter !== ''}
-				on:scriptChanged={() => loadScripts(hideWithoutMain)}
+				on:scriptChanged={() => loadScripts(includeWithoutMain)}
 				on:flowChanged={loadFlows}
 				on:appChanged={loadApps}
 				on:rawAppChanged={loadRawApps}
 				on:reload={() => {
-					loadScripts(hideWithoutMain)
+					loadScripts(includeWithoutMain)
 					loadFlows()
 					loadApps()
 					loadRawApps()
@@ -510,12 +516,12 @@
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					<Item
 						{item}
-						on:scriptChanged={() => loadScripts(hideWithoutMain)}
+						on:scriptChanged={() => loadScripts(includeWithoutMain)}
 						on:flowChanged={loadFlows}
 						on:appChanged={loadApps}
 						on:rawAppChanged={loadRawApps}
 						on:reload={() => {
-							loadScripts(hideWithoutMain)
+							loadScripts(includeWithoutMain)
 							loadFlows()
 							loadApps()
 							loadRawApps()

@@ -155,6 +155,10 @@ async fn list_flows(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
+        sqlb.and_where("o.draft_only IS NOT TRUE");
+    }
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableFlow>(&sql)
