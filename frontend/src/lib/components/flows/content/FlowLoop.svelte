@@ -86,46 +86,6 @@
 		<Splitpanes horizontal class="!max-h-[calc(100%-30px)]">
 			<Pane size={60} minSize={20} class="p-4">
 				{#if mod.value.type === 'forloopflow'}
-					<div class="flex flex-row gap-8 mt-2 mb-6">
-						<div>
-							<div class="mb-2 text-sm font-bold"
-								>Skip failures <Tooltip
-									documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
-									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
-									the error will be collected as the result of the iteration. Regardless of this
-									setting, if an error handler is defined, it will process the error.</Tooltip
-								></div
-							>
-							<Toggle
-								bind:checked={mod.value.skip_failures}
-								options={{
-									right: 'Skip failures'
-								}}
-							/>
-						</div>
-						<div>
-							<div class="mb-2 text-sm font-bold">Run in parallel</div>
-							<Toggle
-								bind:checked={mod.value.parallel}
-								options={{
-									right: 'All iterations run in parallel'
-								}}
-							/>
-						</div>
-						<div>
-							<div class="mb-2 text-sm font-bold"
-								>Parallelism <Tooltip
-									>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
-								>
-							</div>
-							<input
-								type="number"
-								disabled={!mod.value.parallel}
-								bind:value={mod.value.parallelism}
-							/>
-						</div>
-					</div>
-
 					<div class="my-2 flex flex-row gap-2 items-center">
 						<div class="text-sm font-bold whitespace-nowrap">
 							Iterator expression
@@ -210,6 +170,7 @@
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
+					<Tab value="settings">Settings</Tab>
 					<Tab value="early-stop">Early Stop/Break</Tab>
 					<Tab value="suspend">Suspend/Approval/Prompt</Tab>
 					<Tab value="sleep">Sleep</Tab>
@@ -223,6 +184,53 @@
 									<FlowRetries bind:flowModule={mod} />
 								</div>
 							</TabContent> -->
+
+							<TabContent value="settings" class="flex flex-col flex-1 h-full">
+								<Pane size={60} minSize={20} class="p-4">
+									<div class="flex flex-row gap-8 mt-2 mb-6">
+										<div>
+											<div class="mb-2 text-sm font-bold"
+												>Skip failures <Tooltip
+													documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+													>If disabled, the flow will fail as soon as one of the iteration fail.
+													Otherwise, the error will be collected as the result of the iteration.
+													Regardless of this setting, if an error handler is defined, it will
+													process the error.</Tooltip
+												></div
+											>
+											<Toggle
+												bind:checked={mod.value.skip_failures}
+												options={{
+													right: 'Skip failures'
+												}}
+											/>
+										</div>
+										<div>
+											<div class="mb-2 text-sm font-bold">Run in parallel</div>
+											<Toggle
+												bind:checked={mod.value.parallel}
+												options={{
+													right: 'All iterations run in parallel'
+												}}
+											/>
+										</div>
+
+										<div>
+											<div class="mb-2 text-sm font-bold"
+												>Parallelism <Tooltip
+													>Assign a maximum number of branches run in parallel to control huge
+													for-loops.</Tooltip
+												>
+											</div>
+											<input
+												type="number"
+												disabled={!mod.value.parallel}
+												bind:value={mod.value.parallelism}
+											/>
+										</div>
+									</div></Pane
+								>
+							</TabContent>
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
