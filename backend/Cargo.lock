@@ -835,7 +835,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -1250,7 +1250,7 @@ version = "0.69.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a00dc851838a2120612785d195287475a3ac45514741da670b735818822129a0"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
  "itertools 0.12.1",
@@ -1273,7 +1273,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0700ddab506f33b20a03b13996eccd309a48e5ff77d0d95926aa0210fb4e95f1"
 dependencies = [
- "bit-vec",
+ "bit-vec 0.6.3",
 ]
 
 [[package]]
@@ -1283,6 +1283,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
 
 [[package]]
+name = "bit-vec"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2c54ff287cfc0a34f38a6b832ea1bd8e448a330b3e40a50859e6488bee07f22"
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1290,9 +1296,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.5.0"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf4b9d6a944f767f8e5e0db018570623c85f3d925ac718db4e06d0187adb21c1"
+checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
 dependencies = [
  "serde",
 ]
@@ -1603,9 +1609,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.100"
+version = "1.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c891175c3fb232128f48de6590095e59198bbeb8620c310be349bfc3afd12c7b"
+checksum = "ac367972e516d45567c7eafc73d24e1c193dcf200a8d94e9db7b3d38b349572d"
 dependencies = [
  "jobserver",
  "libc",
@@ -2264,7 +2270,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "xz2",
  "zstd 0.13.0",
 ]
@@ -2364,7 +2370,7 @@ dependencies = [
  "regex",
  "sha2 0.10.8",
  "unicode-segmentation",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -2531,7 +2537,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
  "serde",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -2593,7 +2599,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "bit-set",
- "bit-vec",
+ "bit-vec 0.7.0",
  "bytes",
  "cooked-waker",
  "deno_core_icudata",
@@ -2725,9 +2731,9 @@ dependencies = [
 
 [[package]]
 name = "deno_unsync"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7557a5e9278b9a5cc8056dc37062ea4344770bda4eeb5973c7cbb7ebf636b9a4"
+checksum = "6cfb230b6e1965cd2695f7c4082adb278e0b999175a0fbb0852c7e67d26654b1"
 dependencies = [
  "tokio",
 ]
@@ -2757,7 +2763,7 @@ dependencies = [
  "futures",
  "serde",
  "tokio",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -3037,9 +3043,9 @@ dependencies = [
 
 [[package]]
 name = "either"
-version = "1.12.0"
+version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dca9240753cf90908d7e4aac30f630662b02aebaa1b58a3cadabdb23385b58b"
+checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
 dependencies = [
  "serde",
 ]
@@ -4601,7 +4607,7 @@ version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "libc",
 ]
 
@@ -5056,7 +5062,7 @@ dependencies = [
  "base64 0.21.7",
  "bigdecimal 0.4.5",
  "bindgen",
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "bitvec",
  "btoi",
  "byteorder",
@@ -5082,7 +5088,7 @@ dependencies = [
  "subprocess",
  "thiserror",
  "time",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "zstd 0.13.0",
 ]
 
@@ -5115,7 +5121,7 @@ version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2eb04e9c688eff1c89d72b407f168cf79bb9e867a9d3323ed6c01519eb9cc053"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "cfg-if",
  "libc",
 ]
@@ -5398,7 +5404,7 @@ version = "0.10.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95a0481286a310808298130d22dd1fef0fa571e05a8f44ec801801e84b216b1f"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "cfg-if",
  "foreign-types",
  "libc",
@@ -5915,14 +5921,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d2234cdee9408b523530a9b6d2d6b373d1db34f6a8e51dc03ded1828d7fb67c"
 dependencies = [
  "array-init",
- "bit-vec",
+ "bit-vec 0.6.3",
  "bytes",
  "chrono",
  "fallible-iterator",
  "postgres-protocol",
  "serde",
  "serde_json",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -6481,7 +6487,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c82cf8cff14456045f55ec4241383baeff27af886adb72ffb2162f99911de0fd"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
 ]
 
 [[package]]
@@ -6737,7 +6743,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -6921,7 +6927,7 @@ version = "0.38.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70dc5ec042f7a43c4a73241207cecc9873a06d45debb38b329f8541d85c2730f"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "errno",
  "libc",
  "linux-raw-sys 0.4.14",
@@ -7156,7 +7162,7 @@ dependencies = [
  "serde",
  "thiserror",
  "url",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -7194,7 +7200,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -7257,7 +7263,7 @@ version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c627723fd09706bacdb5cf41499e95098555af3c3c29d014dc3c458ef6be11c0"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "core-foundation",
  "core-foundation-sys",
  "libc",
@@ -7369,9 +7375,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.117"
+version = "1.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "455182ea6142b14f93f4bc5320a2b31c1f266b66a4a5c858b013302a5d8cbfc3"
+checksum = "d947f6b3163d8857ea16c4fa0dd4840d52f3041039a85decd46867eb1abef2e4"
 dependencies = [
  "indexmap 2.2.6",
  "itoa",
@@ -7899,7 +7905,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "webpki-roots 0.25.4",
 ]
 
@@ -7951,7 +7957,7 @@ dependencies = [
  "atoi",
  "base64 0.21.7",
  "bigdecimal 0.3.1",
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "byteorder",
  "bytes",
  "chrono",
@@ -7983,7 +7989,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "tracing",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "whoami",
 ]
 
@@ -7996,7 +8002,7 @@ dependencies = [
  "atoi",
  "base64 0.21.7",
  "bigdecimal 0.3.1",
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "byteorder",
  "chrono",
  "crc",
@@ -8025,7 +8031,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "tracing",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "whoami",
 ]
 
@@ -8051,7 +8057,7 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -8258,7 +8264,7 @@ version = "0.113.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1690cc0c9ab60b44ac0225ba1e231ac532f7ba1d754df761c6ee607561afae"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "is-macro",
  "num-bigint",
  "phf",
@@ -8344,7 +8350,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eddb95c2bdad1c9c29edf35712e1e0f9b9ddc1cdb5ba2d582fd93468cb075a03"
 dependencies = [
  "better_scoped_tls",
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "indexmap 2.2.6",
  "once_cell",
  "phf",
@@ -8587,7 +8593,7 @@ version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7dddc5f0fee506baf8b9fdb989e242f17e4b11c61dfbb0635b705217199eea"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "byteorder",
  "enum-as-inner",
  "libc",
@@ -8729,7 +8735,7 @@ dependencies = [
  "tokio-rustls 0.24.1",
  "tokio-util",
  "tracing",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
@@ -8816,9 +8822,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.6.0"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87cc5ceb3875bb20c2890005a4e226a4651264a5c75edb2421b52861a0a0cb50"
+checksum = "c55115c6fbe2d2bef26eb09ad74bde02d8255476fc0c7b515ef09fbb35742d82"
 dependencies = [
  "tinyvec_macros",
 ]
@@ -9150,7 +9156,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "bytes",
  "http 1.1.0",
  "http-body 1.0.0",
@@ -9440,7 +9446,7 @@ checksum = "34778c17965aa2a08913b57e1f34db9b4a63f5de31768b55bf20d2795f921259"
 dependencies = [
  "getrandom 0.2.15",
  "rand 0.8.5",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "web-time",
 ]
 
@@ -9697,9 +9703,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.9.0"
+version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ea73390fe27785838dcbf75b91b1d84799e28f1ce71e6f372a5dc2200c80de5"
+checksum = "5de17fd2f7da591098415cff336e12965a28061ddace43b59cb3c430179c9439"
 dependencies = [
  "getrandom 0.2.15",
  "serde",
@@ -9711,7 +9717,7 @@ version = "0.92.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234589219e37a7496cbce73d971586db8369871be2420372c45a579b6a919b15"
 dependencies = [
- "bitflags 2.5.0",
+ "bitflags 2.6.0",
  "fslock",
  "gzip-header",
  "home",
@@ -10029,7 +10035,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -10057,7 +10063,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "windmill-api",
  "windmill-api-client",
  "windmill-common",
@@ -10068,7 +10074,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10134,7 +10140,7 @@ dependencies = [
  "ulid",
  "url",
  "urlencoding",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
@@ -10146,7 +10152,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -10159,12 +10165,12 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 1.0.109",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
 name = "windmill-audit"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "chrono",
  "serde",
@@ -10177,7 +10183,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -10211,12 +10217,12 @@ dependencies = [
  "tracing-flame",
  "tracing-loki",
  "tracing-subscriber",
- "uuid 1.9.0",
+ "uuid 1.9.1",
 ]
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -10224,14 +10230,14 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "windmill-common",
  "windmill-queue",
 ]
 
 [[package]]
 name = "windmill-parser"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -10239,7 +10245,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10250,7 +10256,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -10262,7 +10268,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10273,7 +10279,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10287,7 +10293,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -10298,7 +10304,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10315,7 +10321,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10326,7 +10332,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10345,7 +10351,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -10364,7 +10370,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10390,14 +10396,14 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "windmill-audit",
  "windmill-common",
 ]
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "serde",
  "wasm-bindgen",
@@ -10408,12 +10414,12 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.353.0"
+version = "1.355.0"
 dependencies = [
  "anyhow",
  "async-recursion",
  "base64 0.21.7",
- "bit-vec",
+ "bit-vec 0.6.3",
  "bytes",
  "chrono",
  "const_format",
@@ -10461,7 +10467,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "urlencoding",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
