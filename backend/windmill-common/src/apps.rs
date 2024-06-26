@@ -13,4 +13,5 @@ pub struct ListAppQuery {
     pub starred_only: Option<bool>,
     pub path_exact: Option<String>,
     pub path_start: Option<String>,
+    pub include_draft_only: Option<bool>,
 }
