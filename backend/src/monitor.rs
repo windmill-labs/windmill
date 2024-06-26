@@ -8,7 +8,7 @@ use std::{
 };
 
 use rsmq_async::MultiplexedRsmq;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -38,7 +38,6 @@ use windmill_common::{
     jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
-    stats_ee::get_user_usage,
     users::truncate_token,
     utils::{now_from_db, rd_string},
     worker::{
@@ -786,17 +785,10 @@ pub async fn monitor_db(
         }
     };
 
-    let save_usage_metrics_f = async {
-        if !initial_load && server_mode {
-            save_usage_metrics(&db).await;
-        }
-    };
-
     join!(
         expired_items_f,
         zombie_jobs_f,
         expose_queue_metrics_f,
-        save_usage_metrics_f,
         verify_license_key_f
     );
 }
@@ -866,89 +858,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         .execute(&mut *tx)
         .await
         .ok();
-
-        tx.commit().await.ok();
-    }
-}
-
-#[derive(Serialize)]
-struct WorkerUsage {
-    worker: String,
-    worker_instance: String,
-    vcpus: Option<i64>,
-    memory: Option<i64>,
-}
-
-pub async fn save_usage_metrics(db: &Pool<Postgres>) {
-    let tx = db.begin().await;
-
-    if let Ok(mut tx) = tx {
-        let last_check = sqlx::query_scalar!(
-            "SELECT created_at FROM metrics WHERE id = 'author_count' ORDER BY created_at DESC LIMIT 1"
-        )
-        .fetch_optional(db)
-        .await
-        .unwrap_or(Some(chrono::Utc::now()));
-
-        let random_nb = rand::random::<i64>();
-
-        // save author and operator count every ~24 hours
-        if last_check
-            .map(|last_check| {
-                chrono::Utc::now() - last_check
-                    > chrono::Duration::hours(24) - chrono::Duration::minutes(random_nb % 60)
-            })
-            .unwrap_or(true)
-        {
-            let user_usage = get_user_usage(&mut *tx).await.ok();
-
-            if let Some(user_usage) = user_usage {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ('author_count', $1), ('operator_count', $2)",
-                    serde_json::json!(user_usage.author_count.unwrap_or(0)),
-                    serde_json::json!(user_usage.operator_count.unwrap_or(0))
-                )
-                .execute(&mut *tx)
-                .await
-                .ok();
-            }
-
-            // clean metrics older than 6 months (including worker usage)
-            sqlx::query!(
-                "DELETE FROM metrics 
-                WHERE (id = 'author_count' OR id = 'operator_count' OR id = 'worker_usage') AND created_at < NOW() - INTERVAL '6 month'"
-            )
-            .execute(&mut *tx)
-            .await
-            .ok();
-        }
-
-        // save worker usage every ~60 minutes
-        if last_check
-            .map(|last_check| {
-                chrono::Utc::now() - last_check
-                    > chrono::Duration::minutes(60) - chrono::Duration::seconds(random_nb % 300)
-            })
-            .unwrap_or(true)
-        {
-            let worker_usage = sqlx::query_as!(
-                WorkerUsage,
-                "SELECT worker, worker_instance, vcpus, memory FROM worker_ping WHERE ping_at > NOW() - INTERVAL '2 minutes'"
-            )
-            .fetch_all(&mut *tx)
-            .await
-            .ok();
-
-            if let Some(worker_usage) = worker_usage {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ('worker_usage', $1)",
-                    serde_json::json!(worker_usage)
-                )
-                .execute(&mut *tx)
-                .await
-                .ok();
-            }
-        }
 
         tx.commit().await.ok();
     }
