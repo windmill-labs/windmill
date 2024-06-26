@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
-	import { findEveryParentGridItem, findGridItem } from '../appUtils'
+	import { dfs, findGridItem } from '../appUtils'
 
 	export let type: string
 	export let id: string
@@ -62,16 +62,11 @@
 
 	function findParentsContextVariables(id: string): void {
 		if (!id) return
-		if (id.includes('_')) {
-			const parentId = id.split('_')?.[0]
+		const allParents = dfs($app.grid, id, $app.subgrids ?? {})
 
-			if (!parentId) return
-			const allParents = [parentId, ...findEveryParentGridItem($app, parentId)]
-			processParents(allParents)
-		} else {
-			const allParents = findEveryParentGridItem($app, id)
-			processParents(allParents)
-		}
+		if (!allParents) return
+
+		processParents(allParents)
 	}
 
 	findParentsContextVariables(id)
