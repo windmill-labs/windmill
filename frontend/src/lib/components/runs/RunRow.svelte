@@ -260,9 +260,10 @@
 			{@const createdByAsPermissionedAs = usernameToPermissionedAs(job.created_by ?? '')}
 			<div class="flex flex-row gap-1 items-center">
 				<div class="text-xs">
-					{job.permissioned_as}
+					{job.created_by}
 					{#if createdByAsPermissionedAs != job.permissioned_as}
-						(end user: {job.created_by})
+						<br />
+						(permissioned as {job.permissioned_as})
 					{/if}
 				</div>
 				{#if !isExternal}
