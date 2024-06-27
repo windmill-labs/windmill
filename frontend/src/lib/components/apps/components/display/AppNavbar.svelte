@@ -54,7 +54,7 @@
 			{resolvedConfig?.title ?? 'No Title'}
 		</div>
 		{#each navbarItems ?? [] as navbarItem}
-			{#if navbarItem.path}
+			{#if navbarItem.path || !navbarItem.hidden}
 				<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
 					<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
 					<Button

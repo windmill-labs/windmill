@@ -12,7 +12,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import Section from '../Section.svelte'
 
-	export let value: NavbarItem | undefined
+	export let value: NavbarItem
 
 	let apps: ListableApp[] = []
 	let loading = true
@@ -71,10 +71,10 @@
 				<input type="text" bind:value={value.caption} />
 			</Label>
 			<Label label="Disabled">
-				<Toggle bind:value={value.disabled} size="xs" />
+				<Toggle bind:checked={value.disabled} size="xs" />
 			</Label>
 			<Label label="Hidden">
-				<Toggle bind:value={value.hidden} size="xs" />
+				<Toggle bind:checked={value.hidden} size="xs" />
 			</Label>
 		</Section>
 	{/if}

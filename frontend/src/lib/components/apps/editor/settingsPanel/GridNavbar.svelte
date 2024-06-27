@@ -39,12 +39,6 @@
 		items = newItems
 	}
 
-	function updateItemValue(index: number, e: Event): void {
-		//const newValue = (e.target as HTMLInputElement).value
-		//items[index].value = newValue
-		items = [...items]
-	}
-
 	function handleFinalize(e: CustomEvent) {
 		const { items: newItems } = e.detail
 
@@ -77,7 +71,6 @@
 									class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
 									bind:value={items[index].value.label}
 									placeholder="Field"
-									on:input={(e) => updateItemValue(index, e)}
 								/>
 							</div>
 						</div>
@@ -103,7 +96,6 @@
 
 						<div class="flex flex-col justify-center gap-2">
 							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
 								<GripVertical size={16} />

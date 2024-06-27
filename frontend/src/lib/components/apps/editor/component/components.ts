@@ -3854,7 +3854,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		name: 'Navbar',
 		icon: AppWindow,
 		documentationLink: `${documentationBaseUrl}/navbar`,
-		dims: '1:1-1:2' as AppComponentDimensions,
+		dims: '12:1-12:2' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -3865,7 +3865,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				title: {
 					type: 'static',
 					fieldType: 'text',
-					value: 'Brand'
+					value: 'Title'
 				}
 			}
 		}
