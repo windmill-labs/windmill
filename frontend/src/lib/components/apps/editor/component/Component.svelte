@@ -75,6 +75,7 @@
 	import AppCurrencyInput from '../../components/inputs/currency/AppCurrencyInput.svelte'
 	import AppSliderInputs from '../../components/inputs/AppSliderInputs.svelte'
 	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
+	import AppNavbar from '../../components/display/AppNavbar.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -823,6 +824,14 @@
 				verticalAlignment={component.verticalAlignment}
 				{render}
 			/>
+		{:else if component.type === 'navbarcomponent'}
+			<AppNavbar
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				navbarItems={component.navbarItems}
+				{render}
+			/>
 		{/if}
 	</div>
 </div>
@@ -843,4 +852,3 @@
 		class="absolute inset-0 center-center flex-col bg- border animate-skeleton"
 	/>
 {/if}
-

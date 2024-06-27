@@ -41,6 +41,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ContextVariables from './ContextVariables.svelte'
 	import EventHandlers from './EventHandlers.svelte'
+	import GridNavbar from './GridNavbar.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -329,6 +330,9 @@
 
 		<ComponentControl type={component.type} />
 
+		{#if componentSettings.item.data.type === 'navbarcomponent'}
+			<GridNavbar bind:navbarItems={componentSettings.item.data.navbarItems} />
+		{/if}
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab
 				bind:tabs={componentSettings.item.data.tabs}

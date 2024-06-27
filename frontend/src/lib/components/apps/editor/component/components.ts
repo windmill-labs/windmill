@@ -48,7 +48,8 @@ import {
 	UploadCloud,
 	AlertTriangle,
 	Clock,
-	CalendarClock
+	CalendarClock,
+	AppWindow
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -261,6 +262,18 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 
 export type AlertComponent = BaseComponent<'alertcomponent'>
 
+export type NavbarItem = {
+	path?: string
+	label?: string
+	caption?: string
+	disabled: boolean
+	hidden: boolean
+}
+
+export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
+	navbarItems: NavbarItem[]
+}
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -335,6 +348,7 @@ export type TypedComponent =
 	| AggridInfiniteComponent
 	| AggridInfiniteComponentEe
 	| MultiSelectComponentV2
+	| NavBarComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -3832,6 +3846,26 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				}
+			}
+		}
+	},
+	navbarcomponent: {
+		name: 'Navbar',
+		icon: AppWindow,
+		documentationLink: `${documentationBaseUrl}/navbar`,
+		dims: '1:1-1:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Brand'
 				}
 			}
 		}
