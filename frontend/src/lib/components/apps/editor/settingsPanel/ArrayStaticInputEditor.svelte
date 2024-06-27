@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { GripVertical, Loader2, Plus, X } from 'lucide-svelte'
+	import { GripVertical, Loader2, Plus, RotateCcw, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
@@ -291,6 +291,17 @@
 				<Loader2 class="animate-spin" size={14} />
 				Loading columns defintions...
 			</div>
+		{:else}
+			<Button
+				size="xs2"
+				color="light"
+				startIcon={{ icon: RotateCcw }}
+				on:click={() => {
+					componentInput.value = undefined
+				}}
+			>
+				Reset columns defs
+			</Button>
 		{/if}
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
