@@ -353,7 +353,7 @@ Windmill Community Edition {GIT_VERSION}
             (None, None)
         };
 
-        let indexer_f = windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer.unwrap());
+        // let indexer_f = windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer.unwrap());
 
         let server_f = async {
             if !is_agent {
@@ -361,6 +361,7 @@ Windmill Community Edition {GIT_VERSION}
                     db.clone(),
                     rsmq2,
                     index_reader,
+                    index_writer,
                     addr,
                     server_killpill_rx,
                     base_internal_tx,
@@ -613,7 +614,7 @@ Windmill Community Edition {GIT_VERSION}
             monitor_f,
             server_f,
             metrics_f,
-            indexer_f
+            // indexer_f
         )?;
     } else {
         tracing::info!("Nothing to do, exiting.");
