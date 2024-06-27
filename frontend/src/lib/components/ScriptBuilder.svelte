@@ -1002,7 +1002,7 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<div class="flex flex-row gap-1 center-center min-w-32 lg:min-w-64 w-full max-w-md">
+					<div class="flex flex-row center-center gap-1 min-w-32 lg:min-w-64 w-full max-w-md">
 						<input
 							title="Rename"
 							type="text"
