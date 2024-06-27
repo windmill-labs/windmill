@@ -88,6 +88,8 @@
 		enabled: false
 	})
 
+	let inputRef
+
 	async function loadSchedule() {
 		const scheduleRes = await loadScriptSchedule(initialPath, $workspaceStore!)
 		if (scheduleRes) {
@@ -1000,12 +1002,27 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<div class="min-w-32 lg:min-w-64 w-full max-w-md">
+					<div class="flex flex-row gap-1 center-center min-w-32 lg:min-w-64 w-full max-w-md">
 						<input
+							title="Rename"
 							type="text"
 							placeholder="Script summary"
-							class="text-sm w-full font-semibold"
+							class="windmillapp app-title text-sm w-full font-semibold"
 							bind:value={script.summary}
+							bind:this={inputRef}
+						/>
+						<Button
+							title="Rename"
+							startIcon={{ icon: Pen }}
+							size="xs2"
+							color="light"
+							iconOnly={true}
+							on:click={() => {
+								const input = inputRef
+								if (input) {
+									input.focus()
+								}
+							}}
 						/>
 					</div>
 				</div>
