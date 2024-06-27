@@ -9,7 +9,7 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
-	import { Button, Drawer, Tab, TabContent, Tabs, Alert } from '$lib/components/common'
+	import { Button, Drawer, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
 	import { enterpriseLicense } from '$lib/stores'
@@ -187,49 +187,51 @@
 
 							<TabContent value="settings" class="flex flex-col flex-1 h-full">
 								<Pane size={60} minSize={20} class="p-4">
-									<div class="flex flex-row gap-8 mt-2 mb-6">
-										<div>
-											<div class="mb-2 text-sm font-bold"
-												>Skip failures <Tooltip
-													documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
-													>If disabled, the flow will fail as soon as one of the iteration fail.
-													Otherwise, the error will be collected as the result of the iteration.
-													Regardless of this setting, if an error handler is defined, it will
-													process the error.</Tooltip
-												></div
-											>
-											<Toggle
-												bind:checked={mod.value.skip_failures}
-												options={{
-													right: 'Skip failures'
-												}}
-											/>
-										</div>
-										<div>
-											<div class="mb-2 text-sm font-bold">Run in parallel</div>
-											<Toggle
-												bind:checked={mod.value.parallel}
-												options={{
-													right: 'All iterations run in parallel'
-												}}
-											/>
-										</div>
-
-										<div>
-											<div class="mb-2 text-sm font-bold"
-												>Parallelism <Tooltip
-													>Assign a maximum number of branches run in parallel to control huge
-													for-loops.</Tooltip
+									{#if mod.value.type === 'forloopflow'}
+										<div class="flex flex-row gap-8 mt-2 mb-6">
+											<div>
+												<div class="mb-2 text-sm font-bold"
+													>Skip failures <Tooltip
+														documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
+														>If disabled, the flow will fail as soon as one of the iteration fail.
+														Otherwise, the error will be collected as the result of the iteration.
+														Regardless of this setting, if an error handler is defined, it will
+														process the error.</Tooltip
+													></div
 												>
+												<Toggle
+													bind:checked={mod.value.skip_failures}
+													options={{
+														right: 'Skip failures'
+													}}
+												/>
 											</div>
-											<input
-												type="number"
-												disabled={!mod.value.parallel}
-												bind:value={mod.value.parallelism}
-											/>
+											<div>
+												<div class="mb-2 text-sm font-bold">Run in parallel</div>
+												<Toggle
+													bind:checked={mod.value.parallel}
+													options={{
+														right: 'All iterations run in parallel'
+													}}
+												/>
+											</div>
+
+											<div>
+												<div class="mb-2 text-sm font-bold"
+													>Parallelism <Tooltip
+														>Assign a maximum number of branches run in parallel to control huge
+														for-loops.</Tooltip
+													>
+												</div>
+												<input
+													type="number"
+													disabled={!mod.value.parallel}
+													bind:value={mod.value.parallelism}
+												/>
+											</div>
 										</div>
-									</div></Pane
-								>
+									{/if}
+								</Pane>
 							</TabContent>
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
