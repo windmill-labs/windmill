@@ -17,18 +17,19 @@
 
 	let currentNodeId: string = $worldStore.outputsById[id]?.currentNodeId?.peak() ?? 'a'
 
-	$worldStore.outputsById[id]?.currentNodeId?.subscribe(
-		{
-			id: id,
-			next: (value) => {
-				console.log('Current node id changed', value)
-				currentNodeId = value
-			}
-		},
-		currentNodeId
-	)
+	function subscribeToCurrentNode(id: string) {
+		return $worldStore.outputsById[id]?.currentNodeId?.subscribe(
+			{
+				id: `id-${id}-${currentNodeId}`,
+				next: (value) => {
+					currentNodeId = value
+				}
+			},
+			currentNodeId
+		)
+	}
 
-	$: console.log('x', $worldStore.outputsById[id]?.currentNodeId)
+	let subscription = subscribeToCurrentNode(id)
 
 	function onDebugNode(debuggedNodeIndex: number | undefined) {
 		if (debuggedNodeIndex === undefined) {
@@ -53,6 +54,12 @@
 	function onNodesChange(newNodes: DecisionTreeNode[]) {
 		if (JSON.stringify(newNodes) !== JSON.stringify(lastNodes)) {
 			lastNodes = newNodes
+
+			if (subscription) {
+				subscription?.()
+			}
+			subscription = subscribeToCurrentNode(id)
+
 			renderCount++
 		}
 	}
