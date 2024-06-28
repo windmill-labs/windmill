@@ -229,6 +229,11 @@
 				}
 
 				nodes = removeNode(nodes, graphNode)
+
+				$debuggingComponents = Object.fromEntries(
+					Object.entries($debuggingComponents).filter(([key]) => key !== graphNode?.id)
+				)
+
 				break
 			}
 			case 'addBranch': {

@@ -674,6 +674,11 @@
 					on:update={onUpdate}
 					on:delete={onDelete}
 					allowColumnDefsActions={false}
+					on:recompute={() => {
+						lastTable = undefined
+						clearColumns()
+						listColumnsIfAvailable()
+					}}
 					{actions}
 				/>
 			{/key}

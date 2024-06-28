@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { GripVertical, Loader2, Plus, RotateCcw, X } from 'lucide-svelte'
+	import { GripVertical, Loader2, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
@@ -8,6 +8,7 @@
 	import { generateRandomString, pluralize } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
+	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
 
 	export let componentInput: StaticInput<any[]> & { loading?: boolean }
 	export let subFieldType: InputType | undefined = undefined
@@ -304,22 +305,8 @@
 					<Loader2 class="animate-spin" size={14} />
 					Loading columns defintions...
 				</div>
-
-				<Button
-					size="xs2"
-					color="light"
-					startIcon={{ icon: RotateCcw }}
-					on:click={() => {
-						componentInput = {
-							value: [],
-							loading: true,
-							type: 'static'
-						}
-					}}
-				>
-					Force refresh
-				</Button>
 			</div>
+			<RefreshDatabaseStudioTable {id} />
 		{/if}
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
