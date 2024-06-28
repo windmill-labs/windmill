@@ -524,7 +524,7 @@ jobs:
 
   publish_ecr_s3:
     needs: [build_ee_nsjail]
-    runs-on: ubicloud
+    runs-on: ubicloud-standard-2-arm
     if: github.event_name != 'pull_request'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
