@@ -301,6 +301,9 @@
 							agGrid: { api: e.api, columnApi: e.columnApi },
 							setSelectedIndex: (index) => {
 								e.api.getRowNode(index.toString())?.setSelected(true)
+							},
+							recompute: () => {
+								dispatch('recompute')
 							}
 						}
 						api = e.api
