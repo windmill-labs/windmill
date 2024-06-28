@@ -3,7 +3,7 @@
 	import { Network, Plus, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { writable } from 'svelte/store'
@@ -11,6 +11,7 @@
 	import { addNewBranch, removeNode } from './decisionTree/utils'
 	import Label from '$lib/components/Label.svelte'
 	import { debounce } from '$lib/utils'
+	import type { AppViewerContext } from '../../types'
 
 	export let component: AppComponent
 	export let nodes: DecisionTreeNode[]
@@ -20,6 +21,8 @@
 	let paneWidth = 0
 	let paneHeight = 0
 	let renderCount = 0
+
+	const { debuggingComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	const selectedNodeId = writable<string | undefined>(undefined)
 
@@ -64,6 +67,11 @@
 									variant="border"
 									on:click={() => {
 										nodes = removeNode(nodes, selectedNode)
+
+										$debuggingComponents = Object.fromEntries(
+											Object.entries($debuggingComponents).filter(([key]) => key !== component.id)
+										)
+
 										renderCount++
 									}}
 									disabled={selectedNode?.next?.length > 1 || nodes.length == 1}
