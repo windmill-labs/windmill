@@ -66,12 +66,16 @@
 									startIcon={{ icon: Trash }}
 									variant="border"
 									on:click={() => {
+										const selectedNodeIndex = nodes.findIndex((node) => node.id == selectedNode?.id)
+
 										nodes = removeNode(nodes, selectedNode)
+
 										$debuggingComponents = Object.fromEntries(
-											Object.entries($debuggingComponents).filter(
-												([key]) => key !== selectedNode.id
+											Object.entries(debuggingComponents).filter(
+												([key, value]) => value === selectedNodeIndex
 											)
 										)
+
 										renderCount++
 									}}
 									disabled={selectedNode?.next?.length > 1 || nodes.length == 1}

@@ -222,16 +222,16 @@
 			}
 
 			case 'delete': {
-				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
+				const graphNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
 
-				if (graphhNodeIndex > -1) {
-					deleteSubgrid(graphhNodeIndex)
+				if (graphNodeIndex > -1) {
+					deleteSubgrid(graphNodeIndex)
 				}
 
 				nodes = removeNode(nodes, graphNode)
 
 				$debuggingComponents = Object.fromEntries(
-					Object.entries($debuggingComponents).filter(([key]) => key !== graphNode?.id)
+					Object.entries(debuggingComponents).filter(([key, value]) => value === graphNodeIndex)
 				)
 
 				break
