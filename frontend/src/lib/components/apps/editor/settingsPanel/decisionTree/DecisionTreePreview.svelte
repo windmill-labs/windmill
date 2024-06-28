@@ -231,7 +231,7 @@
 				nodes = removeNode(nodes, graphNode)
 
 				$debuggingComponents = Object.fromEntries(
-					Object.entries(debuggingComponents).filter(([key, value]) => value === graphNodeIndex)
+					Object.entries($debuggingComponents).filter(([key, value]) => value === graphNodeIndex)
 				)
 
 				break

@@ -71,7 +71,7 @@
 										nodes = removeNode(nodes, selectedNode)
 
 										$debuggingComponents = Object.fromEntries(
-											Object.entries(debuggingComponents).filter(
+											Object.entries($debuggingComponents).filter(
 												([key, value]) => value === selectedNodeIndex
 											)
 										)
