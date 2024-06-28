@@ -72,7 +72,7 @@
 
 										$debuggingComponents = Object.fromEntries(
 											Object.entries($debuggingComponents).filter(
-												([key, value]) => value === selectedNodeIndex
+												([key, value]) => value !== selectedNodeIndex
 											)
 										)
 
