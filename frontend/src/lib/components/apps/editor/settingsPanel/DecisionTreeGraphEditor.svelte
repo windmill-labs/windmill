@@ -66,14 +66,10 @@
 									startIcon={{ icon: Trash }}
 									variant="border"
 									on:click={() => {
-										const selectedNodeIndex = nodes.findIndex((node) => node.id == selectedNode?.id)
-
 										nodes = removeNode(nodes, selectedNode)
 
 										$debuggingComponents = Object.fromEntries(
-											Object.entries($debuggingComponents).filter(
-												([key, value]) => value !== selectedNodeIndex
-											)
+											Object.entries($debuggingComponents).filter(([key]) => key !== component.id)
 										)
 
 										renderCount++
