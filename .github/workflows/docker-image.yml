@@ -469,7 +469,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileNsjail"
           tags: |
@@ -515,7 +515,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileReports"
           tags: |
