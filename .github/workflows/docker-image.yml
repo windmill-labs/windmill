@@ -1,6 +1,5 @@
 env:
   REGISTRY: ghcr.io
-  ECR_REGISTRY: 976079455550.dkr.ecr.us-east-1.amazonaws.com
   IMAGE_NAME: ${{ github.repository }}
 
 name: Build windmill:main
@@ -469,7 +468,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileNsjail"
           tags: |
@@ -490,12 +489,19 @@ jobs:
 
       - uses: depot/setup-action@v1
 
+      - name: Login to registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Docker meta
         id: meta-ee-public
         uses: docker/metadata-action@v4
         with:
           images: |
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -503,19 +509,11 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short
 
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.ECR_REGISTRY }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
       - name: Build and push publicly ee reports
         uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileReports"
           tags: |
@@ -539,22 +537,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
+      - name: Login to registry
         uses: docker/login-action@v2
         with:
-          registry: ${{ env.ECR_REGISTRY }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      - name: Push image to ECR
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: get git hash
         if: github.event_name != 'pull_request'
-        id: push_ecr
+        id: git_hash
         run: |
           git_hash=$(git rev-parse --short "$GITHUB_SHA")
-          docker buildx imagetools create \
-            --tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${git_hash:0:7} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail:main
           echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
 
       - uses: shrink/actions-docker-extract@v3
@@ -562,7 +556,7 @@ jobs:
         id: extract
         with:
           image: |-
-            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail:${{ steps.git_hash.outputs.GIT_HASH }}
           path: "/static_frontend/."
 
       - uses: reggionick/s3-deploy@v3
