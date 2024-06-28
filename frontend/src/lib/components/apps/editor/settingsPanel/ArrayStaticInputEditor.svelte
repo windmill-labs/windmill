@@ -192,11 +192,25 @@
 		componentInput.value = reorderedValues
 	}
 
-	let items = (Array.isArray(componentInput.value) ? componentInput.value : [])
-		.filter((x) => x != undefined)
-		.map((item, index) => {
-			return { value: item, id: generateRandomString() }
-		})
+	let items = getItems(componentInput)
+
+	function getItems(componentInput: StaticInput<any[]> & { loading?: boolean }) {
+		return (Array.isArray(componentInput.value) ? componentInput.value : [])
+			.filter((x) => x != undefined)
+			.map((item) => {
+				return { value: item, id: generateRandomString() }
+			})
+	}
+
+	$: if (
+		subFieldType === 'db-explorer' &&
+		Array.isArray(componentInput.value) &&
+		items.length > 0 &&
+		componentInput?.value.length == 0
+	) {
+		// When we clear the table, we need to clear the items
+		items = []
+	}
 
 	$: items != undefined && handleItemsChange()
 
@@ -287,21 +301,27 @@
 	{/if}
 	{#if subFieldType === 'db-explorer'}
 		{#if componentInput.loading}
-			<div class="flex flex-row gap-2 w-full items-center text-xs">
-				<Loader2 class="animate-spin" size={14} />
-				Loading columns defintions...
+			<div class="flex flex-row gap-2 w-full items-center">
+				<div class="flex flex-row gap-2 w-full items-center text-xs">
+					<Loader2 class="animate-spin" size={14} />
+					Loading columns defintions...
+				</div>
+
+				<Button
+					size="xs2"
+					color="light"
+					startIcon={{ icon: RotateCcw }}
+					on:click={() => {
+						componentInput = {
+							value: [],
+							loading: true,
+							type: 'static'
+						}
+					}}
+				>
+					Force refresh
+				</Button>
 			</div>
-		{:else}
-			<Button
-				size="xs2"
-				color="light"
-				startIcon={{ icon: RotateCcw }}
-				on:click={() => {
-					componentInput.value = undefined
-				}}
-			>
-				Reset columns defs
-			</Button>
 		{/if}
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
