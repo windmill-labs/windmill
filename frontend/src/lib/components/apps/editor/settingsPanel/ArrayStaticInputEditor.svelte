@@ -306,8 +306,8 @@
 					Loading columns defintions...
 				</div>
 			</div>
-			<RefreshDatabaseStudioTable {id} />
 		{/if}
+		<RefreshDatabaseStudioTable {id} />
 	{/if}
 	{#if subFieldType !== 'db-explorer'}
 		<Button size="xs" color="light" startIcon={{ icon: Plus }} on:click={() => addElementByType()}>

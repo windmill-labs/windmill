@@ -64,6 +64,10 @@
 			lastTable = undefined
 		}
 
+		clearColumnDefs()
+	}
+
+	function clearColumnDefs() {
 		const gridItem = findGridItem($app, id)
 
 		if (!gridItem) {
@@ -676,7 +680,7 @@
 					allowColumnDefsActions={false}
 					on:recompute={() => {
 						lastTable = undefined
-						clearColumns()
+						clearColumnDefs()
 						listColumnsIfAvailable()
 					}}
 					{actions}

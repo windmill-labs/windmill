@@ -10,7 +10,6 @@
 
 	function onRefresh() {
 		if (!id) return
-		console.log('Refreshing table', $componentControl[id])
 		$componentControl[id]?.recompute?.()
 	}
 </script>
