@@ -202,15 +202,13 @@
 			})
 	}
 
-	$: if (
-		subFieldType === 'db-explorer' &&
-		Array.isArray(componentInput.value) &&
-		items.length > 0 &&
-		componentInput?.value.length == 0
-	) {
-		// When we clear the table, we need to clear the items
-		items = []
+	function clearTableOnComponentReset(value: any[] | undefined) {
+		if (Array.isArray(value) && value.length === 0 && items.length > 0) {
+			items = []
+		}
 	}
+
+	$: subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
 
 	$: items != undefined && handleItemsChange()
 

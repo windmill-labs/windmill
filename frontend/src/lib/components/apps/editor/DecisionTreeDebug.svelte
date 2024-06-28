@@ -21,25 +21,46 @@
 		{
 			id: id,
 			next: (value) => {
+				console.log('Current node id changed', value)
 				currentNodeId = value
 			}
 		},
 		currentNodeId
 	)
 
-	$: if (nodes[$debuggingComponents[id] ?? 0]?.id === undefined) {
-		currentNodeId = nodes[0]?.id ?? ''
-		$componentControl?.[id]?.setTab?.(0)
+	$: console.log('x', $worldStore.outputsById[id]?.currentNodeId)
 
-		$debuggingComponents = Object.fromEntries(
-			Object.entries($debuggingComponents).filter(([key]) => key !== id)
-		)
+	function onDebugNode(debuggedNodeIndex: number | undefined) {
+		if (debuggedNodeIndex === undefined) {
+			return
+		}
+
+		if (debuggedNodeIndex !== undefined && nodes[debuggedNodeIndex]?.id === undefined) {
+			currentNodeId = nodes[0]?.id ?? ''
+			$componentControl?.[id]?.setTab?.(0)
+
+			$debuggingComponents = Object.fromEntries(
+				Object.entries($debuggingComponents).filter(([key]) => key !== id)
+			)
+		}
 	}
 
-	$: nodesKey = JSON.stringify(nodes)
+	$: onDebugNode($debuggingComponents[id])
+
+	let renderCount: number = 0
+	let lastNodes: DecisionTreeNode[] = nodes
+
+	function onNodesChange(newNodes: DecisionTreeNode[]) {
+		if (JSON.stringify(newNodes) !== JSON.stringify(lastNodes)) {
+			lastNodes = newNodes
+			renderCount++
+		}
+	}
+
+	$: onNodesChange(nodes)
 </script>
 
-{#key nodesKey}
+{#key renderCount}
 	<button
 		title={'Debug tabs'}
 		class={classNames(
