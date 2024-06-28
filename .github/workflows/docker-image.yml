@@ -556,7 +556,7 @@ jobs:
         id: extract
         with:
           image: |-
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.git_hash.outputs.GIT_HASH }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-nsjail:${{ steps.git_hash.outputs.GIT_HASH }}
           path: "/static_frontend/."
 
       - uses: reggionick/s3-deploy@v3
