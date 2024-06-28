@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.355.3](https://github.com/windmill-labs/windmill/compare/v1.355.2...v1.355.3) (2024-06-27)
+
+
+### Bug Fixes
+
+* fix OIDC ([81c7edf](https://github.com/windmill-labs/windmill/commit/81c7edffeabbfc0fd628a0e5b1d60d2c52e12249))
+* snowflake datetime display format ([#3995](https://github.com/windmill-labs/windmill/issues/3995)) ([963d0a4](https://github.com/windmill-labs/windmill/commit/963d0a4dfe94c43d6ca94dcacda43cb0e563a857))
+
 ## [1.355.2](https://github.com/windmill-labs/windmill/compare/v1.355.1...v1.355.2) (2024-06-26)
 
 
