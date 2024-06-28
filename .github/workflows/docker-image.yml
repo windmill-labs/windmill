@@ -543,14 +543,20 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
+          
+      - name: get git hash
+        if: github.event_name != 'pull_request'
+        id: git_hash
+        run: |
+          git_hash=$(git rev-parse --short "$GITHUB_SHA")
+          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
 
       - uses: shrink/actions-docker-extract@v3
         if: github.event_name != 'pull_request'
         id: extract
         with:
           image: |-
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.push_ecr.outputs.GIT_HASH }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.git_hash.outputs.GIT_HASH }}
           path: "/static_frontend/."
 
       - uses: reggionick/s3-deploy@v3
