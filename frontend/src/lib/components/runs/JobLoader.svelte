@@ -140,7 +140,8 @@
 	async function fetchExtendedJobs(
 		concurrencyKey: string | null,
 		startedBefore: string | undefined,
-		startedAfter: string | undefined
+		startedAfter: string | undefined,
+		startedAfterCompletedJobs: string | undefined
 	): Promise<ExtendedJobs> {
 		return ConcurrencyGroupsService.listExtendedJobs({
 			rowLimit: 1000,
@@ -148,6 +149,7 @@
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
+			createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 			schedulePath,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
@@ -203,7 +205,7 @@
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
 			} else {
-				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
+				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs)
 				const newJobs = extendedJobs.jobs
 				const newExternalJobs = extendedJobs.obscured_jobs
 
@@ -291,7 +293,7 @@
 						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
-						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs ?? ts)
 						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
 
 						// Filter on minTs here and not in the backend
