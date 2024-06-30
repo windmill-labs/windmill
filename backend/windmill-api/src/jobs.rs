@@ -1457,6 +1457,11 @@ async fn list_jobs(
     #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
+    #[cfg(feature = "prometheus")]
+    if _api_list_jobs_query_duration.is_some() {
+        tracing::info!("list_jobs query: {}", sql);
+    }
+
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 
