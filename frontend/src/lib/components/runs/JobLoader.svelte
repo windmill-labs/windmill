@@ -106,12 +106,15 @@
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
-		startedAfter: string | undefined
+		startedAfter: string | undefined,
+		startedAfterCompletedJobs: string | undefined
 	): Promise<Job[]> {
+		console.log('fetching jobs', startedAfter, startedBefore)
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
+			createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 			schedulePath,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
@@ -192,7 +195,7 @@
 		loading = true
 		try {
 			if (concurrencyKey == null || concurrencyKey === '') {
-				let newJobs = await fetchJobs(maxTs, undefined)
+				let newJobs = await fetchJobs(maxTs, undefined, minTs)
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -285,7 +288,7 @@
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? ts)
+						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
