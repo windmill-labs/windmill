@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
-	import {
-		displayDate,
-		msToSec,
-		truncateHash,
-		truncateRev,
-		usernameToPermissionedAs
-	} from '$lib/utils'
+	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -257,14 +251,9 @@
 				</Button>
 			</div>
 		{:else}
-			{@const createdByAsPermissionedAs = usernameToPermissionedAs(job.created_by ?? '')}
 			<div class="flex flex-row gap-1 items-center">
 				<div class="text-xs">
 					{job.created_by}
-					{#if createdByAsPermissionedAs != job.permissioned_as}
-						<br />
-						(permissioned as {job.permissioned_as})
-					{/if}
 				</div>
 				{#if !isExternal}
 					<Button
