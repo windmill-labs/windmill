@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn test_parse_graphql_sig() -> anyhow::Result<()> {
         let code = r#"
-query($s: String, $arr: [String]) {
+query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
     books {
         title
     }
@@ -89,9 +89,9 @@ query($s: String, $arr: [String]) {
                 star_kwargs: false,
                 args: vec![
                     Arg {
-                        otyp: Some("String".to_string()),
-                        name: "s".to_string(),
-                        typ: Typ::Str(None),
+                        otyp: Some("Int".to_string()),
+                        name: "i".to_string(),
+                        typ: Typ::Int,
                         default: None,
                         has_default: true
                     },
@@ -102,6 +102,13 @@ query($s: String, $arr: [String]) {
                         default: None,
                         has_default: false
                     },
+                    Arg {
+                        otyp: Some("String".to_string()),
+                        name: "wahoo".to_string(),
+                        typ: Typ::Str(None),
+                        default: Some(json!("wahoo")),
+                        has_default: true
+                    }
                 ],
                 no_main_func: None
             }
