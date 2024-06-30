@@ -36,8 +36,8 @@ fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         };
 
         let (has_default, default) = match cap.get(6).map(|x| x.as_str().to_string()) {
-            Some(x) => (true, Some(x)), // default value
-            None => (cap.get(3).is_none() && cap.get(5).is_none(), None), // optional (no exclamation mark)
+            Some(x) => (true, Some(x)), // default value => optional
+            None => (cap.get(3).is_none() && cap.get(5).is_none(), None), // optional if no !
         };
 
         let parsed_default = default.and_then(|x| match parsed_typ {
@@ -93,7 +93,7 @@ query($s: String, $arr: [String]) {
                         name: "s".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false
+                        has_default: true
                     },
                     Arg {
                         otyp: Some("[String]".to_string()),
