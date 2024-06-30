@@ -123,7 +123,10 @@ struct ExtendedJobsParams {
     row_limit: Option<i64>,
 }
 
-pub fn join_concurrency_key<'c>(concurrency_key: Option<&String>, mut sqlb: SqlBuilder) -> SqlBuilder {
+pub fn join_concurrency_key<'c>(
+    concurrency_key: Option<&String>,
+    mut sqlb: SqlBuilder,
+) -> SqlBuilder {
     if let Some(key) = concurrency_key {
         sqlb.join("concurrency_key")
             .on_eq("id", "concurrency_key.job_id")
@@ -205,6 +208,7 @@ async fn get_concurrent_intervals(
             created_after: _,
             created_or_started_before: _,
             created_or_started_after: _,
+            created_or_started_after_completed_jobs: _,
             order_desc: _,
             job_kinds: _,
             is_flow_step: _,

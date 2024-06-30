@@ -5602,6 +5602,7 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
+        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -8633,6 +8634,15 @@ components:
       description:
         filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CreatedOrStartedAfterCompletedJob:
+      name: created_or_started_after_completed_jobs
+      description:
+        filter on created_at for non non started job and started_at otherwise
+        after (exclusive) timestamp but only for the completed jobs
       in: query
       schema:
         type: string
