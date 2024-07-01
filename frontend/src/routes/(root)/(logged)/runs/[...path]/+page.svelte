@@ -404,6 +404,7 @@
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
 
 	let darkMode: boolean = false
+
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -437,7 +438,7 @@
 	{resultError}
 	bind:loading
 	bind:this={jobLoader}
-	{lookback}
+	lookback={graphIsRunsChart ? 0: lookback}
 />
 
 <ConfirmationModal
