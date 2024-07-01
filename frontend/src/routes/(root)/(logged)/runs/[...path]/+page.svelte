@@ -80,7 +80,8 @@
 		: undefined
 
 	// Handled on the main page
-	let minTs = $page.url.searchParams.get('min_ts') ?? subtractDaysFromDateString((new Date()).toISOString(), 2)
+	let minTs =
+		$page.url.searchParams.get('min_ts') ?? subtractDaysFromDateString(new Date().toISOString(), 2)
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
@@ -404,7 +405,6 @@
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
 
 	let darkMode: boolean = false
-
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -438,7 +438,7 @@
 	{resultError}
 	bind:loading
 	bind:this={jobLoader}
-	lookback={graphIsRunsChart ? 0: lookback}
+	lookback={graphIsRunsChart ? 0 : lookback}
 />
 
 <ConfirmationModal
