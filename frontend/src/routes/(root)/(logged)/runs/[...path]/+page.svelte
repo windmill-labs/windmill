@@ -591,7 +591,8 @@
 									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
 									<Tooltip>
 										How far behind the min datetime to start considering jobs for the concurrency
-										graph. Try changing it from zero if you want to zoom in on this graph.
+										graph. Change this value to include jobs started before the set time window for
+										the computation of the concurrency graph
 									</Tooltip>
 								</div>
 							</svelte:fragment>
