@@ -286,3 +286,49 @@ export function sliceModules(
 			return m
 		})
 }
+
+export function findParent(modules: FlowModule[], id: string): string | null {
+	for (const m of modules) {
+		if (m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') {
+			if (m.value.modules.find((x) => x.id === id)) {
+				return m.id
+			} else {
+				const parent = findParent(m.value.modules, id)
+				if (parent) {
+					return parent
+				}
+			}
+		} else if (m.value.type === 'branchone') {
+			for (const b of m.value.branches) {
+				if (b.modules.find((x) => x.id === id)) {
+					return m.id
+				} else {
+					const parent = findParent(b.modules, id)
+					if (parent) {
+						return parent
+					}
+				}
+			}
+			if (m.value.default.find((x) => x.id === id)) {
+				return m.id
+			} else {
+				const parent = findParent(m.value.default, id)
+				if (parent) {
+					return parent
+				}
+			}
+		} else if (m.value.type === 'branchall') {
+			for (const b of m.value.branches) {
+				if (b.modules.find((x) => x.id === id)) {
+					return m.id
+				} else {
+					const parent = findParent(b.modules, id)
+					if (parent) {
+						return parent
+					}
+				}
+			}
+		}
+	}
+	return null
+}
