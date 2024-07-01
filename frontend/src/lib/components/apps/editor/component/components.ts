@@ -268,6 +268,7 @@ export type NavbarItem = {
 	caption?: string
 	disabled: boolean
 	hidden: boolean
+	icon?: string
 }
 
 export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
@@ -3856,7 +3857,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		documentationLink: `${documentationBaseUrl}/navbar`,
 		dims: '12:1-12:2' as AppComponentDimensions,
 		customCss: {
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			image: { class: '', style: '' }
 		},
 		initialData: {
 			...defaultAlignement,
@@ -3866,6 +3868,32 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'text',
 					value: 'Title'
+				},
+				source: {
+					type: 'static',
+					value: '/logo.svg',
+					fieldType: 'text',
+					fileUpload: {
+						accept: 'image/*',
+						convertTo: 'base64'
+					}
+				},
+				sourceKind: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: selectOptions.imageSourceKind,
+					value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+				},
+				altText: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					tooltip: "This text will appear if the image can't be loaded for any reason"
+				},
+				borderColor: {
+					type: 'static',
+					value: 'transparent',
+					fieldType: 'color'
 				}
 			}
 		}

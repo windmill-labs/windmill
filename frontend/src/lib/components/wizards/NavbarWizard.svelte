@@ -11,6 +11,7 @@
 	import { onMount } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import Section from '../Section.svelte'
+	import IconSelectInput from '../apps/editor/settingsPanel/inputEditor/IconSelectInput.svelte'
 
 	export let value: NavbarItem
 
@@ -75,6 +76,9 @@
 			</Label>
 			<Label label="Hidden">
 				<Toggle bind:checked={value.hidden} size="xs" />
+			</Label>
+			<Label label="Icon">
+				<IconSelectInput bind:value={value.icon} />
 			</Label>
 		</Section>
 	{/if}
