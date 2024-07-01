@@ -3410,7 +3410,11 @@ async fn run_wait_result_flow_by_path_internal(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let (tag, dedicated_worker, early_return) = sqlx::query!(
-        "SELECT tag, dedicated_worker, value->>'early_return' as early_return from flow WHERE path = $1 and workspace_id = $2",
+        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return 
+        FROM flow 
+        LEFT JOIN flow_version
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 and flow.workspace_id = $2",
         flow_path,
         w_id
     )

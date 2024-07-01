@@ -318,6 +318,7 @@ pub enum JobPayload {
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
+        version: i64,
     },
     AppDependencies {
         path: String,

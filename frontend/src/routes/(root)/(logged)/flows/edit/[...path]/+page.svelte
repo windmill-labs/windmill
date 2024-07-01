@@ -203,6 +203,9 @@
 		const { path, selectedId } = e.detail
 		goto(`/flows/edit/${path}?selected=${selectedId}`)
 	}}
+	on:historyRestore={() => {
+		loadFlow()
+	}}
 	{flowStore}
 	{flowStateStore}
 	initialPath={$page.params.path}
