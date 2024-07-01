@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM flow_version WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bdaabc8db1a589024e7d02a142fed61342aaa62c33bb54735bcaa2982b32a3a8"
+}

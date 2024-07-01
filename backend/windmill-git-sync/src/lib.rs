@@ -18,7 +18,7 @@ pub type DB = Pool<Postgres>;
 #[derive(Clone, Debug)]
 pub enum DeployedObject {
     Script { hash: ScriptHash, path: String, parent_path: Option<String> },
-    Flow { path: String, parent_path: Option<String> },
+    Flow { path: String, parent_path: Option<String>, version: i64 },
     App { path: String, version: i64, parent_path: Option<String> },
     Folder { path: String },
     Resource { path: String, parent_path: Option<String> },

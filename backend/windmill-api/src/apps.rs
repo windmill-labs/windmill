@@ -91,6 +91,8 @@ pub struct ListableApp {
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -289,6 +291,13 @@ async fn list_apps(
 
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("app.draft_only IS NOT TRUE");
+    }
+
+    if lq.with_deployment_msg.unwrap_or(false) {
+        sqlb.join("deployment_metadata dm")
+            .left()
+            .on("dm.app_version = app.versions[array_upper(app.versions, 1)]")
+            .fields(&["dm.deployment_msg"]);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;

@@ -2572,7 +2572,10 @@ async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-            "SELECT * FROM flow WHERE workspace_id = $1 AND archived = false",
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+            FROM flow
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.workspace_id = $1 AND flow.archived = false",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
@@ -2970,7 +2973,10 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET workspace_id = $1 WHERE workspace_id = $2",
+        "INSERT INTO flow 
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions) 
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions
+            FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -2978,12 +2984,16 @@ async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE flow_version SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
     .execute(&mut *tx)
     .await?;
+
+    sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", &old_id)
+        .execute(&mut *tx)
+        .await?;
 
     // have to duplicate group_ with new workspace id because of foreign key constraint
     sqlx::query!(
@@ -3006,6 +3016,14 @@ async fn change_workspace_id(
     sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &old_id)
         .execute(&mut *tx)
         .await?;
+
+    sqlx::query!(
+        "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         "UPDATE input SET workspace_id = $1 WHERE workspace_id = $2",

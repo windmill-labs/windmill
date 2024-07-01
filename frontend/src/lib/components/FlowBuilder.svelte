@@ -27,9 +27,9 @@
 		sleep
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
-	import type { Drawer } from '$lib/components/common'
+	import { Drawer } from '$lib/components/common'
 
-	import { setContext, tick } from 'svelte'
+	import { setContext, tick, type ComponentType } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Badge, Button, UndoRedo } from './common'
@@ -43,7 +43,16 @@
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext, FlowInput } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
-	import { Calendar, Pen, Save, DiffIcon } from 'lucide-svelte'
+	import {
+		Calendar,
+		Pen,
+		Save,
+		DiffIcon,
+		MoreVertical,
+		HistoryIcon,
+		FileJson,
+		type Icon
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -64,6 +73,11 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
+	import FlowHistory from './flows/FlowHistory.svelte'
+	import ButtonDropdown from './common/button/ButtonDropdown.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
+	import { twMerge } from 'tailwind-merge'
+	import CustomPopover from './CustomPopover.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -207,7 +221,7 @@
 		)
 	}
 
-	async function saveFlow(): Promise<void> {
+	async function saveFlow(deploymentMsg?: string): Promise<void> {
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
@@ -233,7 +247,8 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
-						visible_to_runner_only: flow.visible_to_runner_only
+						visible_to_runner_only: flow.visible_to_runner_only,
+						deployment_message: deploymentMsg || undefined
 					}
 				})
 				if (enabled) {
@@ -296,7 +311,8 @@
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
-						visible_to_runner_only: flow.visible_to_runner_only
+						visible_to_runner_only: flow.visible_to_runner_only,
+						deployment_message: deploymentMsg || undefined
 					}
 				})
 			}
@@ -978,6 +994,9 @@
 	let renderCount = 0
 	let flowTutorials: FlowTutorials | undefined = undefined
 
+	let jsonViewerDrawer: Drawer | undefined = undefined
+	let flowHistory: FlowHistory | undefined = undefined
+
 	export function triggerTutorial() {
 		const urlParams = new URLSearchParams(window.location.search)
 		const tutorial = urlParams.get('tutorial')
@@ -988,6 +1007,29 @@
 			flowTutorials?.runTutorialById('action')
 		}
 	}
+
+	const moreItems: {
+		displayName: string
+		icon: ComponentType<Icon>
+		action: () => void
+		disabled?: boolean
+	}[] = [
+		{
+			displayName: 'Deployment History',
+			icon: HistoryIcon,
+			action: () => {
+				flowHistory?.open()
+			},
+			disabled: newFlow
+		},
+		{
+			displayName: 'Export',
+			icon: FileJson,
+			action: () => jsonViewerDrawer?.openDrawer()
+		}
+	]
+
+	let deploymentMsg = ''
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -997,6 +1039,10 @@
 {#key renderCount}
 	{#if !$userStore?.operator}
 		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
+		{#if $pathStore}
+			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
+		{/if}
+		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				applyCopilotFlowInputs()
@@ -1083,10 +1129,40 @@
 						/>
 					</div>
 				</div>
-				<div class="flex flex-row space-x-2">
+				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}
 						<Awareness />
 					{/if}
+					<div>
+						<ButtonDropdown hasPadding={false}>
+							<svelte:fragment slot="buttonReplacement">
+								<Button nonCaptureEvent size="xs" color="light">
+									<div class="flex flex-row items-center">
+										<MoreVertical size={14} />
+									</div>
+								</Button>
+							</svelte:fragment>
+							<svelte:fragment slot="items">
+								{#each moreItems as item}
+									<MenuItem
+										on:click={item.action}
+										disabled={item.disabled}
+										class={item.disabled ? 'opacity-50' : ''}
+									>
+										<div
+											class={twMerge(
+												'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+											)}
+										>
+											<svelte:component this={item.icon} size={14} />
+											{item.displayName}
+										</div>
+									</MenuItem>
+								{/each}
+							</svelte:fragment>
+						</ButtonDropdown>
+					</div>
+
 					<FlowBuilderTutorials
 						on:reload={() => {
 							renderCount += 1
@@ -1124,8 +1200,6 @@
 						{abortController}
 					/>
 
-					<FlowImportExportMenu />
-
 					<FlowPreviewButtons />
 					<Button
 						loading={loadingDraft}
@@ -1139,15 +1213,24 @@
 					>
 						Draft
 					</Button>
-					<Button
-						loading={loadingSave}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => saveFlow()}
-						dropdownItems={!newFlow ? dropdownItems : undefined}
-					>
-						Deploy
-					</Button>
+
+					<CustomPopover appearTimeout={0}>
+						<Button
+							loading={loadingSave}
+							size="xs"
+							startIcon={{ icon: Save }}
+							on:click={() => saveFlow()}
+							dropdownItems={!newFlow ? dropdownItems : undefined}
+						>
+							Deploy
+						</Button>
+						<svelte:fragment slot="overlay">
+							<div class="flex flex-row gap-2">
+								<input type="text" placeholder="Deployment message" bind:value={deploymentMsg} />
+								<Button size="xs" on:click={() => saveFlow(deploymentMsg)}>Deploy</Button>
+							</div>
+						</svelte:fragment>
+					</CustomPopover>
 				</div>
 			</div>
 

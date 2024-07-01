@@ -206,6 +206,8 @@ pub struct ListableScript {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "is_false")]
     pub use_codebase: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
 }
 
 fn is_false(x: &bool) -> bool {
@@ -338,6 +340,7 @@ pub struct ListScriptQuery {
     pub starred_only: Option<bool>,
     pub include_without_main: Option<bool>,
     pub include_draft_only: Option<bool>,
+    pub with_deployment_msg: Option<bool>,
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
