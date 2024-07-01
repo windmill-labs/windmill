@@ -8,8 +8,13 @@
 	import type { NavbarItem } from '../component'
 	import NavbarWizard from '$lib/components/wizards/NavbarWizard.svelte'
 	import { flip } from 'svelte/animate'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '../../types'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	export let navbarItems: NavbarItem[] = []
+
+	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let items = navbarItems.map((tab, index) => {
 		return { value: tab, id: generateRandomString(), originalIndex: index }
@@ -104,7 +109,12 @@
 						</div>
 					</div>
 					{#if items[index].value.path}
-						<div class="text-xs text-tertiary">Path: {items[index].value.path}</div>
+						<div class="text-xs text-tertiary">
+							Path: <Badge small>{items[index].value.path}</Badge>
+							{#if appPath === items[index].value.path}
+								<Badge small color="blue">Current app</Badge>
+							{/if}
+						</div>
 					{:else}
 						<div class="text-xs text-red-500">No app path selected</div>
 					{/if}
