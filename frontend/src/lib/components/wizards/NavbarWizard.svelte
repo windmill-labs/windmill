@@ -66,6 +66,7 @@
 				</svelte:fragment>
 
 				<Select
+					{loading}
 					class="grow shrink max-w-full"
 					on:change={(e) => {
 						value.path = e.detail.value
