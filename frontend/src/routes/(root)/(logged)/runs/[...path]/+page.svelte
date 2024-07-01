@@ -37,7 +37,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { subtractDaysFromDateString } from '$lib/utils'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -80,8 +79,7 @@
 		: undefined
 
 	// Handled on the main page
-	let minTs =
-		$page.url.searchParams.get('min_ts') ?? subtractDaysFromDateString(new Date().toISOString(), 2)
+	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
@@ -103,7 +101,7 @@
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
-	let lookback: number = 0
+	let lookback: number = 1
 
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
@@ -570,7 +568,7 @@
 									action: () => setLookback(0)
 								},
 								{
-									displayName: '1 days',
+									displayName: '1 day',
 									action: () => setLookback(1)
 								},
 								{
@@ -907,7 +905,7 @@
 									action: () => setLookback(0)
 								},
 								{
-									displayName: '1 days',
+									displayName: '1 day',
 									action: () => setLookback(1)
 								},
 								{
