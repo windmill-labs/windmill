@@ -11,20 +11,18 @@
 
 	$: navbarItem.icon && icon && handleIcon()
 
-	$: console.log('navbarItem:', navbarItem)
 	async function handleIcon() {
-		console.log('navbarItem.icon:', navbarItem.icon)
 		if (navbarItem.icon) {
 			icon = await loadIcon(navbarItem.icon, icon, 14, undefined, undefined)
 		}
 	}
 
-	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { appPath, mode } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 <Button
 	href={navbarItem.path ? `/apps/get/${navbarItem.path}` : undefined}
-	target="_blank"
+	target={$mode === 'dnd' ? '_blank' : '_self'}
 	color="light"
 	size="xs"
 	disabled={navbarItem.disabled || appPath === navbarItem.path}

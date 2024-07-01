@@ -7,6 +7,7 @@
 	import { GripVertical, Plus, Settings } from 'lucide-svelte'
 	import type { NavbarItem } from '../component'
 	import NavbarWizard from '$lib/components/wizards/NavbarWizard.svelte'
+	import { flip } from 'svelte/animate'
 
 	export let navbarItems: NavbarItem[] = []
 
@@ -63,7 +64,7 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div class="border rounded-md p-2 mb-2 bg-surface">
+				<div class="border rounded-md p-2 mb-2 bg-surface" animate:flip={{ duration: 200 }}>
 					<div class="w-full flex flex-row gap-2 items-center relative my-1">
 						<div class="flex flex-row rounded-md bg-surface items-center h-full">
 							<div class="relative w-full">
@@ -102,6 +103,11 @@
 							</div>
 						</div>
 					</div>
+					{#if items[index].value.path}
+						<div class="text-xs text-tertiary">Path: {items[index].value.path}</div>
+					{:else}
+						<div class="text-xs text-red-500">No app path selected</div>
+					{/if}
 				</div>
 			{/each}
 		</section>

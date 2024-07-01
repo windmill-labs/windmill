@@ -15,6 +15,7 @@
 	import Select from '../apps/svelte-select/lib/Select.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	export let value: NavbarItem
 
@@ -73,13 +74,19 @@
 					}}
 					value={value.path}
 					items={apps.map((x) => x.path)}
-					placeholder="Pick an path"
+					placeholder="Pick a path"
 					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 					containerStyles={darkMode
 						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 					portal={false}
 				/>
+				<div class="my-1">
+					<Alert size="xs" type="info" title="Target">
+						In the editor, the app will open in a new tab. In the viewer, it will open in the same
+						tab.
+					</Alert>
+				</div>
 			</Label>
 			<Label label="Caption">
 				<input type="text" bind:value={value.caption} />

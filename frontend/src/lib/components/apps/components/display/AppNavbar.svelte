@@ -71,7 +71,7 @@
 		</div>
 		<div class="flex flex-row gap-4 overflow-x-auto">
 			{#each navbarItems ?? [] as navbarItem}
-				{#if navbarItem.path || !navbarItem.hidden}
+				{#if !navbarItem.hidden}
 					<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
 						<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
 						<div
