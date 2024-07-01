@@ -295,13 +295,12 @@
 					}
 
 					loading = true
-					const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, extendedMinTs ?? ts, undefined)
+						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
-						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, extendedMinTs ?? ts)
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs ?? ts)
 						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
 
 						// Filter on minTs here and not in the backend
