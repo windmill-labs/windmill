@@ -36,7 +36,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -402,10 +401,8 @@
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
 
-	let darkMode: boolean = false
 </script>
 
-<DarkModeObserver bind:darkMode />
 
 <JobLoader
 	{allWorkspaces}
