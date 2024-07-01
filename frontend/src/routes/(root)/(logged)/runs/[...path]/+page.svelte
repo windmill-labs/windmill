@@ -37,6 +37,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { subtractDaysFromDateString } from '$lib/utils'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -79,7 +80,7 @@
 		: undefined
 
 	// Handled on the main page
-	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
+	let minTs = $page.url.searchParams.get('min_ts') ?? subtractDaysFromDateString((new Date()).toISOString(), 2)
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
@@ -738,6 +739,13 @@
 									jobLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
+							on:clear={async () => {
+								minTs = undefined
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
 						/>
 					</div>
 				</div>
@@ -754,6 +762,13 @@
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								maxTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
 									jobLoader?.loadJobs(minTs, maxTs, true)
@@ -1064,6 +1079,13 @@
 									jobLoader?.loadJobs(minTs, maxTs, true)
 								}, 1000)
 							}}
+							on:clear={async () => {
+								minTs = undefined
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
 						/>
 					</div>
 				</div>
@@ -1080,6 +1102,13 @@
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								maxTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
 									jobLoader?.loadJobs(minTs, maxTs, true)

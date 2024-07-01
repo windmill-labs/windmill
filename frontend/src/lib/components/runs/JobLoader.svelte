@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
+	import { subtractDaysFromDateString } from '$lib/utils'
 
 	export let jobs: Job[] | undefined
 	export let user: string | null
@@ -201,7 +202,7 @@
 			// Extend MinTs to fetch jobs mefore minTs and show a correct concurrency graph
 			// TODO: when an ended_at column is created on the completed_job table,
 			// lookback won't be needed anymore (just filter ended_at > minTs instead
-			const extendedMinTs = substractDays(minTs, lookback)
+			const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 			if (concurrencyKey == null || concurrencyKey === '') {
 				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs)
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
@@ -294,7 +295,7 @@
 					}
 
 					loading = true
-					const extendedMinTs = substractDays(minTs, lookback)
+					const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
 						newJobs = await fetchJobs(maxTs, extendedMinTs ?? ts, undefined)
@@ -334,16 +335,6 @@
 			.filter((x) => oldJobs.includes(x.id))
 			.forEach((x) => (ret![ret?.findIndex((y) => y.id == x.id)!] = x))
 		return ret
-	}
-
-	function substractDays(dateString: string | undefined, days: number): string | undefined {
-		if (dateString == undefined) {
-			return undefined
-		}
-		let date = new Date(dateString)
-		date.setDate(date.getDate() - days)
-		return date.toISOString()
-
 	}
 
 	function sortMinDate(minTs: string | undefined, jobs: Job[]) {
