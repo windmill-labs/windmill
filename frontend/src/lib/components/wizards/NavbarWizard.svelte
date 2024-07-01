@@ -12,6 +12,9 @@
 	import Tooltip from '../Tooltip.svelte'
 	import Section from '../Section.svelte'
 	import IconSelectInput from '../apps/editor/settingsPanel/inputEditor/IconSelectInput.svelte'
+	import Select from '../apps/svelte-select/lib/Select.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
 
 	export let value: NavbarItem
 
@@ -36,7 +39,10 @@
 	onMount(() => {
 		loadApps()
 	})
+	let darkMode: boolean = false
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <Popup
 	floatingConfig={{
@@ -58,15 +64,20 @@
 				<svelte:fragment slot="header">
 					<Tooltip light small>Path to the app</Tooltip>
 				</svelte:fragment>
-				<select bind:value={value.path}>
-					{#if loading}
-						<option>Loading...</option>
-					{:else}
-						{#each apps as app}
-							<option value={app.path}>{app.summary != '' ? app.summary : app.path}</option>
-						{/each}
-					{/if}
-				</select>
+
+				<Select
+					class="grow shrink max-w-full"
+					on:change={(e) => {
+						value.path = e.detail.value
+					}}
+					items={apps.map((x) => x.path)}
+					placeholder="Pick an path"
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyles={darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+					portal={false}
+				/>
 			</Label>
 			<Label label="Caption">
 				<input type="text" bind:value={value.caption} />
