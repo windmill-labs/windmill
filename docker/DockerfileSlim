@@ -23,6 +23,7 @@ COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 WORKDIR ${APP}
 
 COPY --from=ghcr.io/windmill-labs/windmill-ee:dev --chmod=755  ${APP}/windmill ${APP}/windmill
+COPY --from=denoland/deno:1.44.4 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 

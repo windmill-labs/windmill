@@ -1457,6 +1457,11 @@ async fn list_jobs(
     #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
+    #[cfg(feature = "prometheus")]
+    if _api_list_jobs_query_duration.is_some() {
+        tracing::info!("list_jobs query: {}", sql);
+    }
+
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 
@@ -4326,6 +4331,13 @@ pub fn filter_list_completed_query(
         );
     }
 
+    if let Some(dt) = &lq.created_or_started_after_completed_jobs {
+        sqlb.and_where_ge(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
+    }
+
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
     }
@@ -4395,6 +4407,7 @@ pub struct ListCompletedQuery {
     pub created_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_after_completed_jobs: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,

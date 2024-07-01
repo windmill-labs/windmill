@@ -1,4 +1,5 @@
 use base64::{engine, Engine as _};
+use chrono::Datelike;
 use core::fmt::Write;
 use futures::TryFutureExt;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
@@ -36,21 +37,21 @@ struct SnowflakeDatabase {
     role: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct SnowflakeResponse {
     data: Vec<Vec<Value>>,
     resultSetMetaData: SnowflakeResultSetMetaData,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct SnowflakeResultSetMetaData {
     numRows: i64,
     rowType: Vec<SnowflakeRowType>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct SnowflakeRowType {
     name: String,
     r#type: String,
@@ -198,6 +199,8 @@ pub async fn do_snowflake(
                     .await
                     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
+                tracing::info!("Snowflake response: {:?}", result);
+
                 if result.resultSetMetaData.numRows > 10000 {
                     return Err(Error::ExecutionErr(
                     "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
@@ -330,10 +333,36 @@ fn parse_val(value: &Value, typ: &str) -> Value {
     let str_value = value.as_str().unwrap_or("").to_string();
     let val = match typ.to_lowercase().as_str() {
         "boolean" => str_value.parse::<bool>().ok().map(|v| json!(v)),
-        "real" | "time" | "timestamp_ltz" | "timestamp_ntz" => {
-            str_value.parse::<f64>().ok().map(|v| json!(v))
-        }
-        "fixed" | "date" | "number" => str_value
+        "real" => str_value.parse::<f64>().ok().map(|v| json!(v)),
+        "timestamp_ltz" | "timestamp_ntz" => str_value
+            .parse::<f64>()
+            .ok()
+            .map(|v| {
+                chrono::DateTime::from_timestamp(v.round() as i64, 0)
+                    .map(|d| json!(d.format("%Y-%m-%d %H:%M:%S").to_string()))
+            })
+            .flatten(),
+        "time" => str_value
+            .parse::<f64>()
+            .ok()
+            .map(|v| {
+                chrono::NaiveTime::from_num_seconds_from_midnight_opt(v.round() as u32, 0)
+                    .map(|d| json!(d.format("%H:%M:%S").to_string()))
+            })
+            .flatten(),
+        "date" => str_value
+            .parse::<i32>()
+            .ok()
+            .map(|v| {
+                chrono::NaiveDate::from_num_days_from_ce_opt(
+                    v + chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
+                        .unwrap()
+                        .num_days_from_ce(),
+                )
+                .map(|d| json!(d.format("%Y-%m-%d").to_string()))
+            })
+            .flatten(),
+        "fixed" | "number" => str_value
             .parse::<i64>()
             .ok()
             .map(|v| json!(v))
