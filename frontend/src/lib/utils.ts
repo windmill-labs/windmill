@@ -49,6 +49,16 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 	}
 }
 
+export function subtractDaysFromDateString(dateString: string | undefined, days: number): string | undefined {
+	if (dateString == undefined) {
+		return undefined
+	}
+	let date = new Date(dateString)
+	date.setDate(date.getDate() - days)
+	return date.toISOString()
+
+}
+
 export function displayDate(
 	dateString: string | Date | undefined,
 	displaySecond = false,
@@ -497,7 +507,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -507,7 +517,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null
@@ -701,7 +711,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
