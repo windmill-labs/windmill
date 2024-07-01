@@ -592,7 +592,7 @@
 									<Tooltip>
 										How far behind the min datetime to start considering jobs for the concurrency
 										graph. Change this value to include jobs started before the set time window for
-										the computation of the concurrency graph
+										the computation of the graph
 									</Tooltip>
 								</div>
 							</svelte:fragment>
@@ -929,7 +929,7 @@
 									<Tooltip>
 										How far behind the min datetime to start considering jobs for the concurrency
 										graph. Change this value to include jobs started before the set time window for
-										the computation of the concurrency graph
+										the computation of the graph
 									</Tooltip>
 								</div>
 							</svelte:fragment>
