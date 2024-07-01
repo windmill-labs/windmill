@@ -36,6 +36,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -100,6 +101,7 @@
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
+	let lookback: number = 0
 
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
@@ -385,8 +387,11 @@
 	}
 
 	function jobCountString(count: number) {
+		return `${count} ${count == 1 ? 'job' : 'jobs'}`
+	}
 
-		return `${count} ${count == 1 ? 'job': 'jobs'}`
+	function setLookback(lookbackInDays: number) {
+		lookback = lookbackInDays
 	}
 
 	const warnJobLimitMsg =
@@ -397,7 +402,10 @@
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
 
+	let darkMode: boolean = false
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <JobLoader
 	{allWorkspaces}
@@ -428,6 +436,7 @@
 	{resultError}
 	bind:loading
 	bind:this={jobLoader}
+	{lookback}
 />
 
 <ConfirmationModal
@@ -551,6 +560,41 @@
 							/>
 						</ToggleButtonGroup>
 					</div>
+					{#if !graphIsRunsChart}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'None',
+									action: () => setLookback(0)
+								},
+								{
+									displayName: '1 days',
+									action: () => setLookback(1)
+								},
+								{
+									displayName: '3 days',
+									action: () => setLookback(3)
+								},
+								{
+									displayName: '7 days',
+									action: () => setLookback(7)
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<ChevronDown class="w-5 h-5" />
+									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
+									<Tooltip>
+										How far behind the min datetime to start considering jobs for the concurrency
+										graph. Try changing it from zero if you want to zoom in on this graph.
+									</Tooltip>
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
 				</div>
 			</div>
 			{#if graph === 'RunChart'}
@@ -838,6 +882,41 @@
 						<ToggleButton value="RunChart" label="Duration" />
 						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
 					</ToggleButtonGroup>
+					{#if !graphIsRunsChart}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'None',
+									action: () => setLookback(0)
+								},
+								{
+									displayName: '1 days',
+									action: () => setLookback(1)
+								},
+								{
+									displayName: '3 days',
+									action: () => setLookback(3)
+								},
+								{
+									displayName: '7 days',
+									action: () => setLookback(7)
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<ChevronDown class="w-5 h-5" />
+									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
+									<Tooltip>
+										How far behind the min datetime to start considering jobs for the concurrency
+										graph. Try changing it from zero if you want to zoom in on this graph.
+									</Tooltip>
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
 				</div>
 			</div>
 			{#if graph === 'RunChart'}

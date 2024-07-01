@@ -43,6 +43,7 @@
 	export let syncQueuedRunsCount: boolean = true
 	export let allWorkspaces: boolean = false
 	export let computeMinAndMax: (() => { minTs: string; maxTs: string } | undefined) | undefined
+	export let lookback: number = 0
 
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
@@ -55,6 +56,7 @@
 			isSkipped != undefined &&
 			jobKinds &&
 			concurrencyKey &&
+			lookback &&
 			user &&
 			folder &&
 			showFutureJobs != undefined &&
@@ -107,7 +109,7 @@
 	async function fetchJobs(
 		startedBefore: string | undefined,
 		startedAfter: string | undefined,
-		startedAfterCompletedJobs: string | undefined
+		startedAfterCompletedJobs: string | undefined,
 	): Promise<Job[]> {
 		console.log('fetching jobs', startedAfter, startedBefore)
 		return JobService.listJobs({
@@ -196,8 +198,12 @@
 		}
 		loading = true
 		try {
+			// Extend MinTs to fetch jobs mefore minTs and show a correct concurrency graph
+			// TODO: when an ended_at column is created on the completed_job table,
+			// lookback won't be needed anymore (just filter ended_at > minTs instead
+			const extendedMinTs = substractDays(minTs, lookback)
 			if (concurrencyKey == null || concurrencyKey === '') {
-				let newJobs = await fetchJobs(maxTs, undefined, minTs)
+				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs)
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -205,7 +211,7 @@
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
 			} else {
-				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs)
+				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, extendedMinTs)
 				const newJobs = extendedJobs.jobs
 				const newExternalJobs = extendedJobs.obscured_jobs
 
@@ -288,12 +294,13 @@
 					}
 
 					loading = true
+					const extendedMinTs = substractDays(minTs, lookback)
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined)
+						newJobs = await fetchJobs(maxTs, extendedMinTs ?? ts, undefined)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
-						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs ?? ts)
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, extendedMinTs ?? ts)
 						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
 
 						// Filter on minTs here and not in the backend
@@ -327,6 +334,16 @@
 			.filter((x) => oldJobs.includes(x.id))
 			.forEach((x) => (ret![ret?.findIndex((y) => y.id == x.id)!] = x))
 		return ret
+	}
+
+	function substractDays(dateString: string | undefined, days: number): string | undefined {
+		if (dateString == undefined) {
+			return undefined
+		}
+		let date = new Date(dateString)
+		date.setDate(date.getDate() - days)
+		return date.toISOString()
+
 	}
 
 	function sortMinDate(minTs: string | undefined, jobs: Job[]) {
