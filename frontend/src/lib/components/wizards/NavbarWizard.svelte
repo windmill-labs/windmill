@@ -70,6 +70,7 @@
 					on:change={(e) => {
 						value.path = e.detail.value
 					}}
+					value={value.path}
 					items={apps.map((x) => x.path)}
 					placeholder="Pick an path"
 					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
