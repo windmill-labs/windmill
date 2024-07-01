@@ -5,7 +5,7 @@
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { Button, Popup } from './common'
 	import { isCloudHosted } from '$lib/cloud'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { MailPlus } from 'lucide-svelte'

@@ -1,4 +1,4 @@
-import { goto } from '$app/navigation'
+import { goto } from '$lib/navigation'
 import { UserService } from '$lib/gen'
 import { clearStores } from './storeUtils'
 import { sendUserToast } from './toast'

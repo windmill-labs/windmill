@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 
 	import { UserService, WorkspaceService } from '$lib/gen'

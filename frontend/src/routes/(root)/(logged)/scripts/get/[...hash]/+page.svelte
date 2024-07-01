@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
+	import { base } from '$lib/navigation'
 	import { JobService, ScriptService, type Script } from '$lib/gen'
 	import {
 		defaultIfEmptyString,
@@ -26,7 +27,7 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	import { sendUserToast } from '$lib/toast'
@@ -231,7 +232,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `/scripts/add?template=${script.path}`,
+					href: `${base}/scripts/add?template=${script.path}`,
 					size: 'xs',
 					color: 'light',
 					startIcon: GitFork
@@ -246,7 +247,7 @@
 		buttons.push({
 			label: `View runs`,
 			buttonProps: {
-				href: `/runs/${script.path}`,
+				href: `${base}/runs/${script.path}`,
 				size: 'xs',
 				color: 'light',
 				startIcon: Play
@@ -307,7 +308,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+						href: `${base}/scripts/edit/${script.path}?args=${encodeState(args)}${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
 						size: 'xs',
@@ -550,7 +551,7 @@
 									<div class="mt-2" />
 									<Alert type="warning" title="Not HEAD">
 										This hash is not HEAD (latest non-archived version at this path) :
-										<a href="/scripts/get/{topHash}?workspace={$workspaceStore}"
+										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
 											>Go to the HEAD of this path</a
 										>
 									</Alert>

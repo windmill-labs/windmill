@@ -1,7 +1,7 @@
 import { get } from 'svelte/store'
 import { UserService } from '$lib/gen'
 import { superadmin } from './stores.js'
-import { goto } from '$app/navigation'
+import { goto } from '$lib/navigation'
 
 export async function refreshSuperadmin(): Promise<void> {
 	if (get(superadmin) == undefined) {

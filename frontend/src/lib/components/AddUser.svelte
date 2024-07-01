@@ -5,7 +5,7 @@
 	import { Button, Popup } from './common'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { UserPlus } from 'lucide-svelte'

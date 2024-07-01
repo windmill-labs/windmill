@@ -1,5 +1,5 @@
 // /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-// import { goto } from '$app/navigation'
+// import { goto } from '$lib/navigation'
 // import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 // import { toast } from '@zerodevx/svelte-toast'
 // import type { Schema, SupportedLanguage } from './common'

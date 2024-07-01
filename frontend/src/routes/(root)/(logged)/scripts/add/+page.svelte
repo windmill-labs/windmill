@@ -6,7 +6,7 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Default

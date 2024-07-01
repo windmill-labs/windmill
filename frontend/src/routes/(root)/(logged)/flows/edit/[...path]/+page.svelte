@@ -12,7 +12,7 @@
 		orderedJsonStringify
 	} from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { sendUserToast } from '$lib/toast'
