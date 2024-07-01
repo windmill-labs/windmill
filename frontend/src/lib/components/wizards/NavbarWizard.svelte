@@ -77,7 +77,7 @@
 			<Label label="Hidden">
 				<Toggle bind:checked={value.hidden} size="xs" />
 			</Label>
-			<Label label="Icon">
+			<Label label="Icon" class="w-full">
 				<IconSelectInput bind:value={value.icon} />
 			</Label>
 		</Section>

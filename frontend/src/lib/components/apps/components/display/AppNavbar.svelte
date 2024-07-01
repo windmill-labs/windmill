@@ -50,7 +50,7 @@
 
 <InitializeComponent {id} />
 {#if render}
-	<div class="flex flex-row w-full items-center border-b px-4 gap-4">
+	<div class="flex flex-row w-full items-center border-b px-4 gap-4 h-12">
 		{#if resolvedConfig.source !== undefined}
 			<img
 				on:pointerdown|preventDefault
