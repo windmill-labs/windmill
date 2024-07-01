@@ -167,6 +167,8 @@ export function isInputFilled(
 ): boolean {
 	const required = schema?.required?.includes(key) ?? false
 
+	console.log('schema', schema)
+
 	if (!required) {
 		return true
 	}
@@ -187,6 +189,33 @@ export function isInputFilled(
 	}
 
 	return true
+}
+
+function extractFirstPath(input: string): string {
+	const parts = input.split('.')
+	return parts.length > 1 ? parts[1] : parts[0]
+}
+
+export function isConnectedToMissingModule(
+	argName: string,
+	flowModuleValue: FlowModuleValue,
+	moduleIds: string[]
+): string | undefined {
+	const type = flowModuleValue.type
+	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+		const input = flowModuleValue.input_transforms[argName]
+		const val: string = input.type == 'static' ? String(input.value) : input.expr
+
+		if (val?.includes('results')) {
+			const firstId = extractFirstPath(val)
+
+			if (firstId && !moduleIds.includes(firstId)) {
+				return `Input ${argName} is connected to a missing module with id ${firstId}`
+			}
+		}
+	}
+
+	return undefined
 }
 
 export function setRequiredInputFilled(
