@@ -331,7 +331,7 @@
 		<ComponentControl type={component.type} />
 
 		{#if componentSettings.item.data.type === 'navbarcomponent'}
-			<GridNavbar bind:navbarItems={componentSettings.item.data.navbarItems} />
+			<GridNavbar bind:navbarItems={componentSettings.item.data.navbarItems} id={component.id} />
 		{/if}
 		{#if componentSettings.item.data.type === 'tabscomponent'}
 			<GridTab

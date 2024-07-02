@@ -8,13 +8,14 @@
 	import type { NavbarItem } from '../component'
 	import NavbarWizard from '$lib/components/wizards/NavbarWizard.svelte'
 	import { flip } from 'svelte/animate'
-	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import ResolveConfig from '../../components/helpers/ResolveConfig.svelte'
 
 	export let navbarItems: NavbarItem[] = []
+	export let id: string
 
-	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
+	//const { appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let items = navbarItems.map((tab, index) => {
 		return { value: tab, id: generateRandomString(), originalIndex: index }
@@ -26,7 +27,12 @@
 		const emptyAppPath: NavbarItem = {
 			disabled: false,
 			label: undefined,
-			path: undefined,
+			path: {
+				type: 'static',
+				value: undefined,
+				fieldType: 'select',
+				selectOptions: []
+			},
 			hidden: false
 		}
 
@@ -50,6 +56,8 @@
 
 		items = newItems
 	}
+
+	let resolvedPaths: string[] = []
 </script>
 
 <PanelSection
@@ -108,15 +116,18 @@
 							</div>
 						</div>
 					</div>
-					{#if items[index].value.path}
+					<ResolveConfig
+						{id}
+						key={'path' + id}
+						bind:resolvedConfig={resolvedPaths[index]}
+						configuration={item.value.path}
+					/>
+					{#if resolvedPaths[index]}
 						<div class="text-xs text-tertiary">
-							Path: <Badge small>{items[index].value.path}</Badge>
-							{#if appPath === items[index].value.path}
-								<Badge small color="blue">Current app</Badge>
-							{/if}
+							Path: <Badge small>{resolvedPaths[index]}</Badge>
 						</div>
 					{:else}
-						<div class="text-xs text-red-500">No app path selected</div>
+						<div class="text-xs text-red-500">No app path or url selected</div>
 					{/if}
 				</div>
 			{/each}

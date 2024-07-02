@@ -1,26 +1,25 @@
 <script lang="ts">
 	import { Popup } from '../common'
 	import { userStore, workspaceStore } from '$lib/stores'
-
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import type { NavbarItem } from '../apps/editor/component'
 	import Label from '../Label.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import { onMount } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import Section from '../Section.svelte'
 	import IconSelectInput from '../apps/editor/settingsPanel/inputEditor/IconSelectInput.svelte'
-	import Select from '../apps/svelte-select/lib/Select.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
-	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import InputsSpecEditor from '../apps/editor/settingsPanel/InputsSpecEditor.svelte'
+	import type { AppViewerContext } from '../apps/types'
 
 	export let value: NavbarItem
 
+	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+
 	let apps: ListableApp[] = []
-	let loading = true
 
 	async function loadApps(): Promise<void> {
 		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
@@ -34,16 +33,12 @@
 				}
 			}
 		)
-		loading = false
 	}
 
 	onMount(() => {
 		loadApps()
 	})
-	let darkMode: boolean = false
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <Popup
 	floatingConfig={{
@@ -66,21 +61,24 @@
 					<Tooltip light small>Path to the app</Tooltip>
 				</svelte:fragment>
 
-				<Select
-					{loading}
-					class="grow shrink max-w-full"
-					on:change={(e) => {
-						value.path = e.detail.value
-					}}
-					value={value.path}
-					items={apps.map((x) => x.path)}
-					placeholder="Pick a path"
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-					portal={false}
+				<InputsSpecEditor
+					key={'Data'}
+					bind:componentInput={value.path}
+					id={$selectedComponent?.[0] ?? ''}
+					userInputEnabled={false}
+					shouldCapitalize={true}
+					resourceOnly={false}
+					fieldType={value.path?.['fieldType']}
+					subFieldType={value.path?.['subFieldType']}
+					format={value.path?.['format']}
+					selectOptions={apps.map((x) => x.path)}
+					tooltip={value.path?.['tooltip']}
+					fileUpload={value.path?.['fileUpload']}
+					placeholder={value.path?.['placeholder']}
+					customTitle={value.path?.['customTitle']}
+					displayType={false}
 				/>
+
 				<div class="my-1">
 					<Alert size="xs" type="info" title="Target">
 						In the editor, the app will open in a new tab. In the viewer, it will open in the same

@@ -24,7 +24,11 @@
 		configuration
 	)
 
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, id, {
+		result: {
+			appPath: appPath
+		}
+	})
 
 	let css = initCss($app.css?.navbarcomponent, customCss)
 </script>
@@ -51,17 +55,17 @@
 <InitializeComponent {id} />
 {#if render}
 	<div class="flex flex-row w-full items-center border-b px-4 gap-4 h-12">
-		{#if resolvedConfig.source !== undefined}
+		{#if resolvedConfig.logo?.selected === 'yes'}
 			<img
 				on:pointerdown|preventDefault
-				src={resolvedConfig.sourceKind == 'png encoded as base64'
-					? 'data:image/png;base64,' + resolvedConfig.source
-					: resolvedConfig.sourceKind == 'jpeg encoded as base64'
-					? 'data:image/jpeg;base64,' + resolvedConfig.source
-					: resolvedConfig.sourceKind == 'svg encoded as base64'
-					? 'data:image/svg+xml;base64,' + resolvedConfig.source
-					: resolvedConfig.source}
-				alt={resolvedConfig.altText}
+				src={resolvedConfig.logo?.configuration?.yes?.sourceKind == 'png encoded as base64'
+					? 'data:image/png;base64,' + resolvedConfig.logo?.configuration?.yes?.source
+					: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'jpeg encoded as base64'
+					? 'data:image/jpeg;base64,' + resolvedConfig.logo?.configuration?.yes?.source
+					: resolvedConfig.logo?.configuration?.yes?.sourceKind == 'svg encoded as base64'
+					? 'data:image/svg+xml;base64,' + resolvedConfig.logo?.configuration?.yes?.source
+					: resolvedConfig.logo?.configuration?.yes?.source}
+				alt={resolvedConfig.logo?.configuration?.yes?.altText}
 				style={css?.image?.style ?? ''}
 				class={twMerge(`w-auto h-8`, css?.image?.class, 'wm-image')}
 			/>
@@ -74,15 +78,7 @@
 				{#if !navbarItem.hidden}
 					<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
 						<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
-						<div
-							class={twMerge(
-								'py-2',
-								appPath === navbarItem.path ? 'border-b-2 border-gray-500 ' : ''
-							)}
-							style={`border-color: ${resolvedConfig?.borderColor ?? 'transparent'}`}
-						>
-							<AppNavbarItem {navbarItem} />
-						</div>
+						<AppNavbarItem {navbarItem} {id} borderColor={resolvedConfig?.borderColor} />
 					</Popover>
 				{/if}
 			{/each}
