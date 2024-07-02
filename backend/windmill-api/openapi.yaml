@@ -5718,6 +5718,23 @@ paths:
               schema:
                 type: string
 
+
+  /w/{workspace}/jobs_u/get_args/{id}:
+    get:
+      summary: get job args
+      operationId: getJobArgs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job args
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
       summary: get job updates

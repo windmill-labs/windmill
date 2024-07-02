@@ -697,7 +697,11 @@
 			class="flex flex-col gap-y-8 sm:grid sm:grid-cols-3 sm:gap-10 max-w-7xl mx-auto w-full px-4"
 		>
 			<div class="col-span-2">
-				<JobArgs args={job?.args} />
+				<JobArgs
+					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+					id={job?.id}
+					args={job?.args}
+				/>
 			</div>
 			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />
