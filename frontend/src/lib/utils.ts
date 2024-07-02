@@ -670,12 +670,18 @@ export function extractCustomProperties(styleStr: string): string {
 
 export function computeSharableHash(args: any) {
 	let nargs = {}
-	Object.entries(args).forEach(([k, v]) => {
+	for (let k in args) {
+		let v = args[k]
 		if (v !== undefined) {
 			// if
+			let size = roughSizeOfObject(v) > 1000000
+			if (size) {
+				console.error(`Value at key ${k} too big (${size}) to be shared`)
+				return ''
+			}
 			nargs[k] = JSON.stringify(v)
 		}
-	})
+	}
 	try {
 		let r = new URLSearchParams(nargs).toString()
 		return r.length > 1000000 ? '' : r

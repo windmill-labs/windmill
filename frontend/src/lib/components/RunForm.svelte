@@ -67,7 +67,15 @@
 
 	export let isValid = true
 
-	$: window.location.hash = computeSharableHash(args)
+	$: onArgsChange(args)
+
+	function onArgsChange(args: any) {
+		try {
+			window.location.hash = computeSharableHash(args)
+		} catch (e) {
+			console.error('Impossible to set hash in args', e)
+		}
+	}
 </script>
 
 <div class="max-w-3xl">
