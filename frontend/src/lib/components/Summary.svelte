@@ -28,22 +28,25 @@
 	}
 
 	.app-title:hover {
-		@apply border-gray-300 shadow-sm;
+		@apply ring-frost-100 ring-offset-0 ring-1;
 	}
 
 	.app-title:focus {
-		@apply border-gray-300  ring-frost-100 ring-offset-0 ring-1;
+		@apply ring-gray-300 ring-offset-0 ring-1;
 		box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
 	}
 
 	.dark .app-title {
-		@apply bg-gray-700 text-gray-200 border-gray-600;
+		@apply bg-gray-700 text-secondary border-gray-600;
 	}
 
 	.dark .app-title:focus {
-		@apply ring-frost-700;
+		@apply !ring-frost-500;
 	}
 
+	.dark .app-title:hover {
+		@apply ring-frost-700;
+	}
 	.app-title:focus + .pen-icon {
 		@apply hidden;
 	}
