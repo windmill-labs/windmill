@@ -48,7 +48,8 @@ import {
 	UploadCloud,
 	AlertTriangle,
 	Clock,
-	CalendarClock
+	CalendarClock,
+	AppWindow
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -261,6 +262,20 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 
 export type AlertComponent = BaseComponent<'alertcomponent'>
 
+export type NavbarItem = {
+	path: RichConfiguration
+	label?: string
+	caption?: string
+	disabled: boolean
+	hidden: boolean
+	icon?: string
+	writeOutputOnClick: boolean
+}
+
+export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
+	navbarItems: NavbarItem[]
+}
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -335,6 +350,7 @@ export type TypedComponent =
 	| AggridInfiniteComponent
 	| AggridInfiniteComponentEe
 	| MultiSelectComponentV2
+	| NavBarComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -3833,6 +3849,72 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: false,
 					fieldType: 'boolean'
 				}
+			}
+		}
+	},
+	navbarcomponent: {
+		name: 'Navbar',
+		icon: AppWindow,
+		documentationLink: `${documentationBaseUrl}/navbar`,
+		dims: '12:1-12:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			image: { class: '', style: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Title'
+				},
+
+				borderColor: {
+					type: 'static',
+					value: 'transparent',
+					fieldType: 'color'
+				},
+				initialCurrentPath: {
+					type: 'static',
+					value: '',
+					fieldType: 'text'
+				},
+				logo: {
+					type: 'oneOf',
+					selected: 'no',
+					labels: {
+						yes: 'Use logo',
+						no: 'No logo'
+					},
+					configuration: {
+						yes: {
+							source: {
+								type: 'static',
+								value: '/logo.svg',
+								fieldType: 'text',
+								fileUpload: {
+									accept: 'image/*',
+									convertTo: 'base64'
+								}
+							},
+							sourceKind: {
+								fieldType: 'select',
+								type: 'static',
+								selectOptions: selectOptions.imageSourceKind,
+								value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+							},
+							altText: {
+								type: 'static',
+								value: '',
+								fieldType: 'text',
+								tooltip: "This text will appear if the image can't be loaded for any reason"
+							}
+						},
+						no: {}
+					}
+				} as const
 			}
 		}
 	}
