@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
@@ -185,7 +185,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
+					href: `/flows/edit/${path}?nodraft=true`,
 					variant: 'contained',
 					size: 'xs',
 					color: 'dark',

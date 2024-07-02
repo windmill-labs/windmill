@@ -1,16 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, ScriptService, type Script } from '$lib/gen'
-	import {
-		defaultIfEmptyString,
-		emptyString,
-		encodeState,
-		canWrite,
-		truncateHash
-	} from '$lib/utils'
+	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { hubBaseUrlStore,  userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -215,7 +209,6 @@
 		}
 	}
 
-
 	let moveDrawer: MoveDrawer
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let persistentScriptDrawer: PersistentScriptDrawer
@@ -308,7 +301,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+						href: `/scripts/edit/${script.path}?${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
 						size: 'xs',
