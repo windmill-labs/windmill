@@ -51,7 +51,8 @@
 		MoreVertical,
 		HistoryIcon,
 		FileJson,
-		type Icon
+		type Icon,
+		CornerDownLeft
 	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
@@ -1030,6 +1031,7 @@
 	]
 
 	let deploymentMsg = ''
+	let msgInput: HTMLInputElement | undefined = undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1214,7 +1216,7 @@
 						Draft
 					</Button>
 
-					<CustomPopover appearTimeout={0}>
+					<CustomPopover appearTimeout={0} focusEl={msgInput}>
 						<Button
 							loading={loadingSave}
 							size="xs"
@@ -1225,9 +1227,26 @@
 							Deploy
 						</Button>
 						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2">
-								<input type="text" placeholder="Deployment message" bind:value={deploymentMsg} />
-								<Button size="xs" on:click={() => saveFlow(deploymentMsg)}>Deploy</Button>
+							<div class="flex flex-row gap-2 w-80">
+								<input
+									type="text"
+									placeholder="Deployment message"
+									bind:value={deploymentMsg}
+									on:keydown={(e) => {
+										if (e.key === 'Enter') {
+											saveFlow(deploymentMsg)
+										}
+									}}
+									bind:this={msgInput}
+								/>
+								<Button
+									size="xs"
+									on:click={() => saveFlow(deploymentMsg)}
+									endIcon={{ icon: CornerDownLeft }}
+									loading={loadingSave}
+								>
+									Deploy
+								</Button>
 							</div>
 						</svelte:fragment>
 					</CustomPopover>

@@ -26,7 +26,8 @@
 		Columns,
 		Pen,
 		Eye,
-		Calendar
+		Calendar,
+		HistoryIcon
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -42,6 +43,7 @@
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -225,6 +227,11 @@
 
 		if (can_write) {
 			menuItems.push({
+				label: 'Deployments',
+				onclick: () => flowHistory?.open(),
+				Icon: HistoryIcon
+			})
+			menuItems.push({
 				label: flow.archived ? 'Unarchive' : 'Archive',
 				onclick: () => flow?.path && archiveFlow(),
 				Icon: Archive,
@@ -259,6 +266,8 @@
 	let detailSelected = 'saved_inputs'
 
 	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+
+	let flowHistory: FlowHistory | undefined = undefined
 </script>
 
 <Skeleton
@@ -276,6 +285,9 @@
 		loadFlow()
 	}}
 />
+{#if flow}
+	<FlowHistory bind:this={flowHistory} path={flow.path} on:historyRestore={loadFlow} />
+{/if}
 
 {#if flow}
 	<DetailPageLayout

@@ -50,7 +50,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS deployment_metadata_flow ON deployment_metadat
 
 -- make legacy flow columns nullable
 ALTER TABLE flow alter column value drop not null, alter column edited_by drop not null, alter column edited_at drop not null;
--- ALTER TABLE flow DROP COLUMN edited_by, edited_at, value; -- maybe later?
 
 -- make sure the windmill_user and windmill_admin roles have access to the new tables
 GRANT ALL ON flow_version TO windmill_user;

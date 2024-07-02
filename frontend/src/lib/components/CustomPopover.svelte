@@ -10,6 +10,8 @@
 	export let appearTimeout = 300
 	export let style: string | undefined = undefined
 
+	export let focusEl: HTMLElement | undefined = undefined
+
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
 	const popperOptions: PopperOptions<{}> = {
@@ -43,6 +45,8 @@
 		inTimeout = undefined
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
+
+	$: showTooltip && focusEl && focusEl?.focus()
 </script>
 
 {#if notClickable}

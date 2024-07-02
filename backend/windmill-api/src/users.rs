@@ -2943,7 +2943,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "DELETE FROM flow_version WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
+        "DELETE FROM flow WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
         old_username,
         w_id
     )

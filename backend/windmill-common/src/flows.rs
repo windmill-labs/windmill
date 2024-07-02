@@ -62,6 +62,7 @@ pub struct ListableFlow {
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
 }

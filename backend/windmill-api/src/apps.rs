@@ -91,6 +91,7 @@ pub struct ListableApp {
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
 }

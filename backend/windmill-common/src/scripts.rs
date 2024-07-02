@@ -206,6 +206,7 @@ pub struct ListableScript {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "is_false")]
     pub use_codebase: bool,
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
 }
