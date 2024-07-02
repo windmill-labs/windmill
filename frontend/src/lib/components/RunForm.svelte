@@ -1,16 +1,17 @@
 <script lang="ts">
-	import { defaultIfEmptyString, emptyString, truncateHash } from '$lib/utils'
+	import {
+		computeSharableHash as computeSharableHash,
+		defaultIfEmptyString,
+		emptyString,
+		truncateHash
+	} from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
-	import CliHelpBox from './CliHelpBox.svelte'
 	import { Badge, Button } from './common'
 	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
 
-	import CollapseLink from './CollapseLink.svelte'
-	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI } from '$lib/consts'
 	import TimeAgo from './TimeAgo.svelte'
-	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Popup from './common/popup/Popup.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar, CornerDownLeft } from 'lucide-svelte'
@@ -44,8 +45,6 @@
 	export let topButton = false
 	export let loading = false
 	export let noVariablePicker = false
-	export let viewCliRun = false
-	export let isFlow: boolean
 	export let viewKeybinding = false
 
 	export let scheduledForStr: string | undefined
@@ -68,9 +67,7 @@
 
 	export let isValid = true
 
-	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
-		args
-	)}'`
+	$: window.location.hash = computeSharableHash(args)
 </script>
 
 <div class="max-w-3xl">
@@ -212,19 +209,5 @@
 		>
 			{buttonText}
 		</Button>
-	{/if}
-
-	{#if viewCliRun}
-		<div>
-			<div class="mt-4" />
-			{#if SCRIPT_VIEW_SHOW_RUN_FROM_CLI}
-				<CollapseLink small text="Run it from CLI">
-					<div class="mt-2" />
-					<ClipboardPanel content={cliCommand} />
-					<CliHelpBox />
-				</CollapseLink>
-			{/if}
-			<div class="mb-20" />
-		</div>
 	{/if}
 </div>

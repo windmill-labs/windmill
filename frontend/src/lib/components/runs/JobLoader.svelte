@@ -110,9 +110,8 @@
 	async function fetchJobs(
 		startedBefore: string | undefined,
 		startedAfter: string | undefined,
-		startedAfterCompletedJobs: string | undefined,
+		startedAfterCompletedJobs: string | undefined
 	): Promise<Job[]> {
-		console.log('fetching jobs', startedAfter, startedBefore)
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,

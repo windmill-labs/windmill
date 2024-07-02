@@ -11,6 +11,7 @@
 	} from '$lib/gen'
 	import {
 		canWrite,
+		computeSharableHash,
 		copyToClipboard,
 		displayDate,
 		emptyString,
@@ -43,7 +44,6 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import {
 		enterpriseLicense,
-		runFormStore,
 		superadmin,
 		userStore,
 		userWorkspaces,
@@ -564,8 +564,7 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={() => {
-						$runFormStore = job?.args
-						goto(viewHref)
+						goto(viewHref + `#${computeSharableHash(job?.args)}`)
 					}}
 					color="blue"
 					size="sm"
@@ -577,7 +576,6 @@
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
 							on:click|once={() => {
-								$runFormStore = job?.args
 								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"

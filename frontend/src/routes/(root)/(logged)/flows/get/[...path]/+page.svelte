@@ -9,7 +9,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
@@ -55,9 +55,13 @@
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
+	let previousPath: string | undefined = undefined
 	$: {
 		if ($workspaceStore && $userStore && $page.params.path) {
-			loadFlow()
+			if (previousPath !== path) {
+				previousPath = path
+				loadFlow()
+			}
 		}
 	}
 
@@ -88,9 +92,6 @@
 		} catch {}
 	}
 
-	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
-	$: urlSync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
-
 	let isValid = true
 	let loading = false
 
@@ -113,11 +114,18 @@
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 
-	let args = undefined
+	let args: Record<string, any> | undefined = undefined
 
-	if ($runFormStore) {
-		args = $runFormStore
-		$runFormStore = undefined
+	let hash = window.location.hash
+	if (hash.length > 1) {
+		console.log(hash)
+		try {
+			let searchParams = new URLSearchParams(hash.slice(1))
+			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			args = Object.fromEntries(params)
+		} catch (e) {
+			console.error('Was not able to transform hash as args', e)
+		}
 	}
 
 	let moveDrawer: MoveDrawer
@@ -359,7 +367,6 @@
 						runnable={flow}
 						runAction={runFlow}
 						bind:args
-						isFlow
 						bind:this={runForm}
 					/>
 					<div class="py-10" />
@@ -418,15 +425,7 @@
 			<WebhooksPanel
 				bind:token
 				scopes={[`run:flow/${flow?.path}`]}
-				webhooks={{
-					async: {
-						path: urlAsync
-					},
-					sync: {
-						path: urlSync,
-						get_path: urlSync
-					}
-				}}
+				path={flow?.path}
 				isFlow={true}
 				{args}
 			/>
