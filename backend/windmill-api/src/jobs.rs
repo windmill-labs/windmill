@@ -266,6 +266,7 @@ pub fn global_service() -> Router {
         .route("/get_root_job_id/:id", get(get_root_job))
         .route("/get/:id", get(get_job))
         .route("/get_logs/:id", get(get_job_logs))
+        .route("/get_args/:id", get(get_args))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -903,6 +904,58 @@ async fn get_job_logs(
             return r.map(content_plain);
         }
         Ok(content_plain(Body::from(logs)))
+    }
+}
+
+#[derive(FromRow)]
+pub struct RawArgs {
+    pub args: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub created_by: String,
+}
+
+async fn get_args(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Box<serde_json::value::RawValue>> {
+    let record = sqlx::query(
+        "SELECT created_by, args
+        FROM completed_job 
+        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2",
+    )
+    .bind(&id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?;
+
+    if let Some(record) = record {
+        let record = RawArgs::from_row(&record)
+            .map_err(|e| Error::InternalErr(format!("error parsing args: {e:#}")))?;
+        if opt_authed.is_none() && record.created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+        Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
+    } else {
+        let record = sqlx::query(
+            "SELECT created_by, args
+            FROM queue
+            WHERE queue.id = $1 AND queue.workspace_id = $2",
+        )
+        .bind(&id)
+        .bind(&w_id)
+        .fetch_optional(&db)
+        .await?;
+        let record = not_found_if_none(record, "Job Args", id.to_string())?;
+        let record = RawArgs::from_row(&record)
+            .map_err(|e| Error::InternalErr(format!("error parsing args: {e:#}")))?;
+        if opt_authed.is_none() && record.created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+        Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
 }
 

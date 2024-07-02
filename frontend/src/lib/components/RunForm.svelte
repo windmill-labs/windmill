@@ -68,10 +68,21 @@
 	export let isValid = true
 
 	$: onArgsChange(args)
+	let debounced: NodeJS.Timeout | undefined = undefined
 
 	function onArgsChange(args: any) {
 		try {
-			window.location.hash = computeSharableHash(args)
+			debounced && clearTimeout(debounced)
+			debounced = setTimeout(() => {
+				const nurl = new URL(window.location.href)
+				nurl.hash = computeSharableHash(args)
+
+				try {
+					history.replaceState(history.state, '', nurl.toString())
+				} catch (e) {
+					console.error(e)
+				}
+			}, 200)
 		} catch (e) {
 			console.error('Impossible to set hash in args', e)
 		}

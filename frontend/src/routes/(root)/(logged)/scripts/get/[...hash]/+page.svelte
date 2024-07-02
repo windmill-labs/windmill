@@ -199,7 +199,6 @@
 	let args: Record<string, any> | undefined = undefined
 	let hash = window.location.hash
 	if (hash.length > 1) {
-		console.log(hash)
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
 			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
