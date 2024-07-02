@@ -856,41 +856,6 @@ const config = {
 						width: '100% !important'
 					}
 				},
-				'.app-title': {
-					display: 'block',
-					fontSize: theme('fontSize.sm'),
-					width: '100%',
-					padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
-					borderRadius: '0.375rem',
-					border: '0px',
-					fontWeight: theme('fontWeight.semibold'),
-
-					'&:hover': {
-						border: `1px solid ${theme('colors.gray.300')}`,
-						boxShadow: theme('boxShadow.sm')
-					},
-					'&:focus': {
-						border: `1px solid ${theme('colors.gray.300')}`,
-						'--tw-ring-shadow': '0 0 0 0 3px var(--tw-ring-color)',
-						'--tw-ring-color': theme('colors.frost.100'),
-						'--tw-ring-offset-shadow':
-							'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
-						'--tw-ring-shadow':
-							'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
-						boxShadow:
-							'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
-					}
-				},
-
-				'.dark .app-title': {
-					backgroundColor: theme('colors.gray.700'),
-					color: theme('colors.gray.200'),
-					borderColor: theme('colors.gray.600'),
-					'&:focus': {
-						'--tw-ring-color': theme('colors.frost.700')
-					}
-				},
-
 				// Windmill Tab classes
 
 				'.wm-tab-active': {

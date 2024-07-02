@@ -64,6 +64,7 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
+	import Summary from './Summary.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -1020,14 +1021,8 @@
 					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
 				{/if}
 				<div class="flex w-full max-w-md gap-4 items-center">
-					<div class="min-w-64 w-full">
-						<input
-							type="text"
-							placeholder="Flow summary"
-							class="text-sm w-full font-semibold"
-							bind:value={$flowStore.summary}
-						/>
-					</div>
+					<Summary bind:value={$flowStore.summary} />
+
 					<UndoRedo
 						undoProps={{ disabled: $history.index === 0 }}
 						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
