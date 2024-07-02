@@ -8,6 +8,7 @@
 
 	export let value: string | undefined = undefined
 
+	export let clearable: boolean = false
 	export let autofocus: boolean | null = false
 	export let useDropdown: boolean = false
 	export let minDate: string | undefined = undefined
@@ -130,18 +131,20 @@
 	>
 		Now
 	</Button>
-	<Button
-		variant="border"
-		color="light"
-		wrapperClasses="h-8"
-		{disabled}
-		on:click={() => {
-			value = undefined
-			dispatch('clear')
-		}}
-	>
-		<X size={14} />
-	</Button>
+	{#if clearable}
+		<Button
+			variant="border"
+			color="light"
+			wrapperClasses="h-8"
+			{disabled}
+			on:click={() => {
+				value = undefined
+				dispatch('clear')
+			}}
+		>
+			<X size={14} />
+		</Button>
+	{/if}
 	<!-- <div>
 		<ToggleButtonGroup bind:selected={format}>
 			<ToggleButton light small value={'local'} label="local" />

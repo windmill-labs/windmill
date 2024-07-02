@@ -400,9 +400,7 @@
 		graph === 'ConcurrencyChart' &&
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
-
 </script>
-
 
 <JobLoader
 	{allWorkspaces}
@@ -727,6 +725,7 @@
 						/>
 
 						<CalendarPicker
+							clearable={true}
 							date={minTs}
 							label="Min datetimes"
 							on:change={async ({ detail }) => {
@@ -755,6 +754,7 @@
 							disabled
 						/>
 						<CalendarPicker
+							clearable={true}
 							date={maxTs}
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
@@ -1068,6 +1068,7 @@
 						/>
 
 						<CalendarPicker
+							clearable={true}
 							date={minTs}
 							label="Min datetimes"
 							on:change={async ({ detail }) => {
@@ -1096,6 +1097,7 @@
 							disabled
 						/>
 						<CalendarPicker
+							clearable={true}
 							date={maxTs}
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
