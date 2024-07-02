@@ -8,7 +8,6 @@
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
-	import Tooltip from '../Tooltip.svelte'
 	import Section from '../Section.svelte'
 	import IconSelectInput from '../apps/editor/settingsPanel/inputEditor/IconSelectInput.svelte'
 	import Alert from '../common/alert/Alert.svelte'
@@ -56,36 +55,29 @@
 			<Label label="Label">
 				<input type="text" bind:value={value.label} />
 			</Label>
-			<Label label="Path">
-				<svelte:fragment slot="header">
-					<Tooltip light small>Path to the app</Tooltip>
-				</svelte:fragment>
-
-				<InputsSpecEditor
-					key={'Data'}
-					bind:componentInput={value.path}
-					id={$selectedComponent?.[0] ?? ''}
-					userInputEnabled={false}
-					shouldCapitalize={true}
-					resourceOnly={false}
-					fieldType={value.path?.['fieldType']}
-					subFieldType={value.path?.['subFieldType']}
-					format={value.path?.['format']}
-					selectOptions={apps.map((x) => x.path)}
-					tooltip={value.path?.['tooltip']}
-					fileUpload={value.path?.['fileUpload']}
-					placeholder={value.path?.['placeholder']}
-					customTitle={value.path?.['customTitle']}
-					displayType={false}
-				/>
-
-				<div class="my-1">
-					<Alert size="xs" type="info" title="Target">
-						In the editor, the app will open in a new tab. In the viewer, it will open in the same
-						tab.
-					</Alert>
-				</div>
-			</Label>
+			<InputsSpecEditor
+				key={'Path'}
+				bind:componentInput={value.path}
+				id={$selectedComponent?.[0] ?? ''}
+				userInputEnabled={false}
+				shouldCapitalize={true}
+				resourceOnly={false}
+				fieldType={value.path?.['fieldType']}
+				subFieldType={value.path?.['subFieldType']}
+				format={value.path?.['format']}
+				selectOptions={apps.map((x) => x.path)}
+				fileUpload={value.path?.['fileUpload']}
+				placeholder={value.path?.['placeholder']}
+				customTitle={value.path?.['customTitle']}
+				displayType={false}
+				tooltip={'Either a static app path or an  expression.'}
+			/>
+			<div class="my-1">
+				<Alert size="xs" type="info" title="Target">
+					In the editor, the app will open in a new tab. In the viewer, it will open in the same
+					tab.
+				</Alert>
+			</div>
 			<Label label="Caption">
 				<input type="text" bind:value={value.caption} />
 			</Label>
@@ -94,6 +86,9 @@
 			</Label>
 			<Label label="Hidden">
 				<Toggle bind:checked={value.hidden} size="xs" />
+			</Label>
+			<Label label="Local">
+				<Toggle bind:checked={value.local} size="xs" />
 			</Label>
 			<Label label="Icon" class="w-full">
 				<IconSelectInput bind:value={value.icon} />

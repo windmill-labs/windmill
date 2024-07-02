@@ -269,6 +269,7 @@ export type NavbarItem = {
 	disabled: boolean
 	hidden: boolean
 	icon?: string
+	local: boolean
 }
 
 export type NavBarComponent = BaseComponent<'navbarcomponent'> & {

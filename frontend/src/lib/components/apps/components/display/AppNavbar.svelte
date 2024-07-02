@@ -17,16 +17,16 @@
 	export let render: boolean
 	export let navbarItems: NavbarItem[] = []
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['navbarcomponent'].initialData.configuration,
 		configuration
 	)
 
-	initOutput($worldStore, id, {
+	let output = initOutput($worldStore, id, {
 		result: {
-			currentPath: undefined as string | undefined
+			currentPath: appPath + window.location.search
 		}
 	})
 
@@ -78,7 +78,13 @@
 				{#if !navbarItem.hidden}
 					<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
 						<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
-						<AppNavbarItem {navbarItem} {id} borderColor={resolvedConfig?.borderColor} {index} />
+						<AppNavbarItem
+							{navbarItem}
+							{id}
+							borderColor={resolvedConfig?.borderColor}
+							{index}
+							bind:output
+						/>
 					</Popover>
 				{/if}
 			{/each}
