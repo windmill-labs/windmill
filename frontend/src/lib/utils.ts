@@ -49,14 +49,16 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 	}
 }
 
-export function subtractDaysFromDateString(dateString: string | undefined, days: number): string | undefined {
+export function subtractDaysFromDateString(
+	dateString: string | undefined,
+	days: number
+): string | undefined {
 	if (dateString == undefined) {
 		return undefined
 	}
 	let date = new Date(dateString)
 	date.setDate(date.getDate() - days)
 	return date.toISOString()
-
 }
 
 export function displayDate(
@@ -507,7 +509,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -517,7 +519,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null
@@ -666,6 +668,23 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
+export function computeSharableHash(args: any) {
+	let nargs = {}
+	Object.entries(args).forEach(([k, v]) => {
+		if (v !== undefined) {
+			// if
+			nargs[k] = JSON.stringify(v)
+		}
+	})
+	try {
+		let r = new URLSearchParams(nargs).toString()
+		return r.length > 1000000 ? '' : r
+	} catch (e) {
+		console.error('Error computing sharable hash', e)
+		return ''
+	}
+}
+
 export function toCamel(s: string) {
 	return s.replace(/([-_][a-z])/gi, ($1) => {
 		return $1.toUpperCase().replace('-', '').replace('_', '')
@@ -711,7 +730,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) { }
+		} catch (err) {}
 		i++
 	}
 	if (i >= times) {

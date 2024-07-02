@@ -27,7 +27,6 @@
 	export let scheduledForStr: string | undefined
 	export let invisible_to_owner: boolean | undefined
 	export let overrideTag: string | undefined
-
 	loadWorkerGroups()
 
 	async function loadWorkerGroups() {

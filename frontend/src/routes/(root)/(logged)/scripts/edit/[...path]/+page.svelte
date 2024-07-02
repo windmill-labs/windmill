@@ -2,7 +2,7 @@
 	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { runFormStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$app/navigation'
@@ -12,10 +12,6 @@
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 	let initialArgs = {}
-	if ($runFormStore) {
-		initialArgs = $runFormStore
-		$runFormStore = undefined
-	}
 	let topHash = $page.url.searchParams.get('topHash') ?? undefined
 
 	let hash = $page.url.searchParams.get('hash') ?? undefined
