@@ -48,9 +48,6 @@ AND deployment_metadata.app_version IS NULL AND deployment_metadata.script_hash 
 DROP INDEX IF EXISTS deployment_metadata_flow;
 CREATE UNIQUE INDEX IF NOT EXISTS deployment_metadata_flow ON deployment_metadata (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL;
 
--- make legacy flow columns nullable
-ALTER TABLE flow alter column value drop not null, alter column edited_by drop not null, alter column edited_at drop not null;
-
 -- make sure the windmill_user and windmill_admin roles have access to the new tables
 GRANT ALL ON flow_version TO windmill_user;
 GRANT ALL ON flow_version_id_seq TO windmill_user;

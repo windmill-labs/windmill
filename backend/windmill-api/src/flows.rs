@@ -345,10 +345,12 @@ async fn create_flow(
     check_path_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
     check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
+    let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
+
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, \
-         dependency_job, draft_only, tag, dedicated_worker, visible_to_runner_only) 
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8)",
+         dependency_job, draft_only, tag, dedicated_worker, visible_to_runner_only, value, schema, edited_by, edited_at) 
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10::text::json, $11, now())",
         w_id,
         nf.path,
         nf.summary,
@@ -357,6 +359,9 @@ async fn create_flow(
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
+        nf.value,
+        schema_str,
+        &authed.username,
     )
     .execute(&mut tx)
     .await?;
@@ -368,7 +373,7 @@ async fn create_flow(
         w_id,
         nf.path,
         nf.value,
-        nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
+        schema_str,
         &authed.username,
     )
     .fetch_one(&mut tx)
@@ -639,16 +644,22 @@ async fn update_flow(
 
     let is_new_path = nf.path != flow_path;
 
+    let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
+
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3,\
-        dependency_job = NULL, draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6
-        WHERE path = $7 AND workspace_id = $8",
+        dependency_job = NULL, draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, \
+        value = $7, schema = $8::text::json, edited_by = $9, edited_at = now()
+        WHERE path = $10 AND workspace_id = $11",
         if is_new_path { flow_path } else { &nf.path }, // if new path, do not rename directly (to avoid flow_version foreign key constraint)
         nf.summary,
         nf.description.unwrap_or_else(String::new),
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
+        nf.value,
+        schema_str,
+        &authed.username,
         flow_path,
         w_id,
     )
@@ -659,8 +670,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow 
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions) 
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at) 
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -706,7 +717,7 @@ async fn update_flow(
         w_id,
         nf.path,
         nf.value,
-        schema.and_then(|x| serde_json::to_string(&x).ok()),
+        schema_str,
         &authed.username,
     )
     .fetch_one(&mut tx)

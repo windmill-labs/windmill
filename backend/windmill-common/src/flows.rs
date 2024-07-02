@@ -76,7 +76,6 @@ pub struct NewFlow {
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
-    pub ws_error_handler_muted: Option<bool>,
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,
     pub deployment_message: Option<String>,

@@ -576,6 +576,14 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
 
     if !skip_flow_update {
         sqlx::query!(
+            "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+            new_flow_value,
+            job_path,
+            job.workspace_id
+        )
+        .execute(db)
+        .await?;
+        sqlx::query!(
             "UPDATE flow_version SET value = $1 WHERE id = $2",
             new_flow_value,
             version
