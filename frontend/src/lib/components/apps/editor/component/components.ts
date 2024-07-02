@@ -269,7 +269,7 @@ export type NavbarItem = {
 	disabled: boolean
 	hidden: boolean
 	icon?: string
-	local: boolean
+	writeOutputOnClick: boolean
 }
 
 export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
@@ -3875,6 +3875,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: 'transparent',
 					fieldType: 'color'
+				},
+				initialCurrentPath: {
+					type: 'static',
+					value: '',
+					fieldType: 'text'
 				},
 				logo: {
 					type: 'oneOf',

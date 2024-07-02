@@ -35,7 +35,8 @@
 				fieldType: 'select',
 				selectOptions: []
 			},
-			hidden: false
+			hidden: false,
+			writeOutputOnClick: false
 		}
 
 		items = [

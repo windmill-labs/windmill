@@ -17,7 +17,7 @@
 	export let render: boolean
 	export let navbarItems: NavbarItem[] = []
 
-	const { app, worldStore, appPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['navbarcomponent'].initialData.configuration,
@@ -26,9 +26,17 @@
 
 	let output = initOutput($worldStore, id, {
 		result: {
-			currentPath: appPath + window.location.search
+			currentPath: undefined as string | undefined
 		}
 	})
+
+	function initCurrentPath() {
+		console.log('initCurrentPath', resolvedConfig.initialCurrentPath)
+
+		output.result.set({ currentPath: resolvedConfig.initialCurrentPath })
+	}
+
+	$: resolvedConfig.initialCurrentPath && initCurrentPath()
 
 	let css = initCss($app.css?.navbarcomponent, customCss)
 </script>

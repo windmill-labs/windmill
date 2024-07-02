@@ -50,6 +50,10 @@
 
 	let isSelected = false
 
+	function checkIfSelected() {
+		isSelected = output.result.peak()?.currentPath === resolvedPath
+	}
+
 	output.result.subscribe(
 		{
 			next: (next) => {
@@ -61,6 +65,8 @@
 			currentPath: resolvedPath ?? ''
 		}
 	)
+
+	$: resolvedPath && checkIfSelected()
 </script>
 
 {#key navbarItem}
@@ -77,14 +83,15 @@
 	class={twMerge('py-2 ', isSelected ? 'border-b-2 border-gray-500 ' : '')}
 	style={`border-color: ${borderColor ?? 'transparent'}`}
 >
-	{#if navbarItem.local}
+	{#if navbarItem.writeOutputOnClick}
 		<Button
 			on:click={() => {
 				output.result.set({ currentPath: resolvedPath ?? '' })
+				isSelected = true
 			}}
 			color="light"
 			size="xs"
-			disabled={navbarItem.disabled || isSelected}
+			disabled={navbarItem.disabled}
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}
@@ -99,7 +106,7 @@
 			target={computeTarget(navbarItem, $mode)}
 			color="light"
 			size="xs"
-			disabled={navbarItem.disabled || isSelected}
+			disabled={navbarItem.disabled}
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}
