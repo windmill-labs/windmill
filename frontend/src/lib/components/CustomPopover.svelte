@@ -46,7 +46,7 @@
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
 
-	$: showTooltip && focusEl && focusEl?.focus()
+	$: focusEl && focusEl?.focus()
 </script>
 
 {#if notClickable}
