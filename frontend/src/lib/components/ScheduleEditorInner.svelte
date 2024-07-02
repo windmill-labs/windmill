@@ -417,9 +417,9 @@
 						variant="border"
 						startIcon={{ icon: List }}
 						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-						href={`/runs/${script_path}`}
+						href={`/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
 					>
-						View Runs
+						View runs
 					</Button>
 				</div>
 				<div class="mr-8 center-center -mt-1">

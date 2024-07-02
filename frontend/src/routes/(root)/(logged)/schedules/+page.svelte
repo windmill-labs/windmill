@@ -419,9 +419,12 @@
 											}
 										},
 										{
-											displayName: 'View Runs',
+											displayName: 'View runs',
 											icon: List,
-											href: '/runs/?schedule_path=' + path
+											href:
+												'/runs/?schedule_path=' +
+												path +
+												'&show_schedules=true&show_future_jobs=true'
 										},
 										{
 											displayName: 'Audit logs',
