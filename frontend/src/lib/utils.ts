@@ -272,30 +272,6 @@ export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
 	return false
 }
 
-let debounced: NodeJS.Timeout | undefined = undefined
-export function setQueryWithoutLoad(
-	url: URL,
-	args: { key: string; value: string | null | undefined }[],
-	bounceTime?: number
-): void {
-	debounced && clearTimeout(debounced)
-	debounced = setTimeout(() => {
-		const nurl = new URL(url.toString())
-		for (const { key, value } of args) {
-			if (value) {
-				nurl.searchParams.set(key, value)
-			} else {
-				nurl.searchParams.delete(key)
-			}
-		}
-
-		try {
-			history.replaceState(history.state, '', nurl.toString())
-		} catch (e) {
-			console.error(e)
-		}
-	}, bounceTime ?? 200)
-}
 
 export function groupBy<K, V>(
 	items: V[],

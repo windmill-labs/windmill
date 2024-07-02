@@ -17,6 +17,7 @@
 	beforeNavigate(async (newNavigationState) => {
 		if (
 			!bypassBeforeNavigate &&
+			newNavigationState.type != 'popstate' &&
 			newNavigationState.to &&
 			newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname
 		) {

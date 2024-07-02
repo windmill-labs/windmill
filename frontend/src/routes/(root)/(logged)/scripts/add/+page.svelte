@@ -6,7 +6,7 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { goto, replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Default
@@ -114,6 +114,7 @@
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
+	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
 	<UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} />
 </ScriptBuilder>
