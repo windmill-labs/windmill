@@ -64,9 +64,9 @@
 >
 	<div class="w-1/12 flex justify-center">
 		{#if isSelectingJobsToCancel && isJobCancelable(job)}
-		<div class="px-2">
-			<input type="checkbox" checked={selected}/>
-		</div>
+			<div class="px-2">
+				<input type="checkbox" checked={selected} />
+			</div>
 		{/if}
 		{#if isExternal}
 			<Badge color="gray" baseClass="!px-1.5">
