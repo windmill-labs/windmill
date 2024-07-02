@@ -678,7 +678,7 @@ export function computeSharableHash(args: any) {
 	})
 	try {
 		let r = new URLSearchParams(nargs).toString()
-		return r
+		return r.length > 1000000 ? '' : r
 	} catch (e) {
 		console.error('Error computing sharable hash', e)
 		return ''
