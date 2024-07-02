@@ -3,14 +3,8 @@
 
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import {
-		cleanValueProperties,
-		decodeArgs,
-		decodeState,
-		emptySchema,
-		orderedJsonStringify
-	} from '$lib/utils'
+	import { initialArgsStore, workspaceStore } from '$lib/stores'
+	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { goto } from '$app/navigation'
 	import { writable } from 'svelte/store'
@@ -22,7 +16,11 @@
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
-	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+	let initialArgs = {}
+	if ($initialArgsStore) {
+		initialArgs = $initialArgsStore
+		$initialArgsStore = undefined
+	}
 
 	let savedFlow:
 		| (Flow & {

@@ -272,19 +272,6 @@ export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
 	return false
 }
 
-export function decodeArgs(queryArgs: string | undefined): any {
-	if (queryArgs) {
-		const parsed = decodeState(queryArgs)
-		Object.entries(parsed).forEach(([k, v]) => {
-			if (v == '<function call>') {
-				parsed[k] = undefined
-			}
-		})
-		return parsed
-	}
-	return {}
-}
-
 let debounced: NodeJS.Timeout | undefined = undefined
 export function setQueryWithoutLoad(
 	url: URL,

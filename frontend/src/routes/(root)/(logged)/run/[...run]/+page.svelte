@@ -44,6 +44,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import {
 		enterpriseLicense,
+		initialArgsStore,
 		superadmin,
 		userStore,
 		userWorkspaces,
@@ -256,12 +257,14 @@
 
 	function forkPreview() {
 		if (job?.job_kind == 'flowpreview') {
+			$initialArgsStore = job?.args
 			const state = {
 				flow: { value: job?.raw_flow },
 				path: job?.script_path + '_fork'
 			}
 			window.open(`/flows/add#${encodeState(state)}`)
 		} else {
+			$initialArgsStore = job?.args
 			let n: NewScript = {
 				path: job?.script_path + '_fork',
 				summary: 'Fork of preview of ' + job?.script_path,
@@ -576,6 +579,7 @@
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
 							on:click|once={() => {
+								$initialArgsStore = job?.args
 								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
