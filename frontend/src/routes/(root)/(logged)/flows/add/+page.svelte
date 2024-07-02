@@ -7,7 +7,7 @@
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { tick } from 'svelte'
@@ -28,6 +28,12 @@
 
 	let initialPath: string | undefined = undefined
 	let pathStoreInit: string | undefined = undefined
+
+	let initialArgs = {}
+	if ($initialArgsStore) {
+		initialArgs = $initialArgsStore
+		$initialArgsStore = undefined
+	}
 
 	export const flowStore = writable<Flow>({
 		summary: '',
@@ -147,6 +153,7 @@
 	bind:this={flowBuilder}
 	newFlow
 	bind:savedFlow
+	{initialArgs}
 	{flowStore}
 	{flowStateStore}
 	{selectedId}
