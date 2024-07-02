@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { afterNavigate, goto, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
@@ -15,9 +15,13 @@
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
-	if (nodraft) {
-		goto('?', { replaceState: true })
-	}
+	afterNavigate(() => {
+		if (nodraft) {
+			let url = new URL($page.url.href)
+			url.search = ''
+			replaceState(url.toString(), $page.state)
+		}
+	})
 
 	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')

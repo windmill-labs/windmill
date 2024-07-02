@@ -16,6 +16,8 @@
 	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
+	import { page } from '$app/stores'
+	import { replaceState } from '$app/navigation'
 
 	export let runnable:
 		| {
@@ -78,7 +80,7 @@
 				nurl.hash = computeSharableHash(args)
 
 				try {
-					history.replaceState(history.state, '', nurl.toString())
+					replaceState(nurl.toString(), $page.state)
 				} catch (e) {
 					console.error(e)
 				}

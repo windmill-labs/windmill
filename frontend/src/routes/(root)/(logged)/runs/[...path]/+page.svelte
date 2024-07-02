@@ -36,6 +36,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { replaceState } from '$app/navigation'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -231,7 +232,7 @@
 
 		let newPath = path ? `/${path}` : '/'
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
-		history.replaceState(history.state, '', newUrl.toString())
+		replaceState(newUrl.toString(), $page.state)
 	}
 
 	function reloadJobsWithoutFilterError() {

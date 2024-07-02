@@ -6,7 +6,7 @@
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
-	import { goto } from '$app/navigation'
+	import { afterNavigate, goto, replaceState } from '$app/navigation'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { sendUserToast } from '$lib/toast'
@@ -28,9 +28,13 @@
 		  })
 		| undefined = undefined
 
-	if (nodraft) {
-		goto('?', { replaceState: true })
-	}
+	afterNavigate(() => {
+		if (nodraft) {
+			let url = new URL($page.url.href)
+			url.search = ''
+			replaceState(url.toString(), $page.state)
+		}
+	})
 
 	export const flowStore = writable<Flow>({
 		summary: '',

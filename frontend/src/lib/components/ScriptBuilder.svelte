@@ -71,6 +71,8 @@
 	export let savedScript: NewScriptWithDraft | undefined = undefined
 	export let searchParams: URLSearchParams = new URLSearchParams()
 	export let disableHistoryChange = false
+	export let replaceStateFn: (url: string) => void = (url) =>
+		window.history.replaceState(null, '', url)
 
 	let metadataOpen =
 		showMeta ||
@@ -163,7 +165,7 @@
 		})
 	}
 
-	$: !disableHistoryChange && window.history.replaceState(null, '', '#' + encodeState(script))
+	$: !disableHistoryChange && replaceStateFn('#' + encodeState(script))
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
