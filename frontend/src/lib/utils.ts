@@ -676,7 +676,13 @@ export function computeSharableHash(args: any) {
 			nargs[k] = JSON.stringify(v)
 		}
 	})
-	return new URLSearchParams(nargs).toString()
+	try {
+		let r = new URLSearchParams(nargs).toString()
+		return r
+	} catch (e) {
+		console.error('Error computing sharable hash', e)
+		return ''
+	}
 }
 
 export function toCamel(s: string) {
