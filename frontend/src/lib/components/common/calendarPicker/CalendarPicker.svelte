@@ -40,6 +40,9 @@
 					date = e.detail
 					dispatch('change', date)
 				}}
+				on:clear={() => {
+					dispatch('clear')
+				}}
 			/>
 		</div>
 	</label>

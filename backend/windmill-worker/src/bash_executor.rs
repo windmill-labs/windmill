@@ -379,6 +379,21 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
     )
     .await?;
 
+    let result_json_path = format!("{job_dir}/result.json");
+    if let Ok(metadata) = tokio::fs::metadata(&result_json_path).await {
+        if metadata.len() > 0 {
+            return Ok(read_file(&result_json_path).await?);
+        }
+    }
+
+    let result_out_path = format!("{job_dir}/result.out");
+    if let Ok(metadata) = tokio::fs::metadata(&result_out_path).await {
+        if metadata.len() > 0 {
+            let result = read_file_content(&result_out_path).await?;
+            return Ok(to_raw_value(&json!(result)));
+        }
+    }
+
     let result_out_path2 = format!("{job_dir}/result2.out");
     if tokio::fs::metadata(&result_out_path2).await.is_ok() {
         let result = read_file_content(&result_out_path2)

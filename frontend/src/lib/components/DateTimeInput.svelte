@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from './common'
-	import { Clock } from 'lucide-svelte'
+	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -129,6 +129,18 @@
 		}}
 	>
 		Now
+	</Button>
+	<Button
+		variant="border"
+		color="light"
+		wrapperClasses="h-8"
+		{disabled}
+		on:click={() => {
+			value = undefined
+			dispatch('clear')
+		}}
+	>
+		<X size={14} />
 	</Button>
 	<!-- <div>
 		<ToggleButtonGroup bind:selected={format}>

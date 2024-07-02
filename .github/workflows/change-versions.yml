@@ -20,5 +20,4 @@ jobs:
         run: |
           cd backend
           cargo generate-lockfile
-          cargo update -p bit-vec@0.7.0 --precise 0.6.3
       - uses: stefanzweifel/git-auto-commit-action@v4
