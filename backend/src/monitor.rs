@@ -1123,13 +1123,15 @@ async fn handle_zombie_flows(
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
-            cancel_zombie_flow_job(
-                db,
-                flow,
-                &rsmq,
-                format!("Flow {} cancelled as it was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})", id),
-            )
-            .await?;
+            let reason = format!(
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
+                if flow.is_flow_step && flow.parent_job.is_some() {
+                    format!("Flow was cancelled because subflow {id}")
+                } else {
+                    format!("Flow {id} was cancelled because")
+                }
+            );
+            cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
         }
     }
 
@@ -1189,7 +1191,7 @@ async fn cancel_zombie_flow_job(
         tx,
         db,
         rsmq.clone(),
-        false,
+        true,
         false,
     )
     .await?;

@@ -76,8 +76,8 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    add_completed_job_error, append_logs, get_queued_job, get_result_by_id_from_running_flow,
-    job_is_complete, push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel,
+    cancel_job, get_queued_job, get_result_by_id_from_running_flow, job_is_complete, push,
+    DecodeQueries, PushArgs, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -1237,66 +1237,49 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
-#[derive(Deserialize, FromRow)]
-struct JobToCancel {
-    id: Uuid,
-    is_flow_step: Option<bool>,
-    running: bool,
-}
-
 async fn cancel_jobs(
-    jobs: Vec<JobToCancel>,
+    jobs: Vec<Uuid>,
     db: &DB,
     username: &str,
     w_id: &str,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
-    for j in jobs.iter() {
-        let r = sqlx::query!(
-            "UPDATE queue SET canceled = true,  canceled_by = $1, scheduled_for = now(), suspend = 0 WHERE id = $2 RETURNING 1 as one",
-            username,
-            j.id,
-        )
-        .fetch_optional(db)
-        .await;
-
-        if r.as_ref().is_ok_and(|x| x.is_some()) {
-            uuids.push(j.id);
-
-            if !j.running && !j.is_flow_step.unwrap_or(false) {
-                let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
-                let job_running = get_queued_job(&j.id, &w_id, &db).await?;
-
-                if let Some(job_running) = job_running {
-                    append_logs(
-                        &j.id,
-                        w_id,
-                        format!("canceled by {username}: cancel_all"),
-                        db.clone(),
-                    )
-                    .await;
-                    let add_job = add_completed_job_error(
-                        &db,
-                        &job_running,
-                        job_running.mem_peak.unwrap_or(0),
-                        Some(CanceledBy {
-                            username: Some(username.to_string()),
-                            reason: Some("cancel_all".to_string()),
-                        }),
-                        e,
-                        rsmq.clone(),
-                        "server",
-                        true,
-                    )
-                    .await;
-                    if let Err(e) = add_job {
-                        tracing::error!("Failed to add canceled job: {}", e);
-                    }
+    for job_id in jobs.into_iter() {
+        let rsmq = rsmq.clone();
+        match tokio::time::timeout(tokio::time::Duration::from_secs(120), async move {
+            let tx = db.begin().await?;
+            let (tx, _) = windmill_queue::cancel_job(
+                username,
+                None,
+                job_id.clone(),
+                w_id,
+                tx,
+                db,
+                rsmq,
+                false,
+                false,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        {
+            Ok(result) => match result {
+                Ok(_) => {
+                    uuids.push(job_id);
                 }
+                Err(e) => {
+                    tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
+                }
+            },
+            Err(_) => {
+                tracing::error!(
+                    "120-second timeout reached on cancellation attempt of {:?}",
+                    job_id
+                );
             }
-        } else {
-            tracing::error!("Failed to cancel job: {:?} {:?}", j.id, r.err());
         }
     }
 
@@ -1315,9 +1298,8 @@ async fn cancel_selection(
     require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
-    let jobs_to_cancel = sqlx::query_as!(
-        JobToCancel,
-        "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
+    let jobs_to_cancel = sqlx::query_scalar!(
+        "SELECT id FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
         &jobs
     )
     .fetch_all(&mut *tx)
@@ -2882,6 +2864,7 @@ struct Guard {
     id: Uuid,
     w_id: String,
     db: DB,
+    username: String,
 }
 
 impl Drop for Guard {
@@ -2890,16 +2873,33 @@ impl Drop for Guard {
             let id = self.id;
             let w_id = self.w_id.clone();
             let db = self.db.clone();
+            let username = self.username.clone();
 
             tracing::info!("http connection broke, marking job {id} as canceled");
             tokio::spawn(async move {
-                let _ = sqlx::query!(
-                "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = queue.created_by WHERE id = $1 AND workspace_id = $2",
-                id,
-                w_id
-            )
-            .execute(&db)
-            .await;
+                let cancel_f = async {
+                    let tx = db.begin().await?;
+                    let (tx, _) = cancel_job(
+                        &username,
+                        Some("http connection broke".to_string()),
+                        id,
+                        &w_id,
+                        tx,
+                        &db,
+                        None,
+                        false,
+                        false,
+                    )
+                    .await?;
+                    tx.commit().await?;
+                    Ok::<_, anyhow::Error>(())
+                };
+
+                if let Err(e) = cancel_f.await {
+                    tracing::error!(
+                        "Error marking job as canceled after http connection broke: {e}"
+                    );
+                }
             });
         }
     }
@@ -2916,6 +2916,7 @@ async fn run_wait_result(
     uuid: Uuid,
     w_id: String,
     node_id_for_empty_return: Option<String>,
+    username: &str,
 ) -> error::Result<Response> {
     let mut result = None;
     let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
@@ -2925,7 +2926,13 @@ async fn run_wait_result(
         (timeout * 1000) as u64
     };
 
-    let mut g = Guard { done: false, id: uuid, w_id: w_id.clone(), db: db.clone() };
+    let mut g = Guard {
+        done: false,
+        id: uuid,
+        w_id: w_id.clone(),
+        db: db.clone(),
+        username: username.to_string(),
+    };
 
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
     let mut accumulated_delay = 0 as u64;
@@ -3166,7 +3173,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -3286,7 +3293,7 @@ async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -3367,7 +3374,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -3450,7 +3457,7 @@ async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, w_id, early_return).await
+    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
 }
 
 async fn run_preview_script(
@@ -3739,7 +3746,7 @@ async fn run_dependencies_job(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     wait_result
 }
 
@@ -3794,7 +3801,7 @@ async fn run_flow_dependencies_job(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     wait_result
 }
 
