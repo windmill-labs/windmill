@@ -11,11 +11,13 @@
 
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import ResolveConfig from '../../components/helpers/ResolveConfig.svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '../../types'
 
 	export let navbarItems: NavbarItem[] = []
 	export let id: string
 
-	//const { appPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let items = navbarItems.map((tab, index) => {
 		return { value: tab, id: generateRandomString(), originalIndex: index }
@@ -118,13 +120,17 @@
 					</div>
 					<ResolveConfig
 						{id}
-						key={'path' + id}
-						bind:resolvedConfig={resolvedPaths[index]}
+						key={'path'}
+						extraKey={item.id}
+						bind:resolvedConfig={resolvedPaths[item.originalIndex]}
 						configuration={item.value.path}
 					/>
-					{#if resolvedPaths[index]}
+					{#if resolvedPaths[item.originalIndex]}
 						<div class="text-xs text-tertiary">
-							Path: <Badge small>{resolvedPaths[index]}</Badge>
+							Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
+							{#if appPath === resolvedPaths[item.originalIndex]}
+								<Badge small color="blue">Current app</Badge>
+							{/if}
 						</div>
 					{:else}
 						<div class="text-xs text-red-500">No app path or url selected</div>

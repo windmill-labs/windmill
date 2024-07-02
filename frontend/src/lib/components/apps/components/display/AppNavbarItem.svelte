@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, EditorMode } from '../../types'
 	import { type NavbarItem } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { loadIcon } from '../icon'
@@ -10,6 +10,7 @@
 	export let navbarItem: NavbarItem
 	export let id: string
 	export let borderColor: string | undefined = undefined
+	export let index: number
 
 	let icon: any
 
@@ -24,28 +25,48 @@
 	const { appPath, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
-</script>
 
-<ResolveConfig
-	{id}
-	key={'path' + id}
-	bind:resolvedConfig={resolvedPath}
-	configuration={navbarItem.path}
-/>
-
-<div
-	class={twMerge('py-2', appPath === resolvedPath ? 'border-b-2 border-gray-500 ' : '')}
-	style={`border-color: ${borderColor ?? 'transparent'}`}
->
-	<Button
-		href={resolvedPath && typeof resolvedPath === 'string'
-			? resolvedPath?.startsWith('http') || resolvedPath?.startsWith('https')
+	function computeHref(resolvedPath: string | undefined): string | undefined {
+		if (resolvedPath && typeof resolvedPath === 'string') {
+			return resolvedPath?.startsWith('http') || resolvedPath?.startsWith('https')
 				? resolvedPath
 				: resolvedPath
 				? `/apps/get/${resolvedPath}`
 				: undefined
-			: String(resolvedPath)}
-		target={$mode === 'dnd' ? '_blank' : '_self'}
+		} else {
+			return String(resolvedPath)
+		}
+	}
+
+	function computeTarget(
+		resolvedPath: string | undefined,
+		mode: EditorMode
+	): '_self' | '_blank' | undefined {
+		if (resolvedPath?.startsWith('http') || resolvedPath?.startsWith('https')) {
+			return '_blank'
+		}
+
+		return mode === 'dnd' ? '_blank' : '_self'
+	}
+</script>
+
+{#key navbarItem}
+	<ResolveConfig
+		{id}
+		key={'path'}
+		extraKey={String(index)}
+		bind:resolvedConfig={resolvedPath}
+		configuration={navbarItem.path}
+	/>
+{/key}
+
+<div
+	class={twMerge('py-2 ', appPath === resolvedPath ? 'border-b-2 border-gray-500 ' : '')}
+	style={`border-color: ${borderColor ?? 'transparent'}`}
+>
+	<Button
+		href={computeHref(resolvedPath)}
+		target={computeTarget(resolvedPath, $mode)}
 		color="light"
 		size="xs"
 		disabled={navbarItem.disabled || appPath === resolvedPath}
