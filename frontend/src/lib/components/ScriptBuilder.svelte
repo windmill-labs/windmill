@@ -59,6 +59,7 @@
 	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import Summary from './Summary.svelte'
 
 	export let script: NewScript
 	export let initialPath: string = ''
@@ -990,7 +991,7 @@
 	<div class="flex flex-col h-screen">
 		<div class="flex h-12 items-center px-4">
 			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
-				<div class="flex flex-row gap-2">
+				<div class="flex flex-row gap-2 grow max-w-md">
 					<div class="center-center">
 						<button
 							on:click={async () => {
@@ -1000,14 +1001,7 @@
 							<LanguageIcon lang={script.language} height={20} />
 						</button>
 					</div>
-					<div class="min-w-32 lg:min-w-64 w-full max-w-md">
-						<input
-							type="text"
-							placeholder="Script summary"
-							class="text-sm w-full font-semibold"
-							bind:value={script.summary}
-						/>
-					</div>
+					<Summary bind:value={script.summary} />
 				</div>
 
 				<div class="gap-4 flex">

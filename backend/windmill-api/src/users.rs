@@ -119,20 +119,18 @@ pub fn make_unauthed_service() -> Router {
 }
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
-    if label.as_ref().is_some_and(|x| x.starts_with("webhook-")) {
-        label
-    } else if label
-        .as_ref()
-        .is_some_and(|x| x.starts_with("ephemeral-script-end-user-"))
-    {
-        Some(
+    match label {
+        Some(label) if label.starts_with("webhook-") => Some(label),
+        Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
             label
-                .unwrap()
                 .trim_start_matches("ephemeral-script-end-user-")
                 .to_string(),
-        )
-    } else {
-        None
+        ),
+        Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
+        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
+            Some(format!("label-{label}"))
+        }
+        _ => None,
     }
 }
 

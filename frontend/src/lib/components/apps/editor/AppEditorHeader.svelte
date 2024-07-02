@@ -82,6 +82,7 @@
 	import { getUpdateInput } from '../components/display/dbtable/queries/update'
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
+	import Summary from '$lib/components/Summary.svelte'
 
 	async function hash(message) {
 		try {
@@ -1247,15 +1248,7 @@
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
 >
 	<div class="flex flex-row gap-2 items-center">
-		<div class="min-w-64 w-64">
-			<input
-				type="text"
-				placeholder="App summary"
-				class="text-sm w-full font-semibold"
-				bind:value={$summary}
-				on:keydown|stopPropagation
-			/>
-		</div>
+		<Summary bind:value={$summary} />
 		<div class="flex gap-2">
 			<UndoRedo
 				undoProps={{ disabled: $history?.index === 0 }}
