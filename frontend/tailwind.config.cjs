@@ -856,7 +856,6 @@ const config = {
 						width: '100% !important'
 					}
 				},
-
 				// Windmill Tab classes
 
 				'.wm-tab-active': {
