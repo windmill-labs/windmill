@@ -409,7 +409,34 @@ async fn trigger_dependents_to_recompute_dependencies<
                 "nodes_to_relock".to_string(),
                 to_raw_value(&s.importer_node_ids),
             );
-            JobPayload::FlowDependencies { path: s.importer_path.clone(), dedicated_worker: None }
+            let r = sqlx::query_scalar!(
+                "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
+                s.importer_path,
+                w_id,
+            ).fetch_one(db)
+            .await
+            .map_err(to_anyhow);
+            match r {
+                Ok(Some(version)) => JobPayload::FlowDependencies {
+                    path: s.importer_path.clone(),
+                    dedicated_worker: None,
+                    version: version,
+                },
+                Ok(None) => {
+                    tracing::error!(
+                        "no flow version found for path {path}",
+                        path = s.importer_path
+                    );
+                    continue;
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "error getting latest deployed flow version for path {path}: {err}",
+                        path = s.importer_path,
+                    );
+                    continue;
+                }
+            }
         } else {
             tracing::error!(
                 "unexpected importer kind: {kind} for path {path}",
@@ -470,6 +497,15 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
     })?;
+
+    let version = job
+        .script_hash
+        .clone()
+        .ok_or_else(|| {
+            Error::InternalErr("Flow Dependency requires script hash (flow version)".to_owned())
+        })?
+        .0;
+
     let raw_flow = job.raw_flow.clone().map(|v| Ok(v)).unwrap_or_else(|| {
         Err(Error::InternalErr(
             "Flow Dependency requires raw flow".to_owned(),
@@ -547,6 +583,13 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         )
         .execute(db)
         .await?;
+        sqlx::query!(
+            "UPDATE flow_version SET value = $1 WHERE id = $2",
+            new_flow_value,
+            version
+        )
+        .execute(db)
+        .await?;
     }
     tx.commit().await?;
 
@@ -555,7 +598,7 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         &job.created_by,
         &db,
         &job.workspace_id,
-        DeployedObject::Flow { path: job_path, parent_path },
+        DeployedObject::Flow { path: job_path, parent_path, version },
         deployment_message,
         rsmq.clone(),
         false,
@@ -1016,14 +1059,14 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
-            "Cannot resolve flow dependencies for flow without path".to_string(),
+            "Cannot resolve app dependencies for app without path".to_string(),
         )
     })?;
 
     let id = job
         .script_hash
         .clone()
-        .ok_or_else(|| Error::InternalErr("Flow Dependency requires script hash".to_owned()))?
+        .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
         .0;
     let value = sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
@@ -1045,7 +1088,7 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
         )
         .await?;
 
-        // Re-check cancelation to ensure we don't accidentially override a flow.
+        // Re-check cancelation to ensure we don't accidentially override an app.
         if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
             .fetch_optional(db)
             .await

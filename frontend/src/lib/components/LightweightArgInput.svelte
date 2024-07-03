@@ -21,7 +21,6 @@
 	import Password from './Password.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import S3FilePicker from './S3FilePicker.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined

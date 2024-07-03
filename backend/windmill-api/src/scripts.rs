@@ -280,6 +280,13 @@ async fn list_scripts(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
+    if lq.with_deployment_msg.unwrap_or(false) {
+        sqlb.join("deployment_metadata dm")
+            .left()
+            .on("dm.script_hash = o.hash")
+            .fields(&["dm.deployment_msg"]);
+    }
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableScript>(&sql)
