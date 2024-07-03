@@ -30,14 +30,6 @@
 		}
 	})
 
-	function initCurrentPath() {
-		console.log('initCurrentPath', resolvedConfig.initialCurrentPath)
-
-		output.result.set({ currentPath: resolvedConfig.initialCurrentPath })
-	}
-
-	$: resolvedConfig.initialCurrentPath && initCurrentPath()
-
 	let css = initCss($app.css?.navbarcomponent, customCss)
 </script>
 
@@ -83,18 +75,16 @@
 		</div>
 		<div class="flex flex-row gap-4 overflow-x-auto">
 			{#each navbarItems ?? [] as navbarItem, index (index)}
-				{#if !navbarItem.hidden}
-					<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
-						<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
-						<AppNavbarItem
-							{navbarItem}
-							{id}
-							borderColor={resolvedConfig?.borderColor}
-							{index}
-							bind:output
-						/>
-					</Popover>
-				{/if}
+				<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
+					<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
+					<AppNavbarItem
+						{navbarItem}
+						{id}
+						borderColor={resolvedConfig?.borderColor}
+						{index}
+						bind:output
+					/>
+				</Popover>
 			{/each}
 		</div>
 	</div>

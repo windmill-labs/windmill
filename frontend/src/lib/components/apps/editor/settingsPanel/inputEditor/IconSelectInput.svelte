@@ -2,6 +2,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { ClearableInput, Popup } from '../../../../common'
 	import { AllIcons } from './icons'
+	import type { ComputeConfig } from 'svelte-floating-ui'
 
 	export let value: string | undefined = ''
 
@@ -34,15 +35,15 @@
 			elem.blur()
 		}
 	}
-</script>
 
-<Popup
-	let:close
-	floatingConfig={{
+	export let floatingConfig: ComputeConfig = {
 		strategy: 'absolute',
 		placement: 'bottom-end'
-	}}
->
+	}
+	export let shouldUsePortal: boolean = true
+</script>
+
+<Popup let:close {floatingConfig} {shouldUsePortal}>
 	<svelte:fragment slot="button">
 		<div class="relative">
 			<ClearableInput

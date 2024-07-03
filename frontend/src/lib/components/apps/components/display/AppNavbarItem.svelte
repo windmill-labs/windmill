@@ -31,6 +31,9 @@
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
+	let resolvedLabel: string | undefined = undefined
+	let resolvedDisabled: boolean | undefined = undefined
+	let resolvedHidden: boolean | undefined = undefined
 
 	function computeHref(resolvedPath: string | undefined): string | undefined {
 		if (navbarItem.path.type === 'static' && navbarItem.path.fieldType === 'select') {
@@ -49,71 +52,77 @@
 	}
 
 	let isSelected = false
-
-	function checkIfSelected() {
-		isSelected = output.result.peak()?.currentPath === resolvedPath
-	}
-
-	output.result.subscribe(
-		{
-			next: (next) => {
-				isSelected = next.currentPath === resolvedPath
-			},
-			id: resolvedPath
-		},
-		{
-			currentPath: resolvedPath ?? ''
-		}
-	)
-
-	$: resolvedPath && checkIfSelected()
+	let s = false
 </script>
 
-{#key navbarItem}
-	<ResolveConfig
-		{id}
-		key={'path'}
-		extraKey={String(index)}
-		bind:resolvedConfig={resolvedPath}
-		configuration={navbarItem.path}
-	/>
-{/key}
+<ResolveConfig
+	{id}
+	key={'path'}
+	extraKey={String(index)}
+	bind:resolvedConfig={resolvedPath}
+	configuration={navbarItem.path}
+/>
 
-<div
-	class={twMerge('py-2 ', isSelected ? 'border-b-2 border-gray-500 ' : '')}
-	style={`border-color: ${borderColor ?? 'transparent'}`}
->
-	{#if navbarItem.writeOutputOnClick}
-		<Button
-			on:click={() => {
-				output.result.set({ currentPath: resolvedPath ?? '' })
-				isSelected = true
-			}}
-			color="light"
-			size="xs"
-			disabled={navbarItem.disabled}
-		>
-			{#if navbarItem.icon}
-				{#key navbarItem.icon}
-					<div class="min-w-4" bind:this={icon} />
-				{/key}
-			{/if}
-			{navbarItem.label ?? 'No Label'}
-		</Button>
-	{:else}
-		<Button
-			href={computeHref(resolvedPath)}
-			target={computeTarget(navbarItem, $mode)}
-			color="light"
-			size="xs"
-			disabled={navbarItem.disabled}
-		>
-			{#if navbarItem.icon}
-				{#key navbarItem.icon}
-					<div class="min-w-4" bind:this={icon} />
-				{/key}
-			{/if}
-			{navbarItem.label ?? 'No Label'}
-		</Button>
-	{/if}
-</div>
+<ResolveConfig
+	{id}
+	key={'label'}
+	extraKey={String(index)}
+	bind:resolvedConfig={resolvedLabel}
+	configuration={navbarItem.label}
+/>
+
+<ResolveConfig
+	{id}
+	key={'disabled'}
+	extraKey={String(index)}
+	bind:resolvedConfig={resolvedDisabled}
+	configuration={navbarItem.disabled}
+/>
+
+<ResolveConfig
+	{id}
+	key={'hidden'}
+	extraKey={String(index)}
+	bind:resolvedConfig={resolvedHidden}
+	configuration={navbarItem.hidden}
+/>
+{#if !resolvedHidden}
+	<div
+		class={twMerge('py-2 ', isSelected ? 'border-b-2 border-gray-500 ' : '')}
+		style={`border-color: ${borderColor ?? 'transparent'}`}
+	>
+		{#if s}
+			<Button
+				on:click={() => {
+					output.result.set({ currentPath: resolvedPath ?? '' })
+					isSelected = true
+				}}
+				color="light"
+				size="xs"
+				disabled={resolvedDisabled}
+			>
+				{#if navbarItem.icon}
+					{#key navbarItem.icon}
+						<div class="min-w-4" bind:this={icon} />
+					{/key}
+				{/if}
+				{resolvedLabel ?? 'No Label'}
+			</Button>
+		{:else}
+			<Button
+				href={computeHref(resolvedPath)}
+				target={computeTarget(navbarItem, $mode)}
+				color="light"
+				size="xs"
+				disabled={resolvedDisabled}
+			>
+				{#if navbarItem.icon}
+					{#key navbarItem.icon}
+						<div class="min-w-4" bind:this={icon} />
+					{/key}
+				{/if}
+				{resolvedLabel ?? 'No Label'}
+			</Button>
+		{/if}
+	</div>
+{/if}

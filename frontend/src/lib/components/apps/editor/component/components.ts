@@ -264,12 +264,11 @@ export type AlertComponent = BaseComponent<'alertcomponent'>
 
 export type NavbarItem = {
 	path: RichConfiguration
-	label?: string
+	label: RichConfiguration
 	caption?: string
-	disabled: boolean
-	hidden: boolean
+	disabled: RichConfiguration
+	hidden: RichConfiguration
 	icon?: string
-	writeOutputOnClick: boolean
 }
 
 export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
@@ -3870,16 +3869,10 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'text',
 					value: 'Title'
 				},
-
 				borderColor: {
 					type: 'static',
-					value: 'transparent',
+					value: '#555',
 					fieldType: 'color'
-				},
-				initialCurrentPath: {
-					type: 'static',
-					value: '',
-					fieldType: 'text'
 				},
 				logo: {
 					type: 'oneOf',

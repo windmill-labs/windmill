@@ -27,16 +27,26 @@
 
 	function addPath() {
 		const emptyAppPath: NavbarItem = {
-			disabled: false,
-			label: undefined,
+			disabled: {
+				type: 'static',
+				value: false,
+				fieldType: 'boolean'
+			},
+			label: {
+				type: 'static',
+				value: undefined,
+				fieldType: 'text'
+			},
 			path: {
 				type: 'static',
 				value: undefined,
-				fieldType: 'select',
-				selectOptions: []
+				fieldType: 'text'
 			},
-			hidden: false,
-			writeOutputOnClick: false
+			hidden: {
+				type: 'static',
+				value: false,
+				fieldType: 'boolean'
+			}
 		}
 
 		items = [
@@ -61,6 +71,7 @@
 	}
 
 	let resolvedPaths: string[] = []
+	let resolvedLabels: string[] = []
 </script>
 
 <PanelSection
@@ -81,18 +92,22 @@
 		>
 			{#each items as item, index (item.id)}
 				<div class="border rounded-md p-2 mb-2 bg-surface" animate:flip={{ duration: 200 }}>
+					<ResolveConfig
+						{id}
+						key={'label'}
+						extraKey={item.id}
+						bind:resolvedConfig={resolvedLabels[item.originalIndex]}
+						configuration={item.value.label}
+					/>
+
 					<div class="w-full flex flex-row gap-2 items-center relative my-1">
-						<div class="flex flex-row rounded-md bg-surface items-center h-full">
-							<div class="relative w-full">
-								<input
-									class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
-									bind:value={items[index].value.label}
-									placeholder="Field"
-								/>
-							</div>
+						<div
+							class="text-xs px-2 border-y flex flex-row items-center border rounded-md h-8 w-full"
+						>
+							{resolvedLabels[item.originalIndex] ?? 'No label'}
 						</div>
 
-						<div class="absolute right-24">
+						<div class="absolute right-[4.5rem]">
 							<CloseButton
 								noBg
 								small
