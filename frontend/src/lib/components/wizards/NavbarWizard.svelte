@@ -12,6 +12,7 @@
 	import InputsSpecEditor from '../apps/editor/settingsPanel/InputsSpecEditor.svelte'
 	import type { AppViewerContext } from '../apps/types'
 	import AppPicker from './AppPicker.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	export let value: NavbarItem
 
@@ -70,7 +71,7 @@
 			/>
 
 			<InputsSpecEditor
-				key={'Path'}
+				key={'Href'}
 				bind:componentInput={value.path}
 				id={$selectedComponent?.[0] ?? ''}
 				userInputEnabled={false}
@@ -84,7 +85,6 @@
 				placeholder={value.path?.['placeholder']}
 				customTitle={value.path?.['customTitle']}
 				displayType={false}
-				tooltip={'Either a static app path or an  expression.'}
 			/>
 
 			<AppPicker
@@ -92,11 +92,16 @@
 				on:pick={(path) => {
 					value.path = {
 						type: 'static',
-						value: path.detail.value,
+						value: '/apps/get/' + path.detail.value,
 						fieldType: 'text'
 					}
 				}}
 			/>
+
+			<Alert size="xs" title="Link Behavior" collapsible>
+				External links starting with http(s) will open in a new tab. Links that include the current
+				app will be highlighted. Links pointing to another app will open in a new tab.
+			</Alert>
 
 			<Label label="Caption">
 				<input type="text" bind:value={value.caption} />

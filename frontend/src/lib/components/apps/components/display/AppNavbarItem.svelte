@@ -17,6 +17,8 @@
 			currentPath: string
 		}>
 	}
+	export let replaceStateFn: (url: string) => void = (url) =>
+		window.history.replaceState(null, '', url)
 
 	let icon: any
 
@@ -34,14 +36,6 @@
 	let resolvedLabel: string | undefined = undefined
 	let resolvedDisabled: boolean | undefined = undefined
 	let resolvedHidden: boolean | undefined = undefined
-
-	function computeHref(resolvedPath: string | undefined): string | undefined {
-		if (navbarItem.path.type === 'static' && navbarItem.path.fieldType === 'select') {
-			return resolvedPath ? `/apps/get/${resolvedPath}` : undefined
-		} else {
-			return resolvedPath ?? undefined
-		}
-	}
 
 	function extractPathDetails() {
 		const fullUrl = window.location.href
@@ -118,11 +112,7 @@
 					const queryParams = url.search
 					const hash = url.hash
 
-					window.history.replaceState(
-						history.state,
-						'',
-						`${window.location.pathname}${queryParams}${hash}`
-					)
+					replaceStateFn(`${window.location.pathname}${queryParams}${hash}`)
 				}}
 				color="light"
 				size="xs"
@@ -137,7 +127,7 @@
 			</Button>
 		{:else}
 			<Button
-				href={computeHref(resolvedPath)}
+				href={resolvedPath}
 				target="_blank"
 				color="light"
 				size="xs"

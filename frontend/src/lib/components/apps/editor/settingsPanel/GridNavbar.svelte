@@ -142,7 +142,7 @@
 						configuration={item.value.path}
 					/>
 					{#if resolvedPaths[item.originalIndex]}
-						<div class="text-xs text-tertiary">
+						<div class="text-xs text-tertiary flex gap-2 flex-row flex-wrap">
 							Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
 							{#if resolvedPaths[item.originalIndex]?.includes(appPath)}
 								<Badge small color="blue"

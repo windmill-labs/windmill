@@ -33,7 +33,7 @@
 			}}
 			size="xs"
 			color="light"
-			nonCaptureEvent>Pick an app</Button
+			nonCaptureEvent>Pick another app as target href</Button
 		>
 	</svelte:fragment>
 
