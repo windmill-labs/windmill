@@ -21,7 +21,7 @@
 	}
 
 	$: if ($workspaceStore && $page.params.path) {
-		if (app && $page.params.path.includes(app.path)) {
+		if (app && $page.params.path === app.path) {
 			console.log('App already loaded')
 		} else {
 			loadApp()

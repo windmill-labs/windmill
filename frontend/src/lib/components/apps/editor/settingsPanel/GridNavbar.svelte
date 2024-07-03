@@ -13,6 +13,8 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import type { StaticAppInput } from '../../inputType'
+	import ResolveNavbarItemPath from '../../components/display/ResolveNavbarItemPath.svelte'
 
 	export let navbarItems: NavbarItem[] = []
 	export let id: string
@@ -37,11 +39,32 @@
 				value: undefined,
 				fieldType: 'text'
 			},
+
 			path: {
-				type: 'static',
-				value: undefined,
-				fieldType: 'text'
-			},
+				type: 'oneOf',
+				selected: 'href',
+				labels: {
+					href: 'Href',
+					app: 'App'
+				},
+				configuration: {
+					href: {
+						href: {
+							type: 'static',
+							value: undefined,
+							fieldType: 'text'
+						}
+					},
+					app: {
+						path: {
+							type: 'static',
+							value: '',
+							fieldType: 'app-path',
+							allowTypeChange: false
+						} as StaticAppInput
+					}
+				}
+			} as const,
 			hidden: {
 				type: 'static',
 				value: false,
@@ -134,13 +157,14 @@
 							</div>
 						</div>
 					</div>
-					<ResolveConfig
+
+					<ResolveNavbarItemPath
+						navbarItem={item.value}
 						{id}
-						key={'path'}
-						extraKey={item.id}
-						bind:resolvedConfig={resolvedPaths[item.originalIndex]}
-						configuration={item.value.path}
+						{index}
+						bind:resolvedPath={resolvedPaths[item.originalIndex]}
 					/>
+
 					{#if resolvedPaths[item.originalIndex]}
 						<div class="text-xs text-tertiary flex gap-2 flex-row flex-wrap">
 							Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>

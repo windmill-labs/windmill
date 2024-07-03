@@ -1,42 +1,19 @@
 <script lang="ts">
 	import { Popup } from '../common'
-	import { userStore, workspaceStore } from '$lib/stores'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import type { NavbarItem } from '../apps/editor/component'
 	import Label from '../Label.svelte'
-	import { AppService, type ListableApp } from '$lib/gen'
-	import { canWrite } from '$lib/utils'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import Section from '../Section.svelte'
 	import IconSelectInput from '../apps/editor/settingsPanel/inputEditor/IconSelectInput.svelte'
 	import InputsSpecEditor from '../apps/editor/settingsPanel/InputsSpecEditor.svelte'
 	import type { AppViewerContext } from '../apps/types'
-	import AppPicker from './AppPicker.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import OneOfInputSpecsEditor from '../apps/editor/settingsPanel/OneOfInputSpecsEditor.svelte'
 
 	export let value: NavbarItem
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
-
-	let apps: ListableApp[] = []
-
-	async function loadApps(): Promise<void> {
-		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(app: ListableApp) => {
-				return {
-					canWrite:
-						canWrite(app.path!, app.extra_perms!, $userStore) &&
-						app.workspace_id == $workspaceStore &&
-						!$userStore?.operator,
-					...app
-				}
-			}
-		)
-	}
-
-	onMount(() => {
-		loadApps()
-	})
 </script>
 
 <Popup
@@ -70,37 +47,21 @@
 				displayType={false}
 			/>
 
-			<InputsSpecEditor
-				key={'Href'}
-				bind:componentInput={value.path}
+			<OneOfInputSpecsEditor
+				key={'Link'}
+				bind:oneOf={value.path}
 				id={$selectedComponent?.[0] ?? ''}
-				userInputEnabled={false}
 				shouldCapitalize={true}
 				resourceOnly={false}
-				fieldType={value.path?.['fieldType']}
-				subFieldType={value.path?.['subFieldType']}
-				format={value.path?.['format']}
-				selectOptions={value.path?.['selectOptions']}
-				fileUpload={value.path?.['fileUpload']}
-				placeholder={value.path?.['placeholder']}
-				customTitle={value.path?.['customTitle']}
-				displayType={false}
-			/>
-
-			<AppPicker
-				items={apps.map((app) => app.path)}
-				on:pick={(path) => {
-					value.path = {
-						type: 'static',
-						value: '/apps/get/' + path.detail.value,
-						fieldType: 'text'
-					}
-				}}
+				inputSpecsConfiguration={value.path?.['configuration']}
+				labels={value.path?.['labels']}
+				tooltip={value.path?.['tooltip']}
 			/>
 
 			<Alert size="xs" title="Link Behavior" collapsible>
 				External links starting with http(s) will open in a new tab. Links that include the current
-				app will be highlighted. Links pointing to another app will open in the same tab.
+				app will be highlighted. Links pointing to another app will open in the same tab when
+				deployed, but in a new tab in the editor.
 			</Alert>
 
 			<Label label="Caption">

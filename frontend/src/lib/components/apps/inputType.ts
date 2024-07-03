@@ -39,6 +39,7 @@ export type InputType =
 	| 'ms_sql_server'
 	| 'snowflake'
 	| 'bigquery'
+	| 'app-path'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -225,6 +226,7 @@ export type AppInput =
 	| AppInputSpec<'resource', string, 'snowflake'>
 	| AppInputSpec<'resource', string, 'bigquery'>
 	| AppInputSpec<'array', object[], 'number-tuple'>
+	| AppInputSpec<'app-path', string>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

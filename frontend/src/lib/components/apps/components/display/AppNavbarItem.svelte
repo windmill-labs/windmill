@@ -12,6 +12,7 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Output } from '../../rx'
+	import ResolveNavbarItemPath from './ResolveNavbarItemPath.svelte'
 
 	export let navbarItem: NavbarItem
 	export let id: string
@@ -33,7 +34,8 @@
 		}
 	}
 
-	const { appPath, replaceStateFn, gotoFn } = getContext<AppViewerContext>('AppViewerContext')
+	const { appPath, replaceStateFn, gotoFn, isEditor } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
 	let resolvedLabel: string | undefined = undefined
@@ -42,7 +44,7 @@
 
 	function extractPathDetails() {
 		const url = window.location.pathname + window.location.search + window.location.hash
-		const processedUrl = url.replace('/apps/edit/', '/apps/get/')
+		const processedUrl = url.replace('/apps/edit/', '').replace('/apps/get/', '')
 		return processedUrl
 	}
 
@@ -63,13 +65,7 @@
 	$: !initialized && resolvedPath && initSelection()
 </script>
 
-<ResolveConfig
-	{id}
-	key={'path'}
-	extraKey={String(index)}
-	bind:resolvedConfig={resolvedPath}
-	configuration={navbarItem.path}
-/>
+<ResolveNavbarItemPath {navbarItem} {id} {index} bind:resolvedPath />
 
 <ResolveConfig
 	{id}
@@ -125,13 +121,28 @@
 				{/if}
 				{resolvedLabel ?? 'No Label'}
 			</Button>
-		{:else if resolvedPath?.startsWith('/')}
+		{:else if (resolvedPath?.startsWith('u/') || resolvedPath?.startsWith('f/')) && !isEditor}
 			<Button
 				on:click={() => {
 					if (resolvedPath) {
-						gotoFn?.(resolvedPath)
+						gotoFn?.(`/apps/get/${resolvedPath}`)
 					}
 				}}
+				color="light"
+				size="xs"
+				disabled={resolvedDisabled}
+			>
+				{#if navbarItem.icon}
+					{#key navbarItem.icon}
+						<div class="min-w-4" bind:this={icon} />
+					{/key}
+				{/if}
+				{resolvedLabel ?? 'No Label'}
+			</Button>
+		{:else if (resolvedPath?.startsWith('u/') || resolvedPath?.startsWith('f/')) && isEditor}
+			<Button
+				href={`/apps/get/${resolvedPath}`}
+				target={'_blank'}
 				color="light"
 				size="xs"
 				disabled={resolvedDisabled}

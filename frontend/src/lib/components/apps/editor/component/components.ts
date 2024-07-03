@@ -56,6 +56,7 @@ import type {
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
+	OneOfConfiguration,
 	RichConfiguration,
 	RichConfigurations,
 	StaticRichConfigurations
@@ -263,7 +264,7 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 export type AlertComponent = BaseComponent<'alertcomponent'>
 
 export type NavbarItem = {
-	path: RichConfiguration
+	path: OneOfConfiguration
 	label: RichConfiguration
 	caption?: string
 	disabled: RichConfiguration
