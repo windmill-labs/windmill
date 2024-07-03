@@ -55,7 +55,7 @@
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
-	import { replaceState } from '$app/navigation'
+	import { goto, replaceState } from '$app/navigation'
 
 	export let app: App
 	export let path: string
@@ -554,6 +554,9 @@
 						{context}
 						noBackend={false}
 						replaceStateFn={(path) => replaceState(path, $page.state)}
+						gotoFn={(path, opt) => {
+							goto(path, opt)
+						}}
 					/>
 				</div>
 			</SplitPanesWrapper>

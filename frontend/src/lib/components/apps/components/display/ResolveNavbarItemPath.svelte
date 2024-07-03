@@ -14,7 +14,8 @@
 	$: resolvedPath = (
 		resolvedConfig?.path?.selected === 'href'
 			? resolvedConfig?.path?.configuration?.href?.href
-			: resolvedConfig?.path?.configuration?.app?.path
+			: resolvedConfig?.path?.configuration?.app?.path +
+			  (resolvedConfig?.path?.configuration?.app?.queryParamsOrHash ?? '')
 	) as string | undefined
 </script>
 

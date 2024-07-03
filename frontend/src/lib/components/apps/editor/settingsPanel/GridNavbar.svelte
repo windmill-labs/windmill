@@ -61,7 +61,12 @@
 							value: '',
 							fieldType: 'app-path',
 							allowTypeChange: false
-						} as StaticAppInput
+						} as StaticAppInput,
+						queryParamsOrHash: {
+							type: 'static',
+							value: undefined,
+							fieldType: 'text'
+						}
 					}
 				}
 			} as const,

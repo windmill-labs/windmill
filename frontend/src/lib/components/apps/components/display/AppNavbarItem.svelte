@@ -63,6 +63,51 @@
 	}
 
 	$: !initialized && resolvedPath && initSelection()
+
+	function getButtonProps(resolvedPath: string | undefined) {
+		if (resolvedPath?.includes(appPath)) {
+			return {
+				onClick: () => {
+					output.result.set({ currentPath: resolvedPath ?? '' })
+					if (!resolvedPath) return
+					const url = new URL(resolvedPath, window.location.origin)
+					const queryParams = url.search
+					const hash = url.hash
+					replaceStateFn?.(`${window.location.pathname}${queryParams}${hash}`)
+
+					$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
+				},
+				href: undefined,
+				target: undefined
+			}
+		} else if (navbarItem.path.selected === 'app') {
+			if (isEditor) {
+				return {
+					href: `/apps/get/${resolvedPath}`,
+					target: '_blank' as const,
+					onClick: undefined
+				}
+			} else {
+				return {
+					onClick: () => {
+						if (resolvedPath) {
+							gotoFn?.(`/apps/get/${resolvedPath}`)
+						}
+					},
+					href: undefined,
+					target: undefined
+				}
+			}
+		} else {
+			return {
+				href: resolvedPath,
+				target: '_blank' as const,
+				onClick: undefined
+			}
+		}
+	}
+
+	$: buttonProps = getButtonProps(resolvedPath)
 </script>
 
 <ResolveNavbarItemPath {navbarItem} {id} {index} bind:resolvedPath />
@@ -93,82 +138,23 @@
 
 {#if !resolvedHidden}
 	<div
-		class={twMerge('py-2 ', $selected === resolvedPath ? 'border-b-2 border-gray-500 ' : '')}
+		class={twMerge('py-2', $selected === resolvedPath ? 'border-b-2 border-gray-500' : '')}
 		style={`border-color: ${borderColor ?? 'transparent'}`}
 	>
-		{#if resolvedPath?.includes(appPath)}
-			<Button
-				on:click={() => {
-					output.result.set({ currentPath: resolvedPath ?? '' })
-					if (!resolvedPath) return
-
-					const url = new URL(resolvedPath, window.location.origin)
-					const queryParams = url.search
-					const hash = url.hash
-
-					replaceStateFn?.(`${window.location.pathname}${queryParams}${hash}`)
-
-					$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
-				}}
-				color="light"
-				size="xs"
-				disabled={resolvedDisabled}
-			>
-				{#if navbarItem.icon}
-					{#key navbarItem.icon}
-						<div class="min-w-4" bind:this={icon} />
-					{/key}
-				{/if}
-				{resolvedLabel ?? 'No Label'}
-			</Button>
-		{:else if (resolvedPath?.startsWith('u/') || resolvedPath?.startsWith('f/')) && !isEditor}
-			<Button
-				on:click={() => {
-					if (resolvedPath) {
-						gotoFn?.(`/apps/get/${resolvedPath}`)
-					}
-				}}
-				color="light"
-				size="xs"
-				disabled={resolvedDisabled}
-			>
-				{#if navbarItem.icon}
-					{#key navbarItem.icon}
-						<div class="min-w-4" bind:this={icon} />
-					{/key}
-				{/if}
-				{resolvedLabel ?? 'No Label'}
-			</Button>
-		{:else if (resolvedPath?.startsWith('u/') || resolvedPath?.startsWith('f/')) && isEditor}
-			<Button
-				href={`/apps/get/${resolvedPath}`}
-				target={'_blank'}
-				color="light"
-				size="xs"
-				disabled={resolvedDisabled}
-			>
-				{#if navbarItem.icon}
-					{#key navbarItem.icon}
-						<div class="min-w-4" bind:this={icon} />
-					{/key}
-				{/if}
-				{resolvedLabel ?? 'No Label'}
-			</Button>
-		{:else}
-			<Button
-				href={resolvedPath}
-				target={'_blank'}
-				color="light"
-				size="xs"
-				disabled={resolvedDisabled}
-			>
-				{#if navbarItem.icon}
-					{#key navbarItem.icon}
-						<div class="min-w-4" bind:this={icon} />
-					{/key}
-				{/if}
-				{resolvedLabel ?? 'No Label'}
-			</Button>
-		{/if}
+		<Button
+			on:click={buttonProps.onClick}
+			href={buttonProps.href}
+			target={buttonProps.target ?? '_self'}
+			color="light"
+			size="xs"
+			disabled={resolvedDisabled}
+		>
+			{#if navbarItem.icon}
+				{#key navbarItem.icon}
+					<div class="min-w-4" bind:this={icon} />
+				{/key}
+			{/if}
+			{resolvedLabel ?? 'No Label'}
+		</Button>
 	</div>
 {/if}
