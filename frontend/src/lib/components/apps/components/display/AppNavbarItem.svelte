@@ -109,7 +109,7 @@
 		{:else}
 			<Button
 				href={resolvedPath}
-				target="_blank"
+				target={resolvedPath?.startsWith('http') ? '_blank' : '_self'}
 				color="light"
 				size="xs"
 				disabled={resolvedDisabled}

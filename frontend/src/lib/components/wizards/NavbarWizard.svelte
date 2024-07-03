@@ -100,7 +100,7 @@
 
 			<Alert size="xs" title="Link Behavior" collapsible>
 				External links starting with http(s) will open in a new tab. Links that include the current
-				app will be highlighted. Links pointing to another app will open in a new tab.
+				app will be highlighted. Links pointing to another app will open in the same tab.
 			</Alert>
 
 			<Label label="Caption">
