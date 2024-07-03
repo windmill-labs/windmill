@@ -3546,6 +3546,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: with_deployment_msg
+          description: |
+            (default false)
+            include deployment message
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All scripts
@@ -4288,6 +4295,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: with_deployment_msg
+          description: |
+            (default false)
+            include deployment message
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All flow
@@ -4304,6 +4318,84 @@ paths:
                           type: boolean
                         draft_only:
                           type: boolean
+
+  /w/{workspace}/flows/history/p/{path}:
+    get:
+      summary: get flow history by path
+      operationId: getFlowHistory
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      tags:
+        - flow
+      responses:
+        "200":
+          description: Flow history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowVersion"
+
+  /w/{workspace}/flows/get/v/{version}/p/{path}:
+    get:
+      summary: get flow version
+      operationId: getFlowVersion
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - type: string
+          name: version
+          in: path
+          required: true
+          schema:
+            type: number
+        - $ref: "#/components/parameters/ScriptPath"
+      tags:
+        - flow
+      responses:
+        "200":
+          description: flow details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/history_update/v/{version}/p/{path}:
+    post:
+      summary: update flow history
+      operationId: updateFlowHistory
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - type: string
+          name: version
+          in: path
+          required: true
+          schema:
+            type: number
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: Flow deployment message
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deployment_msg:
+                  type: string
+              required:
+                - deployment_msg
+      tags:
+        - flow
+      responses:
+        "200":
+          description: success
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /w/{workspace}/flows/get/{path}:
     get:
@@ -4645,6 +4737,13 @@ paths:
           description: |
             (default false)
             include items that have no deployed version
+          in: query
+          schema:
+            type: boolean
+        - name: with_deployment_msg
+          description: |
+            (default false)
+            include deployment message
           in: query
           schema:
             type: boolean
@@ -10614,6 +10713,20 @@ components:
           type: string
       required:
         - version
+
+    FlowVersion:
+      type: object
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        deployment_msg:
+          type: string
+      required:
+        - id
+        - created_at
 
     SlackToken:
       type: object

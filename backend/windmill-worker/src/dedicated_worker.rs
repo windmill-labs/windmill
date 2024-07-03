@@ -400,11 +400,15 @@ pub async fn create_dedicated_worker_map(
         if let Some(flow_path) = _wp.path.strip_prefix("flow/") {
             is_flow_worker = true;
             let value = sqlx::query_scalar!(
-                "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                "SELECT flow_version.value 
+                FROM flow 
+                LEFT JOIN flow_version 
+                    ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                WHERE flow.path = $1 AND flow.workspace_id = $2",
                 flow_path,
                 _wp.workspace_id
             )
-            .fetch_optional(db)
+            .fetch_one(db)
             .await;
             if let Ok(v) = value {
                 if let Some(v) = v {

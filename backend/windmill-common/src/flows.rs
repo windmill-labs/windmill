@@ -20,7 +20,7 @@ use crate::{
     scripts::{Schema, ScriptHash, ScriptLang},
 };
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct Flow {
     pub workspace_id: String,
     pub path: String,
@@ -62,6 +62,9 @@ pub struct ListableFlow {
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
 }
 
 #[derive(Deserialize, sqlx::FromRow)]
@@ -73,7 +76,6 @@ pub struct NewFlow {
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
-    pub ws_error_handler_muted: Option<bool>,
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,
     pub deployment_message: Option<String>,
@@ -552,6 +554,7 @@ pub struct ListFlowQuery {
     pub order_desc: Option<bool>,
     pub starred_only: Option<bool>,
     pub include_draft_only: Option<bool>,
+    pub with_deployment_msg: Option<bool>,
 }
 
 pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {

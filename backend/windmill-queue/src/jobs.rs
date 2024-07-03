@@ -2080,7 +2080,11 @@ pub async fn custom_concurrency_key(
 async fn legacy_concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> Option<String> {
     let r = if queued_job.is_flow() {
         sqlx::query_scalar!(
-            "SELECT value->>'concurrency_key' FROM flow WHERE path = $1 AND workspace_id = $2",
+            "SELECT flow_version.value->>'concurrency_key'
+            FROM flow 
+            LEFT JOIN flow_version
+                ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.path = $1 AND flow.workspace_id = $2",
             queued_job.script_path,
             queued_job.workspace_id
         )
@@ -3270,13 +3274,10 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
         ),
-        JobPayload::FlowDependencies { path, dedicated_worker } => {
+        JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_as::<_, FlowRawValue>(
-                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                )
-                .bind(&path)
-                .bind(&workspace_id),
+                sqlx::query_as::<_, FlowRawValue>("SELECT value FROM flow_version WHERE id = $1",)
+                    .bind(&version),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
@@ -3287,7 +3288,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     ))
                 })?;
             (
-                None,
+                Some(version),
                 Some(path),
                 None,
                 JobKind::FlowDependencies,
@@ -3441,7 +3442,10 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         JobPayload::Flow { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_as::<_, FlowRawValue>(
-                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                    "SELECT flow_version.value FROM flow 
+                    LEFT JOIN flow_version
+                        ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                    WHERE flow.path = $1 AND flow.workspace_id = $2",
                 )
                 .bind(&path)
                 .bind(&workspace_id),
