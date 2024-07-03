@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.355.4
+  version: 1.356.1
   title: Windmill API
 
   contact:
@@ -5717,6 +5717,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+
+  /w/{workspace}/jobs_u/get_args/{id}:
+    get:
+      summary: get job args
+      operationId: getJobArgs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job args
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:

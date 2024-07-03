@@ -340,7 +340,7 @@
 		if (modId) {
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
 				$flowStateStore[modId] = {
-					...$flowStateStore[modId],
+					...($flowStateStore[modId] ?? {}),
 					previewResult: jobLoaded.args
 				}
 			}
@@ -854,7 +854,11 @@
 									{:else if selectedNode == 'start'}
 										{#if job.args}
 											<div class="p-2">
-												<JobArgs args={job.args} />
+												<JobArgs
+													id={job.id}
+													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													args={job.args}
+												/>
 											</div>
 										{:else}
 											<p class="p-2 text-secondary">No arguments</p>
@@ -883,7 +887,11 @@
 										</div>
 										{#if !node.isListJob}
 											<div class="px-1 py-1">
-												<JobArgs args={node.args} />
+												<JobArgs
+													id={node.job_id}
+													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													args={node.args}
+												/>
 											</div>
 										{/if}
 										<FlowJobResult
