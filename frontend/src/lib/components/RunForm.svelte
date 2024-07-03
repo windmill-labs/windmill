@@ -16,6 +16,8 @@
 	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
+	import { page } from '$app/stores'
+	import { replaceState } from '$app/navigation'
 
 	export let runnable:
 		| {
@@ -68,10 +70,21 @@
 	export let isValid = true
 
 	$: onArgsChange(args)
+	let debounced: NodeJS.Timeout | undefined = undefined
 
 	function onArgsChange(args: any) {
 		try {
-			window.location.hash = computeSharableHash(args)
+			debounced && clearTimeout(debounced)
+			debounced = setTimeout(() => {
+				const nurl = new URL(window.location.href)
+				nurl.hash = computeSharableHash(args)
+
+				try {
+					replaceState(nurl.toString(), $page.state)
+				} catch (e) {
+					console.error(e)
+				}
+			}, 200)
 		} catch (e) {
 			console.error('Impossible to set hash in args', e)
 		}

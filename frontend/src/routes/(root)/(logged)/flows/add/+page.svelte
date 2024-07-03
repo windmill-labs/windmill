@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { afterNavigate, goto, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
@@ -7,7 +7,7 @@
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { tick } from 'svelte'
@@ -15,9 +15,13 @@
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
-	if (nodraft) {
-		goto('?', { replaceState: true })
-	}
+	afterNavigate(() => {
+		if (nodraft) {
+			let url = new URL($page.url.href)
+			url.search = ''
+			replaceState(url.toString(), $page.state)
+		}
+	})
 
 	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')
@@ -28,6 +32,12 @@
 
 	let initialPath: string | undefined = undefined
 	let pathStoreInit: string | undefined = undefined
+
+	let initialArgs = {}
+	if ($initialArgsStore) {
+		initialArgs = $initialArgsStore
+		$initialArgsStore = undefined
+	}
 
 	export const flowStore = writable<Flow>({
 		summary: '',
@@ -147,6 +157,7 @@
 	bind:this={flowBuilder}
 	newFlow
 	bind:savedFlow
+	{initialArgs}
 	{flowStore}
 	{flowStateStore}
 	{selectedId}

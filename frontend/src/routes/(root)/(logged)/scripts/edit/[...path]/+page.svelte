@@ -2,16 +2,21 @@
 	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '$lib/stores'
+	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { goto, replaceState } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
-	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
+	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
 	let initialArgs = {}
+
+	if ($initialArgsStore) {
+		initialArgs = $initialArgsStore
+		$initialArgsStore = undefined
+	}
 	let topHash = $page.url.searchParams.get('topHash') ?? undefined
 
 	let hash = $page.url.searchParams.get('hash') ?? undefined
@@ -201,6 +206,9 @@
 		on:seeDetails={(e) => {
 			let path = e.detail
 			goto(`/scripts/get/${path}?workspace=${$workspaceStore}`)
+		}}
+		replaceStateFn={(path) => {
+			replaceState(path, $page.state)
 		}}
 		><UnsavedConfirmationModal
 			{diffDrawer}

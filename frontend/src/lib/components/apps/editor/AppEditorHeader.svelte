@@ -1125,7 +1125,11 @@
 										{/if}
 										{#if job?.args}
 											<div class="p-2">
-												<JobArgs args={job?.args} />
+												<JobArgs
+													id={job.id}
+													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													args={job?.args}
+												/>
 											</div>
 										{/if}
 										{#if job?.raw_code}
