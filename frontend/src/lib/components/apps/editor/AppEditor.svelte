@@ -55,6 +55,7 @@
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
+	import { replaceState } from '$app/navigation'
 
 	export let app: App
 	export let path: string
@@ -155,7 +156,8 @@
 		darkMode,
 		cssEditorOpen,
 		previewTheme,
-		debuggingComponents: writable({})
+		debuggingComponents: writable({}),
+		replaceStateFn: (path) => replaceState(path, $page.state)
 	})
 
 	let scale = writable(100)
@@ -551,6 +553,7 @@
 						isEditor
 						{context}
 						noBackend={false}
+						replaceStateFn={(path) => replaceState(path, $page.state)}
 					/>
 				</div>
 			</SplitPanesWrapper>

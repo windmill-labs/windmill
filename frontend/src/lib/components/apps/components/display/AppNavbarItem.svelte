@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 	import { type NavbarItem } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -17,8 +17,6 @@
 			currentPath: string
 		}>
 	}
-	export let replaceStateFn: (url: string) => void = (url) =>
-		window.history.replaceState(null, '', url)
 
 	let icon: any
 
@@ -30,7 +28,7 @@
 		}
 	}
 
-	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { appPath, replaceStateFn } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
 	let resolvedLabel: string | undefined = undefined
@@ -38,43 +36,14 @@
 	let resolvedHidden: boolean | undefined = undefined
 
 	function extractPathDetails() {
-		const fullUrl = window.location.href
-
-		const inEditor = fullUrl.includes('/apps/edit/')
-		const baseIndex = inEditor
-			? fullUrl.indexOf('/apps/edit/') + 11
-			: fullUrl.indexOf('/apps/get/') + 10
-
-		return fullUrl.substring(baseIndex)
+		return window.location.pathname + window.location.search + window.location.hash
 	}
 
-	$: isSelected = resolvedPath === extractPathDetails()
+	let pathname: string | undefined = undefined
 
-	output.result.subscribe(
-		{
-			next: (next) => {
-				if (next.currentPath) {
-					isSelected = next.currentPath === resolvedPath
-				}
-			},
-			id: resolvedPath
-		},
-		{
-			currentPath: resolvedPath ?? ''
-		}
-	)
-
-	let initialized: boolean = false
-
-	function setInitialOutput() {
-		initialized = true
-
-		if (output.result.peak().currentPath !== undefined) return
-
-		output.result.set({ currentPath: resolvedPath ?? '' })
-	}
-
-	$: resolvedPath && !initialized && setInitialOutput()
+	onMount(() => {
+		pathname = extractPathDetails()
+	})
 </script>
 
 <ResolveConfig
@@ -110,7 +79,7 @@
 />
 {#if !resolvedHidden}
 	<div
-		class={twMerge('py-2 ', isSelected ? 'border-b-2 border-gray-500 ' : '')}
+		class={twMerge('py-2 ', resolvedPath === pathname ? 'border-b-2 border-gray-500 ' : '')}
 		style={`border-color: ${borderColor ?? 'transparent'}`}
 	>
 		{#if resolvedPath?.includes(appPath)}
@@ -124,7 +93,7 @@
 					const queryParams = url.search
 					const hash = url.hash
 
-					replaceStateFn(`${window.location.pathname}${queryParams}${hash}`)
+					replaceStateFn?.(`${window.location.pathname}${queryParams}${hash}`)
 				}}
 				color="light"
 				size="xs"

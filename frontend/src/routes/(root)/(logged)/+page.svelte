@@ -23,6 +23,7 @@
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
+	import { replaceState } from '$app/navigation'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -197,6 +198,7 @@
 					}}
 					summary={appViewerApp?.app.summary ?? ''}
 					noBackend
+					replaceStateFn={(path) => replaceState(path, $page.state)}
 				/>
 			</div>
 		{/if}

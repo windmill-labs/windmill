@@ -17,6 +17,7 @@
 	import Login from '$lib/components/Login.svelte'
 	import { getUserExt } from '$lib/user'
 	import { User, UserRoundX } from 'lucide-svelte'
+	import { replaceState } from '$app/navigation'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
@@ -121,6 +122,7 @@
 				{breakpoint}
 				policy={app.policy}
 				isEditor={false}
+				replaceStateFn={(path) => replaceState(path, $page.state)}
 			/>
 		</div>
 	{/key}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
@@ -56,6 +57,7 @@
 				isEditor={false}
 				noBackend={false}
 				{hideRefreshBar}
+				replaceStateFn={(path) => replaceState(path, $page.state)}
 			/>
 			{#if can_write && !hideEditBtn}
 				<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
