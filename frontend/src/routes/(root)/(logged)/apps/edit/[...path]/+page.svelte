@@ -180,6 +180,19 @@
 	}
 
 	let diffDrawer: DiffDrawer
+
+	function onRestore(ev: any) {
+		sendUserToast('App restored from previous deployment')
+		app = ev.detail
+		const app_ = structuredClone(app!)
+		savedApp = {
+			summary: app_.summary,
+			value: app_.value as App,
+			path: app_.path,
+			policy: app_.policy
+		}
+		redraw++
+	}
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
@@ -188,11 +201,7 @@
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
-				on:restore={(e) => {
-					sendUserToast('App restored from previous deployment')
-					app = e.detail
-					redraw++
-				}}
+				on:restore={onRestore}
 				summary={app.summary}
 				app={app.value}
 				path={app.path}

@@ -33,6 +33,7 @@
 		Calendar,
 		CheckCircle,
 		Code,
+		CornerDownLeft,
 		DiffIcon,
 		Pen,
 		Plus,
@@ -59,6 +60,7 @@
 	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 
 	export let script: NewScript
@@ -206,7 +208,7 @@
 		}
 	}
 
-	async function editScript(stay: boolean): Promise<void> {
+	async function editScript(stay: boolean, deploymentMsg?: string): Promise<void> {
 		loadingSave = true
 		try {
 			try {
@@ -247,7 +249,8 @@
 					timeout: script.timeout,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					visible_to_runner_only: script.visible_to_runner_only,
-					no_main_func: script.no_main_func
+					no_main_func: script.no_main_func,
+					deployment_message: deploymentMsg || undefined
 				}
 			})
 
@@ -456,6 +459,9 @@
 	let dirtyPath = false
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'schedule' = 'metadata'
+
+	let deploymentMsg = ''
+	let msgInput: HTMLInputElement | undefined = undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1101,15 +1107,41 @@
 					>
 						<span class="hidden lg:flex"> Draft </span>
 					</Button>
-					<Button
-						loading={loadingSave}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => editScript(false)}
-						dropdownItems={computeDropdownItems(initialPath)}
-					>
-						Deploy
-					</Button>
+
+					<CustomPopover appearTimeout={0} focusEl={msgInput}>
+						<Button
+							loading={loadingSave}
+							size="xs"
+							startIcon={{ icon: Save }}
+							on:click={() => editScript(false)}
+							dropdownItems={computeDropdownItems(initialPath)}
+						>
+							Deploy
+						</Button>
+						<svelte:fragment slot="overlay">
+							<div class="flex flex-row gap-2 min-w-72">
+								<input
+									type="text"
+									placeholder="Deployment message"
+									bind:value={deploymentMsg}
+									bind:this={msgInput}
+									on:keydown={(e) => {
+										if (e.key === 'Enter') {
+											editScript(false, deploymentMsg)
+										}
+									}}
+								/>
+								<Button
+									size="xs"
+									on:click={() => editScript(false, deploymentMsg)}
+									endIcon={{ icon: CornerDownLeft }}
+									loading={loadingSave}
+								>
+									Deploy
+								</Button>
+							</div>
+						</svelte:fragment>
+					</CustomPopover>
 				</div>
 			</div>
 		</div>
