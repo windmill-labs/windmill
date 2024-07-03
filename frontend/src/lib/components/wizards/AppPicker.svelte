@@ -33,7 +33,7 @@
 			}}
 			size="xs"
 			color="light"
-			nonCaptureEvent>Pick a app</Button
+			nonCaptureEvent>Pick an app</Button
 		>
 	</svelte:fragment>
 
@@ -43,7 +43,7 @@
 			on:change
 			bind:value
 			{items}
-			placeholder="Pick a app"
+			placeholder="Pick an app"
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 			containerStyles={darkMode
 				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
@@ -57,6 +57,7 @@
 			on:click={() => {
 				dispatch('pick', value)
 				close(null)
+				value = ''
 			}}
 			disabled={!value}
 		>

@@ -7,7 +7,6 @@
 	import { GripVertical, Plus, Settings } from 'lucide-svelte'
 	import type { NavbarItem } from '../component'
 	import NavbarWizard from '$lib/components/wizards/NavbarWizard.svelte'
-	import { flip } from 'svelte/animate'
 
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import ResolveConfig from '../../components/helpers/ResolveConfig.svelte'
@@ -92,7 +91,7 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div class="border rounded-md p-2 mb-2 bg-surface" animate:flip={{ duration: 200 }}>
+				<div class="border rounded-md p-2 mb-2 bg-surface">
 					<ResolveConfig
 						{id}
 						key={'label'}
@@ -150,8 +149,8 @@
 									>Current app
 
 									<Tooltip class="ml-2 !text-blue-900">
-										Clicking on those items will stay in the current app, and change the output of
-										the component.
+										Clicking on those items will keep you in the current tab and change the output
+										of the component.
 									</Tooltip>
 								</Badge>
 							{/if}

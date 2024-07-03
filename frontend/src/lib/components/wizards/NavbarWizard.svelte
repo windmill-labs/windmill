@@ -40,16 +40,16 @@
 
 <Popup
 	floatingConfig={{
-		strategy: 'fixed',
+		strategy: 'absolute',
 		placement: 'left-end',
 		middleware: [offset(8), flip(), shift()]
 	}}
 	containerClasses="border rounded-lg shadow-lg bg-surface p-4"
-	shouldUsePortal={false}
 >
 	<svelte:fragment slot="button">
 		<slot name="trigger" />
 	</svelte:fragment>
+
 	{#if value}
 		<Section label="Navbar item" class="flex flex-col gap-2 w-80">
 			<InputsSpecEditor
@@ -101,6 +101,7 @@
 			<Label label="Caption">
 				<input type="text" bind:value={value.caption} />
 			</Label>
+
 			<InputsSpecEditor
 				key={'Disabled'}
 				bind:componentInput={value.disabled}
