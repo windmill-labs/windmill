@@ -1,3 +1,8 @@
+<script lang="ts" context="module">
+	import { writable, type Writable } from 'svelte/store'
+	let selected: Writable<string | undefined> = writable(undefined)
+</script>
+
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '../../types'
@@ -28,7 +33,7 @@
 		}
 	}
 
-	const { appPath, replaceStateFn } = getContext<AppViewerContext>('AppViewerContext')
+	const { appPath, replaceStateFn, gotoFn } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
 	let resolvedLabel: string | undefined = undefined
@@ -36,14 +41,26 @@
 	let resolvedHidden: boolean | undefined = undefined
 
 	function extractPathDetails() {
-		return window.location.pathname + window.location.search + window.location.hash
+		const url = window.location.pathname + window.location.search + window.location.hash
+		const processedUrl = url.replace('/apps/edit/', '/apps/get/')
+		return processedUrl
 	}
 
-	let pathname: string | undefined = undefined
-
 	onMount(() => {
-		pathname = extractPathDetails()
+		$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
 	})
+
+	let initialized: boolean = false
+
+	function initSelection() {
+		initialized = true
+
+		if ($selected) return
+
+		$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
+	}
+
+	$: !initialized && resolvedPath && initSelection()
 </script>
 
 <ResolveConfig
@@ -77,16 +94,16 @@
 	bind:resolvedConfig={resolvedHidden}
 	configuration={navbarItem.hidden}
 />
+
 {#if !resolvedHidden}
 	<div
-		class={twMerge('py-2 ', resolvedPath === pathname ? 'border-b-2 border-gray-500 ' : '')}
+		class={twMerge('py-2 ', $selected === resolvedPath ? 'border-b-2 border-gray-500 ' : '')}
 		style={`border-color: ${borderColor ?? 'transparent'}`}
 	>
 		{#if resolvedPath?.includes(appPath)}
 			<Button
 				on:click={() => {
 					output.result.set({ currentPath: resolvedPath ?? '' })
-
 					if (!resolvedPath) return
 
 					const url = new URL(resolvedPath, window.location.origin)
@@ -94,6 +111,26 @@
 					const hash = url.hash
 
 					replaceStateFn?.(`${window.location.pathname}${queryParams}${hash}`)
+
+					$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
+				}}
+				color="light"
+				size="xs"
+				disabled={resolvedDisabled}
+			>
+				{#if navbarItem.icon}
+					{#key navbarItem.icon}
+						<div class="min-w-4" bind:this={icon} />
+					{/key}
+				{/if}
+				{resolvedLabel ?? 'No Label'}
+			</Button>
+		{:else if resolvedPath?.startsWith('/')}
+			<Button
+				on:click={() => {
+					if (resolvedPath) {
+						gotoFn?.(resolvedPath)
+					}
 				}}
 				color="light"
 				size="xs"
@@ -109,7 +146,7 @@
 		{:else}
 			<Button
 				href={resolvedPath}
-				target={resolvedPath?.startsWith('http') ? '_blank' : '_self'}
+				target={'_blank'}
 				color="light"
 				size="xs"
 				disabled={resolvedDisabled}

@@ -17,7 +17,7 @@
 	import Login from '$lib/components/Login.svelte'
 	import { getUserExt } from '$lib/user'
 	import { User, UserRoundX } from 'lucide-svelte'
-	import { replaceState } from '$app/navigation'
+	import { goto, replaceState } from '$app/navigation'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
 	let notExists = false
@@ -123,6 +123,7 @@
 				policy={app.policy}
 				isEditor={false}
 				replaceStateFn={(path) => replaceState(path, $page.state)}
+				gotoFn={(path, opt) => goto(path, opt)}
 			/>
 		</div>
 	{/key}
