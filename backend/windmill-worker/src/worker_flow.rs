@@ -3248,7 +3248,7 @@ async fn script_to_payload(
     tag_override: &Option<String>,
 ) -> Result<JobPayloadWithTag, Error> {
     let (payload, tag, delete_after_use, script_timeout) = if script_hash.is_none() {
-        script_path_to_payload(script_path, &db, &flow_job.workspace_id).await?
+        script_path_to_payload(script_path, db, &flow_job.workspace_id).await?
     } else {
         let hash = script_hash.clone().unwrap();
         let mut tx: sqlx::Transaction<'_, sqlx::Postgres> = db.begin().await?;
