@@ -41,12 +41,15 @@ export async function main() {
 '',
 'f/system/schedule_recovery_handler', -28028598712388160, 'deno', '');
 
-INSERT INTO public.flow(workspace_id, summary, description, path, versions) VALUES (
+INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
 'test-workspace',
 '',
 '',
 'f/system/failing_flow',
-'{1}'
+'{1}',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"fail":{"default":true,"description":"","type":"boolean","format":""}},"required":[],"type":"object"}',
+'{"modules": [{"id": "a", "value": {"path": "f/system/failing_script", "type": "script", "input_transforms": {"fail": {"expr": "flow_input.fail", "type": "javascript"}}}}]}',
+'system'
 );
 
 INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES (
