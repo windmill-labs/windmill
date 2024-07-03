@@ -10,6 +10,8 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import AppNavbarItem from './AppNavbarItem.svelte'
+	import { replaceState } from '$app/navigation'
+	import { page } from '$app/stores'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -83,6 +85,9 @@
 						borderColor={resolvedConfig?.borderColor}
 						{index}
 						bind:output
+						replaceStateFn={(path) => {
+							replaceState(path, $page.state)
+						}}
 					/>
 				</Popover>
 			{/each}

@@ -63,6 +63,18 @@
 			currentPath: resolvedPath ?? ''
 		}
 	)
+
+	let initialized: boolean = false
+
+	function setInitialOutput() {
+		initialized = true
+
+		if (output.result.peak().currentPath !== undefined) return
+
+		output.result.set({ currentPath: resolvedPath ?? '' })
+	}
+
+	$: resolvedPath && !initialized && setInitialOutput()
 </script>
 
 <ResolveConfig
