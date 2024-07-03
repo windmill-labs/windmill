@@ -28,7 +28,7 @@
 		}
 	}
 
-	const { mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { mode, appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
 	let resolvedLabel: string | undefined = undefined
@@ -51,8 +51,32 @@
 		return mode === 'dnd' ? '_blank' : '_self'
 	}
 
-	let isSelected = false
-	let s = false
+	function extractPathDetails() {
+		const fullUrl = window.location.href
+
+		const inEditor = fullUrl.includes('/apps/edit/')
+		const baseIndex = inEditor
+			? fullUrl.indexOf('/apps/edit/') + 11
+			: fullUrl.indexOf('/apps/get/') + 10
+
+		return fullUrl.substring(baseIndex)
+	}
+
+	$: isSelected = resolvedPath === extractPathDetails()
+
+	output.result.subscribe(
+		{
+			next: (next) => {
+				if (next.currentPath) {
+					isSelected = next.currentPath === resolvedPath
+				}
+			},
+			id: resolvedPath
+		},
+		{
+			currentPath: resolvedPath ?? ''
+		}
+	)
 </script>
 
 <ResolveConfig
@@ -91,11 +115,10 @@
 		class={twMerge('py-2 ', isSelected ? 'border-b-2 border-gray-500 ' : '')}
 		style={`border-color: ${borderColor ?? 'transparent'}`}
 	>
-		{#if s}
+		{#if resolvedPath?.includes(appPath)}
 			<Button
 				on:click={() => {
 					output.result.set({ currentPath: resolvedPath ?? '' })
-					isSelected = true
 				}}
 				color="light"
 				size="xs"

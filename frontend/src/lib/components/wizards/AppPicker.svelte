@@ -33,7 +33,7 @@
 			}}
 			size="xs"
 			color="light"
-			nonCaptureEvent>Pick an app</Button
+			nonCaptureEvent>Pick a app</Button
 		>
 	</svelte:fragment>
 
@@ -43,7 +43,7 @@
 			on:change
 			bind:value
 			{items}
-			placeholder="Pick an app"
+			placeholder="Pick a app"
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 			containerStyles={darkMode
 				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark

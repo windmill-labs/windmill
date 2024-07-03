@@ -13,6 +13,7 @@
 	import ResolveConfig from '../../components/helpers/ResolveConfig.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let navbarItems: NavbarItem[] = []
 	export let id: string
@@ -144,8 +145,15 @@
 					{#if resolvedPaths[item.originalIndex]}
 						<div class="text-xs text-tertiary">
 							Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
-							{#if appPath === resolvedPaths[item.originalIndex]}
-								<Badge small color="blue">Current app</Badge>
+							{#if resolvedPaths[item.originalIndex]?.includes(appPath)}
+								<Badge small color="blue"
+									>Current app
+
+									<Tooltip class="ml-2 !text-blue-900">
+										Clicking on those items will stay in the current app, and change the output of
+										the component.
+									</Tooltip>
+								</Badge>
 							{/if}
 						</div>
 					{:else}
