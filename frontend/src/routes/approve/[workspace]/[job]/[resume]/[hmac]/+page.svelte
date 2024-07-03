@@ -207,7 +207,11 @@
 		{#if !completed}
 			<h2 class="mt-4 mb-2">Flow arguments</h2>
 
-			<JobArgs args={job?.args} />
+			<JobArgs
+				id={job?.id}
+				workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+				args={job?.args}
+			/>
 		{/if}
 
 		<div class="mt-8">

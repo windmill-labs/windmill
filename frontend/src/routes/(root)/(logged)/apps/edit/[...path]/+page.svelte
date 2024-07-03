@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { afterNavigate, goto, replaceState } from '$app/navigation'
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
@@ -25,10 +25,13 @@
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
-	if (nodraft) {
-		goto('?', { replaceState: true })
-	}
-
+	afterNavigate(() => {
+		if (nodraft) {
+			let url = new URL($page.url.href)
+			url.search = ''
+			replaceState(url.toString(), $page.state)
+		}
+	})
 	const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
