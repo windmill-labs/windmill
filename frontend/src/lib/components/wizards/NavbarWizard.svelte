@@ -18,7 +18,7 @@
 
 <Popup
 	floatingConfig={{
-		strategy: 'absolute',
+		strategy: 'fixed',
 		placement: 'left-end',
 		middleware: [offset(8), flip(), shift()]
 	}}
@@ -64,10 +64,6 @@
 				deployed, but in a new tab in the editor.
 			</Alert>
 
-			<Label label="Caption">
-				<input type="text" bind:value={value.caption} />
-			</Label>
-
 			<InputsSpecEditor
 				key={'Disabled'}
 				bind:componentInput={value.disabled}
@@ -111,6 +107,9 @@
 					}}
 					shouldUsePortal={false}
 				/>
+			</Label>
+			<Label label="Caption">
+				<input type="text" bind:value={value.caption} />
 			</Label>
 		</Section>
 	{/if}

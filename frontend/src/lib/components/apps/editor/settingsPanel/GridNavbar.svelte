@@ -44,15 +44,17 @@
 				type: 'oneOf',
 				selected: 'href',
 				labels: {
-					href: 'Href',
-					app: 'App'
+					href: 'Navigate to an external URL',
+					app: 'Navigate to an app'
 				},
 				configuration: {
 					href: {
 						href: {
 							type: 'static',
 							value: undefined,
-							fieldType: 'text'
+							fieldType: 'text',
+							tooltip:
+								"The URL to navigate to when the item is clicked. Will be opened in a new tab. If you want to navigate to an other app, use the 'App' option."
 						}
 					},
 					app: {
@@ -60,12 +62,16 @@
 							type: 'static',
 							value: '',
 							fieldType: 'app-path',
-							allowTypeChange: false
+							allowTypeChange: false,
+							tooltip:
+								'The app to navigate to when the item is clicked. Will be opened in the same tab. If you want to navigate to an external URL, use the "Href" option.'
 						} as StaticAppInput,
 						queryParamsOrHash: {
 							type: 'static',
 							value: undefined,
-							fieldType: 'text'
+							fieldType: 'text',
+							tooltip:
+								'Query parameters or hash to append to the URL. For example, `?key=value` or `#hash`.'
 						}
 					}
 				}
@@ -119,75 +125,77 @@
 			on:finalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
-				<div class="border rounded-md p-2 mb-2 bg-surface">
-					<ResolveConfig
-						{id}
-						key={'label'}
-						extraKey={item.id}
-						bind:resolvedConfig={resolvedLabels[item.originalIndex]}
-						configuration={item.value.label}
-					/>
+				{#key item.id}
+					<div class="border rounded-md p-2 mb-2 bg-surface">
+						<ResolveConfig
+							{id}
+							key={'label'}
+							extraKey={item.id}
+							bind:resolvedConfig={resolvedLabels[item.originalIndex]}
+							configuration={item.value.label}
+						/>
 
-					<div class="w-full flex flex-row gap-2 items-center relative my-1">
-						<div
-							class="text-xs px-2 border-y flex flex-row items-center border rounded-md h-8 w-full"
-						>
-							{resolvedLabels[item.originalIndex] ?? 'No label'}
-						</div>
+						<div class="w-full flex flex-row gap-2 items-center relative my-1">
+							<div
+								class="text-xs px-2 border-y flex flex-row items-center border rounded-md h-8 w-full"
+							>
+								{resolvedLabels[item.originalIndex] ?? 'No label'}
+							</div>
 
-						<div class="absolute right-[4.5rem]">
-							<CloseButton
-								noBg
-								small
-								on:close={() => {
-									items = items.filter((_, i) => i !== index)
-								}}
-							/>
-						</div>
-						<NavbarWizard bind:value={items[index].value}>
-							<svelte:fragment slot="trigger">
-								<Button color="light" size="xs2" nonCaptureEvent={true}>
-									<div class="flex flex-row items-center gap-2 text-xs font-normal">
-										<Settings size={16} />
-									</div>
-								</Button>
-							</svelte:fragment>
-						</NavbarWizard>
+							<div class="absolute right-[4.5rem]">
+								<CloseButton
+									noBg
+									small
+									on:close={() => {
+										items = items.filter((_, i) => i !== index)
+									}}
+								/>
+							</div>
+							<NavbarWizard bind:value={items[index].value}>
+								<svelte:fragment slot="trigger">
+									<Button color="light" size="xs2" nonCaptureEvent={true}>
+										<div class="flex flex-row items-center gap-2 text-xs font-normal">
+											<Settings size={16} />
+										</div>
+									</Button>
+								</svelte:fragment>
+							</NavbarWizard>
 
-						<div class="flex flex-col justify-center gap-2">
-							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
-								<GripVertical size={16} />
+							<div class="flex flex-col justify-center gap-2">
+								<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
+									<GripVertical size={16} />
+								</div>
 							</div>
 						</div>
+
+						<ResolveNavbarItemPath
+							navbarItem={item.value}
+							{id}
+							{index}
+							bind:resolvedPath={resolvedPaths[item.originalIndex]}
+						/>
+
+						{#if resolvedPaths[item.originalIndex]}
+							<div class="text-xs text-tertiary flex gap-2 flex-row flex-wrap">
+								Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
+								{#if resolvedPaths[item.originalIndex]?.includes(appPath)}
+									<Badge small color="blue"
+										>Current app
+
+										<Tooltip class="ml-2 !text-blue-900">
+											Clicking on those items will keep you in the current tab and change the output
+											of the component.
+										</Tooltip>
+									</Badge>
+								{/if}
+							</div>
+						{:else}
+							<div class="text-xs text-red-500">No app path or url selected</div>
+						{/if}
 					</div>
-
-					<ResolveNavbarItemPath
-						navbarItem={item.value}
-						{id}
-						{index}
-						bind:resolvedPath={resolvedPaths[item.originalIndex]}
-					/>
-
-					{#if resolvedPaths[item.originalIndex]}
-						<div class="text-xs text-tertiary flex gap-2 flex-row flex-wrap">
-							Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
-							{#if resolvedPaths[item.originalIndex]?.includes(appPath)}
-								<Badge small color="blue"
-									>Current app
-
-									<Tooltip class="ml-2 !text-blue-900">
-										Clicking on those items will keep you in the current tab and change the output
-										of the component.
-									</Tooltip>
-								</Badge>
-							{/if}
-						</div>
-					{:else}
-						<div class="text-xs text-red-500">No app path or url selected</div>
-					{/if}
-				</div>
+				{/key}
 			{/each}
 		</section>
 		<Button
