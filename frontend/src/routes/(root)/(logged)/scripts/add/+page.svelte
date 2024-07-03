@@ -2,11 +2,11 @@
 	import { type NewScript, ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { defaultScripts, workspaceStore } from '$lib/stores'
+	import { defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { goto, replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Default
@@ -15,6 +15,13 @@
 	const templatePath = $page.url.searchParams.get('template')
 	const hubPath = $page.url.searchParams.get('hub')
 	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
+
+	let initialArgs = {}
+
+	if ($initialArgsStore) {
+		initialArgs = $initialArgsStore
+		$initialArgsStore = undefined
+	}
 
 	const path = $page.url.searchParams.get('path')
 
@@ -92,6 +99,7 @@
 </script>
 
 <ScriptBuilder
+	{initialArgs}
 	bind:this={scriptBuilder}
 	lockedLanguage={templatePath != null || hubPath != null}
 	on:deploy={(e) => {
@@ -106,6 +114,7 @@
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
+	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
 	<UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} />
 </ScriptBuilder>

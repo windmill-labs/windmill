@@ -49,6 +49,18 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 	}
 }
 
+export function subtractDaysFromDateString(
+	dateString: string | undefined,
+	days: number
+): string | undefined {
+	if (dateString == undefined) {
+		return undefined
+	}
+	let date = new Date(dateString)
+	date.setDate(date.getDate() - days)
+	return date.toISOString()
+}
+
 export function displayDate(
 	dateString: string | Date | undefined,
 	displaySecond = false,
@@ -260,43 +272,6 @@ export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
 	return false
 }
 
-export function decodeArgs(queryArgs: string | undefined): any {
-	if (queryArgs) {
-		const parsed = decodeState(queryArgs)
-		Object.entries(parsed).forEach(([k, v]) => {
-			if (v == '<function call>') {
-				parsed[k] = undefined
-			}
-		})
-		return parsed
-	}
-	return {}
-}
-
-let debounced: NodeJS.Timeout | undefined = undefined
-export function setQueryWithoutLoad(
-	url: URL,
-	args: { key: string; value: string | null | undefined }[],
-	bounceTime?: number
-): void {
-	debounced && clearTimeout(debounced)
-	debounced = setTimeout(() => {
-		const nurl = new URL(url.toString())
-		for (const { key, value } of args) {
-			if (value) {
-				nurl.searchParams.set(key, value)
-			} else {
-				nurl.searchParams.delete(key)
-			}
-		}
-
-		try {
-			history.replaceState(history.state, '', nurl.toString())
-		} catch (e) {
-			console.error(e)
-		}
-	}, bounceTime ?? 200)
-}
 
 export function groupBy<K, V>(
 	items: V[],
@@ -654,6 +629,29 @@ export function extractCustomProperties(styleStr: string): string {
 	let customStyleStr = customProperties.join(';')
 
 	return customStyleStr
+}
+
+export function computeSharableHash(args: any) {
+	let nargs = {}
+	for (let k in args) {
+		let v = args[k]
+		if (v !== undefined) {
+			// if
+			let size = roughSizeOfObject(v) > 1000000
+			if (size) {
+				console.error(`Value at key ${k} too big (${size}) to be shared`)
+				return ''
+			}
+			nargs[k] = JSON.stringify(v)
+		}
+	}
+	try {
+		let r = new URLSearchParams(nargs).toString()
+		return r.length > 1000000 ? '' : r
+	} catch (e) {
+		console.error('Error computing sharable hash', e)
+		return ''
+	}
 }
 
 export function toCamel(s: string) {

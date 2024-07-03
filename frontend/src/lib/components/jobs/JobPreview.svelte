@@ -15,6 +15,7 @@
 	import { Badge } from '../common'
 	import { forLater } from '$lib/forLater'
 	import DurationMs from '../DurationMs.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	const POPUP_HEIGHT = 320 as const
 
@@ -108,7 +109,11 @@
 					Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
 				</Badge>
 				{#if job?.['duration_ms']}
-					<DurationMs duration_ms={job?.['duration_ms']} self_wait_time_ms={job?.self_wait_time_ms} aggregate_wait_time_ms={job?.aggregate_wait_time_ms} />
+					<DurationMs
+						duration_ms={job?.['duration_ms']}
+						self_wait_time_ms={job?.self_wait_time_ms}
+						aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
+					/>
 				{/if}
 				{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
 					{#each job?.['labels'] as label}
@@ -117,7 +122,11 @@
 				{/if}
 			</div>
 			<div class="w-1/2 h-full overflow-auto">
-				<JobArgs args={job?.args} />
+				<JobArgs
+					id={job?.id}
+					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+					args={job?.args}
+				/>
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}

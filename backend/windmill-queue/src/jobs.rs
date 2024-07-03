@@ -144,22 +144,7 @@ pub async fn cancel_single_job<'c>(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    if ((job_running.running || job_running.root_job.is_some()) || (job_running.is_flow()))
-        && !force_cancel
-    {
-        let id = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
-            username,
-            reason,
-            job_running.id,
-            w_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some(id) = id {
-            tracing::info!("Soft cancelling job {}", id);
-        }
-    } else {
+    if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
         let username = username.to_string();
         let job_running = job_running.clone();
         let w_id = w_id.to_string();
@@ -193,6 +178,19 @@ pub async fn cancel_single_job<'c>(
                 tracing::error!("Failed to add canceled job: {}", e);
             }
         });
+    } else {
+        let id: Option<Uuid> = sqlx::query_scalar!(
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
+            username,
+            reason,
+            job_running.id,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(id) = id {
+            tracing::info!("Soft cancelling job {}", id);
+        }
     }
     if let Some(mut rsmq) = rsmq.clone() {
         rsmq.change_message_visibility(&job_running.tag, &job_running.id.to_string(), 0)
@@ -225,10 +223,25 @@ pub async fn cancel_job<'c>(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
     }
-    let job = job.unwrap();
+    let mut job = job.unwrap();
+
+    if force_cancel {
+        // if force canceling a flow step, make sure we force cancel from the highest parent
+        loop {
+            if job.parent_job.is_none() {
+                break;
+            }
+            match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {
+                Some(j) => {
+                    job = j;
+                }
+                None => break,
+            }
+        }
+    }
 
     // get all children
-    let mut jobs = vec![id];
+    let mut jobs = vec![job.id];
     let mut jobs_to_cancel = vec![];
     while !jobs.is_empty() {
         let p_job = jobs.pop();
@@ -256,27 +269,6 @@ pub async fn cancel_job<'c>(
     )
     .await?;
     tx = ntx;
-
-    // soft cancel parent if force cancel and job is a flow step
-    if force_cancel && job.is_flow_step {
-        if let Some(parent_job_id) = job.parent_job {
-            let job = get_queued_job_tx(parent_job_id, &w_id, &mut tx).await?;
-            if let Some(job) = job {
-                let (ntx, _) = cancel_single_job(
-                    username,
-                    reason.clone(),
-                    &job,
-                    w_id,
-                    tx,
-                    db,
-                    rsmq.clone(),
-                    false,
-                )
-                .await?;
-                tx = ntx;
-            }
-        }
-    }
 
     // cancel children
     for job_id in jobs_to_cancel {
@@ -2088,7 +2080,11 @@ pub async fn custom_concurrency_key(
 async fn legacy_concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> Option<String> {
     let r = if queued_job.is_flow() {
         sqlx::query_scalar!(
-            "SELECT value->>'concurrency_key' FROM flow WHERE path = $1 AND workspace_id = $2",
+            "SELECT flow_version.value->>'concurrency_key'
+            FROM flow 
+            LEFT JOIN flow_version
+                ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.path = $1 AND flow.workspace_id = $2",
             queued_job.script_path,
             queued_job.workspace_id
         )
@@ -3278,13 +3274,10 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             None,
             None,
         ),
-        JobPayload::FlowDependencies { path, dedicated_worker } => {
+        JobPayload::FlowDependencies { path, dedicated_worker, version } => {
             let value_json = fetch_scalar_isolated!(
-                sqlx::query_as::<_, FlowRawValue>(
-                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
-                )
-                .bind(&path)
-                .bind(&workspace_id),
+                sqlx::query_as::<_, FlowRawValue>("SELECT value FROM flow_version WHERE id = $1",)
+                    .bind(&version),
                 tx
             )?
             .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
@@ -3295,7 +3288,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     ))
                 })?;
             (
-                None,
+                Some(version),
                 Some(path),
                 None,
                 JobKind::FlowDependencies,
@@ -3449,7 +3442,10 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         JobPayload::Flow { path, dedicated_worker } => {
             let value_json = fetch_scalar_isolated!(
                 sqlx::query_as::<_, FlowRawValue>(
-                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                    "SELECT flow_version.value FROM flow 
+                    LEFT JOIN flow_version
+                        ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                    WHERE flow.path = $1 AND flow.workspace_id = $2",
                 )
                 .bind(&path)
                 .bind(&workspace_id),

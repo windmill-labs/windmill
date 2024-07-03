@@ -1,16 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, ScriptService, type Script } from '$lib/gen'
-	import {
-		defaultIfEmptyString,
-		emptyString,
-		encodeState,
-		canWrite,
-		truncateHash
-	} from '$lib/utils'
+	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { hubBaseUrlStore, runFormStore, userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -83,18 +77,12 @@
 	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
 
 	$: loading = !script
+
+	let previousHash: string | undefined = undefined
 	$: if ($workspaceStore) {
-		loadScript($page.params.hash)
-	}
-	$: webhooks = {
-		async: {
-			hash: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/h/${script?.hash}`,
-			path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/p/${script?.path}`
-		},
-		sync: {
-			hash: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
-			path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`,
-			get_path: `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
+		if (previousHash != $page.params.hash) {
+			previousHash = $page.params.hash
+			loadScript($page.params.hash)
 		}
 	}
 
@@ -208,11 +196,16 @@
 		}
 	}
 
-	let args = undefined
-
-	if ($runFormStore) {
-		args = $runFormStore
-		$runFormStore = undefined
+	let args: Record<string, any> | undefined = undefined
+	let hash = window.location.hash
+	if (hash.length > 1) {
+		try {
+			let searchParams = new URLSearchParams(hash.slice(1))
+			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			args = Object.fromEntries(params)
+		} catch (e) {
+			console.error('Was not able to transform hash as args', e)
+		}
 	}
 
 	let moveDrawer: MoveDrawer
@@ -307,7 +300,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: `/scripts/edit/${script.path}?args=${encodeState(args)}${
+						href: `/scripts/edit/${script.path}?${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
 						size: 'xs',
@@ -595,7 +588,6 @@
 						runAction={runScript}
 						bind:args
 						schedulable={true}
-						isFlow={false}
 						bind:this={runForm}
 					/>
 
@@ -607,7 +599,8 @@
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
 						<span class="text-sm text-tertiary">
-							Edited <TimeAgo withDate date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+							Edited <TimeAgo withDate date={script.created_at || ''} /> by {script.created_by ||
+								'unknown'}
 						</span>
 						<Badge small color="gray">
 							{truncateHash(script?.hash ?? '')}
@@ -641,7 +634,13 @@
 				{/if}
 			</svelte:fragment>
 			<svelte:fragment slot="webhooks">
-				<WebhooksPanel bind:token scopes={[`run:script/${script?.path}`]} {webhooks} {args} />
+				<WebhooksPanel
+					bind:token
+					scopes={[`run:script/${script?.path}`]}
+					hash={script.hash}
+					path={script.path}
+					{args}
+				/>
 			</svelte:fragment>
 			<svelte:fragment slot="schedule">
 				<RunPageSchedules isFlow={false} path={script.path ?? ''} {can_write} />

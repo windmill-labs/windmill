@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$app/navigation'
@@ -9,7 +9,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
@@ -26,7 +26,8 @@
 		Columns,
 		Pen,
 		Eye,
-		Calendar
+		Calendar,
+		HistoryIcon
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -42,6 +43,7 @@
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -55,9 +57,13 @@
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
+	let previousPath: string | undefined = undefined
 	$: {
 		if ($workspaceStore && $userStore && $page.params.path) {
-			loadFlow()
+			if (previousPath !== path) {
+				previousPath = path
+				loadFlow()
+			}
 		}
 	}
 
@@ -88,9 +94,6 @@
 		} catch {}
 	}
 
-	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
-	$: urlSync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
-
 	let isValid = true
 	let loading = false
 
@@ -113,11 +116,17 @@
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 
-	let args = undefined
+	let args: Record<string, any> | undefined = undefined
 
-	if ($runFormStore) {
-		args = $runFormStore
-		$runFormStore = undefined
+	let hash = window.location.hash
+	if (hash.length > 1) {
+		try {
+			let searchParams = new URLSearchParams(hash.slice(1))
+			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			args = Object.fromEntries(params)
+		} catch (e) {
+			console.error('Was not able to transform hash as args', e)
+		}
 	}
 
 	let moveDrawer: MoveDrawer
@@ -177,7 +186,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
+					href: `/flows/edit/${path}?nodraft=true`,
 					variant: 'contained',
 					size: 'xs',
 					color: 'dark',
@@ -225,6 +234,11 @@
 
 		if (can_write) {
 			menuItems.push({
+				label: 'Deployments',
+				onclick: () => flowHistory?.open(),
+				Icon: HistoryIcon
+			})
+			menuItems.push({
 				label: flow.archived ? 'Unarchive' : 'Archive',
 				onclick: () => flow?.path && archiveFlow(),
 				Icon: Archive,
@@ -259,6 +273,8 @@
 	let detailSelected = 'saved_inputs'
 
 	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+
+	let flowHistory: FlowHistory | undefined = undefined
 </script>
 
 <Skeleton
@@ -276,6 +292,9 @@
 		loadFlow()
 	}}
 />
+{#if flow}
+	<FlowHistory bind:this={flowHistory} path={flow.path} on:historyRestore={loadFlow} />
+{/if}
 
 {#if flow}
 	<DetailPageLayout
@@ -359,7 +378,6 @@
 						runnable={flow}
 						runAction={runFlow}
 						bind:args
-						isFlow
 						bind:this={runForm}
 					/>
 					<div class="py-10" />
@@ -418,15 +436,7 @@
 			<WebhooksPanel
 				bind:token
 				scopes={[`run:flow/${flow?.path}`]}
-				webhooks={{
-					async: {
-						path: urlAsync
-					},
-					sync: {
-						path: urlSync,
-						get_path: urlSync
-					}
-				}}
+				path={flow?.path}
 				isFlow={true}
 				{args}
 			/>
