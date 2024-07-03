@@ -21,7 +21,11 @@
 	}
 
 	$: if ($workspaceStore && $page.params.path) {
-		loadApp()
+		if (app && $page.params.path.includes(app.path)) {
+			console.log('App already loaded')
+		} else {
+			loadApp()
+		}
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
