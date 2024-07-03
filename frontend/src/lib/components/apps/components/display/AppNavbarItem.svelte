@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppViewerContext, EditorMode } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { type NavbarItem } from '../../editor/component'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { loadIcon } from '../icon'
@@ -28,7 +28,7 @@
 		}
 	}
 
-	const { mode, appPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
 	let resolvedLabel: string | undefined = undefined
@@ -41,14 +41,6 @@
 		} else {
 			return resolvedPath ?? undefined
 		}
-	}
-
-	function computeTarget(navbarItem: NavbarItem, mode: EditorMode): '_self' | '_blank' | undefined {
-		if (navbarItem.path.type === 'evalv2') {
-			return '_blank'
-		}
-
-		return mode === 'dnd' ? '_blank' : '_self'
 	}
 
 	function extractPathDetails() {
@@ -119,6 +111,18 @@
 			<Button
 				on:click={() => {
 					output.result.set({ currentPath: resolvedPath ?? '' })
+
+					if (!resolvedPath) return
+
+					const url = new URL(resolvedPath, window.location.origin)
+					const queryParams = url.search
+					const hash = url.hash
+
+					window.history.replaceState(
+						history.state,
+						'',
+						`${window.location.pathname}${queryParams}${hash}`
+					)
 				}}
 				color="light"
 				size="xs"
@@ -134,7 +138,7 @@
 		{:else}
 			<Button
 				href={computeHref(resolvedPath)}
-				target={computeTarget(navbarItem, $mode)}
+				target="_blank"
 				color="light"
 				size="xs"
 				disabled={resolvedDisabled}
