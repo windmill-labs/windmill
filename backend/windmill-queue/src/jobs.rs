@@ -144,22 +144,7 @@ pub async fn cancel_single_job<'c>(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    if ((job_running.running || job_running.root_job.is_some()) || (job_running.is_flow()))
-        && !force_cancel
-    {
-        let id = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
-            username,
-            reason,
-            job_running.id,
-            w_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some(id) = id {
-            tracing::info!("Soft cancelling job {}", id);
-        }
-    } else {
+    if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
         let username = username.to_string();
         let job_running = job_running.clone();
         let w_id = w_id.to_string();
@@ -193,6 +178,19 @@ pub async fn cancel_single_job<'c>(
                 tracing::error!("Failed to add canceled job: {}", e);
             }
         });
+    } else {
+        let id: Option<Uuid> = sqlx::query_scalar!(
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
+            username,
+            reason,
+            job_running.id,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(id) = id {
+            tracing::info!("Soft cancelling job {}", id);
+        }
     }
     if let Some(mut rsmq) = rsmq.clone() {
         rsmq.change_message_visibility(&job_running.tag, &job_running.id.to_string(), 0)
@@ -230,7 +228,7 @@ pub async fn cancel_job<'c>(
     if force_cancel {
         // if force canceling a flow step, make sure we force cancel from the highest parent
         loop {
-            if !job.is_flow_step || job.parent_job.is_none() {
+            if job.parent_job.is_none() {
                 break;
             }
             match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {

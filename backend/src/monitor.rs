@@ -1128,7 +1128,7 @@ async fn handle_zombie_flows(
                 if flow.is_flow_step && flow.parent_job.is_some() {
                     format!("Flow was cancelled because subflow {id}")
                 } else {
-                    format!("Flow {id} was cancelled because")
+                    format!("Flow {id} was cancelled because it")
                 }
             );
             cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;

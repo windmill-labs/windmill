@@ -1247,7 +1247,7 @@ async fn cancel_jobs(
     let mut uuids = vec![];
     for job_id in jobs.into_iter() {
         let rsmq = rsmq.clone();
-        match tokio::time::timeout(tokio::time::Duration::from_secs(120), async move {
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
             let tx = db.begin().await?;
             let (tx, _) = windmill_queue::cancel_job(
                 username,
@@ -1276,7 +1276,7 @@ async fn cancel_jobs(
             },
             Err(_) => {
                 tracing::error!(
-                    "120-second timeout reached on cancellation attempt of {:?}",
+                    "Timeout while trying to cancel job {:?} after 5 seconds",
                     job_id
                 );
             }
