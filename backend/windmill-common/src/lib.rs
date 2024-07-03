@@ -243,8 +243,8 @@ type Tag = String;
 
 pub type DB = Pool<Postgres>;
 
-pub async fn get_latest_deployed_hash_for_path(
-    db: &DB,
+pub async fn get_latest_deployed_hash_for_path<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
     w_id: &str,
     script_path: &str,
 ) -> error::Result<(
