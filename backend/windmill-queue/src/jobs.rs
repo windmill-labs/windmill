@@ -306,6 +306,11 @@ pub async fn append_logs(
         return;
     }
 
+    if job_id.is_nil() {
+        tracing::info!("local job: {}", logs.as_ref());
+        return;
+    }
+
     if *NO_LOGS {
         tracing::info!("NO LOGS [{job_id}]: {}", logs.as_ref());
         return;

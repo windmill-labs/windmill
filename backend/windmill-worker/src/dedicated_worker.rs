@@ -285,8 +285,8 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::ForloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
-                        path,
                         w_id,
+                        path,
                         killpill_tx.clone(),
                         killpill_rx,
                         db,
@@ -301,8 +301,8 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::WhileloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
-                        path,
                         w_id,
+                        path,
                         killpill_tx.clone(),
                         killpill_rx,
                         db,
@@ -322,8 +322,8 @@ async fn spawn_dedicated_workers_for_flow(
                     {
                         let w = spawn_dedicated_workers_for_flow(
                             &modules,
-                            path,
                             w_id,
+                            path,
                             killpill_tx.clone(),
                             killpill_rx,
                             db,
@@ -340,8 +340,8 @@ async fn spawn_dedicated_workers_for_flow(
                     for branch in branches {
                         let w = spawn_dedicated_workers_for_flow(
                             &branch.modules,
-                            path,
                             w_id,
+                            path,
                             killpill_tx.clone(),
                             killpill_rx,
                             db,
