@@ -29,7 +29,7 @@
 	</svelte:fragment>
 
 	{#if value}
-		<Section label="Navbar item" class="flex flex-col gap-2 w-80">
+		<Section label="Navbar item" class="flex flex-col gap-2 w-80 overflow-y-auto max-h-screen">
 			<InputsSpecEditor
 				key={'Label'}
 				bind:componentInput={value.label}

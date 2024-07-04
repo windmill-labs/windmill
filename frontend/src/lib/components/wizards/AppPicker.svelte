@@ -7,7 +7,7 @@
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 	import type { AppViewerContext } from '../apps/types'
-	import Button from '../common/button/Button.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	export let value = ''
 	export let selecteValue = value
@@ -33,10 +33,13 @@
 
 	onMount(() => {
 		loadApps()
+		selecteValue = appPath
+		value = appPath
 	})
 </script>
 
 <DarkModeObserver bind:darkMode />
+
 <div class="flex flex-col gap-2 w-full">
 	<Select
 		class="grow shrink max-w-full"
@@ -44,7 +47,12 @@
 			value = e.detail.value
 		}}
 		bind:value={selecteValue}
-		items={apps.map((app) => app.path)}
+		items={apps.map((app) => {
+			return {
+				value: app.path,
+				label: app.path === appPath ? `${app.path} (current app)` : app.path
+			}
+		})}
 		placeholder="Pick an app"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 		containerStyles={darkMode
@@ -52,17 +60,14 @@
 			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 		portal={false}
 	/>
-
-	{#if appPath}
-		<Button
-			size="xs2"
-			color="light"
-			on:click={() => {
-				selecteValue = appPath
-				value = appPath
-			}}
-		>
-			Pick current app
-		</Button>
+	{#if !appPath}
+		<Alert title="Current app" size="xs" type="warning" collapsible>
+			Current app is not selectable until you have deployed this app at least once.
+		</Alert>
+	{/if}
+	{#if appPath === value}
+		<div class="text-2xs">
+			The current app is selected. If the path changes, the path needs to be updated manually.
+		</div>
 	{/if}
 </div>

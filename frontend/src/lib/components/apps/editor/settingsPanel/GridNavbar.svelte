@@ -44,8 +44,8 @@
 				type: 'oneOf',
 				selected: 'app',
 				labels: {
-					app: 'Navigate to an app',
-					href: 'Navigate to an external URL'
+					href: 'Navigate to an external URL',
+					app: 'Navigate to an app'
 				},
 				configuration: {
 					href: {
