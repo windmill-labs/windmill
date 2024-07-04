@@ -554,9 +554,7 @@
 						{context}
 						noBackend={false}
 						replaceStateFn={(path) => replaceState(path, $page.state)}
-						gotoFn={(path, opt) => {
-							goto(path, opt)
-						}}
+						gotoFn={(path, opt) => goto(path, opt)}
 					/>
 				</div>
 			</SplitPanesWrapper>

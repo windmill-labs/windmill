@@ -34,7 +34,7 @@
 		}
 	}
 
-	const { appPath, replaceStateFn, gotoFn, isEditor } =
+	const { appPath, replaceStateFn, gotoFn, isEditor, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedPath: string | undefined = undefined
@@ -74,6 +74,11 @@
 					const queryParams = url.search
 					const hash = url.hash
 					replaceStateFn?.(`${window.location.pathname}${queryParams}${hash}`)
+
+					$worldStore.outputsById['ctx'].query.set(
+						Object.fromEntries(new URLSearchParams(queryParams).entries())
+					)
+					$worldStore.outputsById['ctx'].hash.set(url.hash)
 
 					$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
 				},

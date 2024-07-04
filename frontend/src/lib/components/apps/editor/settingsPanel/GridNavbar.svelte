@@ -42,10 +42,10 @@
 
 			path: {
 				type: 'oneOf',
-				selected: 'href',
+				selected: 'app',
 				labels: {
-					href: 'Navigate to an external URL',
-					app: 'Navigate to an app'
+					app: 'Navigate to an app',
+					href: 'Navigate to an external URL'
 				},
 				configuration: {
 					href: {
@@ -71,7 +71,8 @@
 							value: undefined,
 							fieldType: 'text',
 							tooltip:
-								'Query parameters or hash to append to the URL. For example, `?key=value` or `#hash`.'
+								'Query parameters or hash to append to the URL. For example, `?key=value` or `#hash`.',
+							placeholder: '?key=value#hash'
 						}
 					}
 				}
@@ -180,7 +181,7 @@
 						{#if resolvedPaths[item.originalIndex]}
 							<div class="text-xs text-tertiary flex gap-2 flex-row flex-wrap">
 								Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
-								{#if resolvedPaths[item.originalIndex]?.includes(appPath)}
+								{#if appPath && resolvedPaths[item.originalIndex]?.includes(appPath)}
 									<Badge small color="blue"
 										>Current app
 
