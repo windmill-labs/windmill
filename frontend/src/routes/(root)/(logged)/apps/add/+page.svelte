@@ -7,7 +7,7 @@
 	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
-	import { goto } from '$app/navigation'
+	import { afterNavigate, goto, replaceState } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 
@@ -34,11 +34,13 @@
 			path: DEFAULT_THEME
 		}
 	}
-
-	if (nodraft) {
-		goto('?', { replaceState: true })
-	}
-
+	afterNavigate(() => {
+		if (nodraft) {
+			let url = new URL($page.url.href)
+			url.search = ''
+			replaceState(url.toString(), $page.state)
+		}
+	})
 	let policy: Policy = {
 		on_behalf_of: $userStore?.username.includes('@')
 			? $userStore?.username

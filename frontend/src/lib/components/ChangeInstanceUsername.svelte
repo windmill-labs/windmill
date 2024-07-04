@@ -10,6 +10,8 @@
 	export let username: string
 	export let isConflict = false
 
+	let loading = false
+
 	let usernameInfo:
 		| {
 				username: string
@@ -42,26 +44,31 @@
 	const dispatch = createEventDispatcher()
 
 	async function renameUser() {
-		const automateUsernameCreation =
-			(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+		loading = true
+		try {
+			const automateUsernameCreation =
+				(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
 
-		if (!automateUsernameCreation) {
-			sendUserToast(
-				'Modifying the username is only possible when the creation of usernames is automated and defined at instance level..'
-			)
-			return
-		}
-
-		await UserService.globalUserRename({
-			email,
-			requestBody: {
-				new_username: username
+			if (!automateUsernameCreation) {
+				sendUserToast(
+					'Modifying the username is only possible when the creation of usernames is automated and defined at instance level..'
+				)
+				return
 			}
-		})
 
-		sendUserToast(`Rename user ${email} to ${username}`)
+			await UserService.globalUserRename({
+				email,
+				requestBody: {
+					new_username: username
+				}
+			})
 
-		dispatch('renamed')
+			sendUserToast(`Renamed user ${email} to ${username}`)
+
+			dispatch('renamed')
+		} finally {
+			loading = false
+		}
 	}
 </script>
 
@@ -139,6 +146,7 @@
 				})
 			}}
 			disabled={email === undefined || !username}
+			{loading}
 		>
 			Confirm username change
 		</Button>

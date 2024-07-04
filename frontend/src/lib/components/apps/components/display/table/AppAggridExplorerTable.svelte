@@ -301,6 +301,9 @@
 							agGrid: { api: e.api, columnApi: e.columnApi },
 							setSelectedIndex: (index) => {
 								e.api.getRowNode(index.toString())?.setSelected(true)
+							},
+							recompute: () => {
+								dispatch('recompute')
 							}
 						}
 						api = e.api
@@ -441,18 +444,3 @@
 		{/if}
 	</div>
 </SyncColumnDefs>
-
-<style>
-	.ag-theme-alpine {
-		--ag-row-border-style: solid;
-		--ag-border-color: rgb(209 213 219);
-		--ag-header-border-style: solid;
-		--ag-border-radius: 0;
-		--ag-alpine-active-color: #d1d5db;
-	}
-
-	.ag-theme-alpine-dark {
-		--ag-border-color: #4b5563;
-		--ag-alpine-active-color: #64748b;
-	}
-</style>

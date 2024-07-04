@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
+	import { subtractDaysFromDateString } from '$lib/utils'
 
 	export let jobs: Job[] | undefined
 	export let user: string | null
@@ -43,6 +44,7 @@
 	export let syncQueuedRunsCount: boolean = true
 	export let allWorkspaces: boolean = false
 	export let computeMinAndMax: (() => { minTs: string; maxTs: string } | undefined) | undefined
+	export let lookback: number = 0
 
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
@@ -55,6 +57,7 @@
 			isSkipped != undefined &&
 			jobKinds &&
 			concurrencyKey &&
+			lookback &&
 			user &&
 			folder &&
 			showFutureJobs != undefined &&
@@ -106,12 +109,14 @@
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
-		startedAfter: string | undefined
+		startedAfter: string | undefined,
+		startedAfterCompletedJobs: string | undefined
 	): Promise<Job[]> {
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
+			createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 			schedulePath,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
@@ -137,7 +142,8 @@
 	async function fetchExtendedJobs(
 		concurrencyKey: string | null,
 		startedBefore: string | undefined,
-		startedAfter: string | undefined
+		startedAfter: string | undefined,
+		startedAfterCompletedJobs: string | undefined
 	): Promise<ExtendedJobs> {
 		return ConcurrencyGroupsService.listExtendedJobs({
 			rowLimit: 1000,
@@ -145,6 +151,7 @@
 			workspace: $workspaceStore!,
 			createdOrStartedBefore: startedBefore,
 			createdOrStartedAfter: startedAfter,
+			createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 			schedulePath,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
@@ -191,8 +198,12 @@
 		}
 		loading = true
 		try {
+			// Extend MinTs to fetch jobs mefore minTs and show a correct concurrency graph
+			// TODO: when an ended_at column is created on the completed_job table,
+			// lookback won't be needed anymore (just filter ended_at > minTs instead
+			const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 			if (concurrencyKey == null || concurrencyKey === '') {
-				let newJobs = await fetchJobs(maxTs, undefined)
+				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs)
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -200,7 +211,7 @@
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
 			} else {
-				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
+				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, extendedMinTs)
 				const newJobs = extendedJobs.jobs
 				const newExternalJobs = extendedJobs.obscured_jobs
 
@@ -285,10 +296,10 @@
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? ts)
+						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
-						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined)
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs ?? ts)
 						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
 
 						// Filter on minTs here and not in the backend

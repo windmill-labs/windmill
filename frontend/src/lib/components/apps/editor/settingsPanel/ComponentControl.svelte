@@ -6,12 +6,15 @@
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import { Button } from '$lib/components/common'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	export let type: keyof typeof components
 
 	const componentControls = getComponentControl(type)
 
 	let collapsed: boolean = true
 </script>
+
+<HighlightTheme />
 
 {#if componentControls?.length > 0}
 	<PanelSection title="Controls">

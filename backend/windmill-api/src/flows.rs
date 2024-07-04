@@ -56,6 +56,12 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_flow_by_path_w_draft))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
+        .route("/history/p/*path", get(get_flow_history))
+        .route(
+            "/history_update/v/:version/p/*path",
+            post(update_flow_history),
+        )
+        .route("/get/v/:version/p/*path", get(get_flow_version))
         .route(
             "/toggle_workspace_error_handler/*path",
             post(toggle_workspace_error_handler),
@@ -86,7 +92,10 @@ async fn list_search_flows(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, SearchFlow>(
-        "SELECT path, value from flow WHERE workspace_id = $1 LIMIT $2",
+        "SELECT flow.path, flow_version.value
+        FROM flow 
+        LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE workspace_id = $1 LIMIT $2",
     )
     .bind(&w_id)
     .bind(n)
@@ -113,8 +122,8 @@ async fn list_flows(
             "o.path",
             "summary",
             "description",
-            "edited_by",
-            "edited_at",
+            "fv.created_by as edited_by",
+            "fv.created_at as edited_at",
             "archived",
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
@@ -133,8 +142,13 @@ async fn list_flows(
         .on(
             "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow'"
         )
+        .left()
+        .join("flow_version fv")
+        .on(
+            "fv.id = o.versions[array_upper(o.versions, 1)]"
+        )
         .order_desc("favorite.path IS NOT NULL")
-        .order_by("edited_at", lq.order_desc.unwrap_or(true))
+        .order_by("fv.created_at", lq.order_desc.unwrap_or(true))
         .and_where("o.workspace_id = ?".bind(&w_id))
         .offset(offset)
         .limit(per_page)
@@ -149,10 +163,21 @@ async fn list_flows(
         sqlb.and_where_eq("o.path", "?".bind(p));
     }
     if let Some(cb) = &lq.edited_by {
-        sqlb.and_where_eq("edited_by", "?".bind(cb));
+        sqlb.and_where_eq("fv.created_by", "?".bind(cb));
     }
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
+    }
+
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
+        sqlb.and_where("o.draft_only IS NOT TRUE");
+    }
+
+    if lq.with_deployment_msg.unwrap_or(false) {
+        sqlb.join("deployment_metadata dm")
+            .left()
+            .on("dm.flow_version = o.versions[array_upper(o.versions, 1)]")
+            .fields(&["dm.deployment_msg"]);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -320,23 +345,46 @@ async fn create_flow(
     check_path_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
     check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
+    let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
+
     sqlx::query!(
-        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema, dependency_job, draft_only, tag, dedicated_worker, visible_to_runner_only) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL, $8, $9, $10, $11)",
+        "INSERT INTO flow (workspace_id, path, summary, description, \
+         dependency_job, draft_only, tag, dedicated_worker, visible_to_runner_only, value, schema, edited_by, edited_at) 
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10::text::json, $11, now())",
         w_id,
         nf.path,
         nf.summary,
         nf.description.unwrap_or_else(String::new),
-        nf.value,
-        &authed.username,
-        nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
         nf.draft_only,
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
+        nf.value,
+        schema_str,
+        &authed.username,
     )
     .execute(&mut tx)
     .await?;
+
+    let version = sqlx::query_scalar!(
+        "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) 
+        VALUES ($1, $2, $3, $4::text::json, $5)
+        RETURNING id",
+        w_id,
+        nf.path,
+        nf.value,
+        schema_str,
+        &authed.username,
+    )
+    .fetch_one(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+        version,
+        nf.path,
+        w_id
+    ).execute(&mut tx).await?;
 
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
@@ -375,8 +423,9 @@ async fn create_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
+            version: version,
         },
-        args.into(),
+        windmill_queue::PushArgs { args: &args, extra: None },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -450,6 +499,110 @@ pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: D
     .await;
 }
 
+#[derive(Serialize)]
+pub struct FlowVersion {
+    pub id: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
+}
+
+async fn get_flow_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<FlowVersion>> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let flows = sqlx::query_as!(
+        FlowVersion,
+        "SELECT flow_version.id, flow_version.created_at, deployment_metadata.deployment_msg FROM flow_version 
+        LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
+        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2 
+        ORDER BY flow_version.created_at DESC",
+        path,
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(flows))
+}
+
+async fn get_flow_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version, path)): Path<(String, i64, StripPath)>,
+) -> JsonResult<Flow> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let flow = sqlx::query_as::<_, Flow>(
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        FROM flow
+        LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
+        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
+    )
+    .bind(path)
+    .bind(w_id)
+    .bind(version)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let flow = not_found_if_none(flow, "Flow version", version.to_string())?;
+
+    Ok(Json(flow))
+}
+
+#[derive(Deserialize)]
+pub struct FlowHistoryUpdate {
+    pub deployment_msg: String,
+}
+
+async fn update_flow_history(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version, path)): Path<(String, i64, StripPath)>,
+    Json(history_update): Json<FlowHistoryUpdate>,
+) -> Result<()> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+    let path_o = sqlx::query_scalar!(
+        "SELECT flow.path FROM flow
+        LEFT JOIN flow_version
+            ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
+        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
+        path,
+        w_id,
+        version
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if path_o.is_none() {
+        tx.commit().await?;
+        return Err(Error::NotFound(
+            format!("Flow version {version} for path {path} not found").to_string(),
+        ));
+    }
+
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        w_id,
+        path_o.unwrap(),
+        version,
+        history_update.deployment_msg,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    return Ok(());
+}
+
 async fn update_flow(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -488,26 +641,99 @@ async fn update_flow(
     .fetch_optional(&mut tx)
     .await?;
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
+
+    let is_new_path = nf.path != flow_path;
+
+    let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
+
     sqlx::query!(
-        "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = now(), schema = $6::text::json, dependency_job = NULL, draft_only = NULL, tag = $9, dedicated_worker = $10, visible_to_runner_only = $11
-        WHERE path = $7 AND workspace_id = $8",
-        nf.path,
+        "UPDATE flow SET path = $1, summary = $2, description = $3,\
+        dependency_job = NULL, draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, \
+        value = $7, schema = $8::text::json, edited_by = $9, edited_at = now()
+        WHERE path = $10 AND workspace_id = $11",
+        if is_new_path { flow_path } else { &nf.path }, // if new path, do not rename directly (to avoid flow_version foreign key constraint)
         nf.summary,
         nf.description.unwrap_or_else(String::new),
-        nf.value,
-        &authed.username,
-        schema.and_then(|x| serde_json::to_string(&x).ok()),
-        flow_path,
-        w_id,
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
+        nf.value,
+        schema_str,
+        &authed.username,
+        flow_path,
+        w_id,
     )
     .execute(&mut tx)
     .await.map_err(|e| error::Error::InternalErr(format!("Error updating flow due to flow update: {e:#}")))?;
 
-    if nf.path != flow_path {
+    if is_new_path {
+        // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
+        sqlx::query!(
+            "INSERT INTO flow 
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at) 
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at
+                FROM flow
+                WHERE path = $2 AND workspace_id = $3",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut tx)
+        .await
+        .map_err(|e| {
+            error::Error::InternalErr(format!("Error updating flow due to create new flow: {e:#}"))
+        })?;
+
+        sqlx::query!(
+            "UPDATE flow_version SET path = $1 WHERE path = $2 AND workspace_id = $3",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut tx)
+        .await
+        .map_err(|e| {
+            error::Error::InternalErr(format!(
+                "Error updating flow due to updating flow history path: {e:#}"
+            ))
+        })?;
+
+        sqlx::query!(
+            "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",
+            flow_path,
+            w_id
+        )
+        .execute(&mut tx)
+        .await
+        .map_err(|e| {
+            error::Error::InternalErr(format!(
+                "Error updating flow due to deleting old flow: {e:#}"
+            ))
+        })?;
+    }
+
+    let version = sqlx::query_scalar!(
+        "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) VALUES ($1, $2, $3, $4::text::json, $5) RETURNING id",
+        w_id,
+        nf.path,
+        nf.value,
+        schema_str,
+        &authed.username,
+    )
+    .fetch_one(&mut tx)
+    .await
+    .map_err(|e| {
+        error::Error::InternalErr(format!(
+            "Error updating flow due to flow history insert: {e:#}"
+        ))
+    })?;
+
+    sqlx::query!(
+        "UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+        version, flow_path, w_id
+    ).execute(&mut tx).await?;
+
+    if is_new_path {
         check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
         if !authed.is_admin {
@@ -592,8 +818,9 @@ async fn update_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
+            version: version,
         },
-        windmill_queue::PushArgs { args, extra: HashMap::new() },
+        windmill_queue::PushArgs { args: &args, extra: None },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -654,7 +881,12 @@ async fn get_flow_by_path(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o =
-        sqlx::query_as::<_, Flow>("SELECT * FROM flow WHERE path = $1 AND workspace_id = $2")
+        sqlx::query_as::<_, Flow>(
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+            FROM flow
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.path = $1 AND flow.workspace_id = $2"
+        )
             .bind(path)
             .bind(w_id)
             .fetch_optional(&mut *tx)
@@ -696,10 +928,12 @@ async fn get_flow_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow.schema, flow.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag, flow.visible_to_runner_only
+        "SELECT flow.path, flow.summary, flow,description, flow_version.schema, flow_version.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag, flow.visible_to_runner_only
          FROM flow
-        LEFT JOIN draft ON 
-        flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
+        LEFT JOIN draft
+            ON flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
+        LEFT JOIN flow_version 
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
         WHERE flow.path = $1 AND flow.workspace_id = $2",
     )
     .bind(path)
@@ -773,7 +1007,11 @@ async fn archive_flow_by_path(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
+        DeployedObject::Flow {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        },
         Some(format!(
             "Flow '{}' {}",
             path,
@@ -840,7 +1078,11 @@ async fn delete_flow_by_path(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Flow { path: path.to_string(), parent_path: Some(path.to_string()) },
+        DeployedObject::Flow {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        },
         Some(format!("Flow '{}' deleted", path)),
         rsmq,
         true,

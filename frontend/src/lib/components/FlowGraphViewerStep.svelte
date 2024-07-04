@@ -16,12 +16,15 @@
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { Copy } from 'lucide-svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let schema: any | undefined = undefined
 
 	export let stepDetail: FlowModule | string | undefined = undefined
 	let codeViewer: Drawer
 </script>
+
+<HighlightTheme />
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={'Expanded Code'} on:close={codeViewer.closeDrawer}>

@@ -76,8 +76,8 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    add_completed_job_error, append_logs, get_queued_job, get_result_by_id_from_running_flow,
-    job_is_complete, push, CanceledBy, DecodeQueries, PushArgs, PushIsolationLevel,
+    cancel_job, get_queued_job, get_result_by_id_from_running_flow, job_is_complete, push,
+    DecodeQueries, PushArgs, PushArgsOwned, PushIsolationLevel, QueueTransaction,
 };
 
 #[cfg(feature = "prometheus")]
@@ -266,6 +266,7 @@ pub fn global_service() -> Router {
         .route("/get_root_job_id/:id", get(get_root_job))
         .route("/get/:id", get(get_job))
         .route("/get_logs/:id", get(get_job_logs))
+        .route("/get_args/:id", get(get_args))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -528,8 +529,8 @@ pub async fn get_path_for_hash<'c>(
     Ok(path)
 }
 
-pub async fn get_path_tag_limits_cache_for_hash(
-    db: &DB,
+pub async fn get_path_tag_limits_cache_for_hash<'c, R: rsmq_async::RsmqConnection + Send>(
+    tx: &mut QueueTransaction<'c, R>,
     w_id: &str,
     hash: i64,
 ) -> error::Result<(
@@ -550,13 +551,15 @@ pub async fn get_path_tag_limits_cache_for_hash(
         hash,
         w_id
     )
-    .fetch_one(db)
+    .fetch_optional(tx)
     .await
     .map_err(|e| {
         Error::InternalErr(format!(
             "querying getting path for hash {hash} in {w_id}: {e:#}"
         ))
-    })?;
+    })?.ok_or_else(|| Error::NotFound(format!(
+        "deployed script not found at hash {hash} in workspace {w_id}"
+    )))?;
     Ok((
         script.path,
         script.tag,
@@ -585,14 +588,20 @@ async fn get_flow_job_debug_info(
                 "This endpoint is only for root flow jobs".to_string(),
             ));
         }
+        let leaf_jobs: HashMap<String, JobResult> = job
+            .leaf_jobs
+            .clone()
+            .and_then(|x| serde_json::from_value(x).ok())
+            .unwrap_or_else(HashMap::new);
         let mut jobs = HashMap::new();
-        jobs.insert("root_job".to_string(), Job::QueuedJob(job.clone()));
+        let id = job.id.clone();
+        jobs.insert("root_job".to_string(), Job::QueuedJob(job));
 
         let mut job_ids = vec![];
         let jobs_with_root = sqlx::query_scalar!(
             "SELECT id FROM queue WHERE workspace_id = $1 and root_job = $2",
             &w_id,
-            &job.id,
+            &id,
         )
         .fetch_all(&db)
         .await?;
@@ -601,10 +610,6 @@ async fn get_flow_job_debug_info(
             job_ids.push(job);
         }
 
-        let leaf_jobs: HashMap<String, JobResult> = job
-            .leaf_jobs
-            .and_then(|x| serde_json::from_value(x).ok())
-            .unwrap_or_else(HashMap::new);
         for job in leaf_jobs.iter() {
             match job.1 {
                 JobResult::ListJob(jobs) => job_ids.extend(jobs.to_owned()),
@@ -903,6 +908,54 @@ async fn get_job_logs(
             return r.map(content_plain);
         }
         Ok(content_plain(Body::from(logs)))
+    }
+}
+
+#[derive(FromRow)]
+pub struct RawArgs {
+    pub args: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub created_by: String,
+}
+
+async fn get_args(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Box<serde_json::value::RawValue>> {
+    let record = sqlx::query_as::<_, RawArgs>(
+        "SELECT created_by, args
+        FROM completed_job 
+        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2",
+    )
+    .bind(&id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?;
+
+    if let Some(record) = record {
+        if opt_authed.is_none() && record.created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+        Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
+    } else {
+        let record = sqlx::query_as::<_, RawArgs>(
+            "SELECT created_by, args
+            FROM queue
+            WHERE queue.id = $1 AND queue.workspace_id = $2",
+        )
+        .bind(&id)
+        .bind(&w_id)
+        .fetch_optional(&db)
+        .await?;
+        let record = not_found_if_none(record, "Job Args", id.to_string())?;
+        if opt_authed.is_none() && record.created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+        Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
 }
 
@@ -1237,66 +1290,49 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
-#[derive(Deserialize, FromRow)]
-struct JobToCancel {
-    id: Uuid,
-    is_flow_step: Option<bool>,
-    running: bool,
-}
-
 async fn cancel_jobs(
-    jobs: Vec<JobToCancel>,
+    jobs: Vec<Uuid>,
     db: &DB,
     username: &str,
     w_id: &str,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
-    for j in jobs.iter() {
-        let r = sqlx::query!(
-            "UPDATE queue SET canceled = true,  canceled_by = $1, scheduled_for = now(), suspend = 0 WHERE id = $2 RETURNING 1 as one",
-            username,
-            j.id,
-        )
-        .fetch_optional(db)
-        .await;
-
-        if r.as_ref().is_ok_and(|x| x.is_some()) {
-            uuids.push(j.id);
-
-            if !j.running && !j.is_flow_step.unwrap_or(false) {
-                let e = serde_json::json!({"message": format!("Job canceled: cancel_all by {username}"), "name": "Canceled", "reason": "cancel_all", "canceler": username});
-                let job_running = get_queued_job(&j.id, &w_id, &db).await?;
-
-                if let Some(job_running) = job_running {
-                    append_logs(
-                        &j.id,
-                        w_id,
-                        format!("canceled by {username}: cancel_all"),
-                        db.clone(),
-                    )
-                    .await;
-                    let add_job = add_completed_job_error(
-                        &db,
-                        &job_running,
-                        job_running.mem_peak.unwrap_or(0),
-                        Some(CanceledBy {
-                            username: Some(username.to_string()),
-                            reason: Some("cancel_all".to_string()),
-                        }),
-                        e,
-                        rsmq.clone(),
-                        "server",
-                        true,
-                    )
-                    .await;
-                    if let Err(e) = add_job {
-                        tracing::error!("Failed to add canceled job: {}", e);
-                    }
+    for job_id in jobs.into_iter() {
+        let rsmq = rsmq.clone();
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
+            let tx = db.begin().await?;
+            let (tx, _) = windmill_queue::cancel_job(
+                username,
+                None,
+                job_id.clone(),
+                w_id,
+                tx,
+                db,
+                rsmq,
+                false,
+                false,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        {
+            Ok(result) => match result {
+                Ok(_) => {
+                    uuids.push(job_id);
                 }
+                Err(e) => {
+                    tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
+                }
+            },
+            Err(_) => {
+                tracing::error!(
+                    "Timeout while trying to cancel job {:?} after 5 seconds",
+                    job_id
+                );
             }
-        } else {
-            tracing::error!("Failed to cancel job: {:?} {:?}", j.id, r.err());
         }
     }
 
@@ -1315,9 +1351,8 @@ async fn cancel_selection(
     require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
-    let jobs_to_cancel = sqlx::query_as!(
-        JobToCancel,
-        "SELECT id, is_flow_step, running FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
+    let jobs_to_cancel = sqlx::query_scalar!(
+        "SELECT id FROM queue WHERE id = ANY($1) AND schedule_path IS NULL",
         &jobs
     )
     .fetch_all(&mut *tx)
@@ -1456,6 +1491,11 @@ async fn list_jobs(
 
     #[cfg(feature = "prometheus")]
     let start = Instant::now();
+
+    #[cfg(feature = "prometheus")]
+    if _api_list_jobs_query_duration.is_some() {
+        tracing::info!("list_jobs query: {}", sql);
+    }
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut *tx).await?;
     tx.commit().await?;
@@ -2594,34 +2634,40 @@ pub async fn run_flow_by_path(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     let (tag, dedicated_worker) = sqlx::query!(
         "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
         flow_path,
         w_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut tx)
     .await?
     .map(|x| (x.tag, x.dedicated_worker))
-    .unwrap_or_else(|| (None, None));
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "flow not found at path {flow_path} in workspace {w_id}"
+        ))
+    })?;
 
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&w_id, &tag).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+    let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
         JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -2680,12 +2726,14 @@ pub async fn restart_flow(
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
 
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     let completed_job = sqlx::query_as::<_, CompletedJob>(
         "SELECT *, result->'wm_labels' as labels from completed_job WHERE id = $1 and workspace_id = $2",
     )
     .bind(job_id)
     .bind(&w_id)
-    .fetch_optional(&db)
+    .fetch_optional(&mut tx)
     .await?
     .with_context(|| "Unable to find completed job with the given job UUID")?;
 
@@ -2694,13 +2742,16 @@ pub async fn restart_flow(
         .with_context(|| "No flow path set for completed flow job")?;
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
+    let ehm = HashMap::new();
     let push_args = completed_job
         .args
-        .map(|json| PushArgs { args: json.0, extra: HashMap::new() })
-        .unwrap_or_else(PushArgs::empty);
+        .as_ref()
+        .map(|json| PushArgs { args: &json.0, extra: None })
+        .unwrap_or_else(|| PushArgs::from(&ehm));
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, tx) = push(
         &db,
@@ -2742,7 +2793,7 @@ pub async fn run_script_by_path(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -2751,20 +2802,23 @@ pub async fn run_script_by_path(
 
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     let (job_payload, tag, _delete_after_use, timeout) =
-        script_path_to_payload(script_path, &db, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
         job_payload,
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -2801,6 +2855,8 @@ pub async fn run_workflow_as_code(
     check_license_key_valid().await?;
     check_tag_available_for_workspace(&w_id, &run_query.tag).await?;
 
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     let job = get_queued_job(&job_id, &w_id, &db).await?;
     let job = not_found_if_none(job, "Queued Job", &job_id.to_string())?;
     let (job_payload, tag, _delete_after_use, timeout) = match job.job_kind {
@@ -2823,25 +2879,26 @@ pub async fn run_workflow_as_code(
             None,
             run_query.timeout,
         ),
-        JobKind::Script => script_path_to_payload(job.script_path(), &db, &w_id).await?,
+        JobKind::Script => script_path_to_payload(job.script_path(), &mut tx, &w_id).await?,
         _ => return Err(anyhow::anyhow!("Not supported").into()),
     };
 
     let mut extra = HashMap::new();
     extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
 
-    let args = PushArgs { args: task.args.unwrap_or_else(HashMap::new), extra };
+    let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
         job_payload,
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -2877,6 +2934,7 @@ struct Guard {
     id: Uuid,
     w_id: String,
     db: DB,
+    username: String,
 }
 
 impl Drop for Guard {
@@ -2885,16 +2943,33 @@ impl Drop for Guard {
             let id = self.id;
             let w_id = self.w_id.clone();
             let db = self.db.clone();
+            let username = self.username.clone();
 
             tracing::info!("http connection broke, marking job {id} as canceled");
             tokio::spawn(async move {
-                let _ = sqlx::query!(
-                "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = queue.created_by WHERE id = $1 AND workspace_id = $2",
-                id,
-                w_id
-            )
-            .execute(&db)
-            .await;
+                let cancel_f = async {
+                    let tx = db.begin().await?;
+                    let (tx, _) = cancel_job(
+                        &username,
+                        Some("http connection broke".to_string()),
+                        id,
+                        &w_id,
+                        tx,
+                        &db,
+                        None,
+                        false,
+                        false,
+                    )
+                    .await?;
+                    tx.commit().await?;
+                    Ok::<_, anyhow::Error>(())
+                };
+
+                if let Err(e) = cancel_f.await {
+                    tracing::error!(
+                        "Error marking job as canceled after http connection broke: {e}"
+                    );
+                }
             });
         }
     }
@@ -2911,6 +2986,7 @@ async fn run_wait_result(
     uuid: Uuid,
     w_id: String,
     node_id_for_empty_return: Option<String>,
+    username: &str,
 ) -> error::Result<Response> {
     let mut result = None;
     let timeout = SERVER_CONFIG.read().await.timeout_wait_result.clone();
@@ -2920,7 +2996,13 @@ async fn run_wait_result(
         (timeout * 1000) as u64
     };
 
-    let mut g = Guard { done: false, id: uuid, w_id: w_id.clone(), db: db.clone() };
+    let mut g = Guard {
+        done: false,
+        id: uuid,
+        w_id: w_id.clone(),
+        db: db.clone(),
+        username: username.to_string(),
+    };
 
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
     let mut accumulated_delay = 0 as u64;
@@ -2939,15 +3021,14 @@ async fn run_wait_result(
         }
 
         if result.is_none() {
-            let row = sqlx::query(
+            let row = sqlx::query_as::<_, RawResult>(
                 "SELECT null as created_by, result, language, flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
             )
             .bind(uuid)
             .bind(&w_id)
             .fetch_optional(db)
             .await?;
-            if let Some(row) = row {
-                let raw_result = RawResult::from_row(&row)?;
+            if let Some(raw_result) = row {
                 result = match format_result(
                     raw_result.language.as_ref(),
                     raw_result.flow_status.map(|x| x.0),
@@ -3121,25 +3202,28 @@ pub async fn run_wait_result_job_by_path_get(
     });
 
     let inner_args: HashMap<String, Box<RawValue>> = HashMap::new();
-    let args = PushArgs { extra: payload_args, args: inner_args };
+    let args = PushArgs { extra: Some(payload_args), args: &inner_args };
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &db, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
         job_payload,
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3161,7 +3245,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -3200,7 +3284,7 @@ pub async fn run_wait_result_flow_by_path_get(
         payload_args.insert(k.to_string(), v.clone());
     });
 
-    let args = PushArgs { extra: payload_args, args: HashMap::new() };
+    let args = PushArgsOwned { extra: Some(payload_args), args: HashMap::new() };
 
     run_wait_result_flow_by_path_internal(
         db, run_query, flow_path, authed, rsmq, user_db, args, w_id,
@@ -3215,7 +3299,7 @@ pub async fn run_wait_result_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3241,25 +3325,28 @@ async fn run_wait_result_script_by_path_internal(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
     w_id: String,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     let (job_payload, tag, delete_after_use, timeout) =
-        script_path_to_payload(script_path, &db, &w_id).await?;
+        script_path_to_payload(script_path, &mut tx, &w_id).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
         job_payload,
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3281,7 +3368,7 @@ async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -3295,12 +3382,14 @@ pub async fn run_wait_result_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     check_queue_too_long(&db, run_query.queue_limit).await?;
+
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let hash = script_hash.0;
     let (
@@ -3315,7 +3404,7 @@ pub async fn run_wait_result_script_by_hash(
         priority,
         delete_after_use,
         timeout,
-    ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
+    ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
@@ -3323,7 +3412,8 @@ pub async fn run_wait_result_script_by_hash(
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, tx) = push(
         &db,
@@ -3340,7 +3430,7 @@ pub async fn run_wait_result_script_by_hash(
             dedicated_worker,
             priority,
         },
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3362,7 +3452,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -3376,7 +3466,7 @@ pub async fn run_wait_result_flow_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3394,7 +3484,7 @@ async fn run_wait_result_flow_by_path_internal(
     authed: ApiAuthed,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
     user_db: UserDB,
-    args: PushArgs,
+    args: PushArgsOwned,
     w_id: String,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
@@ -3402,28 +3492,39 @@ async fn run_wait_result_flow_by_path_internal(
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let (tag, dedicated_worker, early_return) = sqlx::query!(
-        "SELECT tag, dedicated_worker, value->>'early_return' as early_return from flow WHERE path = $1 and workspace_id = $2",
+        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return 
+        FROM flow 
+        LEFT JOIN flow_version
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 and flow.workspace_id = $2",
         flow_path,
         w_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut tx)
     .await?
     .map(|x| (x.tag, x.dedicated_worker, x.early_return))
-    .unwrap_or_else(|| (None, None, None));
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "flow not found at path {flow_path} in workspace {w_id}"
+        ))
+    })?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
         JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3445,7 +3546,7 @@ async fn run_wait_result_flow_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(&db, uuid, w_id, early_return).await
+    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
 }
 
 async fn run_preview_script(
@@ -3491,7 +3592,7 @@ async fn run_preview_script(
                 dedicated_worker: preview.dedicated_worker,
             }),
         },
-        preview.args.unwrap_or_default().into(),
+        PushArgs::from(&preview.args.unwrap_or_default()),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3573,7 +3674,7 @@ async fn run_bundle_preview_script(
                         custom_concurrency_key: None,
                     }),
                 },
-                args.into(),
+                PushArgs::from(&args),
                 authed.display_username(),
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
@@ -3687,16 +3788,17 @@ async fn run_dependencies_job(
     }
     let raw_script = req.raw_scripts[0].clone();
     let script_path = raw_script.script_path;
+    let ehm = HashMap::new();
     let (args, raw_code) = if let Some(deps) = req.raw_deps {
         let mut hm = HashMap::new();
         hm.insert(
             "raw_deps".to_string(),
             JsonRawValue::from_string("true".to_string()).unwrap(),
         );
-        (PushArgs { extra: hm, args: HashMap::new() }, deps)
+        (PushArgs { extra: Some(hm), args: &ehm }, deps)
     } else {
         (
-            PushArgs::empty(),
+            PushArgs::from(&ehm),
             raw_script.raw_code.unwrap_or_else(|| "".to_string()),
         )
     };
@@ -3734,7 +3836,7 @@ async fn run_dependencies_job(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     wait_result
 }
 
@@ -3767,7 +3869,10 @@ async fn run_flow_dependencies_job(
         PushIsolationLevel::IsolatedRoot(db.clone(), rsmq),
         &w_id,
         JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
-        HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]).into(),
+        PushArgs::from(&HashMap::from([(
+            "skip_flow_update".to_string(),
+            to_raw_value(&true),
+        )])),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -3789,7 +3894,7 @@ async fn run_flow_dependencies_job(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None).await;
+    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     wait_result
 }
 
@@ -3869,12 +3974,13 @@ async fn add_batch_jobs(
                 }
             };
             for _ in 0..n {
+                let ehm = HashMap::new();
                 let (uuid, ntx) = push(
                     &db,
                     tx,
                     &w_id,
                     payload.clone(),
-                    PushArgs::empty(),
+                    PushArgs::from(&ehm),
                     authed.display_username(),
                     &authed.email,
                     username_to_permissioned_as(&authed.username),
@@ -4004,7 +4110,7 @@ async fn run_preview_flow_job(
             path: raw_flow.path,
             restarted_from: raw_flow.restarted_from,
         },
-        raw_flow.args.unwrap_or_default().into(),
+        PushArgs::from(&raw_flow.args.unwrap_or_default()),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -4037,10 +4143,12 @@ pub async fn run_job_by_hash(
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: PushArgs,
+    args: PushArgsOwned,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
+
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     let hash = script_hash.0;
     let (
@@ -4055,7 +4163,7 @@ pub async fn run_job_by_hash(
         priority,
         _delete_after_use, // not taken into account in async endpoints
         timeout,
-    ) = get_path_tag_limits_cache_for_hash(&db, &w_id, hash).await?;
+    ) = get_path_tag_limits_cache_for_hash(&mut tx, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
@@ -4064,7 +4172,7 @@ pub async fn run_job_by_hash(
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&w_id, &tag).await?;
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into(), rsmq);
+    let tx = PushIsolationLevel::Transaction(tx);
 
     let (uuid, tx) = push(
         &db,
@@ -4081,7 +4189,7 @@ pub async fn run_job_by_hash(
             dedicated_worker,
             priority,
         },
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -4326,6 +4434,13 @@ pub fn filter_list_completed_query(
         );
     }
 
+    if let Some(dt) = &lq.created_or_started_after_completed_jobs {
+        sqlb.and_where_ge(
+            "started_at",
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+        );
+    }
+
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
     }
@@ -4395,6 +4510,7 @@ pub struct ListCompletedQuery {
     pub created_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_or_started_after_completed_jobs: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
@@ -4481,7 +4597,7 @@ async fn get_completed_job<'a>(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job_o = sqlx::query("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
+    let job_o = sqlx::query_as::<_, CompletedJob>("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
     CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
     raw_lock, email, visible_to_owner, mem_peak, tag, priority, result->'wm_labels' as labels FROM completed_job WHERE id = $1 AND workspace_id = $2")
@@ -4490,9 +4606,7 @@ async fn get_completed_job<'a>(
         .fetch_optional(&db)
         .await?;
 
-    let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
-
-    let cj = CompletedJob::from_row(&job)?;
+    let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
     if opt_authed.is_none() && cj.created_by != "anonymous" {
         return Err(Error::BadRequest(
@@ -4537,7 +4651,7 @@ async fn get_completed_job_result(
     Query(JsonPath { json_path, suspended_job, approver, resume_id, secret }): Query<JsonPath>,
 ) -> error::Result<Response> {
     let result_o = if let Some(json_path) = json_path {
-        sqlx::query(
+        sqlx::query_as::<_, RawResult>(
             "SELECT result #> $3 as result, flow_status, language, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
         .bind(id)
@@ -4551,16 +4665,14 @@ async fn get_completed_job_result(
         .fetch_optional(&db)
         .await?
     } else {
-        sqlx::query("SELECT result, flow_status, language, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2")
+        sqlx::query_as::<_, RawResult>("SELECT result, flow_status, language, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2")
             .bind(id)
             .bind(&w_id)
             .fetch_optional(&db)
             .await?
     };
 
-    let result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
-
-    let raw_result = RawResult::from_row(&result)?;
+    let raw_result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
 
     if opt_authed.is_none() && raw_result.created_by.unwrap_or_default() != "anonymous" {
         match (suspended_job, resume_id, approver, secret) {
@@ -4628,7 +4740,7 @@ async fn get_completed_job_result_maybe(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(GetCompletedJobQuery { get_started }): Query<GetCompletedJobQuery>,
 ) -> error::Result<Response> {
-    let result_o = sqlx::query(
+    let result_o = sqlx::query_as::<_, RawResultWithSuccess>(
         "SELECT result, success, language, flow_status, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
@@ -4636,8 +4748,7 @@ async fn get_completed_job_result_maybe(
     .fetch_optional(&db)
     .await?;
 
-    if let Some(result) = result_o {
-        let res = RawResultWithSuccess::from_row(&result)?;
+    if let Some(res) = result_o {
         let result = format_result(
             res.language.as_ref(),
             res.flow_status.map(|x| x.0),
@@ -4692,7 +4803,7 @@ async fn delete_completed_job<'a>(
     let mut tx = user_db.begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;
-    let job_o = sqlx::query(
+    let job_o = sqlx::query_as::<_, CompletedJob>(
         "UPDATE completed_job SET args = null, logs = '', result = null, deleted = true WHERE id = $1 AND workspace_id = $2 \
          RETURNING *",
     )
@@ -4705,7 +4816,7 @@ async fn delete_completed_job<'a>(
         .execute(&mut *tx)
         .await?;
 
-    let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
+    let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
     audit_log(
         &mut *tx,
@@ -4719,7 +4830,6 @@ async fn delete_completed_job<'a>(
     .await?;
 
     tx.commit().await?;
-    let cj = CompletedJob::from_row(&job)?;
 
     let cj = format_completed_job_result(cj);
 

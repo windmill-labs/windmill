@@ -1,0 +1,5 @@
+FROM denoland/deno:1.44.4
+
+RUN deno install -q -A https://raw.githubusercontent.com/windmill-labs/windmill/main/cli/main.ts --name wmill
+
+ENTRYPOINT [ "wmill" ]

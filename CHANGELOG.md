@@ -1,5 +1,85 @@
 # Changelog
 
+## [1.356.1](https://github.com/windmill-labs/windmill/compare/v1.356.0...v1.356.1) (2024-07-03)
+
+
+### Bug Fixes
+
+* 50MB limitation only on non-enterprise ([0753072](https://github.com/windmill-labs/windmill/commit/07530725e6785cef151d2460a3f5043935475065))
+* add s3 object support to lightweight arg input ([45cd01c](https://github.com/windmill-labs/windmill/commit/45cd01c6ed083ca67f61ab00cbbbcac5d2964b2c))
+
+## [1.356.0](https://github.com/windmill-labs/windmill/compare/v1.355.4...v1.356.0) (2024-07-02)
+
+
+### Features
+
+* allow downloading args over the size limit ([d13a357](https://github.com/windmill-labs/windmill/commit/d13a357b2609a8ee4f3fac43f248eede3f8ad38d))
+* include token label as end user ([#3988](https://github.com/windmill-labs/windmill/issues/3988)) ([991031b](https://github.com/windmill-labs/windmill/commit/991031b96d3abb8d3c0f40a53f95e3c32e4434cd))
+* runs page have sharable args in hash of links ([792bbb3](https://github.com/windmill-labs/windmill/commit/792bbb3ff99818ccc39c1b0d2e3ec08698d26d47))
+
+
+### Bug Fixes
+
+* add support for result.json for powershell ([155ca5f](https://github.com/windmill-labs/windmill/commit/155ca5fe26eeb988282040557e4068307bf81def))
+* improve browser history navigation (back, forward) ([7248b0a](https://github.com/windmill-labs/windmill/commit/7248b0a5a96b6b1aed661d80f4e479d867751ad1))
+* lookback selector to manually look for older jobs and prevent inaccurate concurrency graphs ([#4007](https://github.com/windmill-labs/windmill/issues/4007)) ([ca22a87](https://github.com/windmill-labs/windmill/commit/ca22a879dc121a96e50e18ed14f9f9dabca451a5))
+* make gql params optional by default + use default value if undefined ([#4003](https://github.com/windmill-labs/windmill/issues/4003)) ([d736b86](https://github.com/windmill-labs/windmill/commit/d736b8692f232be6d9764cb5ee5e4bca26a998b1))
+
+## [1.355.4](https://github.com/windmill-labs/windmill/compare/v1.355.3...v1.355.4) (2024-06-30)
+
+
+### Bug Fixes
+
+* **frontend:** fix Decision Tree + fix Infinite list default ts code … ([#3993](https://github.com/windmill-labs/windmill/issues/3993)) ([49b6cf1](https://github.com/windmill-labs/windmill/commit/49b6cf1f37aa276cc70e5619d87b68c729f12a73))
+* improve runs page performance when minTs is defined ([2e184c9](https://github.com/windmill-labs/windmill/commit/2e184c9894ee6f900368908f4176cbeb6783e15f))
+* improve runs page performance when minTs is defined ([e662439](https://github.com/windmill-labs/windmill/commit/e66243969e2578e3bb50e0e88ecd84088437767c))
+
+## [1.355.3](https://github.com/windmill-labs/windmill/compare/v1.355.2...v1.355.3) (2024-06-27)
+
+
+### Bug Fixes
+
+* fix OIDC ([81c7edf](https://github.com/windmill-labs/windmill/commit/81c7edffeabbfc0fd628a0e5b1d60d2c52e12249))
+* snowflake datetime display format ([#3995](https://github.com/windmill-labs/windmill/issues/3995)) ([963d0a4](https://github.com/windmill-labs/windmill/commit/963d0a4dfe94c43d6ca94dcacda43cb0e563a857))
+
+## [1.355.2](https://github.com/windmill-labs/windmill/compare/v1.355.1...v1.355.2) (2024-06-26)
+
+
+### Bug Fixes
+
+* non-ASCII support in parsers ([#3986](https://github.com/windmill-labs/windmill/issues/3986)) ([94b6e9e](https://github.com/windmill-labs/windmill/commit/94b6e9efa77c410444d4b4e78148dbb8e44a727e))
+
+## [1.355.1](https://github.com/windmill-labs/windmill/compare/v1.355.0...v1.355.1) (2024-06-26)
+
+
+### Bug Fixes
+
+* fix build ([17c586e](https://github.com/windmill-labs/windmill/commit/17c586ed8f7bbad4e5e5db26a909e8a06521696d))
+
+## [1.355.0](https://github.com/windmill-labs/windmill/compare/v1.354.0...v1.355.0) (2024-06-26)
+
+
+### Features
+
+* add wmill cli image ([fa2f732](https://github.com/windmill-labs/windmill/commit/fa2f732182c8ac103c3fdcb0cfe5eecba2474382))
+* **frontend:** Add context for inner components of list, groups and … ([#3974](https://github.com/windmill-labs/windmill/issues/3974)) ([73175ac](https://github.com/windmill-labs/windmill/commit/73175acc018651eb0d3c161c6176e96576178813))
+
+
+### Bug Fixes
+
+* **frontend:** add tooltip to schedule pausing ([#3984](https://github.com/windmill-labs/windmill/issues/3984)) ([08476a3](https://github.com/windmill-labs/windmill/commit/08476a379456039cc8569125ca3535008d6f7bea))
+* hide draft only items in pickers and from ops ([#3977](https://github.com/windmill-labs/windmill/issues/3977)) ([dd80483](https://github.com/windmill-labs/windmill/commit/dd804839f07aa56f6707fa122fa8e8bbcef81f6e))
+* parallel branchall disordered skip failure retrieval ([#3975](https://github.com/windmill-labs/windmill/issues/3975)) ([e9b310e](https://github.com/windmill-labs/windmill/commit/e9b310eee0d73f3518c85b572e05473c449959a0))
+* remove useless metrics ([#3962](https://github.com/windmill-labs/windmill/issues/3962)) ([f29c46a](https://github.com/windmill-labs/windmill/commit/f29c46a282e7cb1a9f093a3089e4eefd24a7bc1e))
+
+## [1.354.0](https://github.com/windmill-labs/windmill/compare/v1.353.0...v1.354.0) (2024-06-25)
+
+
+### Features
+
+* **frontend:** app editor help box ([#3970](https://github.com/windmill-labs/windmill/issues/3970)) ([cab248c](https://github.com/windmill-labs/windmill/commit/cab248cefff73bab818c477b4e40220b3d81eac9))
+* schedule pausing ([#3976](https://github.com/windmill-labs/windmill/issues/3976)) ([f8dc215](https://github.com/windmill-labs/windmill/commit/f8dc21542fd3a57e4272d874a034a3af1cdd8348))
+
 ## [1.353.0](https://github.com/windmill-labs/windmill/compare/v1.352.0...v1.353.0) (2024-06-24)
 
 

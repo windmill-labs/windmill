@@ -285,7 +285,8 @@
 							{/if}
 						</div>
 					{/if}
-					<ContextVariables type={component.type} />
+
+					<ContextVariables type={component.type} id={component.id} />
 
 					{#key $stateId}
 						{#if componentSettings.item.data.componentInput?.type === 'runnable'}

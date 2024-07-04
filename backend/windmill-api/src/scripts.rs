@@ -226,8 +226,12 @@ async fn list_scripts(
         .limit(per_page)
         .clone();
 
-    if authed.is_operator || lq.hide_without_main.unwrap_or(false) {
+    if !lq.include_without_main.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("o.no_main_func IS NOT TRUE");
+    }
+
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
+        sqlb.and_where("draft_only IS NOT TRUE");
     }
 
     if lq.show_archived.unwrap_or(false) {
@@ -274,6 +278,13 @@ async fn list_scripts(
     }
     if lq.starred_only.unwrap_or(false) {
         sqlb.and_where_is_not_null("favorite.path");
+    }
+
+    if lq.with_deployment_msg.unwrap_or(false) {
+        sqlb.join("deployment_metadata dm")
+            .left()
+            .on("dm.script_hash = o.hash")
+            .fields(&["dm.deployment_msg"]);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -734,7 +745,7 @@ async fn create_script_internal<'c>(
                 path: ns.path,
                 dedicated_worker: ns.dedicated_worker,
             },
-            args.into(),
+            windmill_queue::PushArgs::from(&args),
             &authed.username,
             &authed.email,
             permissioned_as,

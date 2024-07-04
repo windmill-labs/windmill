@@ -138,7 +138,8 @@
 	async function loadFavorites() {
 		const scripts = await ScriptService.listScripts({
 			workspace: $workspaceStore ?? '',
-			starredOnly: true
+			starredOnly: true,
+			includeWithoutMain: true
 		})
 		const flows = await FlowService.listFlows({
 			workspace: $workspaceStore ?? '',

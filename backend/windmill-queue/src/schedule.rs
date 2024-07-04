@@ -9,6 +9,7 @@
 use crate::push;
 use crate::PushIsolationLevel;
 use crate::QueueTransaction;
+use anyhow::Context;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -36,10 +37,27 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
-    let now = now_from_db(&mut tx).await?.with_timezone(&tz);
+    let now = now_from_db(&mut tx).await?;
+
+    let starting_from = match schedule.paused_until {
+        Some(paused_until) if paused_until > now => paused_until.with_timezone(&tz),
+        paused_until_o => {
+            if paused_until_o.is_some() {
+                sqlx::query!(
+                    "UPDATE schedule SET paused_until = NULL WHERE workspace_id = $1 AND path = $2",
+                    &schedule.workspace_id,
+                    &schedule.path
+                )
+                .execute(&mut tx)
+                .await
+                .context("Failed to clear paused_until for schedule")?;
+            }
+            now.with_timezone(&tz)
+        }
+    };
 
     let next = sched
-        .after(&now)
+        .after(&starting_from)
         .next()
         .expect("a schedule should have a next event");
 
@@ -190,7 +208,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         tx,
         &schedule.workspace_id,
         payload,
-        crate::PushArgs { args, extra: HashMap::new() },
+        crate::PushArgs { args: &args, extra: None },
         &schedule_to_user(&schedule.path),
         &schedule.email,
         username_to_permissioned_as(&schedule.edited_by),
@@ -210,6 +228,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         authed,
     )
     .await?;
+
     Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 

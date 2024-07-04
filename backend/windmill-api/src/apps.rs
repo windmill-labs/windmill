@@ -46,7 +46,7 @@ use windmill_common::{
 };
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_queue::{push, PushArgs, PushIsolationLevel, QueueTransaction};
+use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -91,6 +91,9 @@ pub struct ListableApp {
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -285,6 +288,17 @@ async fn list_apps(
 
     if let Some(path_exact) = &lq.path_exact {
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
+    }
+
+    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
+        sqlb.and_where("app.draft_only IS NOT TRUE");
+    }
+
+    if lq.with_deployment_msg.unwrap_or(false) {
+        sqlb.join("deployment_metadata dm")
+            .left()
+            .on("dm.app_version = app.versions[array_upper(app.versions, 1)]")
+            .fields(&["dm.deployment_msg"]);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -639,7 +653,7 @@ async fn create_app(
         tx,
         &w_id,
         JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
-        PushArgs { args, extra: HashMap::new() },
+        PushArgs { args: &args, extra: None },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -930,7 +944,7 @@ async fn update_app(
         tx,
         &w_id,
         JobPayload::AppDependencies { path: npath.clone(), version: v_id },
-        PushArgs { args, extra: HashMap::new() },
+        PushArgs { args: &args, extra: None },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -1143,7 +1157,7 @@ async fn execute_component(
         tx,
         &w_id,
         job_payload,
-        args,
+        PushArgs { args: &args.args, extra: args.extra },
         &username,
         &email,
         permissioned_as,
@@ -1225,12 +1239,12 @@ async fn build_args(
     policy: Policy,
     component: &str,
     path: String,
-    args: HashMap<String, Box<RawValue>>,
+    mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
     user_db: &UserDB,
     db: &DB,
     w_id: &str,
-) -> Result<(PushArgs, Option<Uuid>)> {
+) -> Result<(PushArgsOwned, Option<Uuid>)> {
     let mut job_id: Option<Uuid> = None;
     let key = format!("{}:{}", component, &path);
     let (static_inputs, one_of_inputs, allow_user_resources) = match policy {
@@ -1280,7 +1294,6 @@ async fn build_args(
         )))?,
     };
 
-    let mut args = args.clone();
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
 
     // tracing::error!("{:?}", allow_user_resources);
@@ -1399,5 +1412,8 @@ async fn build_args(
     for (k, v) in static_inputs {
         extra.insert(k.to_string(), v.to_owned());
     }
-    Ok((PushArgs { extra, args: safe_args }, job_id))
+    Ok((
+        PushArgsOwned { extra: Some(extra), args: safe_args },
+        job_id,
+    ))
 }

@@ -119,20 +119,18 @@ pub fn make_unauthed_service() -> Router {
 }
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
-    if label.as_ref().is_some_and(|x| x.starts_with("webhook-")) {
-        label
-    } else if label
-        .as_ref()
-        .is_some_and(|x| x.starts_with("ephemeral-script-end-user-"))
-    {
-        Some(
+    match label {
+        Some(label) if label.starts_with("webhook-") => Some(label),
+        Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
             label
-                .unwrap()
                 .trim_start_matches("ephemeral-script-end-user-")
                 .to_string(),
-        )
-    } else {
-        None
+        ),
+        Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
+        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
+            Some(format!("label-{label}"))
+        }
+        _ => None,
     }
 }
 
@@ -2478,7 +2476,11 @@ async fn get_all_runnables(
             })?;
         let mut tx = db.clone().begin(&nauthed).await?;
         let flows = sqlx::query!(
-            "SELECT workspace_id as workspace, path, summary, description, schema FROM flow WHERE workspace_id = $1", workspace
+            "SELECT flow.workspace_id as workspace, flow.path, summary, description, flow_version.schema 
+            FROM flow 
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.workspace_id = $1",
+            workspace
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -2918,7 +2920,19 @@ async fn update_username_in_workpsace<'c>(
 
     // ---- flows ----
     sqlx::query!(
-        r#"UPDATE flow SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"INSERT INTO flow
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at) 
+        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at
+            FROM flow 
+            WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE flow_version SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id
@@ -2927,14 +2941,12 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET edited_by = $1 WHERE edited_by = $2 AND workspace_id = $3",
-        new_username,
+        "DELETE FROM flow WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
         old_username,
         w_id
     )
     .execute(&mut **tx)
-    .await
-    .unwrap();
+    .await?;
 
     sqlx::query!(
         "UPDATE flow SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",

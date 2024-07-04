@@ -21,6 +21,7 @@
 	import Password from './Password.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import FileUpload from './common/fileUpload/FileUpload.svelte'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -372,6 +373,27 @@
 							</span>
 						{/if}
 					</div>
+				{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
+						.replace('resource-', '')
+						.replace('_', '')
+						.toLowerCase() == 's3object'}
+					<div class="flex flex-col w-full gap-1">
+						<FileUpload
+							allowMultiple={false}
+							randomFileKey={true}
+							on:addition={(evt) => {
+								value = {
+									s3: evt.detail?.path ?? ''
+								}
+							}}
+							on:deletion={(evt) => {
+								value = {
+									s3: ''
+								}
+							}}
+							defaultValue={defaultValue?.s3}
+						/>
+					</div>
 				{:else if inputCat == 'resource-object'}
 					<LightweightObjectResourceInput {format} bind:value />
 				{:else if inputCat == 'object' && oneOf && oneOf.length >= 2}
@@ -458,7 +480,10 @@
 							multiple={false}
 						/>
 						{#if value?.length}
-							<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div
+							<div class="text-2xs text-tertiary mt-1"
+								>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
+									2
+								)}MB)</div
 							>
 						{/if}
 					</div>
