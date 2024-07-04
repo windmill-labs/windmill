@@ -37,6 +37,12 @@
 	export let noBackend: boolean = false
 	export let isLocked = false
 	export let hideRefreshBar = false
+	export let replaceStateFn: (path: string) => void = (path: string) =>
+		window.history.replaceState(null, '', path)
+	export let gotoFn: (path: string, opt?: Record<string, any> | undefined) => void = (
+		path: string,
+		opt?: Record<string, any>
+	) => window.history.pushState(null, '', path)
 
 	migrateApp(app)
 
@@ -103,7 +109,9 @@
 		darkMode,
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
-		debuggingComponents: writable({})
+		debuggingComponents: writable({}),
+		replaceStateFn,
+		gotoFn
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
