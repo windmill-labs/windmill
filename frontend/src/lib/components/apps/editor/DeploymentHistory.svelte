@@ -24,11 +24,9 @@
 	$: selectedVersion !== undefined && loadValue(selectedVersion.version)
 
 	async function loadVersions() {
-		console.log('loading versions')
 		if (appPath === undefined) {
 			return
 		}
-		console.log('loading versions')
 
 		loading = true
 		versions = await AppService.getAppHistoryByPath({

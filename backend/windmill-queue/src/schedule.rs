@@ -208,7 +208,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         tx,
         &schedule.workspace_id,
         payload,
-        crate::PushArgs { args, extra: HashMap::new() },
+        crate::PushArgs { args: &args, extra: None },
         &schedule_to_user(&schedule.path),
         &schedule.email,
         username_to_permissioned_as(&schedule.edited_by),
@@ -228,6 +228,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         authed,
     )
     .await?;
+
     Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 

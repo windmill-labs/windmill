@@ -394,8 +394,7 @@ async fn build_import_map(
 
 #[cfg(feature = "enterprise")]
 use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
-#[cfg(feature = "enterprise")]
-use std::sync::Arc;
+
 #[cfg(feature = "enterprise")]
 use tokio::sync::mpsc::Receiver;
 
@@ -410,7 +409,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<()> {

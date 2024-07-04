@@ -4874,6 +4874,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mappable-rc"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "204651f31b0a6a7b2128d2b92c372cd94607b210c3a6b6e542c57a8cfd4db996"
+
+[[package]]
 name = "match_cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10468,6 +10474,7 @@ dependencies = [
  "itertools 0.13.0",
  "jsonwebtoken",
  "lazy_static",
+ "mappable-rc",
  "mysql_async",
  "native-tls",
  "nix",

@@ -596,7 +596,7 @@
 					$localDurationStatuses[flowJobIds?.moduleId ?? '']?.iteration_from ?? 0
 				)}
 				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
-					Embedded flows: ({flowJobIds?.flowJobs.length} items)
+					Subflows: ({flowJobIds?.flowJobs.length} items)
 				</h3>
 				{#if (flowJobIds?.flowJobs.length ?? 0) > 20 && lenToAdd > 0}
 					{@const allToAdd = (flowJobIds?.length ?? 0) - (slicedListJobIds.length ?? 0)}
