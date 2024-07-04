@@ -184,10 +184,14 @@
 					Object.entries(deps.dependees).forEach((x, i) => {
 						let pid = x[0]
 
-						const parent = dfs(modules ?? [], (mod) => isParent(mod, $selectedId!)).filter(Boolean)
+						if (pid === 'Input' && x[1]?.some((i) => i?.includes('iter')) && $selectedId) {
+							const parent = dfs(modules ?? [], (mod) => isParent(mod, $selectedId!))?.filter(
+								Boolean
+							)
 
-						if (pid === 'Input' && parent[0]) {
-							pid = parent?.[0].id
+							if (parent?.[0]?.id) {
+								pid = parent[0].id
+							}
 						}
 
 						edges.push({
