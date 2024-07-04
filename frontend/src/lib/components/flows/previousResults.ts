@@ -23,6 +23,14 @@ export function dfs(
 	flow: OpenFlow,
 	getParents: boolean = true
 ): FlowModule[] {
+	return dfsByModule(id, flow.value.modules, getParents)
+}
+
+export function dfsByModule(
+	id: string | undefined,
+	modules: FlowModule[],
+	getParents: boolean = true
+): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -48,7 +56,7 @@ export function dfs(
 		return undefined
 	}
 
-	return rec(id, [flow.value.modules]) ?? []
+	return rec(id, [modules]) ?? []
 }
 
 function getFlowInput(

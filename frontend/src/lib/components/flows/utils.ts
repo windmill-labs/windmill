@@ -167,8 +167,6 @@ export function isInputFilled(
 ): boolean {
 	const required = schema?.required?.includes(key) ?? false
 
-	console.log('schema', schema)
-
 	if (!required) {
 		return true
 	}

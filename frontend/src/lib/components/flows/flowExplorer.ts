@@ -96,7 +96,6 @@ export function getDependeeAndDependentComponents(
 	failure_module: FlowModule | undefined
 ): { dependees: Record<string, string[]>; dependents: Record<string, string[]> } {
 	let all_modules = getAllModules(modules, failure_module)
-
 	let module = all_modules.find((x) => x.id === id)
 	let allIds: [string, string][] = [
 		['Input', 'flow_input'],
@@ -114,7 +113,6 @@ export function getDependeeAndDependentComponents(
 		})
 	}
 	let dependents = filterDependentComponents(all_modules, id)
-
 	return { dependees, dependents }
 }
 

@@ -26,7 +26,7 @@
 	import { deepEqual } from 'fast-equals'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import type { FlowInput } from '../flows/types'
-	import { dfs, isParent } from '../flows/dfs'
+	import { dfsByModule } from '../flows/previousResults'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -182,29 +182,31 @@
 
 				if (deps) {
 					Object.entries(deps.dependees).forEach((x, i) => {
-						let pid = x[0]
+						const inputs = x[1]
 
-						if (pid === 'Input' && x[1]?.some((i) => i?.includes('iter')) && $selectedId) {
-							const parent = dfs(modules ?? [], (mod) => isParent(mod, $selectedId!))?.filter(
-								Boolean
-							)
+						inputs.forEach((input, index) => {
+							let pid = x[0]
 
-							if (parent?.[0]?.id) {
-								pid = parent[0].id
+							if (input.startsWith('flow_input.iter')) {
+								const parent = dfsByModule($selectedId!, modules ?? [])?.pop()
+
+								if (parent?.id) {
+									pid = parent.id
+								}
 							}
-						}
 
-						edges.push({
-							id: `dep-${pid}-${$selectedId}`,
-							source: pid,
-							target: $selectedId!,
-							labelBgColor: 'white',
-							arrow: false,
-							animate: true,
-							noHandle: true,
-							label: pid,
-							type: 'bezier',
-							offset: i * 20
+							edges.push({
+								id: `dep-${pid}-${$selectedId}`,
+								source: pid,
+								target: $selectedId!,
+								labelBgColor: 'white',
+								arrow: false,
+								animate: true,
+								noHandle: true,
+								label: pid,
+								type: 'bezier',
+								offset: index * 20
+							})
 						})
 					})
 

@@ -188,16 +188,6 @@
 						.catch((e) => {
 							console.error(`Could not load inner module for job ${mod.job}`, e)
 						})
-				} else if (
-					mod.type === 'Failure' &&
-					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
-				) {
-					$localModuleStates[mod.id ?? ''] = {
-						type: mod.type,
-						job_id: undefined,
-						parent_module: mod['parent_module'],
-						args: job?.args
-					}
 				}
 			})
 		}
