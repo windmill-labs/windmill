@@ -3795,7 +3795,7 @@ async fn run_dependencies_job(
             "raw_deps".to_string(),
             JsonRawValue::from_string("true".to_string()).unwrap(),
         );
-        (PushArgs { extra: Some(hm), args: &HashMap::new() }, deps)
+        (PushArgs { extra: Some(hm), args: &ehm }, deps)
     } else {
         (
             PushArgs::from(&ehm),
