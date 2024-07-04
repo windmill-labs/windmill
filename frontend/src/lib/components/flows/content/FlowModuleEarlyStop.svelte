@@ -93,10 +93,11 @@
 			{:else}
 				<Toggle
 					disabled
+					size="xs"
 					options={{
 						right: 'Label flow as "skipped" if stopped'
 					}}
-				/> <span class="text-xs font-bold">Stop condition expression</span>
+				/> <span class="mt-2 text-xs font-bold">Stop condition expression</span>
 				<textarea disabled rows="3" class="min-h-[80px]" />
 			{/if}
 		</div>
