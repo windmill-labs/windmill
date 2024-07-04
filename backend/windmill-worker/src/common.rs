@@ -1141,7 +1141,7 @@ pub async fn handle_child(
 
 
             if let Err(err) = result {
-                tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
+                tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");
                 break;
             }
 
