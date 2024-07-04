@@ -990,7 +990,9 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory on:restore {appPath} />
+		{#if historyBrowserDrawerOpen}
+			<DeploymentHistory on:restore {appPath} />
+		{/if}
 	</DrawerContent>
 </Drawer>
 

@@ -27,15 +27,17 @@
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
-		<DeploymentHistory
-			on:restore={(e) => {
-				sendUserToast('App restored from previous deployment')
-				updateApp(e.detail)
-			}}
-			{appPath}
-			on:close={() => {
-				historyBrowserDrawerOpen = false
-			}}
-		/>
+		{#if historyBrowserDrawerOpen}
+			<DeploymentHistory
+				on:restore={(e) => {
+					sendUserToast('App restored from previous deployment')
+					updateApp(e.detail)
+				}}
+				{appPath}
+				on:close={() => {
+					historyBrowserDrawerOpen = false
+				}}
+			/>
+		{/if}
 	</DrawerContent>
 </Drawer>

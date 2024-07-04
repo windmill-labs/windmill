@@ -83,8 +83,6 @@
 		sendUserToast('Flow restored from previous deployment')
 	}
 
-	loadVersions()
-
 	$: selectedVersion !== undefined && loadFlow(selectedVersion.id)
 </script>
 
