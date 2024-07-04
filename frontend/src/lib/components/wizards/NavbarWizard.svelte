@@ -71,7 +71,7 @@
 								</li>
 								<li>
 									You selected another app: Clicking on the link navigates to the selected app
-									without reloadind the page. In the editor, it will open in a new tab.
+									without reloading the page. In the editor, it will open in a new tab.
 								</li>
 							</ul>
 						</div>
