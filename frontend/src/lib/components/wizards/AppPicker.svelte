@@ -61,11 +61,11 @@
 		portal={false}
 	/>
 	{#if !appPath}
-		<Alert title="Current app" size="xs" type="warning" collapsible>
+		<Alert title="Current app not selectable" size="xs" type="warning" collapsible>
 			Current app is not selectable until you have deployed this app at least once.
 		</Alert>
 	{/if}
-	{#if appPath === value}
+	{#if appPath && appPath === value}
 		<div class="text-2xs">
 			The current app is selected. If the path changes, the path needs to be updated manually.
 		</div>
