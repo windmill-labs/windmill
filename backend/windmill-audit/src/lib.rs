@@ -28,8 +28,8 @@ pub struct AuditLog {
 pub struct ListAuditLogQuery {
     pub username: Option<String>,
     pub operation: Option<String>,
-    pub operations: Option<Vec<String>>,
-    pub exclude_operations: Option<Vec<String>>,
+    pub operations: Option<String>,
+    pub exclude_operations: Option<String>,
     pub action_kind: Option<String>,
     pub resource: Option<String>,
     pub before: Option<chrono::DateTime<chrono::Utc>>,

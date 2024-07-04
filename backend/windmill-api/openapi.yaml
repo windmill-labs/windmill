@@ -116,18 +116,14 @@ paths:
         - $ref: "#/components/parameters/Operation"
         - name: operations
           in: query
-          description: list of exact operations to include
+          description: comma separated list of exact operations to include
           schema:
-            type: array
-            items:
-              type: string
+            type: string
         - name: exclude_operations
           in: query
-          description: list of operations to exclude
+          description: comma separated list of operations to exclude
           schema:
-            type: array
-            items:
-              type: string
+            type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
 
