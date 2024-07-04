@@ -6,11 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{
-    extract::{Path, Query},
-    routing::get,
-    Extension, Json, Router,
-};
+use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum_extra::extract::Query;
 use windmill_audit::{AuditLog, ListAuditLogQuery};
 use windmill_common::{db::UserDB, error::JsonResult, utils::Pagination};
 

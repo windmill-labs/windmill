@@ -114,6 +114,20 @@ paths:
         - $ref: "#/components/parameters/After"
         - $ref: "#/components/parameters/Username"
         - $ref: "#/components/parameters/Operation"
+        - name: operations
+          in: query
+          description: list of exact operations to include
+          schema:
+            type: array
+            items:
+              type: string
+        - name: exclude_operations
+          in: query
+          description: list of operations to exclude
+          schema:
+            type: array
+            items:
+              type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
 

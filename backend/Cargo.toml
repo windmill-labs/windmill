@@ -115,6 +115,7 @@ windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
 axum = { version = "^0.7", features = ["multipart"] } 
+axum-extra = { version = "0.9.3", features = ["query"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
