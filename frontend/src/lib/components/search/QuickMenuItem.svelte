@@ -4,7 +4,8 @@
 	export let hovered: boolean = false
 	export let id: string
 	export let label: string = ''
-	export let icon: any
+	export let icon: any = undefined
+	export let charIcon: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -41,6 +42,10 @@
 			<div class="w-4">
 				{#if icon}
 					<svelte:component this={icon} size={14} />
+				{:else if charIcon != undefined}
+					<div class="font-bold flex items-center justify-center w-full">
+					{charIcon}
+					</div>
 				{/if}
 			</div>
 			{label}
