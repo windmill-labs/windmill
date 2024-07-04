@@ -152,7 +152,14 @@
 		}
 		let idxs = uf.filter(itemsPlainText, filter) ?? []
 
-		let info = uf.info(idxs, itemsPlainText, filter)
+		let info: uFuzzy.Info
+		// parts is undefined error happens when filter is similar
+		// to `.>!` (string with no letters but some symbols)
+		try {
+			info = uf.info(idxs, itemsPlainText, filter)
+		} catch (e) {
+			return items
+		}
 		let order = uf.sort(info, itemsPlainText, filter)
 
 		let r: any[] = []
@@ -209,7 +216,6 @@
 			const s = removePrefix(searchTerm, RUNS_PREFIX)
 			try {
 				const searchResults = await IndexSearchService.searchJobsIndex({ query: s })
-				console.log(searchResults)
 				itemMap['runs'] = searchResults.document_hits
 			} catch (error) {
 				itemMap['runs'] = []
@@ -452,7 +458,7 @@
 							placeholder={placeholderForMode(tab)}
 						/>
 					</div>
-					<div class="overflow-scroll max-h-[39rem]">
+					<div class="overflow-scroll max-h-[30rem]">
 						{#if tab === 'default' || tab === 'switch-mode'}
 							{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
 								<QuickMenuItem
@@ -513,7 +519,9 @@
 									on:hover={() => (selectedItem = el)}
 									id={el?.search_id}
 									hovered={el?.path === selectedItem?.path}
-									label={(el.summary ? `${el.summary} - ` : '') + el.path + (el.starred ? ' ★' : '')}
+									label={(el.summary ? `${el.summary} - ` : '') +
+										el.path +
+										(el.starred ? ' ★' : '')}
 									icon={iconForWindmillItem(el.type)}
 								/>
 							{/each}

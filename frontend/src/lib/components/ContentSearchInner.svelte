@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { AppService, FlowService, ResourceService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { Boxes, Code2, Edit, LayoutDashboard, Loader2, X } from 'lucide-svelte'
+	import { Boxes, Code2, Edit, LayoutDashboard, Loader2 } from 'lucide-svelte'
 	import SearchItems from './SearchItems.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
