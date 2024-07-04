@@ -67,7 +67,8 @@
 								<li>
 									You selected the current app itself: Clicking on the link will highlight the item,
 									and set the app in the output. Note that adding query params or an hash lets you
-									distinguish between different items.
+									distinguish between different items. Also note that query params can be retrieved
+									from the context: `ctx.query`.
 								</li>
 								<li>
 									You selected another app: Clicking on the link navigates to the selected app
