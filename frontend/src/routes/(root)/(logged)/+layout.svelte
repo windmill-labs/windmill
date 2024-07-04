@@ -37,12 +37,13 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft } from 'lucide-svelte'
+	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspacedOpenai } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/GlobalSearchModal.svelte'
+	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -332,6 +333,13 @@
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
+										<MenuButton
+											on:click={() => (globalSearchModalOpen = true)}
+											isCollapsed={false}
+											icon={Search}
+											label="Search (ctrl + k)"
+											class="!text-xs"
+										/>
 									</div>
 
 									<SidebarContent isCollapsed={false} />
@@ -371,6 +379,13 @@
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />
+								<MenuButton
+									on:click={() => (globalSearchModalOpen = true)}
+									{isCollapsed}
+									icon={Search}
+									label="Search (ctrl + k)"
+									class="!text-xs"
+								/>
 							</div>
 
 							<SidebarContent {isCollapsed} />
@@ -450,6 +465,13 @@
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 								<WorkspaceMenu />
 								<FavoriteMenu {favoriteLinks} />
+								<MenuButton
+									on:click={() => (globalSearchModalOpen = true)}
+									{isCollapsed}
+									icon={Search}
+									label="Search (ctrl + k)"
+									class="!text-xs"
+								/>
 							</div>
 
 							<SidebarContent {isCollapsed} />
