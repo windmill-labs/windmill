@@ -59,9 +59,28 @@
 			/>
 
 			<Alert size="xs" title="Link Behavior" collapsible>
-				External links starting with http(s) will open in a new tab. Links that include the current
-				app will be highlighted. Links pointing to another app will open in the same tab when
-				deployed, but in a new tab in the editor.
+				<ul class="list-disc">
+					<li>
+						If you select an app, there are two cases:
+						<div class="ml-2">
+							<ul class="list-disc">
+								<li>
+									You selected the current app itself: Clicking on the link will highlight the item,
+									and set the app in the output. Note that adding query params or an hash lets you
+									distinguish between different items.
+								</li>
+								<li>
+									You selected another app: Clicking on the link navigates to the selected app
+									without reloadind the page. In the editor, it will open in a new tab.
+								</li>
+							</ul>
+						</div>
+					</li>
+					<li>
+						If you select an external link, clicking on the link will navigate to the selected link
+						in a new tab.
+					</li>
+				</ul>
 			</Alert>
 
 			<InputsSpecEditor
