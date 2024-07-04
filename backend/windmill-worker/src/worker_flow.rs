@@ -434,7 +434,7 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                     if parallelism.is_some() {
                         sqlx::query!(
-                            "UPDATE queue SET suspend = 0 WHERE parent_job = $1 AND suspend = $2",
+                            "UPDATE queue SET suspend = 0 WHERE parent_job = $1 AND suspend = $2 AND (flow_status->'step')::int = 0",
                             flow,
                             nindex
                         )
