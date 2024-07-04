@@ -11,7 +11,7 @@
 		type ListableRawApp,
 		type Script
 	} from '$lib/gen'
-	import { clickOutside, displayDateOnly, sendUserToast } from '$lib/utils'
+	import { clickOutside, displayDateOnly } from '$lib/utils'
 	import TimeAgo from './TimeAgo.svelte'
 	import {
 		BoxesIcon,
@@ -35,6 +35,7 @@
 	import DropdownV2 from './DropdownV2.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
+	import { Alert } from './common'
 
 	export let open: boolean = false
 
@@ -347,7 +348,7 @@
 	}
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
-		search_id: string,
+		search_id: string
 		marked?: string
 		type?: U
 		time?: number
@@ -385,25 +386,25 @@
 				...x,
 				type: 'flow' as 'flow',
 				time: new Date(x.edited_at).getTime(),
-				search_id: x.path,
+				search_id: x.path
 			})),
 			...scripts.map((x) => ({
 				...x,
 				type: 'script' as 'script',
 				time: new Date(x.created_at).getTime(),
-				search_id: x.path,
+				search_id: x.path
 			})),
 			...apps.map((x) => ({
 				...x,
 				type: 'app' as 'app',
 				time: new Date(x.edited_at).getTime(),
-				search_id: x.path,
+				search_id: x.path
 			})),
 			...raw_apps.map((x) => ({
 				...x,
 				type: 'raw_app' as 'raw_app',
 				time: new Date(x.edited_at).getTime(),
-				search_id: x.path,
+				search_id: x.path
 			}))
 		].sort((a, b) => (a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1))
 
@@ -434,13 +435,13 @@
 			)}
 		>
 			<div
-				class={'max-w-4xl max-h-[80vh] min-h-[20vh] lg:mx-auto mx-10 mt-40 bg-surface rounded-lg relative'}
+				class={'max-w-4xl lg:mx-auto mx-10 mt-40 bg-surface rounded-lg relative'}
 				use:clickOutside={false}
 				on:click_outside={() => {
 					// open = false
 				}}
 			>
-				<div class="px-4 py-2 border-b items-center">
+				<div class="px-4 py-2 items-center">
 					<div class="quick-search-input flex flex-row gap-1 items-center mb-2">
 						<Search />
 						<input
@@ -451,7 +452,7 @@
 							placeholder={placeholderForMode(tab)}
 						/>
 					</div>
-					<div class="overflow-scroll h-96">
+					<div class="overflow-scroll max-h-[39rem]">
 						{#if tab === 'default' || tab === 'switch-mode'}
 							{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
 								<QuickMenuItem
@@ -516,75 +517,101 @@
 									icon={iconForWindmillItem(el.type)}
 								/>
 							{/each}
+							{#if (itemMap[tab] ?? []).length === 0}
+								<div class="flex w-full justify-center items-center h-48">
+									<div class="text-tertiary text-center">
+										<div class="text-2xl font-bold">Nothing found</div>
+										<div class="text-sm">Tip: press `esc` to quickly clear the search bar</div>
+									</div>
+								</div>
+							{/if}
 						{:else if tab === 'content'}
 							<ContentSearchInner
 								search={removePrefix(searchTerm, '#')}
 								bind:this={contentSearch}
 							/>
 						{:else if tab === 'logs'}
-							Not implemented yet
+							<div class="p-2">
+								<Alert title="Service log search is coming soon" type="info">
+									Full text search on windmill's service logs is coming soon
+								</Alert>
+							</div>
 						{:else if tab === 'runs'}
 							<div class="flex h-96">
 								<!-- {#if !results || results.length == 0} -->
 								<!-- 	No matches found -->
 								<!-- {:else} -->
-								<div class="w-5/12 overflow-scroll">
-									{#each itemMap['runs'] ?? [] as r}
-										<QuickMenuItem
-											on:hover={() => {
-												selectedItem = r
-												selectedWorkspace = r?.document.workspace_id[0]
-											}}
-											on:select={() => {
-												open = false
-												goto(`/run/${r?.document.id[0]}`)
-											}}
-											id={r?.document.id[0]}
-											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
-											icon={r?.icon}
-										>
-											<svelte:fragment slot="itemReplacement">
-												<button
-													class={twMerge(
-														`w-full flex items-center justify-between gap-1 py-2 px-2 text-left border rounded-sm transition-a`,
-														r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
-													)}
-													on:click={() => {}}
-												>
-													<div
-														class="w-full h-full items-center text-xs font-normal grid grid-cols-10 gap-0 min-w-0"
+								{#if itemMap['runs'] && itemMap['runs'].length > 0}
+									<div class="w-5/12 overflow-scroll">
+										{#each itemMap['runs'] ?? [] as r}
+											<QuickMenuItem
+												on:hover={() => {
+													selectedItem = r
+													selectedWorkspace = r?.document.workspace_id[0]
+												}}
+												on:select={() => {
+													open = false
+													goto(`/run/${r?.document.id[0]}`)
+												}}
+												id={r?.document.id[0]}
+												hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
+												icon={r?.icon}
+											>
+												<svelte:fragment slot="itemReplacement">
+													<button
+														class={twMerge(
+															`w-full flex items-center justify-between gap-1 py-2 px-2 text-left border rounded-sm transition-a`,
+															r?.document.id === selectedItem?.document?.id
+																? 'bg-surface-hover'
+																: ''
+														)}
+														on:click={() => {}}
 													>
-														<div class="col-span-1">
+														<div
+															class="w-full h-full items-center text-xs font-normal grid grid-cols-10 gap-0 min-w-0"
+														>
+															<div class="col-span-1">
+																<div
+																	class="rounded-full w-2 h-2 {r?.document.success[0]
+																		? 'bg-green-400'
+																		: 'bg-red-400'}"
+																/>
+															</div>
+															<div class="col-span-5">
+																{r?.document.script_path}
+															</div>
 															<div
-																class="rounded-full w-2 h-2 {r?.document.success[0]
-																	? 'bg-green-400'
-																	: 'bg-red-400'}"
-															/>
+																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+															>
+																{displayDateOnly(new Date(r?.document.created_at[0]))}
+															</div>
+															<div
+																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+															>
+																<TimeAgo date={r?.document.created_at[0] ?? ''} />
+															</div>
 														</div>
-														<div class="col-span-5">
-															{r?.document.script_path}
-														</div>
-														<div
-															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-														>
-															{displayDateOnly(new Date(r?.document.created_at[0]))}
-														</div>
-														<div
-															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-														>
-															<TimeAgo date={r?.document.created_at[0] ?? ''} />
-														</div>
-													</div>
-												</button>
-											</svelte:fragment>
-										</QuickMenuItem>
-									{/each}
-								</div>
-								{#if selectedItem === undefined}
-									select a result to preview
+													</button>
+												</svelte:fragment>
+											</QuickMenuItem>
+										{/each}
+									</div>
+									{#if selectedItem === undefined}
+										select a result to preview
+									{:else}
+										<div class="w-7/12 overflow-y-scroll">
+											<JobPreview
+												id={selectedItem?.document?.id[0]}
+												workspace={selectedWorkspace}
+											/>
+										</div>
+									{/if}
 								{:else}
-									<div class="w-7/12 overflow-y-scroll">
-										<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
+									<div class="flex w-full justify-center items-center h-48">
+										<div class="text-tertiary text-center">
+											<div class="text-2xl font-bold">No runs found</div>
+											<div class="text-sm">There were no completed runs that match your query</div>
+										</div>
 									</div>
 								{/if}
 							</div>
