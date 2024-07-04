@@ -33,8 +33,11 @@
 
 	onMount(() => {
 		loadApps()
-		selecteValue = appPath
-		value = appPath
+
+		if (selecteValue === '') {
+			selecteValue = appPath
+			value = appPath
+		}
 	})
 </script>
 
@@ -45,6 +48,9 @@
 		class="grow shrink max-w-full"
 		on:change={(e) => {
 			value = e.detail.value
+		}}
+		on:clear={() => {
+			value = ''
 		}}
 		bind:value={selecteValue}
 		items={apps.map((app) => {
