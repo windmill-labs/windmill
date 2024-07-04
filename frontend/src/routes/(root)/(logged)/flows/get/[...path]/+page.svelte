@@ -105,15 +105,21 @@
 	) {
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
-		let run = await JobService.runFlowByPath({
-			workspace: $workspaceStore!,
-			path,
-			invisibleToOwner,
-			requestBody: args,
-			scheduledFor,
-			tag: overrideTag
-		})
-		await goto('/run/' + run + '?workspace=' + $workspaceStore)
+		try {
+			let run = await JobService.runFlowByPath({
+				workspace: $workspaceStore!,
+				path,
+				invisibleToOwner,
+				requestBody: args,
+				scheduledFor,
+				tag: overrideTag
+			})
+			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+		} catch (e) {
+			throw e
+		} finally {
+			loading = false
+		}
 	}
 
 	let args: Record<string, any> | undefined = undefined

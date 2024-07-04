@@ -31,7 +31,7 @@ use reqwest::{
     Client, StatusCode,
 };
 use rsmq_async::RsmqConnection;
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeMap, Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, FromRow, Pool, Postgres, Transaction};
 #[cfg(feature = "benchmark")]
@@ -137,7 +137,7 @@ pub struct CanceledBy {
 pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
-    job_running: &QueuedJob,
+    job_running: Arc<QueuedJob>,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
@@ -146,10 +146,10 @@ pub async fn cancel_single_job<'c>(
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
         let username = username.to_string();
-        let job_running = job_running.clone();
         let w_id = w_id.to_string();
         let db = db.clone();
         let rsmq = rsmq.clone();
+        let job_running = job_running.clone();
         tokio::task::spawn(async move {
             let reason: String = reason
                 .clone()
@@ -223,8 +223,8 @@ pub async fn cancel_job<'c>(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
     }
-    let mut job = job.unwrap();
 
+    let mut job = job.unwrap();
     if force_cancel {
         // if force canceling a flow step, make sure we force cancel from the highest parent
         loop {
@@ -239,6 +239,8 @@ pub async fn cancel_job<'c>(
             }
         }
     }
+
+    let job = Arc::new(job);
 
     // get all children
     let mut jobs = vec![job.id];
@@ -260,7 +262,7 @@ pub async fn cancel_job<'c>(
     let (ntx, _) = cancel_single_job(
         username,
         reason.clone(),
-        &job,
+        job.clone(),
         w_id,
         tx,
         db,
@@ -278,7 +280,7 @@ pub async fn cancel_job<'c>(
             let (ntx, _) = cancel_single_job(
                 username,
                 reason.clone(),
-                &job,
+                Arc::new(job),
                 w_id,
                 tx,
                 db,
@@ -412,6 +414,12 @@ impl ValidableJson for WrappedError {
 }
 
 impl ValidableJson for Box<RawValue> {
+    fn is_valid_json(&self) -> bool {
+        !self.get().is_empty()
+    }
+}
+
+impl ValidableJson for Arc<Box<RawValue>> {
     fn is_valid_json(&self) -> bool {
         !self.get().is_empty()
     }
@@ -984,6 +992,7 @@ pub async fn add_completed_job<
                     None
                 };
 
+                let ehm = HashMap::new();
                 let (_uuid, tx) = push(
                     db,
                     tx,
@@ -1005,8 +1014,8 @@ pub async fn add_completed_job<
                     queued_job
                         .args
                         .as_ref()
-                        .map(|x| PushArgs { args: x.0.clone(), extra: HashMap::new() })
-                        .unwrap_or_else(PushArgs::empty),
+                        .map(|x| PushArgs::from(&x.0))
+                        .unwrap_or_else(|| PushArgs::from(&ehm)),
                     &queued_job.created_by,
                     &queued_job.email,
                     queued_job.permissioned_as.clone(),
@@ -1357,7 +1366,7 @@ async fn apply_schedule_handlers<
     } else {
         #[cfg(feature = "enterprise")]
         if let Some(on_recovery_path) = schedule.on_recovery.clone() {
-            let mut tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
+            let tx: QueueTransaction<'_, R> = (rsmq.clone(), db.begin().await?).into();
             let times = schedule.on_recovery_times.unwrap_or(1).max(1);
             let past_jobs = sqlx::query_as::<_, CompletedJobSubset>(
                 "SELECT success, result, started_at FROM completed_job WHERE workspace_id = $1 AND schedule_path = $2 AND script_path = $3 AND id != $4 ORDER BY created_at DESC LIMIT $5",
@@ -1382,7 +1391,7 @@ async fn apply_schedule_handlers<
             let failed_job = past_jobs[past_jobs.len() - 1].clone();
 
             if !failed_job.success {
-                tx = handle_recovered_schedule(
+                handle_recovered_schedule(
                     db,
                     tx,
                     job_id,
@@ -1398,9 +1407,9 @@ async fn apply_schedule_handlers<
                     schedule.on_recovery_extra_args.clone(),
                 )
                 .await?;
+            } else {
+                tx.commit().await?;
             }
-
-            tx.commit().await?;
         }
     }
 
@@ -1480,7 +1489,7 @@ pub async fn push_error_handler<
         tx,
         handler_w_id,
         payload,
-        PushArgs { extra, args: result },
+        PushArgs { extra: Some(extra), args: &result },
         if is_global_error_handler {
             "global"
         } else if is_schedule_error_handler {
@@ -1553,7 +1562,7 @@ async fn handle_recovered_schedule<
     successful_times: i32,
     successful_job_started_at: DateTime<Utc>,
     extra_args: Option<Json<Box<RawValue>>>,
-) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+) -> windmill_common::error::Result<()> {
     let (payload, tag) = get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
 
     let mut extra = HashMap::new();
@@ -1606,7 +1615,7 @@ async fn handle_recovered_schedule<
         tx,
         w_id,
         payload,
-        PushArgs { extra: extra, args: args },
+        PushArgs { extra: Some(extra), args: &args },
         SCHEDULE_RECOVERY_HANDLER_USERNAME,
         SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
         ERROR_HANDLER_USER_GROUP.to_string(),
@@ -1631,7 +1640,8 @@ async fn handle_recovered_schedule<
         uuid,
         schedule_path
     );
-    return Ok(tx);
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
@@ -1930,7 +1940,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                     .map_err(|_| anyhow::anyhow!("Failed to parsed Redis message"))?,
             );
 
-            let m2r = sqlx::query(
+            let m2r = sqlx::query_as::<_, QueuedJob>(
                 "UPDATE queue
             SET running = true
             , started_at = coalesce(started_at, now())
@@ -1948,11 +1958,6 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             .bind(uuid)
             .fetch_optional(db)
             .await?;
-            let m2 = if let Some(row) = m2r {
-                Some(QueuedJob::from_row(&row)?)
-            } else {
-                None
-            };
 
             rsmq.delete_message(&tag.unwrap(), &msg.id)
                 .await
@@ -1961,7 +1966,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             #[cfg(feature = "benchmark")]
             println!("rsmq 2: {:?}", instant.elapsed());
 
-            m2
+            m2r
         } else {
             None
         }
@@ -1981,7 +1986,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         let priority_tags_sorted = config.priority_tags_sorted.clone();
         drop(config);
         let r = if suspend_first {
-            sqlx::query("UPDATE queue
+            sqlx::query_as::<_, QueuedJob>("UPDATE queue
             SET running = true
               , started_at = coalesce(started_at, now())
               , last_ping = now()
@@ -2007,18 +2012,13 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
         } else {
             None
         };
-        let r = if let Some(row) = r {
-            Some(QueuedJob::from_row(&row)?)
-        } else {
-            None
-        };
         if r.is_none() {
             // #[cfg(feature = "benchmark")]
             // let instant = Instant::now();
             let mut highest_priority_job: Option<QueuedJob> = None;
 
             for priority_tags in priority_tags_sorted {
-                let r = sqlx::query(
+                let r = sqlx::query_as::<_, QueuedJob>(
                     "UPDATE queue
                     SET running = true
                     , started_at = coalesce(started_at, now())
@@ -2044,12 +2044,11 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                 .fetch_optional(db)
                 .await?;
 
-                if let Some(pulled_row) = r {
-                    let pulled_job = QueuedJob::from_row(&pulled_row)?;
-                    highest_priority_job = Some(pulled_job.clone());
+                if let Some(pulled_job) = r {
+                    let id = pulled_job.id;
+                    highest_priority_job = Some(pulled_job);
                     tracing::debug!(
-                        "Pulling for job {} with tags {:?} with priority {}",
-                        pulled_job.id,
+                        "Pulling for job {id} with tags {:?} with priority {}",
                         priority_tags.tags,
                         priority_tags.priority
                     );
@@ -2103,18 +2102,13 @@ async fn legacy_concurrency_key(db: &Pool<Postgres>, queued_job: &QueuedJob) -> 
     .flatten()
     .flatten();
 
-    r.map(|x| {
-        interpolate_args(
-            x,
-            &queued_job
-                .args
-                .clone()
-                .map(|x| x.0)
-                .unwrap_or_default()
-                .into(),
-            &queued_job.workspace_id,
-        )
-    })
+    let ehm = HashMap::new();
+    let push_args = queued_job
+        .args
+        .as_ref()
+        .map(|x| PushArgs::from(&x.0))
+        .unwrap_or_else(|| PushArgs::from(&ehm));
+    r.map(|x| interpolate_args(x, &push_args, &queued_job.workspace_id))
 }
 
 async fn concurrency_key(
@@ -2138,7 +2132,7 @@ fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
             let arg_value = args
                 .args
                 .get(arg_name)
-                .or(args.extra.get(arg_name))
+                .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
                 .map(|x| x.get())
                 .unwrap_or_default()
                 .trim_matches('"');
@@ -2427,7 +2421,7 @@ async fn extract_result_from_job_result(
 ) -> error::Result<Box<RawValue>> {
     match job_result {
         JobResult::ListJob(job_ids) => {
-            let rows = sqlx::query(
+            let rows = sqlx::query_as::<_, ResultWithId>(
                 "SELECT id, result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
             )
             .bind(job_ids.as_slice())
@@ -2435,11 +2429,7 @@ async fn extract_result_from_job_result(
             .fetch_all(db)
             .await?
             .into_iter()
-            .filter_map(|x| {
-                ResultWithId::from_row(&x)
-                    .ok()
-                    .and_then(|x| x.result.map(|y| (x.id, y)))
-            })
+            .filter_map(|x| x.result.map(|y| (x.id, y)))
             .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
             let result = job_ids
                 .into_iter()
@@ -2451,7 +2441,7 @@ async fn extract_result_from_job_result(
                 .collect::<Vec<_>>();
             Ok(to_raw_value(&result))
         }
-        JobResult::SingleJob(x) => Ok(sqlx::query(
+        JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
             "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
         .bind(x)
@@ -2463,11 +2453,7 @@ async fn extract_result_from_job_result(
         )
         .fetch_optional(db)
         .await?
-        .map(|r| {
-            ResultR::from_row(&r)
-                .ok()
-                .and_then(|x| x.result.map(|x| x.0))
-        })
+        .map(|r| r.result.map(|x| x.0))
         .flatten()
         .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))),
     }
@@ -2523,35 +2509,27 @@ pub async fn get_queued_job_tx<'c>(
     w_id: &str,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<Option<QueuedJob>> {
-    let r = sqlx::query(
+    sqlx::query_as::<_, QueuedJob>(
         "SELECT *
             FROM queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
     .bind(w_id)
     .fetch_optional(&mut **tx)
-    .await?;
-    if let Some(row) = r {
-        Ok(Some(QueuedJob::from_row(&row)?.to_owned()))
-    } else {
-        Ok(None)
-    }
+    .await
+    .map_err(Into::into)
 }
 
 pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
-    let r = sqlx::query(
+    sqlx::query_as::<_, QueuedJob>(
         "SELECT *
             FROM queue WHERE id = $1 AND workspace_id = $2",
     )
     .bind(id)
     .bind(w_id)
     .fetch_optional(db)
-    .await?;
-    if let Some(row) = r {
-        Ok(Some(QueuedJob::from_row(&row)?.to_owned()))
-    } else {
-        Ok(None)
-    }
+    .await
+    .map_err(Into::into)
 }
 
 pub enum PushIsolationLevel<'c, R: rsmq_async::RsmqConnection + Send + 'c> {
@@ -2586,12 +2564,46 @@ macro_rules! fetch_scalar_isolated {
 
 use sqlx::types::JsonRawValue;
 
-#[derive(Serialize, Debug)]
-pub struct PushArgs {
-    #[serde(flatten)]
-    pub extra: HashMap<String, Box<RawValue>>,
-    #[serde(flatten)]
+#[derive(Debug)]
+pub struct PushArgsOwned {
+    pub extra: Option<HashMap<String, Box<RawValue>>>,
     pub args: HashMap<String, Box<RawValue>>,
+}
+
+#[derive(Debug)]
+pub struct PushArgs<'c> {
+    pub extra: Option<HashMap<String, Box<RawValue>>>,
+    pub args: &'c HashMap<String, Box<RawValue>>,
+}
+
+impl<'c> From<&'c HashMap<String, Box<RawValue>>> for PushArgs<'c> {
+    fn from(args: &'c HashMap<String, Box<RawValue>>) -> Self {
+        PushArgs { extra: None, args }
+    }
+}
+
+impl<'c> Serialize for PushArgs<'c> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(
+            self.args.len() + self.extra.as_ref().map(|x| x.len()).unwrap_or_default(),
+        ))?;
+        let mut in_extra = vec![];
+        if let Some(extra) = &self.extra {
+            for (k, v) in extra {
+                map.serialize_entry(k, v)?;
+                in_extra.push(k);
+            }
+        }
+        for (k, v) in self.args {
+            if !in_extra.contains(&k) {
+                map.serialize_entry(k, v)?;
+            }
+        }
+        map.end()
+    }
 }
 
 #[derive(Deserialize)]
@@ -2648,11 +2660,11 @@ impl DecodeQueries {
     }
 }
 
-impl PushArgs {
-    pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
-        self.extra.insert(k.into(), v.into());
-    }
-}
+// impl<'c> PushArgs<'c> {
+//     pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
+//         self.extra.insert(k.into(), v.into());
+//     }
+// }
 
 #[derive(Deserialize)]
 pub struct RequestQuery {
@@ -2687,7 +2699,7 @@ fn restructure_cloudevents_metadata(
     }
 }
 
-impl PushArgs {
+impl PushArgsOwned {
     async fn from_json(
         mut extra: HashMap<String, Box<RawValue>>,
         use_raw: bool,
@@ -2705,12 +2717,12 @@ impl PushArgs {
                 .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
             let mut hm = HashMap::new();
             hm.insert("body".to_string(), args);
-            Ok(PushArgs { extra, args: hm })
+            Ok(PushArgsOwned { extra: Some(extra), args: hm })
         } else {
             let hm = serde_json::from_str::<Option<HashMap<String, Box<JsonRawValue>>>>(&str)
                 .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)).into_response())?
                 .unwrap_or_else(HashMap::new);
-            Ok(PushArgs { extra, args: hm })
+            Ok(PushArgsOwned { extra: Some(extra), args: hm })
         }
     }
 
@@ -2727,7 +2739,7 @@ impl PushArgs {
             Error::BadRequest(format!("invalid cloudevents+json: {}", e)).into_response()
         })?;
         let hm = restructure_cloudevents_metadata(hm).map_err(|e| e.into_response())?;
-        Ok(PushArgs { extra, args: hm })
+        Ok(PushArgsOwned { extra: Some(extra), args: hm })
     }
 }
 
@@ -2771,10 +2783,10 @@ mod tests {
         "#;
         let extra = HashMap::new();
 
-        let a1 = PushArgs::from_ce_json(extra.clone(), false, r1.to_string())
+        let a1 = PushArgsOwned::from_ce_json(extra.clone(), false, r1.to_string())
             .await
             .expect("Failed to parse the cloudevent");
-        let a2 = PushArgs::from_ce_json(extra.clone(), false, r2.to_string())
+        let a2 = PushArgsOwned::from_ce_json(extra.clone(), false, r2.to_string())
             .await
             .expect("Failed to parse the cloudevent");
 
@@ -2792,7 +2804,7 @@ mod tests {
 }
 
 #[axum::async_trait]
-impl<S> FromRequest<S, axum::body::Body> for PushArgs
+impl<S> FromRequest<S, axum::body::Body> for PushArgsOwned
 where
     S: Send + Sync,
 {
@@ -2824,7 +2836,7 @@ where
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            PushArgs::from_json(extra, use_raw, str).await
+            PushArgsOwned::from_json(extra, use_raw, str).await
         } else if content_type
             .unwrap()
             .starts_with("application/cloudevents+json")
@@ -2835,7 +2847,7 @@ where
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            PushArgs::from_ce_json(extra, use_raw, str).await
+            PushArgsOwned::from_ce_json(extra, use_raw, str).await
         } else if content_type
             .unwrap()
             .starts_with("application/cloudevents-batch+json")
@@ -2868,7 +2880,7 @@ where
                 .map(|(k, v)| (k, to_raw_value(&v)))
                 .collect::<HashMap<_, _>>();
 
-            return Ok(PushArgs { extra, args: payload });
+            return Ok(PushArgsOwned { extra: Some(extra), args: payload });
         } else {
             Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
         }
@@ -2906,20 +2918,14 @@ pub fn build_extra(
     args
 }
 
-impl PushArgs {
+impl PushArgsOwned {
     pub fn empty() -> Self {
-        PushArgs { extra: HashMap::new(), args: HashMap::new() }
+        PushArgsOwned { extra: None, args: HashMap::new() }
     }
 }
 
 pub fn empty_result() -> Box<RawValue> {
     return JsonRawValue::from_string("{}".to_string()).unwrap();
-}
-
-impl From<HashMap<String, Box<JsonRawValue>>> for PushArgs {
-    fn from(value: HashMap<String, Box<JsonRawValue>>) -> Self {
-        PushArgs { extra: HashMap::new(), args: value }
-    }
 }
 
 // impl<T> From<PushArgsInner<T>> for PushArgs<T> {
@@ -2938,12 +2944,12 @@ struct FlowRawValue {
 }
 
 // #[instrument(level = "trace", skip_all)]
-pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
     _db: &Pool<Postgres>,
     mut tx: PushIsolationLevel<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: PushArgs,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -3731,6 +3737,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         .map_err(|e| Error::InternalErr(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
     }
 
+    tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
@@ -3775,6 +3782,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
 
+    tracing::debug!("Pushed {job_id}");
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
     #[cfg(feature = "prometheus")]
     if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {

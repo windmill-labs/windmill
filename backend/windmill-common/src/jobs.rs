@@ -113,14 +113,6 @@ pub struct QueuedJob {
 }
 
 impl QueuedJob {
-    pub fn get_args(&self) -> HashMap<String, Box<RawValue>> {
-        if let Some(args) = self.args.as_ref() {
-            args.0.clone()
-        } else {
-            HashMap::new()
-        }
-    }
-
     pub fn script_path(&self) -> &str {
         self.script_path
             .as_ref()
@@ -287,8 +279,8 @@ impl CompletedJob {
 }
 
 #[derive(sqlx::FromRow)]
-pub struct BranchResults<'a> {
-    pub result: &'a RawValue,
+pub struct BranchResults {
+    pub result: sqlx::types::Json<Box<RawValue>>,
     pub id: Uuid,
 }
 

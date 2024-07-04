@@ -53,7 +53,7 @@ ${Object.entries(args)
 </script>
 
 {#if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
-	The args are too big in size to be able to fetch s3. Please <a
+	The args are too big in size to be able to fetch alongside job. Please <a
 		href="/api/w/{workspace}/jobs_u/get_args/{id}"
 		target="_blank">download the JSON file to view them</a
 	>.
