@@ -8838,7 +8838,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "time",
- "uuid 1.9.0",
+ "uuid 1.9.1",
  "winapi",
 ]
 
@@ -10554,7 +10554,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.353.0"
+version = "1.356.1"
 dependencies = [
  "anyhow",
  "serde",
