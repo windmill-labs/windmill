@@ -899,7 +899,7 @@ impl RunJob {
             tx,
             "test-workspace",
             payload,
-            hm_args.into(),
+            windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),

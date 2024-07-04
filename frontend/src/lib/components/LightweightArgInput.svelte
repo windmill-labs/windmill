@@ -480,7 +480,10 @@
 							multiple={false}
 						/>
 						{#if value?.length}
-							<div class="text-2xs text-tertiary mt-1">File length: {value.length} base64 chars</div
+							<div class="text-2xs text-tertiary mt-1"
+								>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
+									2
+								)}MB)</div
 							>
 						{/if}
 					</div>

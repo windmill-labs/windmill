@@ -451,7 +451,7 @@ async fn trigger_dependents_to_recompute_dependencies<
             tx,
             &w_id,
             job_payload,
-            windmill_queue::PushArgs { args, extra: HashMap::new() },
+            windmill_queue::PushArgs { args: &args, extra: None },
             &created_by,
             email,
             permissioned_as.to_string(),

@@ -894,8 +894,6 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
 
 #[cfg(feature = "enterprise")]
 use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
-#[cfg(feature = "enterprise")]
-use std::sync::Arc;
 
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
@@ -911,7 +909,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
     let mut logs = "".to_string();
