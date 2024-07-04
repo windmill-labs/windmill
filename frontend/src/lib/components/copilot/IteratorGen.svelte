@@ -54,7 +54,7 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectedId} and represents a for-loop. You can find the details of all the steps below:
+The current step is ${$selectedId} and represents a for-loop. You can find the details of all the steps below:
 ${flowDetails}
 Determine the iterator expression to pass either from the previous results or the flow inputs. Here's a summary of the available data:
 <available>

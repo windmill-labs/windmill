@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.357.0](https://github.com/windmill-labs/windmill/compare/v1.356.1...v1.357.0) (2024-07-04)
+
+
+### Features
+
+* flow versioning ([#4009](https://github.com/windmill-labs/windmill/issues/4009)) ([e50f175](https://github.com/windmill-labs/windmill/commit/e50f1752da472d2b8e8b3793f1b3bc91697a5802))
+
+
+### Bug Fixes
+
+* **backend:** correct version join of list search flows ([#4022](https://github.com/windmill-labs/windmill/issues/4022)) ([e361acc](https://github.com/windmill-labs/windmill/commit/e361accf47285c37aed9b242a8cc7b0765c4f17d))
+* **backend:** switch job run to user db ([#4017](https://github.com/windmill-labs/windmill/issues/4017)) ([26fd427](https://github.com/windmill-labs/windmill/commit/26fd4271803107f739dad782be87a4037af40350))
+* fix wrong interaction between suspended steps and forloop parallelism ([4399730](https://github.com/windmill-labs/windmill/commit/4399730ab493112676d7f7d79fb42a638cab9d83))
+* **frontend:** improve flow input completion prompt when not in a loop ([#4021](https://github.com/windmill-labs/windmill/issues/4021)) ([55eac8f](https://github.com/windmill-labs/windmill/commit/55eac8ffec54a59b3b7a387b92691766f4c1fa73))
+* **frontend:** only load flow/app versions on drawer opening ([#4020](https://github.com/windmill-labs/windmill/issues/4020)) ([3e783e3](https://github.com/windmill-labs/windmill/commit/3e783e30e6ffea606b4c974b315d5ea400d07355))
+* improve dedicated workers for flows ([17d12b5](https://github.com/windmill-labs/windmill/commit/17d12b512bb3bdfa3617d608f725f444853ed868))
+* improve dedicated workers for flows ([f58d82f](https://github.com/windmill-labs/windmill/commit/f58d82fedff0f406e1d5ab255695ac34d9962e1d))
+* improve flow cancellation ([#4013](https://github.com/windmill-labs/windmill/issues/4013)) ([1a403f8](https://github.com/windmill-labs/windmill/commit/1a403f8f39a100a68ca0346e3439ed29e26b8d4f))
+* memory optimization for flow with big args ([#4019](https://github.com/windmill-labs/windmill/issues/4019)) ([708b270](https://github.com/windmill-labs/windmill/commit/708b2702cada2713304a13b00846b789586b393f))
+* update bun 1.1.18 ([c2cd18d](https://github.com/windmill-labs/windmill/commit/c2cd18d4dad8c575fd4c82056224c19667012b5f))
+
 ## [1.356.1](https://github.com/windmill-labs/windmill/compare/v1.356.0...v1.356.1) (2024-07-03)
 
 
