@@ -21,6 +21,11 @@ const changelogs: Changelog[] = [
 		date: '2024-06-04'
 	},
 	{
+		label: 'Secondary Storage',
+		href: 'https://www.windmill.dev/changelog/secondary-storage',
+		date: '2024-05-31'
+	},
+	{
 		label: 'Allow User Resources in Apps with a toggle',
 		href: 'https://www.windmill.dev/changelog/user-resources-in-apps',
 		date: '2024-05-27'
@@ -31,13 +36,13 @@ const changelogs: Changelog[] = [
 		date: '2024-05-27'
 	},
 	{
-		label: 'Allow User Resources in Apps with a toggle',
-		href: 'https://www.windmill.dev/changelog/user-resources-in-apps',
-		date: '2024-05-27'
-	},
-	{
 		label: 'Concurrency Limit Observability',
 		href: 'https://www.windmill.dev/changelog/concurrency-limit-observability',
+		date: '2024-05-15'
+	},
+	{
+		label: 'Full Height Components',
+		href: 'https://www.windmill.dev/changelog/full-height-components',
 		date: '2024-05-15'
 	},
 	{
