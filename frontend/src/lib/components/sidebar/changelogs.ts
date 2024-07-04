@@ -6,6 +6,36 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'OneOf Inputs',
+		href: 'https://www.windmill.dev/changelog/oneof-inputs',
+		date: '2024-06-17'
+	},
+	{
+		label: 'Tracking relative imports to avoid dependency hell',
+		href: 'https://www.windmill.dev/changelog/track-relative-imports',
+		date: '2024-06-10'
+	},
+	{
+		label: 'Windmill Customer Portal',
+		href: 'https://www.windmill.dev/changelog/customer-portal',
+		date: '2024-06-04'
+	},
+	{
+		label: 'Allow User Resources in Apps with a toggle',
+		href: 'https://www.windmill.dev/changelog/user-resources-in-apps',
+		date: '2024-05-27'
+	},
+	{
+		label: 'Windmill AI now supports GPT-4o',
+		href: 'https://www.windmill.dev/changelog/windmill-ai-gpt-4o',
+		date: '2024-05-27'
+	},
+	{
+		label: 'Allow User Resources in Apps with a toggle',
+		href: 'https://www.windmill.dev/changelog/user-resources-in-apps',
+		date: '2024-05-27'
+	},
+	{
 		label: 'Concurrency Limit Observability',
 		href: 'https://www.windmill.dev/changelog/concurrency-limit-observability',
 		date: '2024-05-15'
