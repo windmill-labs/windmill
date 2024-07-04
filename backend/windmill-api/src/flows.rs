@@ -95,7 +95,7 @@ async fn list_search_flows(
         "SELECT flow.path, flow_version.value
         FROM flow 
         LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE workspace_id = $1 LIMIT $2",
+        WHERE flow.workspace_id = $1 LIMIT $2",
     )
     .bind(&w_id)
     .bind(n)
