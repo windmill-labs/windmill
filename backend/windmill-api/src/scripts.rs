@@ -745,7 +745,7 @@ async fn create_script_internal<'c>(
                 path: ns.path,
                 dedicated_worker: ns.dedicated_worker,
             },
-            args.into(),
+            windmill_queue::PushArgs::from(&args),
             &authed.username,
             &authed.email,
             permissioned_as,
