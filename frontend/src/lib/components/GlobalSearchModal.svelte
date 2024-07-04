@@ -11,7 +11,7 @@
 		type ListableRawApp,
 		type Script
 	} from '$lib/gen'
-	import { clickOutside, displayDateOnly } from '$lib/utils'
+	import { clickOutside, displayDateOnly, sendUserToast } from '$lib/utils'
 	import TimeAgo from './TimeAgo.svelte'
 	import {
 		BoxesIcon,
@@ -22,9 +22,7 @@
 		HomeIcon,
 		LayoutDashboardIcon,
 		PlayIcon,
-		Search,
-		SearchCodeIcon,
-		SearchIcon
+		Search
 	} from 'lucide-svelte'
 	import JobPreview from './runs/JobPreview.svelte'
 	import Portal from 'svelte-portal'
@@ -36,6 +34,7 @@
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import DropdownV2 from './DropdownV2.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
+	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
 
 	export let open: boolean = false
 
@@ -54,7 +53,7 @@
 	let tab: SearchMode = 'default'
 
 	type quickMenuItem = {
-		id: string
+		search_id: string
 		label: string
 		action: () => void
 		icon?: any
@@ -62,41 +61,41 @@
 	}
 	let switchModeItems: quickMenuItem[] = [
 		{
-			id: 'run-search',
+			search_id: 'switchto:run-search',
 			label: 'Search across runs',
 			action: () => switchMode('runs'),
 			charIcon: RUNS_PREFIX
 		},
 		{
-			id: 'content-search',
+			search_id: 'switchto:content-search',
 			label: 'Search scripts/flows/apps based on content',
 			action: () => switchMode('content'),
 			charIcon: CONTENT_SEARCH_PREFIX
 		},
 		{
-			id: 'log-search',
+			search_id: 'switchto:log-search',
 			label: 'Search windmill logs',
 			action: () => switchMode('logs'),
 			charIcon: LOGS_PREFIX
 		}
 	]
 	let defaultMenuItems: quickMenuItem[] = [
-		{ id: 'home', label: 'Go to Home', action: () => gotoPage('/'), icon: HomeIcon },
-		{ id: 'runs', label: 'Go to Runs', action: () => gotoPage('/runs'), icon: PlayIcon },
+		{ search_id: 'nav:home', label: 'Go to Home', action: () => gotoPage('/'), icon: HomeIcon },
+		{ search_id: 'nav:runs', label: 'Go to Runs', action: () => gotoPage('/runs'), icon: PlayIcon },
 		{
-			id: 'variables',
+			search_id: 'nav:variables',
 			label: 'Go to Variables',
 			action: () => gotoPage('/variables'),
 			icon: DollarSignIcon
 		},
 		{
-			id: 'resources',
+			search_id: 'nav:resources',
 			label: 'Go to Resources',
 			action: () => gotoPage('/resources'),
 			icon: BoxesIcon
 		},
 		{
-			id: 'schedules',
+			search_id: 'nav:schedules',
 			label: 'Go to Schedules',
 			action: () => gotoPage('/schedules'),
 			icon: CalendarIcon
@@ -162,7 +161,6 @@
 		return r
 	}
 
-
 	async function handleSearch() {
 		if (
 			tab !== 'default' &&
@@ -209,7 +207,9 @@
 			// only search if hasn't been called in some small time. Show load animation while wating. Also add a cache that resets everytime the modal is closed
 			const s = removePrefix(searchTerm, RUNS_PREFIX)
 			try {
-				itemMap['runs'] = await IndexSearchService.searchJobsIndex({ query: s })
+				const searchResults = await IndexSearchService.searchJobsIndex({ query: s })
+				console.log(searchResults)
+				itemMap['runs'] = searchResults.document_hits
 			} catch (error) {
 				itemMap['runs'] = []
 				throw error
@@ -257,6 +257,8 @@
 				if (idx != -1) {
 					idx = (idx + 1) % itemMap[tab].length
 					selectedItem = selectItem(idx)
+					let el = document.getElementById(selectedItem.search_id)
+					if (el) scroll_into_view_if_needed_polyfill(el, false)
 				}
 			} else if (event.key === 'ArrowUp') {
 				event.preventDefault()
@@ -264,15 +266,19 @@
 				if (idx != -1) {
 					idx = (idx - 1 + itemMap[tab].length) % itemMap[tab].length
 					selectedItem = selectItem(idx)
+					let el = document.getElementById(selectedItem.search_id)
+					if (el) scroll_into_view_if_needed_polyfill(el, false)
 				}
 			}
 		}
 	}
 
+	//internal, should not be called outside of the handleSearch function
 	function _switchMode(mode: SearchMode) {
 		selectedItem = undefined
 		tab = mode
 	}
+	// Used by callbacks, call this to change the mode
 	function switchMode(mode: SearchMode) {
 		switchPrompt(mode)
 	}
@@ -341,11 +347,17 @@
 	}
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
+		search_id: string,
 		marked?: string
 		type?: U
 		time?: number
 		starred?: boolean
 		has_draft?: boolean
+	}
+
+	// This id allows to differentiate between elements in the menu of different types and shapes.
+	interface SelectableSearchMenuItem {
+		search_id: string
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -372,22 +384,26 @@
 			...flows.map((x) => ({
 				...x,
 				type: 'flow' as 'flow',
-				time: new Date(x.edited_at).getTime()
+				time: new Date(x.edited_at).getTime(),
+				search_id: x.path,
 			})),
 			...scripts.map((x) => ({
 				...x,
 				type: 'script' as 'script',
-				time: new Date(x.created_at).getTime()
+				time: new Date(x.created_at).getTime(),
+				search_id: x.path,
 			})),
 			...apps.map((x) => ({
 				...x,
 				type: 'app' as 'app',
-				time: new Date(x.edited_at).getTime()
+				time: new Date(x.edited_at).getTime(),
+				search_id: x.path,
 			})),
 			...raw_apps.map((x) => ({
 				...x,
 				type: 'raw_app' as 'raw_app',
-				time: new Date(x.edited_at).getTime()
+				time: new Date(x.edited_at).getTime(),
+				search_id: x.path,
 			}))
 		].sort((a, b) => (a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1))
 
@@ -435,141 +451,145 @@
 							placeholder={placeholderForMode(tab)}
 						/>
 					</div>
-					{#if tab === 'default' || tab === 'switch-mode'}
-						{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
-							<QuickMenuItem
-								on:select={el?.action}
-								on:hover={() => (selectedItem = el)}
-								id={el?.id}
-								hovered={el?.id === selectedItem?.id}
-								label={el?.label}
-								icon={el?.icon}
-								charIcon={el?.charIcon}
-							/>
-						{/each}
-					{/if}
-					{#if tab !== 'switch-mode'}
-						<div
-							class="flex flex-row items-center text-xs font-bold font-small-caps border-b-2 border-gray-300 p-1 mt-2"
-						>
-							<span class="h-6 px-1"> Search </span>
-							<span>
-								<DropdownV2
-									items={[
-										{
-											displayName: searchModeDescription('default'),
-											action: () => switchMode('default')
-										},
-										{
-											displayName: searchModeDescription('content'),
-											action: () => switchMode('content')
-										},
-										{
-											displayName: searchModeDescription('runs'),
-											action: () => switchMode('runs')
-										},
-										{
-											displayName: searchModeDescription('logs'),
-											action: () => switchMode('logs')
-										}
-									]}
-								>
-									<svelte:fragment slot="buttonReplacement">
-										<div class="flex flex-row text-xs items-center">
-											<div
-												class="pl-1 h-6 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-											>
-												<span class="">{searchModeDescription(tab)}</span>
-												<ChevronDown class="w-5 h-5" />
-											</div>
-										</div>
-									</svelte:fragment>
-								</DropdownV2>
-							</span>
-						</div>
-					{/if}
-					{#if tab === 'default'}
-						{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
-							<QuickMenuItem
-								on:select={() => gotoWindmillItemPage(el)}
-								on:hover={() => (selectedItem = el)}
-								id={el?.path}
-								hovered={el?.path === selectedItem?.path}
-								label={el.path + (el.starred ? ' ★' : '')}
-								icon={iconForWindmillItem(el.type)}
-							/>
-						{/each}
-					{:else if tab === 'content'}
-						<ContentSearchInner search={removePrefix(searchTerm, '#')} bind:this={contentSearch} />
-					{:else if tab === 'logs'}
-						Not implemented yet
-					{:else if tab === 'runs'}
-						<div class="flex h-96">
-							<!-- {#if !results || results.length == 0} -->
-							<!-- 	No matches found -->
-							<!-- {:else} -->
-							<div class="w-5/12 overflow-scroll">
-								{#each itemMap['runs'] ?? [] as r}
-									<QuickMenuItem
-										on:hover={() => {
-											selectedItem = r
-											selectedWorkspace = r?.document.workspace_id[0]
-										}}
-										on:select={() => {
-											open = false
-											goto(`/run/${r?.document.id[0]}`)
-										}}
-										id={r?.document.id[0]}
-										hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
-										icon={r?.icon}
+					<div class="overflow-scroll h-96">
+						{#if tab === 'default' || tab === 'switch-mode'}
+							{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
+								<QuickMenuItem
+									on:select={el?.action}
+									on:hover={() => (selectedItem = el)}
+									id={el?.search_id}
+									hovered={el?.search_id === selectedItem?.search_id}
+									label={el?.label}
+									icon={el?.icon}
+									charIcon={el?.charIcon}
+								/>
+							{/each}
+						{/if}
+						{#if tab !== 'switch-mode'}
+							<div
+								class="flex flex-row items-center text-xs font-bold font-small-caps border-b-2 border-gray-300 p-1 mt-2"
+							>
+								<span class="h-6 px-1"> Search </span>
+								<span>
+									<DropdownV2
+										items={[
+											{
+												displayName: searchModeDescription('default'),
+												action: () => switchMode('default')
+											},
+											{
+												displayName: searchModeDescription('content'),
+												action: () => switchMode('content')
+											},
+											{
+												displayName: searchModeDescription('runs'),
+												action: () => switchMode('runs')
+											},
+											{
+												displayName: searchModeDescription('logs'),
+												action: () => switchMode('logs')
+											}
+										]}
 									>
-										<svelte:fragment slot="itemReplacement">
-											<button
-												class={twMerge(
-													`w-full flex items-center justify-between gap-1 py-2 px-2 text-left border rounded-sm transition-a`,
-													r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
-												)}
-												on:click={() => {}}
-											>
+										<svelte:fragment slot="buttonReplacement">
+											<div class="flex flex-row text-xs items-center">
 												<div
-													class="w-full h-full items-center text-xs font-normal grid grid-cols-10 gap-0 min-w-0"
+													class="pl-1 h-6 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
 												>
-													<div class="col-span-1">
-														<div
-															class="rounded-full w-2 h-2 {r?.document.success[0]
-																? 'bg-green-400'
-																: 'bg-red-400'}"
-														/>
-													</div>
-													<div class="col-span-5">
-														{r?.document.script_path}
-													</div>
-													<div
-														class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-													>
-														{displayDateOnly(new Date(r?.document.created_at[0]))}
-													</div>
-													<div
-														class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-													>
-														<TimeAgo date={r?.document.created_at[0] ?? ''} />
-													</div>
+													<span class="">{searchModeDescription(tab)}</span>
+													<ChevronDown class="w-5 h-5" />
 												</div>
-											</button>
+											</div>
 										</svelte:fragment>
-									</QuickMenuItem>
-								{/each}
+									</DropdownV2>
+								</span>
 							</div>
-							{#if selectedItem === undefined}
-								select a result to preview
-							{:else}
-								<div class="w-7/12 overflow-y-scroll">
-									<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
+						{/if}
+						{#if tab === 'default'}
+							{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
+								<QuickMenuItem
+									on:select={() => gotoWindmillItemPage(el)}
+									on:hover={() => (selectedItem = el)}
+									id={el?.search_id}
+									hovered={el?.path === selectedItem?.path}
+									label={el.path + (el.starred ? ' ★' : '')}
+									icon={iconForWindmillItem(el.type)}
+								/>
+							{/each}
+						{:else if tab === 'content'}
+							<ContentSearchInner
+								search={removePrefix(searchTerm, '#')}
+								bind:this={contentSearch}
+							/>
+						{:else if tab === 'logs'}
+							Not implemented yet
+						{:else if tab === 'runs'}
+							<div class="flex h-96">
+								<!-- {#if !results || results.length == 0} -->
+								<!-- 	No matches found -->
+								<!-- {:else} -->
+								<div class="w-5/12 overflow-scroll">
+									{#each itemMap['runs'] ?? [] as r}
+										<QuickMenuItem
+											on:hover={() => {
+												selectedItem = r
+												selectedWorkspace = r?.document.workspace_id[0]
+											}}
+											on:select={() => {
+												open = false
+												goto(`/run/${r?.document.id[0]}`)
+											}}
+											id={r?.document.id[0]}
+											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
+											icon={r?.icon}
+										>
+											<svelte:fragment slot="itemReplacement">
+												<button
+													class={twMerge(
+														`w-full flex items-center justify-between gap-1 py-2 px-2 text-left border rounded-sm transition-a`,
+														r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
+													)}
+													on:click={() => {}}
+												>
+													<div
+														class="w-full h-full items-center text-xs font-normal grid grid-cols-10 gap-0 min-w-0"
+													>
+														<div class="col-span-1">
+															<div
+																class="rounded-full w-2 h-2 {r?.document.success[0]
+																	? 'bg-green-400'
+																	: 'bg-red-400'}"
+															/>
+														</div>
+														<div class="col-span-5">
+															{r?.document.script_path}
+														</div>
+														<div
+															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+														>
+															{displayDateOnly(new Date(r?.document.created_at[0]))}
+														</div>
+														<div
+															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+														>
+															<TimeAgo date={r?.document.created_at[0] ?? ''} />
+														</div>
+													</div>
+												</button>
+											</svelte:fragment>
+										</QuickMenuItem>
+									{/each}
 								</div>
-							{/if}
-							<!-- {/if} -->
-						</div>
-					{/if}
+								{#if selectedItem === undefined}
+									select a result to preview
+								{:else}
+									<div class="w-7/12 overflow-y-scroll">
+										<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
 				</div>
 			</div>
 		</div>

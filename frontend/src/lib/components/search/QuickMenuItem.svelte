@@ -25,12 +25,12 @@
 	}
 
 	function runAction() {
-		console.log('run' + id)
 		dispatch('select')
 	}
 </script>
 
 <div
+	{id}
 	on:click={runAction}
 	on:mouseenter={() => dispatch('hover')}
 	class={`rounded-md ${hovered ? 'bg-surface-hover' : ''}`}
