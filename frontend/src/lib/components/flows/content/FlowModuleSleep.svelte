@@ -77,6 +77,7 @@
 			</div>
 		{:else}
 			<SecondsInput disabled />
+			<div class="text-secondary">OR use a dynamic expression</div>
 		{/if}
 	</Label>
 </Section>
