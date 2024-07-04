@@ -192,7 +192,7 @@
 					fuzzyFilter(
 						searchTerm,
 						combinedItems,
-						combinedItems.map((i) => i.path)
+						combinedItems.map((i) => `${i.path} ${i.summary}`)
 					)
 				)
 			}
@@ -513,7 +513,7 @@
 									on:hover={() => (selectedItem = el)}
 									id={el?.search_id}
 									hovered={el?.path === selectedItem?.path}
-									label={el.path + (el.starred ? ' ★' : '')}
+									label={(el.summary ? `${el.summary} - ` : '') + el.path + (el.starred ? ' ★' : '')}
 									icon={iconForWindmillItem(el.type)}
 								/>
 							{/each}
