@@ -26,7 +26,7 @@
 	import { deepEqual } from 'fast-equals'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import type { FlowInput } from '../flows/types'
-	import { findParent } from '../flows/flowStateUtils'
+	import { dfs, isParent } from '../flows/dfs'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -179,16 +179,15 @@
 
 			if (useDataflow && $selectedId) {
 				let deps = getDependeeAndDependentComponents($selectedId, modules ?? [], failureModule)
+
 				if (deps) {
 					Object.entries(deps.dependees).forEach((x, i) => {
 						let pid = x[0]
 
-						// IF pid is "Input" and the $selectedId node is a child node (for loops, while loops, branches),
-						//then pid should be the parent of the $selectedId node
+						const parent = dfs(modules ?? [], (mod) => isParent(mod, $selectedId!)).filter(Boolean)
 
-						const parent = findParent(modules, $selectedId!)
-						if (pid === 'Input' && parent) {
-							pid = parent
+						if (pid === 'Input' && parent[0]) {
+							pid = parent?.[0].id
 						}
 
 						edges.push({
@@ -323,8 +322,6 @@
 		modules: FlowModule[],
 		wrapper: FlowModule | undefined = undefined
 	): Node {
-		console.log(mod.id, flowModuleStates?.[mod.id])
-
 		return {
 			type: 'node',
 			id: mod.id,
