@@ -54,7 +54,14 @@
 
 <InitializeComponent {id} />
 {#if render}
-	<div class="flex flex-row w-full items-center border-b px-4 gap-4 h-12">
+	<div
+		class={twMerge(
+			'',
+			resolvedConfig?.orientation === 'horizontal'
+				? 'flex flex-row w-full items-center border-b px-4 gap-4 h-12'
+				: 'flex flex-col h-full items-start border-r px-8 gap-2 w-56'
+		)}
+	>
 		{#if resolvedConfig.logo?.selected === 'yes'}
 			<img
 				on:pointerdown|preventDefault
@@ -73,7 +80,13 @@
 		<div class="font-semibold">
 			{resolvedConfig?.title ?? 'No Title'}
 		</div>
-		<div class="flex flex-row gap-4 overflow-x-auto">
+		<div
+			class={twMerge(
+				resolvedConfig?.orientation === 'horizontal'
+					? 'flex flex-row gap-4 overflow-x-auto'
+					: 'flex flex-col gap-4 overflow-y-auto'
+			)}
+		>
 			{#each navbarItems ?? [] as navbarItem, index (index)}
 				<Popover notClickable disablePopup={!Boolean(navbarItem.caption)}>
 					<svelte:fragment slot="text">{navbarItem.caption}</svelte:fragment>
@@ -83,6 +96,7 @@
 						borderColor={resolvedConfig?.borderColor}
 						{index}
 						bind:output
+						orientation={resolvedConfig?.orientation}
 					/>
 				</Popover>
 			{/each}

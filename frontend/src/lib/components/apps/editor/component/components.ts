@@ -3908,7 +3908,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						},
 						no: {}
 					}
-				} as const
+				} as const,
+				orientation: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'horizontal',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
+				}
 			}
 		}
 	}
