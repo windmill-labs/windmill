@@ -2652,7 +2652,10 @@ struct ExportedGlobalUser {
 }
 
 #[cfg(feature = "enterprise")]
-async fn export_global_users(Extension(db): Extension<DB>) -> JsonResult<Vec<ExportedGlobalUser>> {
+async fn export_global_users(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<Vec<ExportedGlobalUser>> {
     require_super_admin(&db, &authed.email).await?;
     let users = sqlx::query_as!(
         ExportedGlobalUser,
@@ -2673,6 +2676,7 @@ async fn export_global_users() -> JsonResult<String> {
 #[cfg(feature = "enterprise")]
 async fn import_global_users(
     Extension(db): Extension<DB>,
+    authed: ApiAuthed,
     Json(users): Json<Vec<ExportedGlobalUser>>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
