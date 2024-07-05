@@ -200,7 +200,7 @@
 		}
 	}
 
-	let devOnly = $page.url.pathname.startsWith('/scripts/dev')
+	let devOnly = $page.url.pathname.startsWith(base+'/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
 		workspacedOpenai.init(workspace)
