@@ -17,7 +17,10 @@ import {
   GroupService,
   WorkspaceService,
   GranularAclService,
+  yamlStringify,
+  yamlParse,
 } from "./deps.ts";
+import { ExportedUser } from "../../windmill-deno-client/windmill-api/models/ExportedUser.ts";
 
 async function list(opts: GlobalOptions) {
   await requireLogin(opts);
@@ -366,6 +369,35 @@ export async function pushGroup(
       throw e;
     }
   }
+}
+
+export async function pullInstanceUsers() {
+  log.info("Pulling users from instance...");
+  const exportedUsers = await UserService.globalUsersExport();
+
+  await Deno.writeTextFile(
+    "instance_users.yaml",
+    yamlStringify(exportedUsers as any)
+  );
+
+  log.info("Users written to instance_users.yaml");
+}
+
+export async function pushInstanceUsers(deleteDefaultSuperadmin?: boolean) {
+  log.info("Pushing users to instance...");
+  const raw = await Deno.readTextFile("instance_users.yaml");
+
+  if (deleteDefaultSuperadmin) {
+    await UserService.globalUserDelete({ email: "admin@windmill.dev" });
+  }
+
+  const users = yamlParse(raw) as ExportedUser[];
+
+  await UserService.globalUsersImport({
+    requestBody: users,
+  });
+
+  log.info("Users pushed to the instance");
 }
 
 const command = new Command()

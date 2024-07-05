@@ -439,6 +439,44 @@ paths:
             text/plain:
               schema:
                 type: string
+  /users/import:
+    post:
+      summary: global import users (require super admin and EE)
+      operationId: globalUsersImport
+      tags:
+        - user
+      requestBody:
+        description: List of users
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportedUser"
+      responses:
+        "200":
+          description: Success message
+          content:
+            text/plain:
+              schema:
+                type: string
+  
+  /users/export:
+    get:
+      summary: global export users (require super admin and EE)
+      operationId: globalUsersExport
+      tags:
+        - user
+      responses:
+        "200":
+          description: exported users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportedUser"
 
   /w/{workspace}/users/delete/{username}:
     delete:
@@ -849,6 +887,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  
+  /settings/list_global:
+    get:
+      summary: list global settings
+      operationId: listGlobalSettings
+      tags:
+        - setting
+      responses:
+        "200":
+          description: list of settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GlobalSetting"
 
   /users/email:
     get:
@@ -7415,6 +7470,22 @@ paths:
               schema:
                 type: string
 
+  /configs/list:
+    get:
+      summary: list configs
+      operationId: listConfigs
+      tags:
+        - config
+      responses:
+        "200":
+          description: list of configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Config"
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -11079,3 +11150,49 @@ components:
       required:
         - jobs
         - obscured_jobs
+    
+    ExportedUser:
+      type: object
+      properties:
+        email:
+          type: string
+        password_hash:
+          type: string
+        super_admin:
+          type: boolean
+        verified:
+          type: boolean
+        name:
+          type: string
+        company:
+          type: string
+        first_time_user:
+          type: boolean
+        username:
+          type: string
+      required:
+        - email
+        - super_admin
+        - verified
+        - first_time_user
+
+    GlobalSetting:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+      required:
+        - name
+        - value
+
+    Config:
+      type: object
+      properties:
+        name:
+          type: string
+        config:
+          type: string
+      required:
+        - name

@@ -1,3 +1,9 @@
+import { SettingService } from "./deps.ts";
+import { yamlStringify } from "./deps.ts";
+import { GlobalSetting } from "./deps.ts";
+import { Config } from "./deps.ts";
+import { ConfigService } from "./deps.ts";
+import { yamlParse } from "./deps.ts";
 import { WorkspaceService, log } from "./deps.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
@@ -198,4 +204,70 @@ export async function pushWorkspaceSettings(
       },
     });
   }
+}
+
+export async function pullInstanceSettings() {
+  log.info("Pulling settings from instance");
+  const settings = await SettingService.listGlobalSettings();
+
+  await Deno.writeTextFile(
+    "instance_settings.yaml",
+    yamlStringify(settings as any)
+  );
+
+  log.info("Settings written to instance_settings.yaml");
+}
+
+export async function pushInstanceSettings() {
+  log.info("Pushing settings to instance");
+  const settings = yamlParse(
+    await Deno.readTextFile("instance_settings.yaml")
+  ) as GlobalSetting[];
+
+  for (const setting of settings) {
+    try {
+      await SettingService.setGlobal({
+        key: setting.name,
+        requestBody: {
+          value: setting.value,
+        },
+      });
+    } catch (err) {
+      log.error(`Failed to set setting ${setting.name}: ${err}`);
+    }
+  }
+
+  log.info("Settings pushed to instance");
+}
+
+export async function pullInstanceConfigs() {
+  log.info("Pulling configs from instance");
+  const configs = await ConfigService.listConfigs();
+
+  await Deno.writeTextFile(
+    "instance_configs.yaml",
+    yamlStringify(configs as any)
+  );
+
+  log.info("Configs written to instance_configs.yaml");
+}
+
+export async function pushInstanceConfigs() {
+  log.info("Pushing configs to instance");
+  const configs = yamlParse(
+    await Deno.readTextFile("instance_configs.yaml")
+  ) as Config[];
+
+  for (const config of configs) {
+    try {
+      await ConfigService.updateConfig({
+        name: config.name,
+        requestBody: config.config,
+      });
+    } catch (err) {
+      log.error(`Failed to set config ${config.name}: ${err}`);
+    }
+  }
+
+  log.info("Configs pushed to instance");
 }

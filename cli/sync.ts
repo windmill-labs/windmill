@@ -52,6 +52,13 @@ import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
 } from "./metadata.ts";
+import { pushInstanceUsers, pullInstanceUsers } from "./user.ts";
+import {
+  pushInstanceSettings,
+  pullInstanceSettings,
+  pullInstanceConfigs,
+  pushInstanceConfigs,
+} from "./settings.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -1394,6 +1401,39 @@ async function push(opts: GlobalOptions & SyncOptions) {
   }
 }
 
+type InstanceSyncOptions = {
+  skipUsers?: boolean;
+  removeDefaultSuperadmin?: boolean;
+  skipSettings?: boolean;
+  skipConfigs?: boolean;
+};
+
+async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
+  await requireLogin(opts);
+  if (!opts.skipUsers) {
+    await pullInstanceUsers();
+  }
+  if (!opts.skipSettings) {
+    await pullInstanceSettings();
+  }
+  if (!opts.skipConfigs) {
+    await pullInstanceConfigs();
+  }
+}
+
+async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
+  await requireLogin(opts);
+  if (!opts.skipUsers) {
+    await pushInstanceUsers(opts.removeDefaultSuperadmin);
+  }
+  if (!opts.skipSettings) {
+    await pushInstanceSettings();
+  }
+  if (!opts.skipConfigs) {
+    await pushInstanceConfigs();
+  }
+}
+
 const command = new Command()
   .description(
     "sync local with a remote workspaces or the opposite (push or pull)"
@@ -1478,6 +1518,24 @@ const command = new Command()
     "Include a message that will be added to all scripts/flows/apps updated during this push"
   )
   // deno-lint-ignore no-explicit-any
-  .action(push as any);
+  .action(push as any)
+  .command("instance-pull")
+  .description("Pull instance settings, users and configs and overwrite local")
+  .option("--skip-users", "Skip pulling users")
+  .option("--skip-settings", "Skip pulling settings")
+  .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
+  .action(instancePull as any)
+  .command("instance-push")
+  .description(
+    "Push instance settings, users and configs (upsert but no delete)"
+  )
+  .option("--skip-users", "Skip pushing users")
+  .option(
+    "--remove-default-superadmin",
+    "Remove the default superadmin admin@windmill.dev user from the remote"
+  )
+  .option("--skip-settings", "Skip pushing settings")
+  .option("--skip-configs", "Skip pushing configs (worker groups and SMTP)")
+  .action(instancePush as any);
 
 export default command;

@@ -40,6 +40,7 @@ pub fn global_service() -> Router {
             "/global/:key",
             post(set_global_setting).get(get_global_setting),
         )
+        .route("/list_global", get(list_global_settings))
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
@@ -261,6 +262,33 @@ pub async fn get_global_setting(
         .map(|x| x.value);
 
     Ok(Json(value.unwrap_or_else(|| serde_json::Value::Null)))
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize, serde::Serialize)]
+struct GlobalSetting {
+    name: String,
+    value: serde_json::Value,
+}
+
+#[cfg(feature = "enterprise")]
+async fn list_global_settings(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<Vec<GlobalSetting>> {
+    require_super_admin(&db, &authed.email).await?;
+    let settings = sqlx::query_as!(GlobalSetting, "SELECT name, value FROM global_settings")
+        .fetch_all(&db)
+        .await?;
+
+    Ok(Json(settings))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn list_global_settings() -> JsonResult<String> {
+    return Err(error::Error::BadRequest(
+        "Listing global settings not available on community edition".to_string(),
+    ));
 }
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {

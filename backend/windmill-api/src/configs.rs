@@ -28,6 +28,7 @@ pub fn global_service() -> Router {
         .route("/list_worker_groups", get(list_worker_groups))
         .route("/update/:name", post(update_config).delete(delete_config))
         .route("/get/:name", get(get_config))
+        .route("/list", get(list_configs))
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -165,4 +166,23 @@ async fn delete_config(
         )));
     }
     Ok(format!("Deleted config {name}"))
+}
+
+#[cfg(feature = "enterprise")]
+async fn list_configs(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> error::JsonResult<Vec<Config>> {
+    require_super_admin(&db, &authed.email).await?;
+    let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
+        .fetch_all(&db)
+        .await?;
+    Ok(Json(configs))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn list_configs() -> error::JsonResult<String> {
+    Err(error::Error::BadRequest(
+        "Config listing available only in the enterprise version".to_string(),
+    ))
 }
