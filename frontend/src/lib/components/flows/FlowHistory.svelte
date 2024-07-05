@@ -191,6 +191,13 @@
 									{/if}
 								</span>
 								<div class="flex p-1 gap-2">
+									<Button
+										size="xs"
+										on:click={() =>
+											window.open(`/flows/add?template_id=${selectedVersion?.id}&template=${path}`)}
+									>
+										Restore as fork
+									</Button>
 									<Button size="xs" on:click={() => restoreVersion(selected)}
 										>Redeploy with that version
 									</Button>
