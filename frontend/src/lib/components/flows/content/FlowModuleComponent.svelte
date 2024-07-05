@@ -46,6 +46,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
+	import { debounce } from '$lib/utils'
 
 	const {
 		selectedId,
@@ -196,11 +197,7 @@
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
 
-	function setFlowInput(argName: string) {
-		if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
-			$flowInputsStore[flowModule.id] = {}
-		}
-
+	let debouncedWarning = debounce((argName: string) => {
 		if ($flowInputsStore) {
 			const flowStepWarnings = computeFlowStepWarning(
 				argName,
@@ -212,6 +209,13 @@
 
 			$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
 		}
+	}, 100)
+
+	function setFlowInput(argName: string) {
+		if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
+			$flowInputsStore[flowModule.id] = {}
+		}
+		debouncedWarning(argName)
 	}
 </script>
 
