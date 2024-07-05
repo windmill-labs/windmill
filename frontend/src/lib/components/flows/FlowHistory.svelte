@@ -11,6 +11,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Pencil, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { goto } from '$app/navigation'
 
 	export let path: string
 	let drawer: Drawer
@@ -191,6 +192,13 @@
 									{/if}
 								</span>
 								<div class="flex p-1 gap-2">
+									<Button
+										size="xs"
+										on:click={() =>
+											goto(`/flows/add?template_id=${selectedVersion?.id}&template=${path}`)}
+									>
+										Restore as fork
+									</Button>
 									<Button size="xs" on:click={() => restoreVersion(selected)}
 										>Redeploy with that version
 									</Button>

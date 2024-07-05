@@ -23,6 +23,7 @@
 			currentPath: string
 		}>
 	}
+	export let orientation: 'horizontal' | 'vertical' | undefined = undefined
 
 	let icon: any
 
@@ -65,7 +66,7 @@
 	$: !initialized && resolvedPath && initSelection()
 
 	function getButtonProps(resolvedPath: string | undefined) {
-		if (resolvedPath?.includes(appPath)) {
+		if (appPath && resolvedPath?.includes(appPath)) {
 			return {
 				onClick: () => {
 					output.result.set({ currentPath: resolvedPath ?? '' })
@@ -143,8 +144,10 @@
 
 {#if !resolvedHidden}
 	<div
-		class={twMerge('py-2', $selected === resolvedPath ? 'border-b-2 border-gray-500' : '')}
-		style={`border-color: ${borderColor ?? 'transparent'}`}
+		class={twMerge('py-2 border-b-2')}
+		style={`border-color: ${
+			$selected === resolvedPath ? borderColor ?? 'transparent' : 'transparent'
+		}`}
 	>
 		<Button
 			on:click={buttonProps.onClick}
@@ -153,6 +156,7 @@
 			color="light"
 			size="xs"
 			disabled={resolvedDisabled}
+			btnClasses={orientation === 'vertical' ? '!justify-start' : ''}
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}
