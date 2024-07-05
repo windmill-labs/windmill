@@ -56,7 +56,6 @@
 {#if render}
 	<div
 		class={twMerge(
-			'',
 			resolvedConfig?.orientation === 'horizontal'
 				? 'flex flex-row w-full items-center border-b px-4 gap-4 h-12'
 				: 'flex flex-col h-full items-start border-r px-8 gap-2 w-56'
