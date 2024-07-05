@@ -45,7 +45,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
-	import { initRequiredInputFilled, setRequiredInputFilled } from '../utils'
+	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
 
 	const {
 		selectedId,
@@ -145,7 +145,7 @@
 				inputTransformSchemaForm.setArgs(input_transforms)
 				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
 					$flowInputsStore![flowModule?.id] = {
-						requiredInputsFilled: initRequiredInputFilled(flowModule.value, schema ?? {})
+						flowStepWarnings: initFlowStepWarnings(flowModule.value, schema ?? {})
 					}
 				}
 			} else {
@@ -198,14 +198,14 @@
 		}
 
 		if ($flowInputsStore) {
-			const requiredInputsFilled = setRequiredInputFilled(
+			const flowStepWarnings = computeFlowStepWarning(
 				argName,
 				flowModule.value,
-				$flowInputsStore[flowModule.id].requiredInputsFilled ?? {},
+				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
 				$flowStateStore[$selectedId]?.schema
 			)
 
-			$flowInputsStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+			$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
 		}
 	}
 </script>

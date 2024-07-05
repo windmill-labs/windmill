@@ -18,7 +18,7 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
-	import { initRequiredInputFilled } from '../utils'
+	import { initFlowStepWarnings } from '../utils'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
@@ -65,10 +65,7 @@
 
 		if ($flowInputsStore) {
 			$flowInputsStore[module?.id] = {
-				requiredInputsFilled: initRequiredInputFilled(
-					module?.value,
-					$flowStateStore[module?.id]?.schema
-				)
+				flowStepWarnings: initFlowStepWarnings(module?.value, $flowStateStore[module?.id]?.schema)
 			}
 		}
 	}
@@ -147,7 +144,7 @@
 
 					if ($flowInputsStore) {
 						$flowInputsStore[module.id] = {
-							requiredInputsFilled: initRequiredInputFilled(
+							flowStepWarnings: initFlowStepWarnings(
 								module.value,
 								$flowStateStore[module.id].schema
 							)

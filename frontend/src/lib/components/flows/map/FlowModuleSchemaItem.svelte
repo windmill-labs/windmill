@@ -19,6 +19,7 @@
 	import { fade } from 'svelte/transition'
 	import type { FlowInput } from '../types'
 	import type { Writable } from 'svelte/store'
+	import { twMerge } from 'tailwind-merge'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -175,14 +176,30 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
 
-		{#if (id && !Object.values($flowInputsStore?.[id]?.requiredInputsFilled || {}).every(Boolean)) || Boolean(warningMessage)}
+		{#if (id && $flowInputsStore?.[id]?.flowStepWarnings) || Boolean(warningMessage)}
 			<div class="absolute -top-[10px] -left-[10px]">
 				<Popover>
-					<svelte:fragment slot="text"
-						>{warningMessage ?? 'At least one required input is not set.'}
+					<svelte:fragment slot="text">
+						<ul class="list-disc px-2">
+							{#if id}
+								{#each Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}) as m}
+									<li>
+										{m.message}
+									</li>
+								{/each}
+							{/if}
+						</ul>
 					</svelte:fragment>
 					<div
-						class="flex items-center justify-center h-full w-full rounded-md p-0.5 border border-yellow-600 text-yellow-600 bg-yellow-100 duration-150 hover:bg-yellow-300"
+						class={twMerge(
+							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-150 ',
+							id &&
+								Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
+									(x) => x.type === 'error'
+								)
+								? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
+								: 'border-yellow-600 text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
+						)}
 					>
 						<AlertTriangle size={14} strokeWidth={2} />
 					</div>

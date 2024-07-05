@@ -8,7 +8,7 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { initRequiredInputFilled } from '../utils'
+	import { initFlowStepWarnings } from '../utils'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -38,7 +38,7 @@
 			}
 
 			$flowInputsStore![module?.id] = {
-				requiredInputsFilled: initRequiredInputFilled(
+				flowStepWarnings: initFlowStepWarnings(
 					module.value,
 					$flowStateStore?.[module?.id]?.schema ?? {}
 				)

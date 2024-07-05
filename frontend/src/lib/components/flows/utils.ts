@@ -200,6 +200,7 @@ export function isConnectedToMissingModule(
 	moduleIds: string[]
 ): string | undefined {
 	const type = flowModuleValue.type
+
 	if (type == 'rawscript' || type == 'script' || type == 'flow') {
 		const input = flowModuleValue.input_transforms[argName]
 		const val: string = input.type == 'static' ? String(input.value) : input.expr
@@ -216,34 +217,67 @@ export function isConnectedToMissingModule(
 	return undefined
 }
 
-export function setRequiredInputFilled(
+export function computeFlowStepWarning(
 	argName: string,
 	flowModuleValue: FlowModuleValue,
-	requiredInputsFilled: Record<string, boolean>,
-	schema: Schema
+	messages: Record<
+		string,
+		{
+			message: string
+			type: 'error' | 'warning'
+		}
+	>,
+	schema: Schema,
+	moduleIds: string[] = []
 ) {
 	const type = flowModuleValue.type
 	if (type == 'rawscript' || type == 'script' || type == 'flow') {
-		requiredInputsFilled[argName] = isInputFilled(
-			flowModuleValue.input_transforms,
-			argName,
-			schema ?? {}
-		)
+		if (!isInputFilled(flowModuleValue.input_transforms, argName, schema ?? {})) {
+			messages[argName] = {
+				message: `Input ${argName} is required but not filled`,
+				type: 'warning'
+			}
+		}
+
+		const errorMessage = isConnectedToMissingModule(argName, flowModuleValue, moduleIds)
+
+		console.log('errorMessage', errorMessage)
+
+		if (errorMessage) {
+			messages[argName] = {
+				message: errorMessage,
+				type: 'error'
+			}
+		}
 	}
 
-	return requiredInputsFilled
+	console.log('messages', messages)
+
+	return messages
 }
 
-export function initRequiredInputFilled(flowModuleValue: FlowModuleValue, schema: Schema) {
-	const requiredInputsFilled: Record<string, boolean> = {}
+export function initFlowStepWarnings(
+	flowModuleValue: FlowModuleValue,
+	schema: Schema,
+	moduleIds: string[] = []
+) {
+	const messages: Record<
+		string,
+		{
+			message: string
+			type: 'error' | 'warning'
+		}
+	> = {}
 	const type = flowModuleValue.type
 
 	if (type == 'rawscript' || type == 'script' || type == 'flow') {
 		const keys = Object.keys(flowModuleValue.input_transforms)
 		for (const key of keys) {
-			requiredInputsFilled[key] = isInputFilled(flowModuleValue.input_transforms, key, schema ?? {})
+			computeFlowStepWarning(key, flowModuleValue, messages, schema ?? {}, moduleIds)
 		}
 	}
 
-	return requiredInputsFilled
+	console.log('messages', messages)
+
+	return messages
 }
