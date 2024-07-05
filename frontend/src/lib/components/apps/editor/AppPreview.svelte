@@ -164,8 +164,12 @@
 				link.id = cssId
 				link.innerHTML = cssString
 				head.appendChild(link)
-			} else if (existingElement && cssString) {
-				existingElement.innerHTML = cssString
+			} else if (existingElement) {
+				if (cssString) {
+					existingElement.innerHTML = cssString
+				} else {
+					existingElement.innerHTML = ''
+				}
 			}
 		}
 	}
