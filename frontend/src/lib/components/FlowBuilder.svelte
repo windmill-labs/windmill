@@ -396,7 +396,7 @@
 		testStepStore,
 		saveDraft,
 		initialPath,
-		flowInputsStore: writable<FlowInput | undefined>({})
+		flowInputsStore: writable<FlowInput>({})
 	})
 
 	async function loadSchedule() {
