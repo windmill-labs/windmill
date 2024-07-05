@@ -205,7 +205,7 @@ export function isConnectedToMissingModule(
 		const input = flowModuleValue.input_transforms[argName]
 		const val: string = input.type == 'static' ? String(input.value) : input.expr
 
-		if (val?.includes('results')) {
+		if (val?.startsWith('results.')) {
 			const firstId = extractFirstPath(val)
 
 			if (firstId && !moduleIds.includes(firstId)) {
@@ -230,6 +230,10 @@ export function computeFlowStepWarning(
 	schema: Schema,
 	moduleIds: string[] = []
 ) {
+	if (messages[argName]) {
+		delete messages[argName]
+	}
+
 	const type = flowModuleValue.type
 	if (type == 'rawscript' || type == 'script' || type == 'flow') {
 		if (!isInputFilled(flowModuleValue.input_transforms, argName, schema ?? {})) {
@@ -241,8 +245,6 @@ export function computeFlowStepWarning(
 
 		const errorMessage = isConnectedToMissingModule(argName, flowModuleValue, moduleIds)
 
-		console.log('errorMessage', errorMessage)
-
 		if (errorMessage) {
 			messages[argName] = {
 				message: errorMessage,
@@ -250,8 +252,6 @@ export function computeFlowStepWarning(
 			}
 		}
 	}
-
-	console.log('messages', messages)
 
 	return messages
 }

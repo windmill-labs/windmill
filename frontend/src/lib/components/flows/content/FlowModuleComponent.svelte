@@ -145,7 +145,11 @@
 				inputTransformSchemaForm.setArgs(input_transforms)
 				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
 					$flowInputsStore![flowModule?.id] = {
-						flowStepWarnings: initFlowStepWarnings(flowModule.value, schema ?? {})
+						flowStepWarnings: initFlowStepWarnings(
+							flowModule.value,
+							schema ?? {},
+							$flowStore.value.modules.map((m) => m.id)
+						)
 					}
 				}
 			} else {
@@ -202,7 +206,8 @@
 				argName,
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
-				$flowStateStore[$selectedId]?.schema
+				$flowStateStore[$selectedId]?.schema,
+				$flowStore.value.modules.map((m) => m.id)
 			)
 
 			$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings

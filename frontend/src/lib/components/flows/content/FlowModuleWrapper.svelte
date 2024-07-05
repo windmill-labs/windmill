@@ -24,7 +24,7 @@
 	export let noEditor: boolean = false
 	export let enableAi = false
 
-	const { selectedId, schedule, flowStateStore, flowInputsStore } =
+	const { selectedId, schedule, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
@@ -65,7 +65,11 @@
 
 		if ($flowInputsStore) {
 			$flowInputsStore[module?.id] = {
-				flowStepWarnings: initFlowStepWarnings(module?.value, $flowStateStore[module?.id]?.schema)
+				flowStepWarnings: initFlowStepWarnings(
+					module?.value,
+					$flowStateStore[module?.id]?.schema,
+					$flowStore.value.modules.map((m) => m.id)
+				)
 			}
 		}
 	}
@@ -146,7 +150,8 @@
 						$flowInputsStore[module.id] = {
 							flowStepWarnings: initFlowStepWarnings(
 								module.value,
-								$flowStateStore[module.id].schema
+								$flowStateStore[module.id].schema,
+								$flowStore.value.modules.map((m) => m.id)
 							)
 						}
 					}

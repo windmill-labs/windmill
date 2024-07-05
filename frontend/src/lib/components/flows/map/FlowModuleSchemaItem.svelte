@@ -176,7 +176,7 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
 
-		{#if (id && $flowInputsStore?.[id]?.flowStepWarnings) || Boolean(warningMessage)}
+		{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
 			<div class="absolute -top-[10px] -left-[10px]">
 				<Popover>
 					<svelte:fragment slot="text">
