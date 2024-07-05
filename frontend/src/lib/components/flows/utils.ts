@@ -189,9 +189,9 @@ export function isInputFilled(
 	return true
 }
 
-function extractFirstPath(input: string): string {
-	const parts = input.split('.')
-	return parts.length > 1 ? parts[1] : parts[0]
+function extractFirstPath(input: string): string | undefined {
+	const match = input.match(/^results\.(\w+)/)
+	return match ? match[1] : undefined
 }
 
 export function isConnectedToMissingModule(
@@ -201,16 +201,16 @@ export function isConnectedToMissingModule(
 ): string | undefined {
 	const type = flowModuleValue.type
 
-	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+	if (type === 'rawscript' || type === 'script' || type === 'flow') {
 		const input = flowModuleValue.input_transforms[argName]
-		const val: string = input.type == 'static' ? String(input.value) : input.expr
+		const val: string = input.type === 'static' ? String(input.value) : input.expr
 
-		if (val?.startsWith('results.')) {
-			const firstId = extractFirstPath(val)
+		const firstId = extractFirstPath(val)
 
-			if (firstId && !moduleIds.includes(firstId)) {
-				return `Input ${argName} is connected to a missing module with id ${firstId}`
-			}
+		if (firstId === undefined) {
+			return `Input ${argName} has an ill-formed path.`
+		} else if (!moduleIds.includes(firstId)) {
+			return `Input ${argName} is connected to a missing module with id ${firstId}`
 		}
 	}
 
