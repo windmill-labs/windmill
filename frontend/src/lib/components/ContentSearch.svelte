@@ -109,7 +109,7 @@
 	filter={search}
 	items={scripts}
 	f={(s) => {
-		return s.content
+		return escape(s.content)
 	}}
 	bind:filteredItems={filteredScriptItems}
 />
@@ -118,7 +118,7 @@
 	filter={search}
 	items={resources}
 	f={(s) => {
-		return YAML.stringify(s.value)
+		return escape(YAML.stringify(s.value))
 	}}
 	bind:filteredItems={filteredResourceItems}
 />
@@ -127,7 +127,7 @@
 	filter={search}
 	items={flows}
 	f={(s) => {
-		return YAML.stringify(s.value, null, 4)
+		return escape(YAML.stringify(s.value, null, 4))
 	}}
 	bind:filteredItems={filteredFlowItems}
 />
@@ -277,7 +277,7 @@
 							<div class="py-1" />
 						{/if}
 
-						{#if search.length > 0}
+						{#if search.trim().length > 0}
 							<div class="flex flex-col gap-4">
 								{#if (searchKind == 'all' || searchKind == 'scripts') && filteredScriptItems?.length > 0}
 									{#each filteredScriptItems ?? [] as item}
