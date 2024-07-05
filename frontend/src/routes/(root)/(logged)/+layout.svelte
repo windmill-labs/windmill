@@ -179,11 +179,11 @@
 	function pathInAppMode(pathname: string | undefined): boolean {
 		if (!pathname) return false
 		return (
-			pathname.startsWith('/apps') ||
-			pathname.startsWith('/flows/add') ||
-			pathname.startsWith('/flows/edit') ||
-			pathname.startsWith('/scripts/add') ||
-			pathname.startsWith('/scripts/edit')
+			pathname.startsWith(base+'/apps') ||
+			pathname.startsWith(base+'/flows/add') ||
+			pathname.startsWith(base+'/flows/edit') ||
+			pathname.startsWith(base+'/scripts/add') ||
+			pathname.startsWith(base+'/scripts/edit')
 		)
 	}
 	afterNavigate((n) => {
