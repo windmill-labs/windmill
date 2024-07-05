@@ -8541,6 +8541,7 @@ paths:
       tags:
         - indexSearch
       parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
         - name: query
           in: query
           required: true

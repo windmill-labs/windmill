@@ -346,14 +346,21 @@ Windmill Community Edition {GIT_VERSION}
             .await
             .expect("could not create initial server dir");
 
-        let (index_reader, index_writer) = if ("indexer_mode" == "indexer_mode") {
+        let (index_reader, index_writer) = if "indexer_mode" == "indexer_mode" {
             let (r, w) = windmill_indexer::indexer_ee::init_index()?;
             (Some(r), Some(w))
         } else {
             (None, None)
         };
 
-        // let indexer_f = windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer.unwrap());
+        let indexer_rx = killpill_rx.resubscribe();
+        let index_writer2 = index_writer.clone();
+        let indexer_f = async {
+            if let Some(index_writer) = index_writer2 {
+                windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx).await;
+            }
+            Ok(())
+        };
 
         let server_f = async {
             if !is_agent {
@@ -614,7 +621,7 @@ Windmill Community Edition {GIT_VERSION}
             monitor_f,
             server_f,
             metrics_f,
-            // indexer_f
+            indexer_f
         )?;
     } else {
         tracing::info!("Nothing to do, exiting.");
