@@ -185,7 +185,8 @@
 							id: `dep-${pid}-${$selectedId}`,
 							source: pid,
 							target: $selectedId!,
-							labelBgColor: 'white',
+							labelBgColor: darkMode ? '#999' : 'white',
+							edgeColor: darkMode ? 'white' : 'black',
 							arrow: false,
 							animate: true,
 							noHandle: true,
@@ -201,7 +202,8 @@
 							id: `dep-${pid}-${$selectedId}`,
 							source: $selectedId!,
 							target: pid,
-							labelBgColor: 'white',
+							labelBgColor: darkMode ? '#999' : 'white',
+							edgeColor: darkMode ? 'white' : 'black',
 							arrow: false,
 							animate: true,
 							noHandle: true,
@@ -770,9 +772,11 @@
 	onMount(() => {
 		onThemeChange()
 	})
+
+	let darkMode = false
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode on:change={onThemeChange} />
 
 <!-- {JSON.stringify(flowModuleStates)} -->
 <div
