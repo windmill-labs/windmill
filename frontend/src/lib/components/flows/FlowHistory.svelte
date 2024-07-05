@@ -11,6 +11,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Pencil, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { goto } from '$app/navigation'
 
 	export let path: string
 	let drawer: Drawer
@@ -194,7 +195,7 @@
 									<Button
 										size="xs"
 										on:click={() =>
-											window.open(`/flows/add?template_id=${selectedVersion?.id}&template=${path}`)}
+											goto(`/flows/add?template_id=${selectedVersion?.id}&template=${path}`)}
 									>
 										Restore as fork
 									</Button>
