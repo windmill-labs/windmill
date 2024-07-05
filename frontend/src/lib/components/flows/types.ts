@@ -32,5 +32,5 @@ export type FlowEditorContext = {
 	testStepStore: Writable<Record<string, any>>
 	saveDraft: () => void
 	initialPath: string
-	flowInputsStore: Writable<FlowInput | undefined>
+	flowInputsStore: Writable<FlowInput>
 }

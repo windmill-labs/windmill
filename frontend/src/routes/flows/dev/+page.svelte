@@ -96,7 +96,7 @@
 		testStepStore,
 		saveDraft: () => {},
 		initialPath: '',
-		flowInputsStore: writable<FlowInput | undefined>(undefined)
+		flowInputsStore: writable<FlowInput>({})
 	})
 
 	type LastEdit = {
