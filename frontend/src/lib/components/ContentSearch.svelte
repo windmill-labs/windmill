@@ -64,6 +64,16 @@
 	function getCounts(n: number) {
 		return ` (${n})`
 	}
+
+	function escape(htmlStr) {
+		return htmlStr
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;')
+	}
+
 	$: counts =
 		search == '' ||
 		!scripts ||
@@ -126,7 +136,7 @@
 	filter={search}
 	items={apps}
 	f={(s) => {
-		return YAML.stringify(s.value, null, 4)
+		return escape(YAML.stringify(s.value, null, 4))
 	}}
 	bind:filteredItems={filteredAppItems}
 />
