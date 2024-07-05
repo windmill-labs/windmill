@@ -383,18 +383,18 @@
 												</div>
 											</div>
 										</div>
-										{#if filteredFlowItems.length > showNbFlows}
-											<a
-												href="#"
-												class="text-center font-semibold cursor-pointer pb-40"
-												on:click={() => {
-													showNbScripts += 30
-												}}
-											>
-												({showNbFlows} of {filteredFlowItems.length}) Show more flows
-											</a>
-										{/if}
 									{/each}
+									{#if filteredFlowItems.length > showNbFlows}
+										<a
+											href="#"
+											class="text-center font-semibold cursor-pointer pb-40"
+											on:click={() => {
+												showNbScripts += 30
+											}}
+										>
+											({showNbFlows} of {filteredFlowItems.length}) Show more flows
+										</a>
+									{/if}
 								{/if}
 								{#if (searchKind == 'all' || searchKind == 'apps') && filteredAppItems?.length > 0}
 									{#each filteredAppItems.slice(0, showNbApps) ?? [] as item}
