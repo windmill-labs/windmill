@@ -215,7 +215,8 @@
 			// only search if hasn't been called in some small time. Show load animation while wating. Also add a cache that resets everytime the modal is closed
 			const s = removePrefix(searchTerm, RUNS_PREFIX)
 			try {
-				const searchResults = await IndexSearchService.searchJobsIndex({ query: s })
+				const searchResults = await IndexSearchService.searchJobsIndex({ query: s, workspace: $workspaceStore!})
+				console.log(searchResults)
 				itemMap['runs'] = searchResults.document_hits
 			} catch (error) {
 				itemMap['runs'] = []
@@ -229,6 +230,7 @@
 		if (!itemMap[tab] || itemMap[tab].length <= index) {
 			return undefined
 		}
+		onHover(itemMap[tab][index])
 		return itemMap[tab][index]
 	}
 
@@ -429,6 +431,13 @@
 				return LayoutDashboardIcon
 		}
 	}
+
+
+	function onHover(selectedItem: any) {
+		if (tab === 'runs') {
+			selectedWorkspace = selectedItem?.document?.workspace_id[0]
+		}
+	}
 </script>
 
 {#if open}
@@ -442,10 +451,6 @@
 		>
 			<div
 				class={'max-w-4xl lg:mx-auto mx-10 mt-40 bg-surface rounded-lg relative'}
-				use:clickOutside={false}
-				on:click_outside={() => {
-					// open = false
-				}}
 			>
 				<div class="px-4 py-2 items-center">
 					<div class="quick-search-input flex flex-row gap-1 items-center mb-2">
