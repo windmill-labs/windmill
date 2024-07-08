@@ -52,13 +52,21 @@
 		? 'FlowPath'
 		: undefined
 
+	let hasAlreadyFailed = false
 	async function loadInputHistory() {
-		previousInputs = await InputService.getInputHistory({
-			workspace: $workspaceStore!,
-			runnableId,
-			runnableType,
-			perPage: 10
-		})
+		try {
+			previousInputs = await InputService.getInputHistory({
+				workspace: $workspaceStore!,
+				runnableId,
+				runnableType,
+				perPage: 10
+			})
+		} catch (e) {
+			console.error(e)
+			if (hasAlreadyFailed) return
+			hasAlreadyFailed = true
+			sendUserToast(`Failed to load input history: ${e}`, true)
+		}
 	}
 
 	async function loadSavedInputs() {
@@ -139,30 +147,31 @@
 	}
 
 	$: {
-		if ($workspaceStore && jobs && (scriptHash || scriptPath || flowPath)) {
-			console.log('loading inputs')
+		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
 			loadInputHistory()
 			loadSavedInputs()
 		}
 	}
 
+	let previewArgs: any = undefined
+
 	function selectArgs(selected_args: any) {
-		dispatch('selected_args', selected_args)
+		previewArgs = selected_args
 	}
 
-	async function loadLargeArgs(id: string | undefined) {
+	async function loadLargeArgs(
+		id: string | undefined,
+		input: boolean | undefined,
+		allowLarge: boolean
+	): Promise<any> {
 		if (!id) return
-		largeArgs = await InputService.getArgsFromHistoryOrSavedInput({
+		return await InputService.getArgsFromHistoryOrSavedInput({
 			jobOrInputId: id,
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			input,
+			allowLarge
 		})
 	}
-
-	let hasLargeArgs = false
-	$: hasLargeArgs =
-		typeof selectedInput?.args === 'string' && selectedInput?.args === 'WINDMILL_TOO_BIG'
-	let largeArgs: any = undefined
-	$: hasLargeArgs && loadLargeArgs(selectedInput?.id)
 </script>
 
 <JobLoader
@@ -181,6 +190,7 @@
 	syncQueuedRunsCount={false}
 	refreshRate={10000}
 	computeMinAndMax={undefined}
+	perPage={5}
 />
 
 <div class="min-w-[300px] h-full">
@@ -207,17 +217,17 @@
 					{/if}
 				</div>
 
-				<div class="w-full flex flex-col gap-2 h-full overflow-y-auto p">
+				<div class="w-full flex flex-col gap-1 h-full overflow-y-auto p">
 					{#if savedInputs === undefined}
 						<Skeleton layout={[[8]]} />
 					{:else if savedInputs.length > 0}
 						{#each savedInputs as i}
 							<button
 								class={classNames(
-									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-surface-hover transition-all`,
+									`w-full flex items-center text-sm group justify-between gap-4 py-1.5 px-4 text-left border rounded-sm hover:bg-surface-hover transition-all`,
 									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
-								on:click={() => {
+								on:click={async () => {
 									if (!i.isEditing) {
 										if (selectedInput === i) {
 											selectedInput = null
@@ -225,6 +235,7 @@
 											selectedInput = i
 										}
 									}
+									selectArgs(await loadLargeArgs(i.id, true, false))
 								}}
 							>
 								<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
@@ -308,8 +319,8 @@
 				<span class="text-sm font-semibold">Previous runs</span>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
-					{#if loading}
-						<Skeleton layout={[[2]]} />
+					{#if loading && (jobs == undefined || jobs?.length == 0)}
+						<div class="text-left text-tertiary text-xs">Loading current runs...</div>
 					{:else if jobs.length > 0}
 						{#each jobs as i (i.id)}
 							<button
@@ -324,7 +335,7 @@
 									<div class="">
 										<div class="rounded-full w-2 h-2 bg-orange-400 animate-pulse" />
 									</div>
-									<div class="col-span-2">
+									<div class="col-span-2 truncate">
 										{i.created_by}
 									</div>
 									<div
@@ -345,6 +356,11 @@
 								</div>
 							</button>
 						{/each}
+						{#if jobs.length == 5}
+							<div class="text-left text-tertiary text-xs"
+								>... there may be more runs not displayed here as the limit is 5</div
+							>
+						{/if}
 					{:else}
 						<div class="text-left text-tertiary text-xs">No running runs</div>
 					{/if}
@@ -360,12 +376,13 @@
 									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
 									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
-								on:click={() => {
+								on:click={async () => {
 									if (selectedInput === i) {
 										selectedInput = null
 									} else {
 										selectedInput = i
 									}
+									selectArgs(await loadLargeArgs(i.id, false, false))
 								}}
 							>
 								<div
@@ -374,7 +391,7 @@
 									<div class="">
 										<div class="rounded-full w-2 h-2 {i.success ? 'bg-green-400' : 'bg-red-400'}" />
 									</div>
-									<div class="col-span-2">
+									<div class="col-span-2 truncate" title={i.created_by}>
 										{i.created_by}
 									</div>
 									<div
@@ -410,33 +427,29 @@
 		<Pane>
 			<div class="h-full overflow-hidden min-h-0 flex flex-col justify-between">
 				<div class="w-full flex flex-col min-h-0 gap-2 px-2 py-2 grow">
-					<div class="text-sm font-semibold">Preview</div>
 					<div class="w-full flex flex-col">
 						<Button
 							color="blue"
 							btnClasses="w-full"
 							size="sm"
 							spacingSize="xl"
-							on:click={() => selectArgs(hasLargeArgs ? largeArgs : selectedInput?.args)}
-							disabled={Object.keys(selectedInput?.args || {}).length === 0 ||
-								(hasLargeArgs && Object.keys(largeArgs || {}).length === 0)}
+							on:click={async () => {
+								dispatch('selected_args', await loadLargeArgs(selectedInput?.id, undefined, false))
+							}}
+							disabled={!selectedInput}
 						>
 							<ArrowLeftIcon class="w-4 h-4 mr-2" />
 							Use Input
 						</Button>
 					</div>
 					<div class="w-full min-h-0 grow overflow-auto">
-						{#if hasLargeArgs}
-							{#if largeArgs}
-								<div class=" overflow-auto h-full p-2">
-									<ObjectViewer json={largeArgs} />
-								</div>
-							{:else}
-								<Skeleton layout={[[8]]} />
-							{/if}
-						{:else if Object.keys(selectedInput?.args || {}).length > 0}
+						{#if typeof previewArgs == 'string' && previewArgs == 'WINDMILL_TOO_BIG'}
+							<div class="text-secondary mt-2">
+								Payload too big to preview but can still be loaded</div
+							>
+						{:else if Object.keys(previewArgs || {}).length > 0}
 							<div class=" overflow-auto h-full p-2">
-								<ObjectViewer json={selectedInput?.args} />
+								<ObjectViewer json={previewArgs} />
 							</div>
 						{:else}
 							<div class="text-center text-tertiary">
