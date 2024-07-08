@@ -3795,7 +3795,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'text',
 					value: undefined,
-					tooltip: 'Custom actions header'
+					tooltip: 'Custom header for the actions columns'
 				}
 			},
 			componentInput: undefined
