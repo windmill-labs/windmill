@@ -64,6 +64,16 @@
 	function getCounts(n: number) {
 		return ` (${n})`
 	}
+
+	function escape(htmlStr) {
+		return htmlStr
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;')
+	}
+
 	$: counts =
 		search == '' ||
 		!scripts ||
@@ -93,13 +103,27 @@
 					flows: getCounts(filteredFlowItems.length),
 					scripts: getCounts(filteredScriptItems.length)
 			  }
+
+	let showNbScripts = 10
+	let showNbApps = 10
+	let showNbResources = 10
+	let showNbFlows = 10
+
+	$: search && resetShows()
+
+	function resetShows() {
+		showNbScripts = 10
+		showNbApps = 10
+		showNbResources = 10
+		showNbFlows = 10
+	}
 </script>
 
 <SearchItems
 	filter={search}
 	items={scripts}
 	f={(s) => {
-		return s.content
+		return escape(s.content)
 	}}
 	bind:filteredItems={filteredScriptItems}
 />
@@ -108,7 +132,7 @@
 	filter={search}
 	items={resources}
 	f={(s) => {
-		return YAML.stringify(s.value)
+		return escape(YAML.stringify(s.value))
 	}}
 	bind:filteredItems={filteredResourceItems}
 />
@@ -117,7 +141,7 @@
 	filter={search}
 	items={flows}
 	f={(s) => {
-		return YAML.stringify(s.value, null, 4)
+		return escape(YAML.stringify(s.value, null, 4))
 	}}
 	bind:filteredItems={filteredFlowItems}
 />
@@ -126,7 +150,7 @@
 	filter={search}
 	items={apps}
 	f={(s) => {
-		return YAML.stringify(s.value, null, 4)
+		return escape(YAML.stringify(s.value, null, 4))
 	}}
 	bind:filteredItems={filteredAppItems}
 />
@@ -267,10 +291,10 @@
 							<div class="py-1" />
 						{/if}
 
-						{#if search.length > 0}
+						{#if search.trim().length > 0}
 							<div class="flex flex-col gap-4">
 								{#if (searchKind == 'all' || searchKind == 'scripts') && filteredScriptItems?.length > 0}
-									{#each filteredScriptItems ?? [] as item}
+									{#each filteredScriptItems.slice(0, showNbScripts) ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
 												><a href="/scripts/get/{item.path}">Script: {item.path}</a></div
@@ -298,9 +322,20 @@
 											</div>
 										</div>
 									{/each}
+									{#if filteredScriptItems.length > showNbScripts}
+										<a
+											href="#"
+											class="text-center font-semibold cursor-pointer pb-40"
+											on:click={() => {
+												showNbScripts += 30
+											}}
+										>
+											({showNbScripts} of {filteredScriptItems.length}) Show more scripts
+										</a>
+									{/if}
 								{/if}
 								{#if (searchKind == 'all' || searchKind == 'resources') && filteredResourceItems?.length > 0}
-									{#each filteredResourceItems ?? [] as item}
+									{#each filteredResourceItems.slice(0, showNbResources) ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold">Resource: {item.path}</div>
 											<div class="flex gap-2 justify-between">
@@ -310,9 +345,20 @@
 											</div>
 										</div>
 									{/each}
+									{#if filteredResourceItems.length > showNbResources}
+										<a
+											href="#"
+											class="text-center font-semibold cursor-pointer pb-40"
+											on:click={() => {
+												showNbResources += 30
+											}}
+										>
+											({showNbResources} of {filteredResourceItems.length}) Show more resources
+										</a>
+									{/if}
 								{/if}
 								{#if (searchKind == 'all' || searchKind == 'flows') && filteredFlowItems?.length > 0}
-									{#each filteredFlowItems ?? [] as item}
+									{#each filteredFlowItems.slice(0, showNbFlows) ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
 												><a href="/flows/get/{item.path}">Flow: {item.path}</a></div
@@ -338,9 +384,20 @@
 											</div>
 										</div>
 									{/each}
+									{#if filteredFlowItems.length > showNbFlows}
+										<a
+											href="#"
+											class="text-center font-semibold cursor-pointer pb-40"
+											on:click={() => {
+												showNbScripts += 30
+											}}
+										>
+											({showNbFlows} of {filteredFlowItems.length}) Show more flows
+										</a>
+									{/if}
 								{/if}
 								{#if (searchKind == 'all' || searchKind == 'apps') && filteredAppItems?.length > 0}
-									{#each filteredAppItems ?? [] as item}
+									{#each filteredAppItems.slice(0, showNbApps) ?? [] as item}
 										<div>
 											<div class="text-sm font-semibold"
 												><a href="/apps/get/{item.path}">App: {item.path}</a></div
@@ -352,6 +409,17 @@
 											</div>
 										</div>
 									{/each}
+									{#if filteredAppItems.length > showNbApps}
+										<a
+											href="#"
+											class="text-center font-semibold cursor-pointer pb-40"
+											on:click={() => {
+												showNbApps += 30
+											}}
+										>
+											({showNbApps} of {filteredAppItems.length}) Show more apps
+										</a>
+									{/if}
 								{/if}
 							</div>
 						{:else}

@@ -13,15 +13,16 @@
 	$: plaintextItems && filter != undefined && setTimeout(() => filterItems(), 0)
 
 	function filterItems() {
-		if (items == undefined || filter.length == 0) {
+		let trimmed = filter.trim()
+		if (items == undefined || trimmed.length == 0) {
 			filteredItems = items
 			return
 		}
 		// pre-filter
-		let idxs = uf.filter(plaintextItems, filter) ?? []
+		let idxs = uf.filter(plaintextItems, trimmed) ?? []
 
-		let info = uf.info(idxs, plaintextItems, filter)
-		let order = uf.sort(info, plaintextItems, filter)
+		let info = uf.info(idxs, plaintextItems, trimmed)
+		let order = uf.sort(info, plaintextItems, trimmed)
 
 		let result: any[] = []
 

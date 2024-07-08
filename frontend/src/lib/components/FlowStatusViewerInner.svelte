@@ -87,6 +87,7 @@
 
 	function setModuleState(key: string, value: GraphModuleState) {
 		if (!deepEqual($localModuleStates[key], value)) {
+			// console.log('Setting module state', key, value)
 			$localModuleStates[key] = value
 
 			globalModuleStates.forEach((s) => {
@@ -350,6 +351,7 @@
 		j: number
 	) {
 		let modId = flowJobIds?.moduleId
+
 		if (modId) {
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
 				$flowStateStore[modId] = {
@@ -828,7 +830,7 @@
 						/>
 					</div>
 					<div
-						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col z-0"
+						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col z-0 h-full"
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
@@ -848,7 +850,7 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							<div class="pt-2 max-h-[80vh]">
+							<div class="pt-2 max-h-[80vh] grow flex flex-col">
 								{#if selectedNode}
 									{@const node = $localModuleStates[selectedNode]}
 
@@ -877,7 +879,7 @@
 											<p class="p-2 text-secondary">No arguments</p>
 										{/if}
 									{:else if node}
-										<div class="px-2 flex gap-2 min-w-0 overflow-hidden w-full">
+										<div class="px-2 flex gap-2 min-w-0 w-full">
 											<ModuleStatus type={node.type} scheduled_for={node.scheduled_for} />
 											{#if node.duration_ms}
 												<Badge>
