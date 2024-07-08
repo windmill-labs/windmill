@@ -10,6 +10,7 @@
 	import YAML from 'yaml'
 
 	export let search: string = ''
+	export let classNameInner = 'max-h-[80vh]'
 
 	export async function open(nsearch?: string) {
 		await Promise.all([loadScripts(), loadResources(), loadApps(), loadFlows()])
@@ -226,7 +227,7 @@
 		>
 	</div>
 
-	<div class="mt-1 overflow-auto max-h-[80vh]">
+	<div class="mt-1 overflow-auto {classNameInner}">
 		{#if !$enterpriseLicense}
 			<div class="py-1" />
 

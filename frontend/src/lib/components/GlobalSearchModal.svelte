@@ -31,7 +31,7 @@
 	import ContentSearchInner from './ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from './search/QuickMenuItem.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import DropdownV2 from './DropdownV2.svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
@@ -563,6 +563,7 @@
 							{/if}
 						{:else if tab === 'content'}
 							<ContentSearchInner
+								classNameInner="max-h-[20rem]"
 								search={removePrefix(searchTerm, '#')}
 								bind:this={contentSearch}
 							/>
@@ -646,10 +647,17 @@
 										</div>
 									{/if}
 								{:else}
-									<div class="flex w-full justify-center items-center h-48">
+									<div class="flex w-full justify-center items-center h-96">
 										<div class="text-tertiary text-center">
 											<div class="text-2xl font-bold">No runs found</div>
 											<div class="text-sm">There were no completed runs that match your query</div>
+											{#if !$enterpriseLicense}
+												<div class="py-6" />
+
+												<Alert title="This is an EE feature" type="warning">
+													Full-text search on jobs is only available on EE.
+												</Alert>
+											{/if}
 										</div>
 									</div>
 								{/if}
