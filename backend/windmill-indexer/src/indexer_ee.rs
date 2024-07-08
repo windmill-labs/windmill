@@ -1,5 +1,6 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::error::Error;
+use anyhow::anyhow;
 
 #[derive(Clone)]
 pub struct IndexReader;
@@ -8,7 +9,7 @@ pub struct IndexReader;
 pub struct IndexWriter;
 
 pub fn init_index() -> Result<(IndexReader, IndexWriter), Error> {
-    panic!("Cannot initialize index: not in EE")
+    Err(anyhow!("Cannot initialize index: not in EE").into())
 }
 
 pub async fn run_indexer(
@@ -16,5 +17,5 @@ pub async fn run_indexer(
     mut _index_writer: IndexWriter,
     mut _killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    panic!("Cannot run indexer: not in EE");
+    tracing::error!("Cannot run indexer: not in EE");
 }
