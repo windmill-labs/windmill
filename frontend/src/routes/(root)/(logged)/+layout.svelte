@@ -247,6 +247,10 @@
 	$: if (isCollapsed && $userStore?.operator) {
 		isCollapsed = false
 	}
+
+	function openSearchModal(): void {
+		globalSearchModalOpen = true
+	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -334,7 +338,8 @@
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
 										<MenuButton
-											on:click={() => (globalSearchModalOpen = true)}
+											stopPropagationOnClick={true}
+											on:click={() => openSearchModal()}
 											isCollapsed={false}
 											icon={Search}
 											label="Search (ctrl + k)"
@@ -380,7 +385,8 @@
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />
 								<MenuButton
-									on:click={() => (globalSearchModalOpen = true)}
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
 									{isCollapsed}
 									icon={Search}
 									label="Search (ctrl + k)"
@@ -466,7 +472,8 @@
 								<WorkspaceMenu />
 								<FavoriteMenu {favoriteLinks} />
 								<MenuButton
-									on:click={() => (globalSearchModalOpen = true)}
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
 									{isCollapsed}
 									icon={Search}
 									label="Search (ctrl + k)"

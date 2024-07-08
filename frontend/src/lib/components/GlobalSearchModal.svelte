@@ -63,7 +63,7 @@
 	let switchModeItems: quickMenuItem[] = [
 		{
 			search_id: 'switchto:run-search',
-			label: 'Search across runs',
+			label: 'Search across completed runs',
 			action: () => switchMode('runs'),
 			charIcon: RUNS_PREFIX
 		},
@@ -131,6 +131,7 @@
 			searchTerm = LOGS_PREFIX
 		}
 		selectedItem = selectItem(0)
+		textInput.focus()
 	}
 
 	function removePrefix(str: string, prefix: string): string {
@@ -215,7 +216,10 @@
 			// only search if hasn't been called in some small time. Show load animation while wating. Also add a cache that resets everytime the modal is closed
 			const s = removePrefix(searchTerm, RUNS_PREFIX)
 			try {
-				const searchResults = await IndexSearchService.searchJobsIndex({ query: s, workspace: $workspaceStore!})
+				const searchResults = await IndexSearchService.searchJobsIndex({
+					query: s,
+					workspace: $workspaceStore!
+				})
 				console.log(searchResults)
 				itemMap['runs'] = searchResults.document_hits
 			} catch (error) {
@@ -290,6 +294,7 @@
 	// Used by callbacks, call this to change the mode
 	function switchMode(mode: SearchMode) {
 		switchPrompt(mode)
+		textInput.focus()
 	}
 
 	function gotoWindmillItemPage(e: TableAny) {
@@ -364,10 +369,9 @@
 		has_draft?: boolean
 	}
 
-	// This id allows to differentiate between elements in the menu of different types and shapes.
-	interface SelectableSearchMenuItem {
-		search_id: string
-	}
+	// interface SelectableSearchMenuItem {
+	// 	search_id: string
+	// }
 
 	type TableScript = TableItem<Script, 'script'>
 	type TableFlow = TableItem<Flow, 'flow'>
@@ -380,8 +384,7 @@
 
 	async function fetchCombinedItems() {
 		const scripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
-			hideWithoutMain: undefined
+			workspace: $workspaceStore!
 		})
 		const flows = await FlowService.listFlows({
 			workspace: $workspaceStore!
@@ -432,7 +435,6 @@
 		}
 	}
 
-
 	function onHover(selectedItem: any) {
 		if (tab === 'runs') {
 			selectedWorkspace = selectedItem?.document?.workspace_id[0]
@@ -451,6 +453,10 @@
 		>
 			<div
 				class={'max-w-4xl lg:mx-auto mx-10 mt-40 bg-surface rounded-lg relative'}
+				use:clickOutside={false}
+				on:click_outside={() => {
+					open = false
+				}}
 			>
 				<div class="px-4 py-2 items-center">
 					<div class="quick-search-input flex flex-row gap-1 items-center mb-2">
@@ -487,19 +493,31 @@
 										items={[
 											{
 												displayName: searchModeDescription('default'),
-												action: () => switchMode('default')
+												action: (e) => {
+													e.stopPropagation()
+													switchMode('default')
+												}
 											},
 											{
 												displayName: searchModeDescription('content'),
-												action: () => switchMode('content')
+												action: (e) => {
+													e.stopPropagation()
+													switchMode('content')
+												}
 											},
 											{
 												displayName: searchModeDescription('runs'),
-												action: () => switchMode('runs')
+												action: (e) => {
+													e.stopPropagation()
+													switchMode('runs')
+												}
 											},
 											{
 												displayName: searchModeDescription('logs'),
-												action: () => switchMode('logs')
+												action: (e) => {
+													e.stopPropagation()
+													switchMode('logs')
+												}
 											}
 										]}
 									>

@@ -31,7 +31,7 @@
 
 <div
 	{id}
-	on:click={runAction}
+	on:click|stopPropagation={runAction}
 	on:mouseenter={() => dispatch('hover')}
 	class={`rounded-md ${hovered ? 'bg-surface-hover' : ''}`}
 >
