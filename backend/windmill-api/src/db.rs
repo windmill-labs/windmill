@@ -212,28 +212,16 @@ async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(
         }
         migrator.unlock().await?;
     }
-    if std::env::var("MIGRATION_FIX_FLOW_VERSIONING").is_ok() {
-        migrator.lock().await?;
-        let has_done_migration = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')"
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
+    migrator.lock().await?;
 
-        if !has_done_migration {
-            let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
-            tracing::info!("Applying fix_flow_versioning_2.sql");
-            let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-            tx.execute(query).await?;
-            tracing::info!("Applied fix_flow_versioning_2.sql");
-            sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('fix_flow_versioning_2')")
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
-        }
-        migrator.unlock().await?;
-    }
+    let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
+    tracing::info!("Applying fix_flow_versioning_2.sql");
+    let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
+    tx.execute(query).await?;
+    tracing::info!("Applied fix_flow_versioning_2.sql");
+    tx.commit().await?;
+
+    migrator.unlock().await?;
     Ok(())
 }
 
