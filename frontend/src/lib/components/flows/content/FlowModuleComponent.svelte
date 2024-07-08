@@ -145,8 +145,8 @@
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
 				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
-					$flowInputsStore![flowModule?.id] = {
-						flowStepWarnings: initFlowStepWarnings(
+					$flowInputsStore[flowModule?.id] = {
+						flowStepWarnings: await initFlowStepWarnings(
 							flowModule.value,
 							schema ?? {},
 							$flowStore?.value?.modules?.map((m) => m?.id) ?? []
@@ -199,15 +199,15 @@
 
 	let debouncedWarning = debounce((argName: string) => {
 		if ($flowInputsStore) {
-			const flowStepWarnings = computeFlowStepWarning(
+			computeFlowStepWarning(
 				argName,
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
 				$flowStateStore[$selectedId]?.schema ?? {},
 				$flowStore?.value?.modules?.map((m) => m?.id) ?? []
-			)
-
-			$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
+			).then((flowStepWarnings) => {
+				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
+			})
 		}
 	}, 100)
 

@@ -28,7 +28,7 @@
 	}
 
 	onMount(() => {
-		$flowStore?.value?.modules?.forEach((module) => {
+		$flowStore?.value?.modules?.forEach(async (module) => {
 			if (!module) {
 				return
 			}
@@ -38,7 +38,7 @@
 			}
 
 			$flowInputsStore[module?.id] = {
-				flowStepWarnings: initFlowStepWarnings(
+				flowStepWarnings: await initFlowStepWarnings(
 					module.value,
 					$flowStateStore?.[module?.id]?.schema ?? {},
 					$flowStore?.value?.modules?.map((m) => m.id) ?? []

@@ -16,6 +16,7 @@ import type { PickableProperties } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { Schema } from '$lib/common'
+import { parseOutputs } from '$lib/infer'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `
@@ -189,45 +190,39 @@ export function isInputFilled(
 	return true
 }
 
-function extractFirstPath(input: string): string | undefined | null {
-	const match = input.match(/^results\.(\w+)/)
-
-	if (match === null) {
-		return null
-	}
-
-	return match ? match[1] : undefined
-}
-
-export function isConnectedToMissingModule(
+async function isConnectedToMissingModule(
 	argName: string,
 	flowModuleValue: FlowModuleValue,
 	moduleIds: string[]
-): string | undefined {
+): Promise<string | undefined> {
 	const type = flowModuleValue.type
 
 	if (type === 'rawscript' || type === 'script' || type === 'flow') {
 		const input = flowModuleValue?.input_transforms[argName]
+		const val: string = input.type === 'static' ? String(input.value) : input.expr
 
-		if (input.type === 'javascript') {
-			const firstId = extractFirstPath(input.expr)
+		try {
+			const outputs = await parseOutputs(val, false)
+			let error: string = ''
 
-			if (firstId === null) {
-				return undefined
-			}
+			outputs?.forEach(([componentId, id]) => {
+				if (componentId === 'results') {
+					if (!moduleIds.includes(id)) {
+						error += `Input ${argName} is connected to a missing module with id ${id}`
+					}
+				}
+			})
 
-			if (firstId === undefined) {
-				return `Input ${argName} has an ill-formed path.`
-			} else if (!moduleIds.includes(firstId)) {
-				return `Input ${argName} is connected to a missing module with id ${firstId}`
-			}
+			return error
+		} catch (e) {
+			return `Input ${argName} expression is invalid`
 		}
 	}
 
-	return undefined
+	return
 }
 
-export function computeFlowStepWarning(
+export async function computeFlowStepWarning(
 	argName: string,
 	flowModuleValue: FlowModuleValue,
 	messages: Record<
@@ -253,7 +248,7 @@ export function computeFlowStepWarning(
 			}
 		}
 
-		const errorMessage = isConnectedToMissingModule(argName, flowModuleValue, moduleIds)
+		const errorMessage = await isConnectedToMissingModule(argName, flowModuleValue, moduleIds)
 
 		if (errorMessage) {
 			messages[argName] = {
@@ -261,14 +256,16 @@ export function computeFlowStepWarning(
 				type: 'error'
 			}
 		} else {
-			delete messages[argName]
+			if (messages[argName]?.type === 'error') {
+				delete messages[argName]
+			}
 		}
 	}
 
 	return messages
 }
 
-export function initFlowStepWarnings(
+export async function initFlowStepWarnings(
 	flowModuleValue: FlowModuleValue,
 	schema: Schema,
 	moduleIds: string[] = []
@@ -284,9 +281,10 @@ export function initFlowStepWarnings(
 
 	if (type == 'rawscript' || type == 'script' || type == 'flow') {
 		const keys = Object.keys(flowModuleValue.input_transforms ?? {})
-		for (const key of keys) {
-			computeFlowStepWarning(key, flowModuleValue, messages, schema ?? {}, moduleIds)
-		}
+		const promises = keys.map(async (key) => {
+			await computeFlowStepWarning(key, flowModuleValue, messages, schema ?? {}, moduleIds)
+		})
+		await Promise.all(promises)
 	}
 
 	return messages

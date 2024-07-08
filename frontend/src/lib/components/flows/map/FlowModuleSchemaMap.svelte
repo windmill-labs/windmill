@@ -11,7 +11,7 @@
 		pickScript
 	} from '$lib/components/flows/flowStateUtils'
 	import type { FlowModule } from '$lib/gen'
-	import { emptyFlowModuleState } from '../utils'
+	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
@@ -246,6 +246,26 @@
 						delete $flowInputsStore[e.id]
 					}
 					$flowStore = $flowStore
+
+					Object.keys(dependents ?? {}).forEach(async (key) => {
+						const module = $flowStore.value.modules.find((m) => m.id === key)
+
+						if (!module) {
+							return
+						}
+
+						if (!$flowInputsStore) {
+							$flowInputsStore = {}
+						}
+
+						$flowInputsStore[module?.id] = {
+							flowStepWarnings: await initFlowStepWarnings(
+								module.value,
+								$flowStateStore?.[module?.id]?.schema ?? {},
+								$flowStore?.value?.modules?.map((m) => m.id) ?? []
+							)
+						}
+					})
 				}
 
 				if (Object.keys(dependents).length > 0) {
