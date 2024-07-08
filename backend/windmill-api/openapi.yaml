@@ -7666,6 +7666,14 @@ paths:
           required: true
           schema:
             type: string
+        - name: input
+          in: query
+          schema:
+            type: boolean
+        - name: allow_large
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: args
@@ -9147,8 +9155,6 @@ components:
           type: string
         name:
           type: string
-        args:
-          type: object
         created_by:
           type: string
         created_at:
