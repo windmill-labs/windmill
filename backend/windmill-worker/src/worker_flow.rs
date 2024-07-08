@@ -2022,7 +2022,23 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         let payload_tag = match &job_payloads {
             ContinuePayload::SingleJob(payload) => payload.clone(),
             ContinuePayload::BranchAllJobs(payloads) => payloads[i].clone(),
-            ContinuePayload::ForloopJobs { payload, .. } => payload.clone(),
+            ContinuePayload::ForloopJobs { flow_value, delete_after_use, .. } => {
+                let mut fv = flow_value.clone();
+
+                if let Some(failure_module) = fv.failure_module.as_mut() {
+                    failure_module.id_append(&format!("{}-{i}", &status.step.to_string()));
+                }
+                JobPayloadWithTag {
+                    payload: JobPayload::RawFlow {
+                        value: fv,
+                        path: Some(format!("{}/forloop-{i}", flow_job.script_path())),
+                        restarted_from: None,
+                    },
+                    tag: None,
+                    delete_after_use: delete_after_use.clone(),
+                    timeout: None,
+                }
+            }
         };
 
         // compute job-to-be-pushed priority
@@ -2357,7 +2373,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             WHERE id = $3",
             json!(FlowStatusModuleWParent {
                 parent_module: Some(current_id.clone()),
-                module_status: new_status.clone()
+                module_status: new_status
             }),
             json!(i),
             flow_job.id
@@ -2519,7 +2535,7 @@ struct JobPayloadWithTag {
 }
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
-    ForloopJobs { n: usize, payload: JobPayloadWithTag },
+    ForloopJobs { n: usize, flow_value: FlowValue, delete_after_use: bool },
     BranchAllJobs(Vec<JobPayloadWithTag>),
 }
 
@@ -2732,30 +2748,23 @@ async fn compute_next_flow_transform(
                         // } else {
 
                         let continue_payload = {
-                            let payload = {
-                                JobPayloadWithTag {
-                                    payload: JobPayload::RawFlow {
-                                        value: FlowValue {
-                                            modules: (*modules).clone(),
-                                            failure_module: flow.failure_module.clone(),
-                                            same_worker: flow.same_worker,
-                                            concurrent_limit: None,
-                                            concurrency_time_window_s: None,
-                                            skip_expr: None,
-                                            cache_ttl: None,
-                                            priority: None,
-                                            early_return: None,
-                                            concurrency_key: None,
-                                        },
-                                        path: Some(format!("{}/forloop", flow_job.script_path())),
-                                        restarted_from: None,
-                                    },
-                                    tag: None,
-                                    delete_after_use: delete_after_use,
-                                    timeout: None,
-                                }
+                            let flow_value = FlowValue {
+                                modules: (*modules).clone(),
+                                failure_module: flow.failure_module.clone(),
+                                same_worker: flow.same_worker,
+                                concurrent_limit: None,
+                                concurrency_time_window_s: None,
+                                skip_expr: None,
+                                cache_ttl: None,
+                                priority: None,
+                                early_return: None,
+                                concurrency_key: None,
                             };
-                            ContinuePayload::ForloopJobs { n: itered.len(), payload }
+                            ContinuePayload::ForloopJobs {
+                                n: itered.len(),
+                                flow_value,
+                                delete_after_use,
+                            }
                         };
                         Ok(NextFlowTransform::Continue(
                             continue_payload,
@@ -2879,7 +2888,7 @@ async fn compute_next_flow_transform(
                                             flow.failure_module.clone()
                                         {
                                             failure_module
-                                                .id_append(&format!("{}/{i}", status.step));
+                                                .id_append(&format!("{}-{i}", status.step,));
                                             fm = Some(failure_module);
                                         }
                                         let mut modules = b.modules.clone();
@@ -2948,7 +2957,7 @@ async fn compute_next_flow_transform(
             add_virtual_items_if_necessary(&mut modules);
             let mut fm = flow.failure_module.clone();
             if let Some(mut failure_module) = flow.failure_module.clone() {
-                failure_module.id_append(&format!("{}/{}", status.step, branch_status.branch));
+                failure_module.id_append(&format!("{}-{}", status.step, branch_status.branch));
                 fm = Some(failure_module);
             }
             Ok(NextFlowTransform::Continue(
@@ -2996,7 +3005,7 @@ async fn next_loop_iteration(
 ) -> Result<NextFlowTransform, Error> {
     let mut fm = flow.failure_module.clone();
     if let Some(mut failure_module) = flow.failure_module.clone() {
-        failure_module.id_append(&format!("{}/{}", status.step, ns.index));
+        failure_module.id_append(&format!("{}-{}", status.step, ns.index));
         fm = Some(failure_module);
     }
     let mut modules = (*modules).clone();
