@@ -30,7 +30,7 @@
 	async function initWarnings() {
 		for (const module of $flowStore?.value?.modules) {
 			if (!module) {
-				return
+				continue
 			}
 
 			if (!$flowInputsStore) {
