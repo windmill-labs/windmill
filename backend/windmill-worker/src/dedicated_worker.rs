@@ -285,8 +285,8 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::ForloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
-                        path,
                         w_id,
+                        path,
                         killpill_tx.clone(),
                         killpill_rx,
                         db,
@@ -301,8 +301,8 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::WhileloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
-                        path,
                         w_id,
+                        path,
                         killpill_tx.clone(),
                         killpill_rx,
                         db,
@@ -322,8 +322,8 @@ async fn spawn_dedicated_workers_for_flow(
                     {
                         let w = spawn_dedicated_workers_for_flow(
                             &modules,
-                            path,
                             w_id,
+                            path,
                             killpill_tx.clone(),
                             killpill_rx,
                             db,
@@ -340,8 +340,8 @@ async fn spawn_dedicated_workers_for_flow(
                     for branch in branches {
                         let w = spawn_dedicated_workers_for_flow(
                             &branch.modules,
-                            path,
                             w_id,
+                            path,
                             killpill_tx.clone(),
                             killpill_rx,
                             db,
@@ -415,7 +415,7 @@ pub async fn create_dedicated_worker_map(
                 flow_path,
                 _wp.workspace_id
             )
-            .fetch_one(db)
+            .fetch_optional(db)
             .await;
             if let Ok(v) = value {
                 if let Some(v) = v {
@@ -487,6 +487,8 @@ pub async fn create_dedicated_worker_map(
         (HashMap::new(), false, dedicated_handles)
     }
 }
+
+#[derive(Debug, Clone)]
 pub enum SpawnWorker {
     Script { path: String, hash: Option<ScriptHash> },
     RawScript { path: String, content: String, lock: Option<String>, lang: ScriptLang },
@@ -532,7 +534,14 @@ async fn spawn_dedicated_worker(
         let base_internal_url = base_internal_url.to_string();
         let worker_name = worker_name.to_string();
         let job_completed_tx = job_completed_tx.clone();
-        let job_dir = format!("{}/dedicated", worker_dir);
+        let job_dir = format!(
+            "{}/dedicated{}",
+            worker_dir,
+            node_id
+                .as_ref()
+                .map(|x| format!("-{x}"))
+                .unwrap_or_else(|| "".to_string())
+        );
         tokio::fs::create_dir_all(&job_dir)
             .await
             .expect("create dir");
@@ -545,7 +554,7 @@ async fn spawn_dedicated_worker(
         let path2 = path.clone();
         let w_id = w_id.to_string();
 
-        let (content, lock, language, envs, codebase) = match sw {
+        let (content, lock, language, envs, codebase) = match sw.clone() {
             SpawnWorker::Script { path, hash } => {
                 let q = if let Some(hash) = hash {
                     get_script_content_by_hash(&hash, &w_id, &db).await.map(
@@ -675,7 +684,7 @@ async fn spawn_dedicated_worker(
                 }
                 _ => unreachable!("Non supported language for dedicated worker"),
             } {
-                tracing::error!("error in dedicated worker: {:?}", e);
+                tracing::error!("error in dedicated worker for {sw:#?}: {:?}", e);
             };
             if let Err(e) = killpill_tx.clone().send(()) {
                 tracing::error!("failed to send final killpill to dedicated worker: {:?}", e);

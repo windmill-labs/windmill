@@ -786,5 +786,8 @@ export const quickStyleProperties: Record<
 		icon: containerDefaultProps,
 		title: containerDefaultProps,
 		description: containerDefaultProps
+	},
+	navbarcomponent: {
+		container: containerDefaultProps
 	}
 }

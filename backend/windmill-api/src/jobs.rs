@@ -1466,7 +1466,7 @@ async fn list_jobs(
     };
 
     let sql = if lq.success.is_none() && lq.label.is_none() {
-        let sqlq = list_queue_jobs_query(
+        let mut sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
@@ -1482,10 +1482,10 @@ async fn list_jobs(
                 offset
             )
         } else {
-            sqlq.query()?
+            sqlq.limit(per_page).offset(offset).query()?
         }
     } else {
-        sqlc.unwrap().query()?
+        sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
     let mut tx = user_db.begin(&authed).await?;
 

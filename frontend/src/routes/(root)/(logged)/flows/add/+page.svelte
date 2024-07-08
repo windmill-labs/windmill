@@ -25,6 +25,7 @@
 
 	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')
+	const templateId = $page.url.searchParams.get('template_id')
 	const initialState = hubId || templatePath || nodraft ? undefined : localStorage.getItem('flow')
 
 	let selectedId: string = 'settings-metadata'
@@ -98,13 +99,21 @@
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
-				const template = await FlowService.getFlowByPath({
-					workspace: $workspaceStore!,
-					path: templatePath
-				})
+				let template: Flow
+				if (templateId) {
+					template = await FlowService.getFlowVersion({
+						workspace: $workspaceStore!,
+						path: templatePath,
+						version: parseInt(templateId)
+					})
+				} else {
+					template = await FlowService.getFlowByPath({
+						workspace: $workspaceStore!,
+						path: templatePath
+					})
+				}
 				Object.assign(flow, template)
 				const oldPath = templatePath.split('/')
-				console.log(oldPath)
 				initialPath = `u/${$userStore?.username.split('@')[0]}/${oldPath[oldPath.length - 1]}_fork`
 				flow = flow
 				goto('?', { replaceState: true })

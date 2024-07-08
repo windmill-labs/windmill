@@ -45,6 +45,7 @@
 	export let allWorkspaces: boolean = false
 	export let computeMinAndMax: (() => { minTs: string; maxTs: string } | undefined) | undefined
 	export let lookback: number = 0
+	export let perPage: number | undefined = undefined
 
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
@@ -135,7 +136,8 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined
+			allWorkspaces: allWorkspaces ? true : undefined,
+			perPage
 		})
 	}
 
@@ -170,7 +172,8 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined
+			allWorkspaces: allWorkspaces ? true : undefined,
+			perPage
 		})
 	}
 

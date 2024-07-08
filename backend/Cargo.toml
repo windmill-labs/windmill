@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.356.1"
+version = "1.359.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -25,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.356.1"
+version = "1.359.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -119,7 +119,7 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
-axum = { version = "^0.7", features = ["multipart"] } 
+axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }

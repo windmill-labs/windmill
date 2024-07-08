@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.356.1
+  version: 1.359.0
   title: Windmill API
 
   contact:
@@ -114,6 +114,16 @@ paths:
         - $ref: "#/components/parameters/After"
         - $ref: "#/components/parameters/Username"
         - $ref: "#/components/parameters/Operation"
+        - name: operations
+          in: query
+          description: comma separated list of exact operations to include
+          schema:
+            type: string
+        - name: exclude_operations
+          in: query
+          description: comma separated list of operations to exclude
+          schema:
+            type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
 
@@ -7656,6 +7666,14 @@ paths:
           required: true
           schema:
             type: string
+        - name: input
+          in: query
+          schema:
+            type: boolean
+        - name: allow_large
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: args
@@ -9161,8 +9179,6 @@ components:
           type: string
         name:
           type: string
-        args:
-          type: object
         created_by:
           type: string
         created_at:
