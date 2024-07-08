@@ -202,13 +202,13 @@ async function isConnectedToMissingModule(
 		const val: string = input.type === 'static' ? String(input.value) : input.expr
 
 		try {
-			const outputs = await parseOutputs(val, false)
+			const outputs = await parseOutputs(val, true)
 			let error: string = ''
 
 			outputs?.forEach(([componentId, id]) => {
 				if (componentId === 'results') {
 					if (!moduleIds.includes(id)) {
-						error += `Input ${argName} is connected to a missing module with id ${id}`
+						error += `Input ${argName} is connected to a missing module with id ${id}\n`
 					}
 				}
 			})

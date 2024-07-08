@@ -27,8 +27,8 @@
 		}
 	}
 
-	onMount(() => {
-		$flowStore?.value?.modules?.forEach(async (module) => {
+	async function initWarnings() {
+		for (const module of $flowStore?.value?.modules) {
 			if (!module) {
 				return
 			}
@@ -44,7 +44,11 @@
 					$flowStore?.value?.modules?.map((m) => m.id) ?? []
 				)
 			}
-		})
+		}
+	}
+
+	onMount(() => {
+		initWarnings()
 	})
 </script>
 

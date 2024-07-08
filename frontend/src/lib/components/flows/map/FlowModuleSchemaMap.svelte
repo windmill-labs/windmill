@@ -175,6 +175,30 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	async function updateFlowInputsStore() {
+		const keys = Object.keys(dependents ?? {})
+
+		for (const key of keys) {
+			const module = $flowStore.value.modules.find((m) => m.id === key)
+
+			if (!module) {
+				continue
+			}
+
+			if (!$flowInputsStore) {
+				$flowInputsStore = {}
+			}
+
+			$flowInputsStore[module.id] = {
+				flowStepWarnings: await initFlowStepWarnings(
+					module.value,
+					$flowStateStore?.[module.id]?.schema ?? {},
+					$flowStore?.value?.modules?.map((m) => m.id) ?? []
+				)
+			}
+		}
+	}
 </script>
 
 <Portal>
@@ -247,25 +271,7 @@
 					}
 					$flowStore = $flowStore
 
-					Object.keys(dependents ?? {}).forEach(async (key) => {
-						const module = $flowStore.value.modules.find((m) => m.id === key)
-
-						if (!module) {
-							return
-						}
-
-						if (!$flowInputsStore) {
-							$flowInputsStore = {}
-						}
-
-						$flowInputsStore[module?.id] = {
-							flowStepWarnings: await initFlowStepWarnings(
-								module.value,
-								$flowStateStore?.[module?.id]?.schema ?? {},
-								$flowStore?.value?.modules?.map((m) => m.id) ?? []
-							)
-						}
-					})
+					updateFlowInputsStore()
 				}
 
 				if (Object.keys(dependents).length > 0) {
