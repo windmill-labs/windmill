@@ -21,6 +21,7 @@
 		DollarSignIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
+		Loader2,
 		PlayIcon,
 		Search
 	} from 'lucide-svelte'
@@ -170,6 +171,9 @@
 		return r
 	}
 
+	let debounceTimeout: any = undefined
+	const debouncePeriod: number = 1000
+	let loadingCompletedRuns: boolean = false
 	async function handleSearch() {
 		if (
 			tab !== 'default' &&
@@ -215,17 +219,18 @@
 		if (tab === 'runs') {
 			// only search if hasn't been called in some small time. Show load animation while wating. Also add a cache that resets everytime the modal is closed
 			const s = removePrefix(searchTerm, RUNS_PREFIX)
-			try {
+			clearTimeout(debounceTimeout)
+			loadingCompletedRuns = true
+			debounceTimeout = setTimeout(async () => {
+				clearTimeout(debounceTimeout)
 				const searchResults = await IndexSearchService.searchJobsIndex({
 					query: s,
 					workspace: $workspaceStore!
 				})
-				console.log(searchResults)
+				loadingCompletedRuns = false
 				itemMap['runs'] = searchResults.document_hits
-			} catch (error) {
-				itemMap['runs'] = []
-				throw error
-			}
+				selectedItem = selectItem(0)
+			}, debouncePeriod)
 		}
 		selectedItem = selectItem(0)
 	}
@@ -569,10 +574,13 @@
 							</div>
 						{:else if tab === 'runs'}
 							<div class="flex h-96">
-								<!-- {#if !results || results.length == 0} -->
-								<!-- 	No matches found -->
-								<!-- {:else} -->
-								{#if itemMap['runs'] && itemMap['runs'].length > 0}
+								{#if loadingCompletedRuns}
+									<div class="flex w-full justify-center items-center h-48">
+										<div class="text-tertiary text-center">
+											<Loader2 size={34} class="animate-spin" />
+										</div>
+									</div>
+								{:else if itemMap['runs'] && itemMap['runs'].length > 0}
 									<div class="w-5/12 overflow-scroll">
 										{#each itemMap['runs'] ?? [] as r}
 											<QuickMenuItem
