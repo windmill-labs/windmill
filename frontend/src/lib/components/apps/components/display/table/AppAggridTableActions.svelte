@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import type { TableAction } from '$lib/components/apps/editor/component'
 
@@ -30,6 +30,18 @@
 	const dispatch = createEventDispatcher()
 	const { selectedComponent, hoverStore, mode, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	let rowDiv: HTMLDivElement | undefined = undefined
+
+	onMount(() => {
+		// apply w-full to the the parent of the parent of the rowDiv
+		if (rowDiv) {
+			const parent = rowDiv.parentElement?.parentElement?.parentElement
+			if (parent) {
+				parent.classList.add('w-full')
+			}
+		}
+	})
 </script>
 
 <RowWrapper value={row} index={rowIndex} {onSet} {onRemove}>
@@ -38,6 +50,7 @@
 			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full',
 			wrapActions ? 'flex-wrap' : ''
 		)}
+		bind:this={rowDiv}
 	>
 		{#each actions as action, actionIndex}
 			<!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -56,13 +69,14 @@
 				}}
 				on:pointerdown|stopPropagation={(e) => {
 					selectRow()
-					$selectedComponent = [action.id]
+					//	$selectedComponent = [action.id]
 				}}
 				class={twMerge(
 					($selectedComponent?.includes(action.id) || $hoverStore === action.id) &&
 						$mode !== 'preview'
 						? 'outline outline-indigo-500 outline-1 outline-offset-1 relative z-50'
-						: 'relative'
+						: 'relative',
+					'w-full z-50'
 				)}
 			>
 				{#if $mode !== 'preview'}
@@ -101,8 +115,16 @@
 								</svelte:fragment>
 								<ComponentOutputViewer
 									suffix="table"
-									on:select={({ detail }) =>
-										connectOutput(connectingInput, 'buttoncomponent', action.id, detail)}
+									on:select={({ detail }) => {
+										const tableId = action.id.split('_')[0]
+
+										connectOutput(
+											connectingInput,
+											action.type,
+											tableId,
+											`inputs.${action.id}[${rowIndex}]`
+										)
+									}}
 									componentId={action.id}
 								/>
 							</Popup>
@@ -171,25 +193,23 @@
 							{controls}
 						/>
 					{:else if action.type == 'selectcomponent'}
-						<div class="w-40">
-							<AppSelect
-								noDefault
-								noInitialize
-								extraKey={'idx' + rowIndex}
-								{render}
-								--font-size="10px"
-								id={action.id}
-								customCss={action.customCss}
-								configuration={action.configuration}
-								recomputeIds={action.recomputeIds}
-								onSelect={action.onSelect}
-								preclickAction={async () => {
-									dispatch('toggleRow')
-									selectRow()
-								}}
-								{controls}
-							/>
-						</div>
+						<AppSelect
+							noDefault
+							noInitialize
+							extraKey={'idx' + rowIndex}
+							{render}
+							--font-size="10px"
+							id={action.id}
+							customCss={action.customCss}
+							configuration={action.configuration}
+							recomputeIds={action.recomputeIds}
+							onSelect={action.onSelect}
+							preclickAction={async () => {
+								dispatch('toggleRow')
+								selectRow()
+							}}
+							{controls}
+						/>
 					{/if}
 				{:else if action.type == 'buttoncomponent'}
 					<AppButton
@@ -227,24 +247,22 @@
 						}}
 					/>
 				{:else if action.type == 'selectcomponent'}
-					<div class="w-40">
-						<AppSelect
-							noDefault
-							noInitialize
-							extraKey={'idx' + rowIndex}
-							{render}
-							--font-size="10px"
-							id={action.id}
-							customCss={action.customCss}
-							configuration={action.configuration}
-							recomputeIds={action.recomputeIds}
-							onSelect={action.onSelect}
-							preclickAction={async () => {
-								dispatch('toggleRow')
-								selectRow()
-							}}
-						/>
-					</div>
+					<AppSelect
+						noDefault
+						noInitialize
+						extraKey={'idx' + rowIndex}
+						{render}
+						--font-size="10px"
+						id={action.id}
+						customCss={action.customCss}
+						configuration={action.configuration}
+						recomputeIds={action.recomputeIds}
+						onSelect={action.onSelect}
+						preclickAction={async () => {
+							dispatch('toggleRow')
+							selectRow()
+						}}
+					/>
 				{/if}
 			</div>
 		{/each}
