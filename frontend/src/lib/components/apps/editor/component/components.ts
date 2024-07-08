@@ -742,6 +742,12 @@ const aggridcomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -845,6 +851,12 @@ const aggridinfinitecomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -3778,6 +3790,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					value: true,
 					tooltip: 'Allow visible footer for pagination and download'
+				},
+				customActionsHeader: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Custom actions header'
 				}
 			},
 			componentInput: undefined

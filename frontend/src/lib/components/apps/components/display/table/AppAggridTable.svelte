@@ -252,7 +252,9 @@
 				// Add the action column if actions are defined
 				if (actions && actions.length > 0) {
 					columnDefs.push({
-						headerName: 'Actions',
+						headerName: resolvedConfig?.customActionsHeader
+							? resolvedConfig?.customActionsHeader
+							: 'Actions',
 						cellRenderer: tableActionsFactory,
 						autoHeight: true,
 						cellStyle: { textAlign: 'center' },
@@ -392,7 +394,9 @@
 			// Add the action column if actions are defined
 			if (actions && actions.length > 0) {
 				columnDefs.push({
-					headerName: 'Actions',
+					headerName: resolvedConfig?.customActionsHeader
+						? resolvedConfig?.customActionsHeader
+						: 'Actions',
 					cellRenderer: tableActionsFactory,
 					autoHeight: true,
 					cellStyle: { textAlign: 'center' },
