@@ -102,6 +102,12 @@
 		outTimeout && clearTimeout(outTimeout)
 		outTimeout = setTimeout(() => {
 			if ($hoverStore !== undefined) {
+				// In order to avoid flickering when hovering over table actions,
+				// we leave the actions to manage the hover state
+				if ($hoverStore.startsWith(`${component.id}_`)) {
+					return
+				}
+
 				$hoverStore = undefined
 			}
 		}, 50)
