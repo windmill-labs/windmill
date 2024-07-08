@@ -545,7 +545,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                             .map(|x| serde_json::from_value::<Retry>(x).ok())
                             .flatten()
                             .unwrap_or_default();
-                        tracing::error!("UPDATE FLOW STATUS 2: {retry:#?} ");
+                        tracing::info!("update flow status  on rety: {retry:#?} ");
                         next_retry(&retry, &old_status.retry).is_none()
                     } else {
                         false
@@ -1717,7 +1717,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         .with_context(|| format!("no module at index {}", status.step))?;
 
     let current_id = &module.id;
-    let previous_id = if i >= 1 {
+    let mut previous_id = if i >= 1 {
         flow.modules.get(i - 1).map(|m| m.id.clone()).unwrap()
     } else {
         String::new()
@@ -1835,7 +1835,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                  * In that case, `i` will index past `flow.modules`.  The above should handle that and
                  * re-run the failure module. */
                 i = flow.modules.len();
-
+                previous_id = current_id.clone();
                 module = flow
                     .failure_module
                     .as_ref()
