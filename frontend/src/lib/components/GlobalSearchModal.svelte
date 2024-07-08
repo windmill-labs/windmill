@@ -11,7 +11,7 @@
 		type ListableRawApp,
 		type Script
 	} from '$lib/gen'
-	import { clickOutside, displayDateOnly } from '$lib/utils'
+	import { clickOutside, displayDateOnly, sendUserToast } from '$lib/utils'
 	import TimeAgo from './TimeAgo.svelte'
 	import {
 		BoxesIcon,
@@ -223,12 +223,17 @@
 			loadingCompletedRuns = true
 			debounceTimeout = setTimeout(async () => {
 				clearTimeout(debounceTimeout)
-				const searchResults = await IndexSearchService.searchJobsIndex({
-					query: s,
-					workspace: $workspaceStore!
-				})
+				let searchResults
+				try {
+					searchResults = await IndexSearchService.searchJobsIndex({
+						query: s,
+						workspace: $workspaceStore!
+					})
+					itemMap['runs'] = searchResults.document_hits
+				} catch (e) {
+					sendUserToast(e, true)
+				}
 				loadingCompletedRuns = false
-				itemMap['runs'] = searchResults.document_hits
 				selectedItem = selectItem(0)
 			}, debouncePeriod)
 		}
