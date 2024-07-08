@@ -149,7 +149,7 @@
 						flowStepWarnings: initFlowStepWarnings(
 							flowModule.value,
 							schema ?? {},
-							$flowStore.value.modules.map((m) => m.id)
+							$flowStore?.value?.modules?.map((m) => m?.id) ?? []
 						)
 					}
 				}
@@ -203,8 +203,8 @@
 				argName,
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
-				$flowStateStore[$selectedId]?.schema,
-				$flowStore.value.modules.map((m) => m.id)
+				$flowStateStore[$selectedId]?.schema ?? {},
+				$flowStore?.value?.modules?.map((m) => m?.id) ?? []
 			)
 
 			$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
@@ -212,7 +212,7 @@
 	}, 100)
 
 	function setFlowInput(argName: string) {
-		if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
+		if ($flowInputsStore && flowModule.id && $flowInputsStore?.[flowModule.id] === undefined) {
 			$flowInputsStore[flowModule.id] = {}
 		}
 		debouncedWarning(argName)

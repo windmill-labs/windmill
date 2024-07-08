@@ -41,7 +41,7 @@
 				flowStepWarnings: initFlowStepWarnings(
 					module.value,
 					$flowStateStore?.[module?.id]?.schema ?? {},
-					$flowStore.value.modules.map((m) => m.id)
+					$flowStore?.value?.modules?.map((m) => m.id) ?? []
 				)
 			}
 		})

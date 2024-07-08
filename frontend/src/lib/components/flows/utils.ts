@@ -189,8 +189,13 @@ export function isInputFilled(
 	return true
 }
 
-function extractFirstPath(input: string): string | undefined {
+function extractFirstPath(input: string): string | undefined | null {
 	const match = input.match(/^results\.(\w+)/)
+
+	if (match === null) {
+		return null
+	}
+
 	return match ? match[1] : undefined
 }
 
@@ -202,15 +207,20 @@ export function isConnectedToMissingModule(
 	const type = flowModuleValue.type
 
 	if (type === 'rawscript' || type === 'script' || type === 'flow') {
-		const input = flowModuleValue.input_transforms[argName]
-		const val: string = input.type === 'static' ? String(input.value) : input.expr
+		const input = flowModuleValue?.input_transforms[argName]
 
-		const firstId = extractFirstPath(val)
+		if (input.type === 'javascript') {
+			const firstId = extractFirstPath(input.expr)
 
-		if (firstId === undefined) {
-			return `Input ${argName} has an ill-formed path.`
-		} else if (!moduleIds.includes(firstId)) {
-			return `Input ${argName} is connected to a missing module with id ${firstId}`
+			if (firstId === null) {
+				return undefined
+			}
+
+			if (firstId === undefined) {
+				return `Input ${argName} has an ill-formed path.`
+			} else if (!moduleIds.includes(firstId)) {
+				return `Input ${argName} is connected to a missing module with id ${firstId}`
+			}
 		}
 	}
 
@@ -250,6 +260,8 @@ export function computeFlowStepWarning(
 				message: errorMessage,
 				type: 'error'
 			}
+		} else {
+			delete messages[argName]
 		}
 	}
 
@@ -271,13 +283,11 @@ export function initFlowStepWarnings(
 	const type = flowModuleValue.type
 
 	if (type == 'rawscript' || type == 'script' || type == 'flow') {
-		const keys = Object.keys(flowModuleValue.input_transforms)
+		const keys = Object.keys(flowModuleValue.input_transforms ?? {})
 		for (const key of keys) {
 			computeFlowStepWarning(key, flowModuleValue, messages, schema ?? {}, moduleIds)
 		}
 	}
-
-	console.log('messages', messages)
 
 	return messages
 }

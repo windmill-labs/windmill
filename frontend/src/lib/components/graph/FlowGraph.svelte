@@ -184,10 +184,10 @@
 					Object.entries(deps.dependees).forEach((x, i) => {
 						const inputs = x[1]
 
-						inputs.forEach((input, index) => {
+						inputs?.forEach((input, index) => {
 							let pid = x[0]
 
-							if (input.startsWith('flow_input.iter')) {
+							if (input?.startsWith('flow_input.iter')) {
 								const parent = dfsByModule($selectedId!, modules ?? [])?.pop()
 
 								if (parent?.id) {
