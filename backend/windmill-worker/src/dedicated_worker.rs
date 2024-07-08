@@ -415,7 +415,7 @@ pub async fn create_dedicated_worker_map(
                 flow_path,
                 _wp.workspace_id
             )
-            .fetch_one(db)
+            .fetch_optional(db)
             .await;
             if let Ok(v) = value {
                 if let Some(v) = v {
