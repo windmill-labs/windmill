@@ -69,14 +69,20 @@
 				}}
 				on:pointerdown|stopPropagation={(e) => {
 					selectRow()
-					//	$selectedComponent = [action.id]
+
+					if (!$connectingInput.opened) {
+						$selectedComponent = [action.id]
+					}
 				}}
 				class={twMerge(
 					($selectedComponent?.includes(action.id) || $hoverStore === action.id) &&
 						$mode !== 'preview'
-						? 'outline outline-indigo-500 outline-1 outline-offset-1 relative z-50'
+						? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
 						: 'relative',
-					'w-full z-50'
+					$hoverStore === action.id && $selectedComponent?.[0] !== action.id
+						? 'outline-blue-500'
+						: '',
+					'w-full cursor-pointer'
 				)}
 			>
 				{#if $mode !== 'preview'}
@@ -87,6 +93,9 @@
 						class={twMerge(
 							'px-2 text-2xs font-bold absolute shadow  -top-2 -left-4 border z-50 rounded-sm w-8 !h-5 flex justify-center items-center',
 							'bg-indigo-500/90 border-indigo-600 text-white',
+							$hoverStore === action.id && $selectedComponent?.[0] !== action.id
+								? 'bg-blue-500/90 border-blue-600'
+								: '',
 							$selectedComponent?.includes(action.id) || $hoverStore === action.id
 								? 'opacity-100'
 								: 'opacity-0'
@@ -122,7 +131,7 @@
 											connectingInput,
 											action.type,
 											tableId,
-											`inputs.${action.id}[${rowIndex}]`
+											`inputs.${action.id}[${rowIndex}].${detail}`
 										)
 									}}
 									componentId={action.id}
