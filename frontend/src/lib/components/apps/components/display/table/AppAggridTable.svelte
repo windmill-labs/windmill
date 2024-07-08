@@ -6,6 +6,7 @@
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
+		ContextPanelContext,
 		ListContext,
 		ListInputs,
 		RichConfigurations
@@ -50,7 +51,7 @@
 	export let actions: TableAction[] | undefined = undefined
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
-
+	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
@@ -196,6 +197,11 @@
 		const rowIndex = p.node.rowIndex ?? 0
 		const row = p.data
 
+		const componentContext = new Map<string, any>([
+			['AppViewerContext', context],
+			['ContextPanel', contextPanel]
+		])
+
 		new AppAggridTableActions({
 			target: c.eGui,
 			props: {
@@ -231,7 +237,7 @@
 					outputs?.inputs.set(inputs, true)
 				}
 			},
-			context: new Map([['AppViewerContext', context]])
+			context: componentContext
 		})
 	})
 
