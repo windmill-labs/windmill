@@ -174,6 +174,9 @@ async fn windmill_main() -> anyhow::Result<()> {
                 }
                 #[cfg(feature = "enterprise")]
                 Mode::Agent
+            } else if &x == "indexer" {
+                tracing::info!("Binary is in 'indexer' mode");
+                Mode::Indexer
             } else {
                 if &x != "standalone" {
                     tracing::error!("mode not recognized, defaulting to standalone: {x}");
@@ -346,7 +349,12 @@ Windmill Community Edition {GIT_VERSION}
             .await
             .expect("could not create initial server dir");
 
-        let (index_reader, index_writer) = if "indexer_mode" == "indexer_mode" {
+        #[cfg(not(feature = "tantivy"))]
+        let should_index_jobs = false;
+        #[cfg(feature = "tantivy")]
+        let should_index_jobs = mode == Mode::Indexer || mode == Mode::Standalone;
+
+        let (index_reader, index_writer) = if should_index_jobs {
             let (r, w) = windmill_indexer::indexer_ee::init_index()?;
             (Some(r), Some(w))
         } else {
