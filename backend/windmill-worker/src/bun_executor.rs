@@ -1017,12 +1017,12 @@ pub async fn start_worker(
             .enumerate()
             .filter_map(|(i, x)| {
                 if matches!(x.typ, Typ::Datetime) {
-                    Some(i)
+                    Some(x.name.clone())
                 } else {
                     None
                 }
             })
-            .map(|x| return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined"))
+            .map(|x| return format!("{x} = {x} ? new Date({x}) : undefined"))
             .join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
@@ -1050,7 +1050,6 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-{dates}
 
 console.log('start'); 
 
@@ -1062,6 +1061,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     }}
     try {{
         let {{ {spread} }} = JSON.parse(line) 
+        {dates}
         let res = await Main.main(...[ {spread} ]);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
     }} catch (e) {{
