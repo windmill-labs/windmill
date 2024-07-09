@@ -1075,7 +1075,25 @@
 						undoProps={{ disabled: $history.index === 0 }}
 						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
 						on:undo={() => {
+							const currentModules = $flowStore?.value?.modules
+
 							$flowStore = undo(history, $flowStore)
+
+							const newModules = $flowStore?.value?.modules
+							const restoredModules = newModules?.filter(
+								(node) => !currentModules?.some((currentNode) => currentNode?.id === node?.id)
+							)
+
+							for (const mod of restoredModules) {
+								if (mod) {
+									try {
+										loadFlowModuleState(mod).then((state) => ($flowStateStore[mod.id] = state))
+									} catch (e) {
+										console.error('Error loading state for restored node', e)
+									}
+								}
+							}
+
 							$selectedIdStore = 'Input'
 						}}
 						on:redo={() => {
