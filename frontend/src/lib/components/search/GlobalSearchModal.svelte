@@ -232,7 +232,7 @@
 						query: s,
 						workspace: $workspaceStore!
 					})
-					itemMap['runs'] = searchResults.document_hits
+					itemMap['runs'] = searchResults.hits
 				} catch (e) {
 					sendUserToast(e, true)
 				}

@@ -188,12 +188,6 @@ pub async fn run_server(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
 
-    // let middleware_stack = if let Some(search_index) = search_index {
-    //     middleware_stack.layer(Extension(search_index))
-    // } else {
-    //     middleware_stack
-    // };
-
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
@@ -241,7 +235,6 @@ pub async fn run_server(
                         .nest("/flows", flows::workspaced_service())
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
-                        .nest("/index", indexer_ee::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
@@ -278,6 +271,10 @@ pub async fn run_server(
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
+                .nest(
+                    "/srch/w/:workspace_id/index",
+                    indexer_ee::workspaced_service(),
+                )
                 .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",
