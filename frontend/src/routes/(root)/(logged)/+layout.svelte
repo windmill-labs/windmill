@@ -11,7 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { classNames } from '$lib/utils'
+	import { classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {
@@ -255,7 +255,6 @@
 
 <svelte:window bind:innerWidth />
 
-
 <UserSettings bind:this={userSettings} />
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
@@ -342,8 +341,9 @@
 											on:click={() => openSearchModal()}
 											isCollapsed={false}
 											icon={Search}
-											label="Search (ctrl + k)"
+											label="Search"
 											class="!text-xs"
+											shortcut={`${getModifierKey()}k`}
 										/>
 									</div>
 
@@ -389,8 +389,9 @@
 									on:click={() => openSearchModal()}
 									{isCollapsed}
 									icon={Search}
-									label="Search (ctrl + k)"
+									label="Search"
 									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
 								/>
 							</div>
 
@@ -476,8 +477,9 @@
 									on:click={() => openSearchModal()}
 									{isCollapsed}
 									icon={Search}
-									label="Search (ctrl + k)"
+									label="Search"
 									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
 								/>
 							</div>
 

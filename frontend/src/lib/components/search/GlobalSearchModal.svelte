@@ -11,7 +11,7 @@
 		type ListableRawApp,
 		type Script
 	} from '$lib/gen'
-	import { clickOutside, displayDateOnly, sendUserToast } from '$lib/utils'
+	import { clickOutside, displayDateOnly, isMac, sendUserToast } from '$lib/utils'
 	import TimeAgo from '../TimeAgo.svelte'
 	import {
 		BoxesIcon,
@@ -253,7 +253,7 @@
 
 	let selectedItem: any
 	async function handleKeydown(event: KeyboardEvent) {
-		if (event.ctrlKey && event.key === 'k') {
+		if ((isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
 			event.preventDefault()
 			open = !open
 			await tick()

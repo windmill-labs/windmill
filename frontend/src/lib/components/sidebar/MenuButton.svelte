@@ -9,6 +9,7 @@
 	export let disabled: boolean = false
 	export let lightMode: boolean = false
 	export let stopPropagationOnClick: boolean = false
+	export let shortcut: string = ""
 
 	let dispatch = createEventDispatcher()
 </script>
@@ -54,6 +55,9 @@
 					)}
 				>
 					{label}
+					<span class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold">
+						{shortcut}
+					</span>
 				</span>
 			{/if}
 		</button>
