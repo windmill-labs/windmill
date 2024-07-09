@@ -16,7 +16,6 @@
 	import {
 		BoxesIcon,
 		CalendarIcon,
-		ChevronDown,
 		Code2Icon,
 		DollarSignIcon,
 		HomeIcon,
@@ -34,7 +33,6 @@
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
-	import DropdownV2 from '../DropdownV2.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
@@ -229,7 +227,7 @@
 				let searchResults
 				try {
 					searchResults = await IndexSearchService.searchJobsIndex({
-						query: s,
+						search_query: s,
 						workspace: $workspaceStore!
 					})
 					itemMap['runs'] = searchResults.hits
