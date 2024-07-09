@@ -253,7 +253,7 @@
 
 	let selectedItem: any
 	async function handleKeydown(event: KeyboardEvent) {
-		if ((isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
+		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
 			event.preventDefault()
 			open = !open
 			await tick()
