@@ -18,7 +18,11 @@ type StepPropPicker = {
 
 type ModuleBranches = FlowModule[][]
 
-export function dfs(id: string | undefined, flow: OpenFlow, getParents: boolean = true): FlowModule[] {
+export function dfs(
+	id: string | undefined,
+	flow: OpenFlow,
+	getParents: boolean = true
+): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -60,20 +64,23 @@ function getFlowInput(
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
 
 	if (parentState && parentModule) {
-		if (parentState.previewArgs) {
-			return {...topFlowInput, ...parentState.previewArgs }
+		if (
+			parentState.previewArgs &&
+			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1)
+		) {
+			return { ...topFlowInput, ...parentState.previewArgs }
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 			if (parentModule.value.type === 'forloopflow') {
-				let parentFlowInputIter = {...parentFlowInput}
-				if (parentFlowInputIter.hasOwnProperty("iter")) {
-					parentFlowInputIter["iter_parent"] = parentFlowInputIter["iter"]
-					delete parentFlowInputIter["iter"]
+				let parentFlowInputIter = { ...parentFlowInput }
+				if (parentFlowInputIter.hasOwnProperty('iter')) {
+					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']
+					delete parentFlowInputIter['iter']
 				}
-				let topFlowInputIter = {...topFlowInput}
-				if (topFlowInputIter.hasOwnProperty("iter")) {
-					topFlowInputIter["iter_parent"] = topFlowInputIter["iter"]
-					delete topFlowInputIter["iter"]
+				let topFlowInputIter = { ...topFlowInput }
+				if (topFlowInputIter.hasOwnProperty('iter')) {
+					topFlowInputIter['iter_parent'] = topFlowInputIter['iter']
+					delete topFlowInputIter['iter']
 				}
 				return {
 					...topFlowInputIter,
@@ -81,11 +88,10 @@ function getFlowInput(
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
-					},
+					}
 				}
 			} else {
-
-				return {...topFlowInput,  ...parentFlowInput }
+				return { ...topFlowInput, ...parentFlowInput }
 			}
 		}
 	} else {
