@@ -727,7 +727,7 @@
 	}
 
 	function createErrorHandler(mod: FlowModule, parent_module?: string): Node {
-		const nId = (-idGenerator.next().value - 1 + 1100).toString()
+		const nId = 'failure'
 		parent_module && (errorHandlers[parent_module] = nId)
 		let label = 'Error handler'
 		return {
