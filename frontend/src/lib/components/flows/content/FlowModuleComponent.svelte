@@ -21,7 +21,7 @@
 	import FlowModuleCache from './FlowModuleCache.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowRetries from './FlowRetries.svelte'
-	import { getStepPropPicker } from '../previousResults'
+	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
 
@@ -30,7 +30,6 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
-	import { schemaToObject } from '$lib/schema'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
@@ -102,22 +101,7 @@
 	$: editor !== undefined && setCopilotModuleEditor()
 
 	$: stepPropPicker = failureModule
-		? {
-				pickableProperties: {
-					flow_input: schemaToObject($flowStore.schema as any, $previewArgs),
-					priorIds: {},
-					previousId: undefined,
-					hasResume: false
-				},
-				extraLib: `
-				declare const error: {
-					message: string
-					name: string
-					stack: string
-				}
-				
-				`
-		  }
+		? getFailureStepPropPicker($flowStateStore, $flowStore, $previewArgs)
 		: getStepPropPicker(
 				$flowStateStore,
 				parentModule,

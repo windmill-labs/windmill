@@ -18,7 +18,11 @@ type StepPropPicker = {
 
 type ModuleBranches = FlowModule[][]
 
-export function dfs(id: string | undefined, flow: OpenFlow, getParents: boolean = true): FlowModule[] {
+export function dfs(
+	id: string | undefined,
+	flow: OpenFlow,
+	getParents: boolean = true
+): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -61,19 +65,19 @@ function getFlowInput(
 
 	if (parentState && parentModule) {
 		if (parentState.previewArgs) {
-			return {...topFlowInput, ...parentState.previewArgs }
+			return { ...topFlowInput, ...parentState.previewArgs }
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 			if (parentModule.value.type === 'forloopflow') {
-				let parentFlowInputIter = {...parentFlowInput}
-				if (parentFlowInputIter.hasOwnProperty("iter")) {
-					parentFlowInputIter["iter_parent"] = parentFlowInputIter["iter"]
-					delete parentFlowInputIter["iter"]
+				let parentFlowInputIter = { ...parentFlowInput }
+				if (parentFlowInputIter.hasOwnProperty('iter')) {
+					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']
+					delete parentFlowInputIter['iter']
 				}
-				let topFlowInputIter = {...topFlowInput}
-				if (topFlowInputIter.hasOwnProperty("iter")) {
-					topFlowInputIter["iter_parent"] = topFlowInputIter["iter"]
-					delete topFlowInputIter["iter"]
+				let topFlowInputIter = { ...topFlowInput }
+				if (topFlowInputIter.hasOwnProperty('iter')) {
+					topFlowInputIter['iter_parent'] = topFlowInputIter['iter']
+					delete topFlowInputIter['iter']
 				}
 				return {
 					...topFlowInputIter,
@@ -81,11 +85,10 @@ function getFlowInput(
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
-					},
+					}
 				}
 			} else {
-
-				return {...topFlowInput,  ...parentFlowInput }
+				return { ...topFlowInput, ...parentFlowInput }
 			}
 		}
 	} else {
@@ -111,6 +114,49 @@ export function getPreviousIds(id: string, flow: OpenFlow, include_node: boolean
 			}
 		})
 		.flat()
+}
+
+export function getFailureStepPropPicker(flowState: FlowState, flow: OpenFlow, args: any) {
+	const allIds = flow.value.modules.map((x) => x.id)
+	let priorIds = Object.fromEntries(
+		allIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
+	)
+
+	const flowInput = getFlowInput(
+		dfs(flow.value.modules[0].id, flow),
+		flowState,
+		args,
+		flow.schema as Schema
+	)
+
+	return {
+		pickableProperties: {
+			flow_input: schemaToObject(flow.schema as any, args),
+			priorIds: priorIds,
+			previousId: undefined,
+			hasResume: false
+		},
+		extraLib: `
+/**
+* Error object
+*/
+declare const error: {
+	message: string
+	name: string
+	stack: string
+}
+
+/**
+* result by id
+*/
+declare const results = ${JSON.stringify(priorIds)}
+
+/**
+* flow input as an object
+*/
+declare const flow_input = ${JSON.stringify(flowInput)};
+		`
+	}
 }
 
 export function getStepPropPicker(
