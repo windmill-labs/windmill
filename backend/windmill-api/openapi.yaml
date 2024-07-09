@@ -8560,7 +8560,7 @@ paths:
         - indexSearch
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: query
+        - name: search_query
           in: query
           required: true
           schema:
@@ -8578,6 +8578,9 @@ paths:
                     type: array
                     items:
                       type: object
+                      properties:
+                        dancer:
+                          type: string
                   hits:
                     description: the jobs that matched the query
                     type: array
@@ -11121,3 +11124,6 @@ components:
 
     JobSearchHit:
       type: object
+      properties:
+        dancer:
+          type: string
