@@ -42,7 +42,7 @@
 	import { workspacedOpenai } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
-	import GlobalSearchModal from '$lib/components/GlobalSearchModal.svelte'
+	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
@@ -255,7 +255,6 @@
 
 <svelte:window bind:innerWidth />
 
-<GlobalSearchModal bind:open={globalSearchModalOpen} />
 
 <UserSettings bind:this={userSettings} />
 {#if $page.status == 404}
@@ -267,6 +266,7 @@
 		</div>
 	</CenteredModal>
 {:else if $userStore}
+	<GlobalSearchModal bind:open={globalSearchModalOpen} />
 	{#if $superadmin}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
