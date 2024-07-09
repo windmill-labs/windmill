@@ -23,7 +23,8 @@
 		LayoutDashboardIcon,
 		Loader2,
 		PlayIcon,
-		Search
+		Search,
+		SearchCode
 	} from 'lucide-svelte'
 	import JobPreview from '../runs/JobPreview.svelte'
 	import Portal from 'svelte-portal'
@@ -59,26 +60,29 @@
 		label: string
 		action: () => void
 		icon?: any
-		charIcon?: string
+		shortcutKey?: string
 	}
 	let switchModeItems: quickMenuItem[] = [
 		{
 			search_id: 'switchto:run-search',
 			label: 'Search across completed runs',
 			action: () => switchMode('runs'),
-			charIcon: RUNS_PREFIX
+			shortcutKey: RUNS_PREFIX,
+			icon: Search
 		},
 		{
 			search_id: 'switchto:content-search',
 			label: 'Search scripts/flows/apps based on content',
 			action: () => switchMode('content'),
-			charIcon: CONTENT_SEARCH_PREFIX
+			shortcutKey: CONTENT_SEARCH_PREFIX,
+			icon: SearchCode
 		},
 		{
 			search_id: 'switchto:log-search',
 			label: 'Search windmill logs',
 			action: () => switchMode('logs'),
-			charIcon: LOGS_PREFIX
+			shortcutKey: LOGS_PREFIX,
+			icon: Search
 		}
 	]
 	let defaultMenuItems: quickMenuItem[] = [
@@ -342,31 +346,19 @@
 	})
 	$: searchTerm, handleSearch()
 
-	function placeholderForMode(mode: SearchMode): string | null | undefined {
-		switch (mode) {
-		}
-		switch (mode) {
-			case 'default':
-				return 'Search or type `?` for search options'
-			case 'runs':
-				return 'Search across all jobs'
+	function placeholderFromPrefix(text: string): string {
+		switch (text) {
+			case '':
+				return '   Search or type `?` for search options'
+			case RUNS_PREFIX:
+				return '   Search across completed runs'
+			case LOGS_PREFIX:
+				return '   Search across completed runs'
+			case CONTENT_SEARCH_PREFIX:
+				return '   Search flows/scripts/apps by content'
 			default:
-				return 'Search...'
+				return ''
 		}
-	}
-
-	function searchModeDescription(mode: SearchMode) {
-		switch (mode) {
-			case 'runs':
-				return 'completed runs'
-			case 'logs':
-				return 'service logs'
-			case 'content':
-				return 'flows/apps/scripts by content'
-			case 'default':
-				return 'flows/apps/scripts by name'
-		}
-		return ''
 	}
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
@@ -456,7 +448,7 @@
 		<div
 			class={twMerge(
 				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50`,
-				' bg-black bg-opacity-60',
+				' bg-black bg-opacity-40',
 				'z-[1100]'
 			)}
 		>
@@ -470,13 +462,20 @@
 				<div class="px-4 py-2 items-center">
 					<div class="quick-search-input flex flex-row gap-1 items-center mb-2">
 						<Search />
-						<input
-							bind:this={textInput}
-							type="text"
-							class="quick-search-input"
-							bind:value={searchTerm}
-							placeholder={placeholderForMode(tab)}
-						/>
+						<div class="relative inline-block w-full">
+							<input
+								id="quickSearchInput"
+								bind:this={textInput}
+								type="text"
+								class="quick-search-input"
+								bind:value={searchTerm}
+							/>
+							<label
+								for="quickSearchInput"
+								class="absolute top-1/2 left-2 transform -translate-y-1/2 pointer-events-none text-gray-400 transition-all duration-200 whitespace-pre"
+								>{placeholderFromPrefix(searchTerm)}</label
+							>
+						</div>
 					</div>
 					<div class="overflow-scroll max-h-[30rem]">
 						{#if tab === 'default' || tab === 'switch-mode'}
@@ -488,63 +487,16 @@
 									hovered={el?.search_id === selectedItem?.search_id}
 									label={el?.label}
 									icon={el?.icon}
-									charIcon={el?.charIcon}
+									shortcutKey={el?.shortcutKey}
 								/>
 							{/each}
 						{/if}
-						{#if tab !== 'switch-mode'}
-							<div
-								class="flex flex-row items-center text-xs font-bold font-small-caps border-b-2 border-gray-300 p-1 mt-2"
-							>
-								<span class="h-6 px-1"> Search </span>
-								<span>
-									<DropdownV2
-										items={[
-											{
-												displayName: searchModeDescription('default'),
-												action: (e) => {
-													e.stopPropagation()
-													switchMode('default')
-												}
-											},
-											{
-												displayName: searchModeDescription('content'),
-												action: (e) => {
-													e.stopPropagation()
-													switchMode('content')
-												}
-											},
-											{
-												displayName: searchModeDescription('runs'),
-												action: (e) => {
-													e.stopPropagation()
-													switchMode('runs')
-												}
-											},
-											{
-												displayName: searchModeDescription('logs'),
-												action: (e) => {
-													e.stopPropagation()
-													switchMode('logs')
-												}
-											}
-										]}
-									>
-										<svelte:fragment slot="buttonReplacement">
-											<div class="flex flex-row text-xs items-center">
-												<div
-													class="pl-1 h-6 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-												>
-													<span class="">{searchModeDescription(tab)}</span>
-													<ChevronDown class="w-5 h-5" />
-												</div>
-											</div>
-										</svelte:fragment>
-									</DropdownV2>
-								</span>
-							</div>
-						{/if}
 						{#if tab === 'default'}
+							{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
+								<div class="mt-2 pt-2 pb-1 px-1 text-xs text-sm font-bold border-t text-tertiary"
+									>Flows/Scripts/Apps</div
+								>
+							{/if}
 							{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 								<QuickMenuItem
 									on:select={() => gotoWindmillItemPage(el)}
