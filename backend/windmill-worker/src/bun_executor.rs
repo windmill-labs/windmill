@@ -1014,8 +1014,7 @@ pub async fn start_worker(
         let args = windmill_parser_ts::parse_deno_signature(inner_content, true, None)?.args;
         let dates = args
             .iter()
-            .enumerate()
-            .filter_map(|(i, x)| {
+            .filter_map(|x| {
                 if matches!(x.typ, Typ::Datetime) {
                     Some(x.name.clone())
                 } else {
@@ -1049,7 +1048,6 @@ import * as Readline from "node:readline"
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
-
 
 console.log('start'); 
 
