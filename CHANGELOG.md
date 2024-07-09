@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.360.1](https://github.com/windmill-labs/windmill/compare/v1.360.0...v1.360.1) (2024-07-09)
+
+
+### Bug Fixes
+
+* fix previous_result not always working for failure steps ([23a00c5](https://github.com/windmill-labs/windmill/commit/23a00c55e95054ecebbcbb829499f5a1d622efd5))
+* **frontend:** Reload the flowStateStore when a node is restored (undo) ([#4049](https://github.com/windmill-labs/windmill/issues/4049)) ([6e52632](https://github.com/windmill-labs/windmill/commit/6e526327dd0259eb096fdaf387dfc9206936c19b))
+* improve flow version fix migration ([#4050](https://github.com/windmill-labs/windmill/issues/4050)) ([eda6629](https://github.com/windmill-labs/windmill/commit/eda6629bb381469ba27e5a479bb39f7428920aec))
+* make dedicated workers work with dates in bun ([7f49798](https://github.com/windmill-labs/windmill/commit/7f49798e3fb7a2aa528388a1718fd459de19deb8))
+* update flow path ([#4053](https://github.com/windmill-labs/windmill/issues/4053)) ([82c88ad](https://github.com/windmill-labs/windmill/commit/82c88ad3b893e3222391ade65a10dfb2ef1c0fc7))
+
 ## [1.360.0](https://github.com/windmill-labs/windmill/compare/v1.359.0...v1.360.0) (2024-07-08)
 
 
