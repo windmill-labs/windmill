@@ -156,7 +156,7 @@ pub async fn handle_dedicated_process(
                     logs.push_str(&line);
                     logs.push_str("\n");
                 } else {
-                    tracing::info!("dedicated worker process exited");
+                    tracing::info!("dedicated worker process exited {script_path}");
                     break;
                 }
             },
@@ -165,7 +165,7 @@ pub async fn handle_dedicated_process(
 
                 if let Some(line) = line.expect("line is ok") {
                     if line == "start" {
-                        tracing::info!("dedicated worker process started");
+                        tracing::info!("dedicated worker process started {script_path}");
                         continue;
                     }
                     tracing::debug!("processed job: |{line}|");
@@ -219,8 +219,8 @@ pub async fn handle_dedicated_process(
 
     child
         .await
-        .map_err(|e| anyhow::anyhow!("child process encountered an error: {e:#}"))?;
-    tracing::info!("dedicated worker child process exited successfully");
+        .map_err(|e| anyhow::anyhow!("child process {script_path} encountered an error: {e:#}"))?;
+    tracing::info!("dedicated worker {script_path} child process exited successfully");
     Ok(())
 }
 
