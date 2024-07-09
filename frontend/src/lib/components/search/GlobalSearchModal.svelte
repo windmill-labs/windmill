@@ -227,7 +227,7 @@
 				let searchResults
 				try {
 					searchResults = await IndexSearchService.searchJobsIndex({
-						search_query: s,
+						searchQuery: s,
 						workspace: $workspaceStore!
 					})
 					itemMap['runs'] = searchResults.hits
@@ -605,6 +605,7 @@
 										<div class="text-tertiary text-center">
 											<div class="text-2xl font-bold">No runs found</div>
 											<div class="text-sm">There were no completed runs that match your query</div>
+											<div class="text-sm">Note that new runs might take a while to become searchable (by default ~5min)</div>
 											{#if !$enterpriseLicense}
 												<div class="py-6" />
 
