@@ -629,11 +629,9 @@
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 		delete $errorByComponent[id]
+
 		if ($runnableComponents[id]) {
-			$runnableComponents[id] = {
-				...$runnableComponents[id],
-				cb: $runnableComponents[id].cb.filter((cb) => cb !== cancellableRun)
-			}
+			delete $runnableComponents[id]
 			$runnableComponents = $runnableComponents
 		}
 	})

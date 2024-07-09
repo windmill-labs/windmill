@@ -13,6 +13,7 @@ import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Script } from './gen'
 import type { EnumType } from './common'
+import type { Schema } from './common'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -188,7 +189,7 @@ export interface DropdownItem {
 
 export const DELETE = 'delete' as 'delete'
 
-export function emptySchema() {
+export function emptySchema(): Schema {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,
 		properties: {},
@@ -197,7 +198,7 @@ export function emptySchema() {
 	}
 }
 
-export function simpleSchema() {
+export function simpleSchema(): Schema {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
 		type: 'object',
@@ -271,7 +272,6 @@ export function itemsExists<T>(arr: T[] | undefined, item: T): boolean {
 	}
 	return false
 }
-
 
 export function groupBy<K, V>(
 	items: V[],
