@@ -354,6 +354,7 @@ Windmill Community Edition {GIT_VERSION}
             .await
             .expect("could not create initial server dir");
 
+        #[cfg(feature = "tantivy")]
         let should_index_jobs = mode == Mode::Indexer || mode == Mode::Standalone;
 
         #[cfg(not(feature = "tantivy"))]
