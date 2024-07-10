@@ -181,6 +181,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                     panic!("Indexer mode requires the tantivy feature flag");
                 }
 
+                #[cfg(feature = "tantivy")]
                 Mode::Indexer
             } else {
                 if &x != "standalone" {
