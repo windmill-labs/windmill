@@ -248,10 +248,21 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     if !has_done_migration {
         tracing::info!("Applying fix_job_completed_index migration");
         let mut tx = db.begin().await?;
-        let _ = sqlx::query("SELECT pg_advisory_lock(4242)")
-            .execute(&mut *tx)
-            .await?;
-
+        let mut r = false;
+        while !r {
+            r = sqlx::query_scalar!("SELECT pg_try_advisory_lock(4242)")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Error acquiring fix_job_completed_index lock: {e:#}");
+                    sqlx::migrate::MigrateError::Execute(e)
+                })?
+                .unwrap_or(false);
+            if !r {
+                tracing::info!("PG fix_job_completed_index_migration lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        }
         sqlx::query(
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_created_at_new ON completed_job (workspace_id, job_kind, is_skipped, is_flow_step, created_at DESC, started_at DESC)"
         ).execute(db).await?;
