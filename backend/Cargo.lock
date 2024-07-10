@@ -10535,6 +10535,7 @@ version = "1.360.1"
 dependencies = [
  "anyhow",
  "chrono",
+ "futures",
  "serde",
  "serde_json",
  "sqlx",
