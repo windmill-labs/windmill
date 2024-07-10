@@ -81,6 +81,9 @@ export function argSigToJsonSchemaType(
 		if (t.str) {
 			newS.originalType = 'enum'
 			newS.enum = t.str
+		} else if (oldS.originalType == 'string' && oldS.enum) {
+			newS.originalType = 'string'
+			newS.enum = oldS.enum
 		} else {
 			newS.originalType = 'string'
 			newS.enum = undefined
