@@ -415,7 +415,7 @@
 						size="xs"
 						variant="border"
 						startIcon={{ icon: ChevronLeft }}
-						on:click={() => secondaryMenuLeft.toggle(StylePanel, {})}
+						on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
 					>
 						Show
 					</Button>
