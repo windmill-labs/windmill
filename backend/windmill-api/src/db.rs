@@ -166,6 +166,11 @@ impl Migrate for CustomMigrator {
 pub async fn migrate(db: &DB) -> Result<(), Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
+
+    if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
+        tracing::error!("Could not apply flow versioning fix migration: {err:#}");
+    }
+
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
         .await
@@ -181,6 +186,7 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         Err(err) => Err(err),
     }?;
 
+    #[cfg(feature = "enterprise")]
     if let Err(e) = windmill_migrations(&mut custom_migrator, db).await {
         tracing::error!("Could not apply windmill custom migrations: {e:#}")
     }
@@ -188,8 +194,45 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     Ok(())
 }
 
+async fn fix_flow_versioning_migration(
+    migrator: &mut CustomMigrator,
+    db: &DB,
+) -> Result<(), Error> {
+    migrator.lock().await?;
+
+    if migrator
+        .list_applied_migrations()
+        .await?
+        .iter()
+        .any(|x| x.version == 20240630102146)
+    {
+        let has_done_migration = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false);
+
+        if !has_done_migration {
+            let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
+            tracing::info!("Applying fix_flow_versioning_2.sql");
+            let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
+            tx.execute(query).await?;
+            tracing::info!("Applied fix_flow_versioning_2.sql");
+            sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('fix_flow_versioning_2')")
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+        }
+    }
+
+    migrator.unlock().await?;
+
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
 async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(), Error> {
-    #[cfg(feature = "enterprise")]
     if std::env::var("MIGRATION_NO_BYPASSRLS").is_ok() {
         migrator.lock().await?;
         let has_done_migration = sqlx::query_scalar!(
@@ -206,28 +249,6 @@ async fn windmill_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(
             tx.execute(query).await?;
             tracing::info!("Applied bypassrls_1.sql");
             sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('bypassrls_1-2')")
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
-        }
-        migrator.unlock().await?;
-    }
-    if std::env::var("MIGRATION_FIX_FLOW_VERSIONING").is_ok() {
-        migrator.lock().await?;
-        let has_done_migration = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')"
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-
-        if !has_done_migration {
-            let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
-            tracing::info!("Applying fix_flow_versioning_2.sql");
-            let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-            tx.execute(query).await?;
-            tracing::info!("Applied fix_flow_versioning_2.sql");
-            sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('fix_flow_versioning_2')")
                 .execute(&mut *tx)
                 .await?;
             tx.commit().await?;

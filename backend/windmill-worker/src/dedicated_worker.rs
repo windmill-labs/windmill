@@ -151,12 +151,18 @@ pub async fn handle_dedicated_process(
             },
             line = err_reader.next_line() => {
                 if let Some(line) = line.expect("line is ok") {
-                    tracing::debug!("stderr dedicated worker: {line}");
+                    tracing::error!("stderr dedicated worker: {line}");
                     logs.push_str("[stderr] ");
                     logs.push_str(&line);
                     logs.push_str("\n");
                 } else {
-                    tracing::info!("dedicated worker process exited");
+                    tracing::info!("dedicated worker process exited {script_path}");
+                    let mut last_stdout = "".to_string();
+                    while let Some(line) = reader.next_line().await.ok().flatten() {
+                        last_stdout = line;
+                        last_stdout.push_str("\n");
+                    }
+                    tracing::info!("Last stdout for {script_path}: {last_stdout}");
                     break;
                 }
             },
@@ -165,7 +171,7 @@ pub async fn handle_dedicated_process(
 
                 if let Some(line) = line.expect("line is ok") {
                     if line == "start" {
-                        tracing::info!("dedicated worker process started");
+                        tracing::info!("dedicated worker process started {script_path}");
                         continue;
                     }
                     tracing::debug!("processed job: |{line}|");
@@ -193,7 +199,13 @@ pub async fn handle_dedicated_process(
                         logs.push_str("\n");
                     }
                 } else {
-                    tracing::info!("dedicated worker process exited");
+                    tracing::info!("dedicated worker {script_path} process exited");
+                    let mut last_stderr = "".to_string();
+                    while let Some(line) = err_reader.next_line().await.ok().flatten() {
+                        last_stderr = line;
+                        last_stderr.push_str("\n");
+                    }
+                    tracing::info!("Last stderr for {script_path}: {last_stderr}");
                     break;
                 }
             },
@@ -219,8 +231,9 @@ pub async fn handle_dedicated_process(
 
     child
         .await
-        .map_err(|e| anyhow::anyhow!("child process encountered an error: {e:#}"))?;
-    tracing::info!("dedicated worker child process exited successfully");
+        .map_err(|e| anyhow::anyhow!("child process {script_path} encountered an error: {e:#}"))?;
+
+    tracing::info!("dedicated worker {script_path} child process exited successfully");
     Ok(())
 }
 

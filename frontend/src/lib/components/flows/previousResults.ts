@@ -72,14 +72,14 @@ function getFlowInput(
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
 
 	if (parentState && parentModule) {
-		if (parentState.previewArgs) {
+		if (
+			parentState.previewArgs &&
+			!(parentModule.value?.type === 'forloopflow' && parentModule.value?.modules?.length === 1)
+		) {
 			return { ...topFlowInput, ...parentState.previewArgs }
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
-			if (
-				parentModule.value.type === 'forloopflow' ||
-				parentModule.value.type === 'whileloopflow'
-			) {
+			if (parentModule.value.type === 'forloopflow') {
 				let parentFlowInputIter = { ...parentFlowInput }
 				if (parentFlowInputIter.hasOwnProperty('iter')) {
 					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']

@@ -423,24 +423,11 @@
 
 			if (jobLoaded.job_kind == 'script' || jobLoaded.job_kind == 'preview') {
 				let id: string | undefined = undefined
-				if (innerModule?.type == 'forloopflow') {
+				if (innerModule?.type == 'forloopflow' && innerModule.modules.length == 1) {
 					id = innerModule?.modules?.[0]?.id
 				}
 				if (id) {
-					setModuleState(id, {
-						...($localModuleStates[modId] ?? {}),
-						iteration: undefined,
-						isListJob: false,
-						iteration_total: undefined
-					})
-					initializeByJob(id)
-
-					setDurationStatusByJob(
-						id,
-						job_id,
-
-						$localDurationStatuses[modId].byJob[job_id]
-					)
+					onJobsLoaded({ id } as FlowStatusModule, jobLoaded)
 				}
 			}
 		}

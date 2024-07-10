@@ -212,7 +212,9 @@
 
 		if (actions && actions.length > 0) {
 			r.push({
-				headerName: 'Actions',
+				headerName: resolvedConfig?.customActionsHeader
+					? resolvedConfig?.customActionsHeader
+					: 'Actions',
 				cellRenderer: tableActionsFactory,
 				autoHeight: true,
 				cellStyle: { textAlign: 'center' },
