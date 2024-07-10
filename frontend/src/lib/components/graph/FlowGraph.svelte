@@ -373,6 +373,7 @@
 		parent: NestedNodes | string | undefined,
 		loopDepth: number
 	): Loop {
+		let state = flowModuleStates?.[module.id]
 		const loop: Loop = {
 			type: 'loop',
 			items: [
@@ -380,12 +381,12 @@
 					getParentIds(parent),
 					module,
 					undefined,
-					flowModuleStates?.[module.id]?.iteration
-						? 'Iteration ' +
-								flowModuleStates?.[module.id]?.iteration +
-								'/' +
-								(flowModuleStates?.[module.id]?.iteration_total ?? '?')
-						: '',
+					(state?.flow_jobs
+						? 'Iteration ' + state?.flow_jobs?.length + '/' + (state?.iteration_total ?? '?')
+						: '') +
+						(state?.selectedForloopIndex != undefined && state?.selectedForloopIndex != -1
+							? ` (selected #${state?.selectedForloopIndex + 1})`
+							: ''),
 					loopDepth,
 					false,
 					false,

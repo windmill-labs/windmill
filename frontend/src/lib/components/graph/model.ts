@@ -51,7 +51,9 @@ export type GraphModuleState = {
 	scheduled_for?: Date
 	job_id?: string
 	parent_module?: string
-	iteration?: number
+	selectedForloop?: string
+	selectedForloopIndex?: number
+	flow_jobs?: string[]
 	iteration_total?: number
 	retries?: number
 	duration_ms?: number

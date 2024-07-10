@@ -12,7 +12,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
@@ -70,29 +70,29 @@
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
 
-	let forloop_selected = ''
 	let retry_selected = ''
 	let timeout: NodeJS.Timeout
 
 	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
 	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 
-	let lastSize = 0
-	$: {
-		let len = (flowJobIds?.flowJobs ?? []).length
-		if (len != lastSize) {
-			updateForloop(len)
-		}
-	}
+	// let lastSize = 0
+	// $: {
+	// 	let len = (flowJobIds?.flowJobs ?? []).length
+	// 	if (len != lastSize) {
+	// 		updateForloop(len)
+	// 	}
+	// }
 
 	function setModuleState(key: string, value: GraphModuleState) {
+		let newValue = { ...($localModuleStates[key] ?? {}), ...value }
 		if (!deepEqual($localModuleStates[key], value)) {
 			// console.log('Setting module state', key, value)
-			$localModuleStates[key] = value
+			$localModuleStates[key] = newValue
 
 			globalModuleStates.forEach((s) => {
 				s.update((x) => {
-					x[key] = value
+					x[key] = newValue
 					return x
 				})
 			})
@@ -126,10 +126,19 @@
 		)
 	}
 
-	function updateForloop(len: number) {
-		forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
-		lastSize = len
-	}
+	// function updateForloop(len: number) {
+	// 	let id = flowJobIds?.moduleId
+	// 	if (id) {
+	// 		let state = $localModuleStates[id]
+	// 		console.log(id, state)
+	// 		if (state) {
+	// 			state.selectedForloop = flowJobIds?.flowJobs[len - 1] ?? ''
+	// 			state.selectedForloopIndex = len - 1
+	// 			lastSize = len
+	// 			$localModuleStates = $localModuleStates
+	// 		}
+	// 	}
+	// }
 
 	let innerModules: FlowStatusModule[] = []
 
@@ -192,6 +201,22 @@
 				}
 			})
 		}
+	}
+
+	let recursiveElems: Record<string, () => Promise<void>> = {}
+	export async function refresh() {
+		await tick()
+		Object.entries(recursiveElems).forEach(([key, v]) => {
+			console.log('bef', key, v)
+			v()
+			console.log('aft', key, v)
+		})
+		console.log('refresh', job, JSON.stringify(Object.keys(recursiveElems)))
+		dispatch(
+			'jobsLoaded',
+			storedListJobs?.[$localModuleStates[flowJobIds?.moduleId ?? '']?.selectedForloopIndex ?? 0] ??
+				job
+		)
 	}
 
 	let errorCount = 0
@@ -319,7 +344,7 @@
 					parent_module: mod['parent_module'],
 					duration_ms: job['duration_ms'],
 					started_at: started_at,
-					iteration: mod.iterator?.itered?.length,
+					flow_jobs: mod.flow_jobs,
 					iteration_total: mod.iterator?.itered?.length,
 					retries: mod?.failed_retries?.length
 					// retries: $flowStateStore?.raw_flow
@@ -335,11 +360,27 @@
 
 	function innerJobLoaded(
 		jobLoaded: (QueuedJob & { type: 'QueuedJob' }) | (CompletedJob & { type: 'CompletedJob' }),
-		j: number
+		j: number,
+		clicked: boolean
 	) {
 		let modId = flowJobIds?.moduleId
-
 		if (modId) {
+			let state = $localModuleStates?.[modId]
+			console.log(state, j)
+			if (state) {
+				let refr = false
+				if (state.selectedForloop == jobLoaded.id && clicked) {
+					state.selectedForloop = ''
+					state.selectedForloopIndex = -1
+				} else {
+					refr = true
+					state.selectedForloop = jobLoaded.id
+					state.selectedForloopIndex = j
+				}
+				$localModuleStates = $localModuleStates
+				refr && clicked && refresh()
+			}
+
 			if ($flowStateStore && $flowStateStore?.[modId] == undefined) {
 				$flowStateStore[modId] = {
 					...($flowStateStore[modId] ?? {}),
@@ -379,7 +420,7 @@
 					logs: jobLoaded.logs,
 					job_id,
 					args: jobLoaded.args,
-					iteration: flowJobIds?.flowJobs.length,
+					flow_jobs: flowJobIds?.flowJobs,
 					iteration_total: flowJobIds?.length,
 					duration_ms: undefined
 				})
@@ -396,7 +437,7 @@
 					logs: 'All jobs completed',
 					result: jobResults,
 					job_id,
-					iteration: flowJobIds?.flowJobs.length,
+					flow_jobs: flowJobIds?.flowJobs,
 					iteration_total: flowJobIds?.length,
 					duration_ms: undefined,
 					isListJob: true
@@ -450,8 +491,14 @@
 	}
 
 	let stepDetail: FlowModule | string | undefined = undefined
+
+	let storedListJobs: Record<
+		number,
+		(QueuedJob & { type: 'QueuedJob' }) | (CompletedJob & { type: 'CompletedJob' })
+	> = {}
 </script>
 
+{JSON.stringify(Object.keys(recursiveElems))}
 {#if notAnonynmous}
 	<Alert type="error" title="Required Auth">
 		As a non logged in user, you can only see jobs ran by anonymous users like you
@@ -600,6 +647,8 @@
 					</p>
 				{/if}
 				{#each slicedListJobIds as loopJobId, j (loopJobId)}
+					{@const forloop_selected =
+						$localModuleStates?.[flowJobIds?.moduleId ?? '']?.selectedForloop}
 					{#if render}
 						<Button
 							variant={forloop_selected === loopJobId ? 'contained' : 'border'}
@@ -610,11 +659,8 @@
 								: 'light'}
 							btnClasses="w-full flex justify-start"
 							on:click={() => {
-								if (forloop_selected == loopJobId) {
-									forloop_selected = ''
-								} else {
-									forloop_selected = loopJobId
-								}
+								let storedJob = storedListJobs[j]
+								innerJobLoaded(storedJob, j, true)
 							}}
 							endIcon={{
 								icon: ChevronDown,
@@ -632,6 +678,7 @@
 					<!-- <LogId id={loopJobId} /> -->
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							bind:refresh={recursiveElems[loopJobId]}
 							{childFlow}
 							globalModuleStates={[localModuleStates, ...globalModuleStates]}
 							globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -639,7 +686,10 @@
 							reducedPolling={flowJobIds?.flowJobs.length && flowJobIds?.flowJobs.length > 20}
 							{workspaceId}
 							jobId={loopJobId}
-							on:jobsLoaded={(e) => innerJobLoaded(e.detail, j)}
+							on:jobsLoaded={(e) => {
+								storedListJobs[j] = e.detail
+								innerJobLoaded(e.detail, j, false)
+							}}
 						/>
 					</div>
 				{/each}
@@ -698,6 +748,7 @@
 									<!-- <LogId id={loopJobId} /> -->
 									<div class="border p-6" class:hidden={retry_selected != failedRetry}>
 										<svelte:self
+											bind:refresh={recursiveElems[i]}
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -712,6 +763,7 @@
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
+										bind:refresh={recursiveElems[i]}
 										globalModuleStates={[]}
 										globalDurationStatuses={[]}
 										render={selected == 'sequence' && render}
@@ -722,8 +774,11 @@
 											onJobsLoaded(mod, e.detail)
 										}}
 									/>
+								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
+									<div class="text-secondary">no subflow (empty loop?)</div>
 								{:else}
 									<svelte:self
+										bind:refresh={recursiveElems[i]}
 										{childFlow}
 										globalModuleStates={[localModuleStates, ...globalModuleStates]}
 										globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
