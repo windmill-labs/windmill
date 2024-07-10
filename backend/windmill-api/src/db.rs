@@ -171,6 +171,13 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
         tracing::error!("Could not apply flow versioning fix migration: {err:#}");
     }
 
+    let db2 = db.clone();
+    let _ = tokio::task::spawn(async move {
+        if let Err(err) = fix_job_completed_index(&db2).await {
+            tracing::error!("Could not apply job completed index fix migration: {err:#}");
+        }
+    });
+
     match sqlx::migrate!("../migrations")
         .run_direct(&mut custom_migrator)
         .await
@@ -227,6 +234,40 @@ async fn fix_flow_versioning_migration(
     }
 
     migrator.unlock().await?;
+
+    Ok(())
+}
+
+async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
+    let has_done_migration = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_job_completed_index')"
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if !has_done_migration {
+        tracing::info!("Applying fix_job_completed_index migration");
+        let mut tx = db.begin().await?;
+        let _ = sqlx::query("SELECT pg_advisory_lock(4242)")
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_created_at_new ON completed_job (workspace_id, job_kind, is_skipped, is_flow_step, created_at DESC, started_at DESC)"
+        ).execute(db).await?;
+
+        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at")
+            .execute(db)
+            .await?;
+
+        sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('fix_job_completed_index') ON CONFLICT DO NOTHING")
+            .execute(&mut *tx)
+            .await?;
+        let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+    }
 
     Ok(())
 }
