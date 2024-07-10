@@ -109,6 +109,27 @@ services:
   #     - /var/run/docker.sock:/var/run/docker.sock
   #     - worker_dependency_cache:/tmp/windmill/cache
 
+  # The indexer powers full-text job and log search, an EE feature.
+  windmill_indexer:
+    image: ${WM_IMAGE}
+    # pull_policy: always
+    deploy:
+      replicas: 0 # set to 1 to enable full-text job and log search
+    restart: unless-stopped
+    expose:
+      - 8001
+    environment:
+      - PORT=8001
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=indexer
+      #how often will new jobs be added to the index to be searched
+      - TANTIVY_REFRESH_INDEX_PERIOD__S=300
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - windmill_index:/tmp/windmill/cache
+
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
     pull_policy: always
@@ -147,4 +168,5 @@ volumes:
   db_data: null
   worker_dependency_cache: null
   worker_logs: null
+  windmill_index: null
   lsp_cache: null
