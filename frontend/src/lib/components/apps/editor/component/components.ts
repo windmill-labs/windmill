@@ -1600,12 +1600,6 @@ This is a paragraph.
 					value: 'Default',
 
 					tooltip: 'See Tailwind documentation: https://tailwindcss.com/docs/typography-plugin'
-				},
-				GithubFlavoredMarkdownEnabled: {
-					fieldType: 'boolean',
-					type: 'static',
-					value: false,
-					tooltip: 'Enable Github flavored markdown. Lean more at https://github.github.com/gfm/'
 				}
 			}
 		}

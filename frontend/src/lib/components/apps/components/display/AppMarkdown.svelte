@@ -86,10 +86,7 @@
 	>
 		{#if result}
 			{#key result}
-				<Markdown
-					md={result}
-					plugins={resolvedConfig?.GithubFlavoredMarkdownEnabled ? [gfmPlugin()] : []}
-				/>
+				<Markdown md={result} plugins={[gfmPlugin()]} />
 			{/key}
 		{/if}
 	</RunnableWrapper>
