@@ -44,10 +44,11 @@
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import { setContext } from 'svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
-	let globalSearchModalOpen = false
+	let globalSearchModal: GlobalSearchModal | undefined = undefined
 	let isCollapsed = false
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -248,9 +249,11 @@
 		isCollapsed = false
 	}
 
-	function openSearchModal(): void {
-		globalSearchModalOpen = true
+	function openSearchModal(text?: string): void {
+		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
+
+	setContext("openSearchWithPrefilledText", openSearchModal)
 </script>
 
 <svelte:window bind:innerWidth />
@@ -265,7 +268,7 @@
 		</div>
 	</CenteredModal>
 {:else if $userStore}
-	<GlobalSearchModal bind:open={globalSearchModalOpen} />
+	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}

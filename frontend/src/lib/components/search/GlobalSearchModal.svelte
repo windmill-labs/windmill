@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick } from 'svelte'
+	import { onDestroy, onMount, setContext, tick } from 'svelte'
 	import {
 		AppService,
 		FlowService,
@@ -37,7 +37,7 @@
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 
-	export let open: boolean = false
+	let open: boolean = false
 
 	let searchTerm: string = ''
 	let textInput: HTMLInputElement
@@ -253,17 +253,7 @@
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
 			event.preventDefault()
-			open = !open
-			await tick()
-			if (open) {
-				if (combinedItems == undefined) {
-					combinedItems = await fetchCombinedItems()
-					handleSearch()
-				}
-				selectedItem = selectItem(0)
-				textInput.focus()
-				textInput.select()
-			}
+			await openModal()
 		}
 		if (open) {
 			if (event.key === 'Escape') {
@@ -439,6 +429,26 @@
 			selectedWorkspace = selectedItem?.document?.workspace_id[0]
 		}
 	}
+
+	export async function openSearchWithPrefilledText(text?: string) {
+		await openModal()
+		searchTerm = text ?? searchTerm
+		await handleSearch()
+	}
+
+	async function openModal() {
+		open = !open
+		await tick()
+		if (open) {
+			if (combinedItems == undefined) {
+				combinedItems = await fetchCombinedItems()
+				handleSearch()
+			}
+			selectedItem = selectItem(0)
+			textInput.focus()
+			textInput.select()
+		}
+	}
 </script>
 
 {#if open}
@@ -605,7 +615,10 @@
 										<div class="text-tertiary text-center">
 											<div class="text-2xl font-bold">No runs found</div>
 											<div class="text-sm">There were no completed runs that match your query</div>
-											<div class="text-sm">Note that new runs might take a while to become searchable (by default ~5min)</div>
+											<div class="text-sm"
+												>Note that new runs might take a while to become searchable (by default
+												~5min)</div
+											>
 											{#if !$enterpriseLicense}
 												<div class="py-6" />
 
