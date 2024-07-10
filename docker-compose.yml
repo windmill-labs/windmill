@@ -128,7 +128,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - windmill_index:/tmp/windmill/cache
+      - windmill_index:/tmp/windmill/search
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
