@@ -175,10 +175,12 @@ async fn windmill_main() -> anyhow::Result<()> {
                 #[cfg(feature = "enterprise")]
                 Mode::Agent
             } else if &x == "indexer" {
-                #[cfg(not(feature = "tantivy"))]
-                    panic!("Indexer mode requires the tantivy feature flag");
-
                 tracing::info!("Binary is in 'indexer' mode");
+                #[cfg(not(feature = "tantivy"))]
+                {
+                    panic!("Indexer mode requires the tantivy feature flag");
+                }
+
                 Mode::Indexer
             } else {
                 if &x != "standalone" {
