@@ -180,7 +180,7 @@ pub async fn cancel_single_job<'c>(
         });
     } else {
         let id: Option<Uuid> = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND (canceled = false OR canceled_reason != $2) RETURNING id",
             username,
             reason,
             job_running.id,
