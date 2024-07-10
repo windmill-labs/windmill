@@ -203,7 +203,6 @@
 							$selectedComponent = [tableId]
 						}
 					}}
-					target="_blank"
 					color="light"
 				/>
 			</Popover>
