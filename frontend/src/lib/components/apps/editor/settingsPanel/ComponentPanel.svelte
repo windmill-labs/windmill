@@ -17,12 +17,12 @@
 	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
-	import { deleteGridItem } from '../appUtils'
+	import { deleteGridItem, isTableAction } from '../appUtils'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import StylePanel from './StylePanel.svelte'
-	import { ChevronLeft, ArrowBigUp } from 'lucide-svelte'
+	import { ChevronLeft, ArrowBigUp, ArrowLeft } from 'lucide-svelte'
 	import GridCondition from './GridCondition.svelte'
 	import { isTriggerable } from './script/utils'
 	import { inferDeps } from '../appUtilsInfer'
@@ -42,6 +42,9 @@
 	import ContextVariables from './ContextVariables.svelte'
 	import EventHandlers from './EventHandlers.svelte'
 	import GridNavbar from './GridNavbar.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -174,6 +177,47 @@
 </script>
 
 <svelte:window on:keydown={keydown} />
+
+{#if componentSettings?.item?.id && isTableAction(componentSettings?.item?.id, $app)}
+	<div
+		class="flex items-center px-3 py-2 bg-surface border-b text-xs font-semibold gap-2 justify-between"
+	>
+		<div class="flex flex-row items-center gap-2">
+			<Popover>
+				<svelte:fragment slot="text">
+					<div class="flex flex-row gap-1"> Back to table component </div>
+				</svelte:fragment>
+				<Button
+					iconOnly
+					startIcon={{
+						icon: ArrowLeft
+					}}
+					size="xs"
+					btnClasses={twMerge(
+						'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent'
+					)}
+					on:click={() => {
+						const tableId = componentSettings?.item?.id?.split?.('_')?.[0]
+
+						if (tableId) {
+							$selectedComponent = [tableId]
+						}
+					}}
+					color="light"
+				/>
+			</Popover>
+
+			<div class="flex flex-row gap-2 items-center">
+				Table action of table
+				<Badge color="indigo">{componentSettings?.item?.id.split('_')[0]}</Badge>
+			</div>
+		</div>
+
+		<DocLink
+			docLink="https://www.windmill.dev/docs/apps/app_configuration_settings/aggrid_table#table-actions"
+		/>
+	</div>
+{/if}
 
 {#if componentSettings?.item?.data}
 	{@const component = componentSettings.item.data}
