@@ -10531,7 +10531,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.360.1"
+version = "1.361.1"
 dependencies = [
  "anyhow",
  "chrono",
