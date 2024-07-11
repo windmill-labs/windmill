@@ -1298,13 +1298,93 @@ async fn cancel_jobs(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
+    let mut tx = db.begin().await?;
+    let trivial_jobs =  sqlx::query!("INSERT INTO completed_job AS cj
+                   ( workspace_id
+                   , id
+                   , parent_job
+                   , created_by
+                   , created_at
+                   , started_at
+                   , duration_ms
+                   , success
+                   , script_hash
+                   , script_path
+                   , args
+                   , result
+                   , raw_code
+                   , raw_lock
+                   , canceled
+                   , canceled_by
+                   , canceled_reason
+                   , job_kind
+                   , schedule_path
+                   , permissioned_as
+                   , flow_status
+                   , raw_flow
+                   , is_flow_step
+                   , is_skipped
+                   , language
+                   , email
+                   , visible_to_owner
+                   , mem_peak
+                   , tag
+                   , priority
+                )
+                SELECT  workspace_id
+                   , id
+                   , parent_job
+                   , created_by
+                   , created_at
+                   , now()
+                   , 0
+                   , false
+                   , script_hash
+                   , script_path
+                   , args
+                   , $4
+                   , raw_code
+                   , raw_lock
+                   , true
+                   , $1
+                   , canceled_reason
+                   , job_kind
+                   , schedule_path
+                   , permissioned_as
+                   , flow_status
+                   , raw_flow
+                   , is_flow_step
+                   , false
+                   , language
+                   , email
+                   , visible_to_owner
+                   , mem_peak
+                   , tag
+                   , priority FROM queue 
+        WHERE id = any($2) AND running = false AND parent_job IS NULL AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED
+        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
+        .fetch_all(&mut *tx)
+        .await?.into_iter().map(|x| x.id).collect::<Vec<Uuid>>();
+
     sqlx::query!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = 'cancelled all by user' WHERE id IN (SELECT id FROM queue where id = any($2) AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED)",
-        username,
+        "DELETE FROM queue WHERE id = any($1) AND workspace_id = $2",
         &jobs,
         w_id
-    ).execute(db).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    // sqlx::query!(
+    //     "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = 'cancelled all by user' WHERE id IN (SELECT id FROM queue where id = any($2) AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED) RETURNING id",
+    //     username,
+    //     &jobs,
+    //     w_id
+    // ).execute(db).await?;
     for job_id in jobs.into_iter() {
+        if trivial_jobs.contains(&job_id) {
+            continue;
+        }
         let rsmq = rsmq.clone();
         match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
             let tx = db.begin().await?;
@@ -1416,7 +1496,7 @@ async fn count_queue_jobs(
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND running = false AND canceled = false",
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND running = false",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
         )
