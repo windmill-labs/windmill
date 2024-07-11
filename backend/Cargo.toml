@@ -13,6 +13,7 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-git-sync",
+    "./windmill-indexer",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -52,6 +53,7 @@ flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
+tantivy = ["windmill-indexer/tantivy"]
 
 [dependencies]
 anyhow.workspace = true
@@ -62,6 +64,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
+windmill-indexer.workspace = true
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
@@ -80,7 +83,8 @@ gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
-pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
+
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -103,6 +107,7 @@ windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
+windmill-indexer = {path = "./windmill-indexer"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -254,3 +259,5 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 
 # 0.1.12 broken (nested dependency of swc_common) 
 triomphe = "<0.1.12"
+
+tantivy = "0.22.0"

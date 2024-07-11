@@ -8552,6 +8552,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtendedJobs"
 
+  /srch/w/{workspace}/index/search/job:
+    get:
+      summary: Search through jobs with a string query
+      operationId: searchJobsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        dancer:
+                          type: string
+                  hits:
+                    description: the jobs that matched the query
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobSearchHit"
+
+
 components:
   securitySchemes:
     bearerAuth:
@@ -11085,3 +11121,9 @@ components:
       required:
         - jobs
         - obscured_jobs
+
+    JobSearchHit:
+      type: object
+      properties:
+        dancer:
+          type: string
