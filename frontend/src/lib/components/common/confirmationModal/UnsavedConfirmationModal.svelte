@@ -37,7 +37,6 @@
 				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
 				if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 					bypassBeforeNavigate = true
-					console.log('FOO')
 					goto(goingTo)
 				} else {
 					open = true
