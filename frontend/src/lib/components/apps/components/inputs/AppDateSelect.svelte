@@ -266,7 +266,9 @@
 		style={css?.container?.style}
 	>
 		{#if resolvedConfig?.enableDay}
-			<div class="grow">
+			<div
+				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-1/4' : 'w-full')}
+			>
 				<Select
 					portal={false}
 					value={selectedDay}
@@ -292,7 +294,7 @@
 		{/if}
 		{#if resolvedConfig?.enableMonth}
 			<div
-				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-2/3' : 'w-full')}
+				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-1/2' : 'w-full')}
 			>
 				<Select
 					portal={false}
@@ -316,7 +318,9 @@
 			</div>
 		{/if}
 		{#if resolvedConfig?.enableYear}
-			<div class="grow">
+			<div
+				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-1/4' : 'w-full')}
+			>
 				<Select
 					portal={false}
 					value={selectedYear}

@@ -3946,7 +3946,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		name: 'Date Select',
 		icon: Calendar,
 		documentationLink: `${documentationBaseUrl}/date_select`,
-		dims: '3:4-5:4' as AppComponentDimensions,
+		dims: '3:4-6:4' as AppComponentDimensions,
 		customCss: {
 			container: { class: '', style: '' },
 			input: { class: '', style: '' }
