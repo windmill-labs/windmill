@@ -467,8 +467,8 @@
 					open = false
 				}}
 			>
-				<div class="px-4 py-2 items-center">
-					<div class="quick-search-input flex flex-row gap-1 items-center mb-2">
+				<div class="py-2 items-center">
+					<div class="px-4 flex flex-row gap-1 items-center pb-1 mb-2 border-b">
 						<Search />
 						<div class="relative inline-block w-full">
 							<input
@@ -485,7 +485,7 @@
 							>
 						</div>
 					</div>
-					<div class="overflow-scroll max-h-[30rem]">
+					<div class="px-4 overflow-scroll max-h-[30rem]">
 						{#if tab === 'default' || tab === 'switch-mode'}
 							{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
 								<QuickMenuItem
