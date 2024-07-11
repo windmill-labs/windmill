@@ -276,6 +276,8 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 	navbarItems: NavbarItem[]
 }
 
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -351,6 +353,7 @@ export type TypedComponent =
 	| AggridInfiniteComponentEe
 	| MultiSelectComponentV2
 	| NavBarComponent
+	| DateSelectComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -3935,6 +3938,47 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						{ value: 'horizontal', label: 'Horizontal' },
 						{ value: 'vertical', label: 'Vertical' }
 					]
+				}
+			}
+		}
+	},
+	dateselectcomponent: {
+		name: 'Date Select',
+		icon: Calendar,
+		documentationLink: `${documentationBaseUrl}/date_select`,
+		dims: '3:4-5:4' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			verticalAlignment: 'top',
+
+			configuration: {
+				enableDay: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableMonth: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableYear: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'date'
+				},
+				outputFormat: {
+					type: 'static',
+					value: 'YYYY-MM-DD',
+					fieldType: 'text'
 				}
 			}
 		}
