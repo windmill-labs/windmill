@@ -191,6 +191,32 @@
 	}
 
 	$: monthItems = computeMonthItems(resolvedConfig?.locale)
+
+	function computeDayPerMonth(selectedMonth: string | undefined, selectedYear: string | undefined) {
+		if (!selectedMonth || !selectedYear) {
+			return 31
+		}
+
+		const monthIndex =
+			[
+				'January',
+				'February',
+				'March',
+				'April',
+				'May',
+				'June',
+				'July',
+				'August',
+				'September',
+				'October',
+				'November',
+				'December'
+			].indexOf(selectedMonth) + 1
+
+		const daysInMonth = new Date(Number(selectedYear), monthIndex, 0).getDate()
+
+		return daysInMonth
+	}
 </script>
 
 {#each Object.keys(components['dateselectcomponent'].initialData.configuration) as key (key)}
@@ -237,7 +263,7 @@
 					selectedDay = ''
 					setOutput()
 				}}
-				items={Array.from({ length: 31 }, (_, i) => {
+				items={Array.from({ length: computeDayPerMonth(selectedMonth, selectedYear) }, (_, i) => {
 					return { label: String(i + 1), value: String(i + 1) }
 				})}
 				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
