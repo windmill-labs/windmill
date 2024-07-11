@@ -24,7 +24,7 @@
 		type GraphModuleState
 	} from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { emptyString, msToSec, truncateRev } from '$lib/utils'
+	import { emptyString, msToSec, sendUserToast, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import { ChevronDown, Hourglass, Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from './FlowStatusWaitingForEvents.svelte'
@@ -85,6 +85,7 @@
 	// }
 
 	function setModuleState(key: string, value: GraphModuleState) {
+		sendUserToast(`Setting module state ${key}: ${value.job_id}`)
 		let newValue = { ...($localModuleStates[key] ?? {}), ...value }
 		if (!deepEqual($localModuleStates[key], value)) {
 			// console.log('Setting module state', key, value)
@@ -205,18 +206,26 @@
 
 	let recursiveElems: Record<string, () => Promise<void>> = {}
 	export async function refresh() {
-		await tick()
+		console.log('ref', recursiveElems)
+		// await tick()
+		// console.log(flowJobIds, recursiveElems, storedListJobs, $localModuleStates)
 		Object.entries(recursiveElems).forEach(([key, v]) => {
-			console.log('bef', key, v)
-			v()
-			console.log('aft', key, v)
+			if (flowJobIds?.moduleId) {
+				if (key == $localModuleStates[flowJobIds?.moduleId ?? '']?.selectedForloop) {
+					console.log('refresh 1', key)
+					v()
+				}
+			} else {
+				console.log('refresh 2', key)
+				v()
+			}
 		})
-		console.log('refresh', job, JSON.stringify(Object.keys(recursiveElems)))
-		dispatch(
-			'jobsLoaded',
+		// console.log('refresh', job, JSON.stringify(Object.keys(recursiveElems)))
+		let njob =
 			storedListJobs?.[$localModuleStates[flowJobIds?.moduleId ?? '']?.selectedForloopIndex ?? 0] ??
-				job
-		)
+			job
+		console.log('njob', njob)
+		dispatch('jobsLoaded', njob)
 	}
 
 	let errorCount = 0
@@ -365,8 +374,9 @@
 	) {
 		let modId = flowJobIds?.moduleId
 		if (modId) {
+			sendUserToast(`innerJobLoaded ${modId}`)
 			let state = $localModuleStates?.[modId]
-			console.log(state, j)
+			// console.log(state, j)
 			if (state) {
 				let refr = false
 				if (state.selectedForloop == jobLoaded.id && clicked) {
@@ -455,6 +465,7 @@
 					id = innerModule?.modules?.[0]?.id
 				}
 				if (id) {
+					sendUserToast(`on jobs loaded 3 ${id}`)
 					onJobsLoaded({ id } as FlowStatusModule, jobLoaded)
 				}
 			}
@@ -748,7 +759,7 @@
 									<!-- <LogId id={loopJobId} /> -->
 									<div class="border p-6" class:hidden={retry_selected != failedRetry}>
 										<svelte:self
-											bind:refresh={recursiveElems[i]}
+											bind:refresh={recursiveElems[failedRetry]}
 											{childFlow}
 											globalModuleStates={[localModuleStates, ...globalModuleStates]}
 											globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -763,7 +774,7 @@
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
 								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
 									<svelte:self
-										bind:refresh={recursiveElems[i]}
+										bind:refresh={recursiveElems[mod.job ?? '']}
 										globalModuleStates={[]}
 										globalDurationStatuses={[]}
 										render={selected == 'sequence' && render}
@@ -771,6 +782,7 @@
 										jobId={mod.job}
 										childFlow
 										on:jobsLoaded={(e) => {
+											sendUserToast(`on jobs loaded from inner ${mod.id}`)
 											onJobsLoaded(mod, e.detail)
 										}}
 									/>
@@ -778,7 +790,7 @@
 									<div class="text-secondary">no subflow (empty loop?)</div>
 								{:else}
 									<svelte:self
-										bind:refresh={recursiveElems[i]}
+										bind:refresh={recursiveElems[mod.job ?? '']}
 										{childFlow}
 										globalModuleStates={[localModuleStates, ...globalModuleStates]}
 										globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
@@ -793,7 +805,11 @@
 													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length
 											  }
 											: undefined}
-										on:jobsLoaded={(e) => onJobsLoaded(mod, e.detail)}
+										on:jobsLoaded={(e) => {
+											sendUserToast(`on jobs loaded 1 ${mod.id}`)
+
+											onJobsLoaded(mod, e.detail)
+										}}
 									/>
 								{/if}
 							{:else}
