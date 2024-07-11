@@ -76,6 +76,7 @@
 	import AppSliderInputs from '../../components/inputs/AppSliderInputs.svelte'
 	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
 	import AppNavbar from '../../components/display/AppNavbar.svelte'
+	import AppDateSelect from '../../components/inputs/AppDateSelect.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -836,6 +837,14 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				navbarItems={component.navbarItems}
+				{render}
+			/>
+		{:else if component.type === 'dateselectcomponent'}
+			<AppDateSelect
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
 				{render}
 			/>
 		{/if}
