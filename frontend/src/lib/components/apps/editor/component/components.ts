@@ -3948,7 +3948,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		documentationLink: `${documentationBaseUrl}/date_select`,
 		dims: '3:4-5:4' as AppComponentDimensions,
 		customCss: {
-			container: { class: '', style: '' }
+			container: { class: '', style: '' },
+			input: { class: '', style: '' }
 		},
 		initialData: {
 			componentInput: undefined,
@@ -3979,6 +3980,15 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: 'YYYY-MM-DD',
 					fieldType: 'text'
+				},
+				orientation: {
+					type: 'static',
+					value: 'horizontal',
+					fieldType: 'select',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
 				}
 			}
 		}

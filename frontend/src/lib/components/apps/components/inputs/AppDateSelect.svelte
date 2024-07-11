@@ -12,6 +12,7 @@
 	import Select from '../../svelte-select/lib/Select.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -53,21 +54,83 @@
 		}
 	}
 
-	$: {
-		if (value) {
-			outputs?.result.set(formatDate(value, resolvedConfig.outputFormat))
-		} else {
-			outputs?.result.set(undefined)
-		}
-	}
-
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
+
+		if (value) {
+			const date = parseISO(value)
+			selectedDay = String(date.getDate())
+			selectedMonth = [
+				'January',
+				'February',
+				'March',
+				'April',
+				'May',
+				'June',
+				'July',
+				'August',
+				'September',
+				'October',
+				'November',
+				'December'
+			][date.getMonth()]
+			selectedYear = String(date.getFullYear())
+		}
 	}
 	let css = initCss($app.css?.dateinputcomponent, customCss)
 
 	let darkMode: boolean = false
-	let selectedDay: number | undefined = undefined
+	let selectedDay: string | undefined = undefined
+	let selectedMonth: string | undefined = undefined
+	let selectedYear: string | undefined = undefined
+
+	function setOutput() {
+		let dateParts = [] as string[]
+
+		if (resolvedConfig.enableYear && selectedYear) {
+			dateParts.push(selectedYear)
+		} else {
+			dateParts.push('1900')
+		}
+
+		if (resolvedConfig.enableMonth && selectedMonth) {
+			const monthIndex =
+				[
+					'January',
+					'February',
+					'March',
+					'April',
+					'May',
+					'June',
+					'July',
+					'August',
+					'September',
+					'October',
+					'November',
+					'December'
+				].indexOf(selectedMonth) + 1
+
+			dateParts.push(String(monthIndex).padStart(2, '0'))
+		} else {
+			dateParts.push('01')
+		}
+
+		if (resolvedConfig.enableDay && selectedDay) {
+			dateParts.push(String(selectedDay).padStart(2, '0'))
+		} else {
+			dateParts.push('01')
+		}
+
+		const dateString = dateParts.join('-')
+
+		if (dateParts.length > 0) {
+			const formattedDate = formatDate(dateString, resolvedConfig.outputFormat)
+
+			outputs?.result.set(formattedDate)
+		} else {
+			outputs?.result.set(undefined)
+		}
+	}
 </script>
 
 {#each Object.keys(components['dateselectcomponent'].initialData.configuration) as key (key)}
@@ -94,32 +157,49 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
-	<div class="flex flex-row w-full gap-2">
+	<div
+		class={twMerge(
+			'flex w-full gap-2',
+			resolvedConfig?.orientation === 'horizontal' ? 'flex-row' : 'flex-col',
+			css?.container?.class
+		)}
+		style={css?.container?.style}
+	>
 		{#if resolvedConfig?.enableDay}
 			<Select
 				portal={false}
 				value={selectedDay}
-				on:change={(e) => {}}
-				on:clear={() => {}}
-				items={[
-					1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-					26, 27, 28, 29, 30, 31
-				]}
-				class="text-clip grow min-w-0"
-				placeholder="Select a day"
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={darkMode
+				on:change={(e) => {
+					selectedDay = e.detail.value
+					setOutput()
+				}}
+				on:clear={() => {
+					selectedDay = ''
+					setOutput()
+				}}
+				items={Array.from({ length: 31 }, (_, i) => {
+					return { label: String(i + 1), value: String(i + 1) }
+				})}
+				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
+				containerStyles={(darkMode
 					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-				clearable
+					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
+				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+				placeholder="Select a day"
 			/>
 		{/if}
 		{#if resolvedConfig?.enableMonth}
 			<Select
 				portal={false}
-				value={selectedDay}
-				on:change={(e) => {}}
-				on:clear={() => {}}
+				value={selectedMonth}
+				on:change={(e) => {
+					selectedMonth = e.detail.value
+					setOutput()
+				}}
+				on:clear={() => {
+					selectedMonth = ''
+					setOutput()
+				}}
 				items={[
 					'January',
 					'February',
@@ -134,31 +214,33 @@
 					'November',
 					'December'
 				]}
-				class="text-clip grow min-w-0"
 				placeholder="Select a month"
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={darkMode
+				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
+				containerStyles={(darkMode
 					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
 				clearable
 			/>
 		{/if}
 		{#if resolvedConfig?.enableYear}
 			<Select
 				portal={false}
-				value={selectedDay}
-				on:change={(e) => {}}
-				on:clear={() => {}}
-				items={[
-					2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035,
-					2036, 2037, 2038, 2039, 2040
-				]}
-				class="text-clip grow min-w-0"
+				value={selectedYear}
+				on:change={(e) => {
+					selectedYear = e.detail.value
+					setOutput()
+				}}
+				on:clear={() => {
+					selectedYear = ''
+					setOutput()
+				}}
+				items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`)}
 				placeholder="Select a year"
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={darkMode
+				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
+				containerStyles={(darkMode
 					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
 				clearable
 			/>
 		{/if}
