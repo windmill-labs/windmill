@@ -174,6 +174,15 @@ async fn windmill_main() -> anyhow::Result<()> {
                 }
                 #[cfg(feature = "enterprise")]
                 Mode::Agent
+            } else if &x == "indexer" {
+                tracing::info!("Binary is in 'indexer' mode");
+                #[cfg(not(feature = "tantivy"))]
+                {
+                    panic!("Indexer mode requires the tantivy feature flag");
+                }
+
+                #[cfg(feature = "tantivy")]
+                Mode::Indexer
             } else {
                 if &x != "standalone" {
                     tracing::error!("mode not recognized, defaulting to standalone: {x}");
@@ -188,7 +197,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
-    let num_workers = if mode == Mode::Server {
+    let num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -207,7 +216,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false)
-        && (mode == Mode::Server || mode == Mode::Standalone);
+        && (mode == Mode::Server || mode == Mode::Standalone || mode == Mode::Indexer);
 
     let server_bind_address: IpAddr = if server_mode {
         std::env::var("SERVER_BIND_ADDR")
@@ -346,11 +355,36 @@ Windmill Community Edition {GIT_VERSION}
             .await
             .expect("could not create initial server dir");
 
+        #[cfg(feature = "tantivy")]
+        let should_index_jobs = mode == Mode::Indexer || mode == Mode::Standalone;
+
+        #[cfg(not(feature = "tantivy"))]
+        let should_index_jobs = false;
+
+        let (index_reader, index_writer) = if should_index_jobs {
+            let (r, w) = windmill_indexer::indexer_ee::init_index()?;
+            (Some(r), Some(w))
+        } else {
+            (None, None)
+        };
+
+        let indexer_rx = killpill_rx.resubscribe();
+        let index_writer2 = index_writer.clone();
+        let indexer_f = async {
+            if let Some(index_writer) = index_writer2 {
+                windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
+                    .await;
+            }
+            Ok(())
+        };
+
         let server_f = async {
             if !is_agent {
                 windmill_api::run_server(
                     db.clone(),
                     rsmq2,
+                    index_reader,
+                    index_writer,
                     addr,
                     server_killpill_rx,
                     base_internal_tx,
@@ -597,7 +631,14 @@ Windmill Community Edition {GIT_VERSION}
             schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
-        futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
+        futures::try_join!(
+            shutdown_signal,
+            workers_f,
+            monitor_f,
+            server_f,
+            metrics_f,
+            indexer_f
+        )?;
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
