@@ -3953,7 +3953,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		},
 		initialData: {
 			componentInput: undefined,
-			verticalAlignment: 'top',
+			verticalAlignment: 'center',
 
 			configuration: {
 				enableDay: {

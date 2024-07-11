@@ -47,11 +47,23 @@
 			formatString = 'dd.MM.yyyy'
 		}
 
+		if (!resolvedConfig.enableDay) {
+			formatString = formatString.replace(/dd[^a-zA-Z]*|[^a-zA-Z]*dd/, '').trim()
+		}
+
+		if (!resolvedConfig.enableMonth) {
+			formatString = formatString.replace(/MM[^a-zA-Z]*|[^a-zA-Z]*MM/, '').trim()
+		}
+
+		if (!resolvedConfig.enableYear) {
+			formatString = formatString.replace(/yyyy[^a-zA-Z]*|[^a-zA-Z]*yyyy/, '').trim()
+		}
+
 		try {
 			const isoDate = parseISO(dateString)
 			return formatDateFns(isoDate, formatString)
 		} catch (error) {
-			return 'Error formatting date:' + error.message
+			return undefined
 		}
 	}
 
@@ -245,77 +257,87 @@
 <AlignWrapper {render} {verticalAlignment}>
 	<div
 		class={twMerge(
-			'flex w-full gap-2',
-			resolvedConfig?.orientation === 'horizontal' ? 'flex-row' : 'flex-col',
+			'w-full',
+			resolvedConfig?.orientation === 'horizontal'
+				? 'flex flex-row gap-2  '
+				: 'flex  gap-2 flex-col',
 			css?.container?.class
 		)}
 		style={css?.container?.style}
 	>
 		{#if resolvedConfig?.enableDay}
-			<Select
-				portal={false}
-				value={selectedDay}
-				on:change={(e) => {
-					selectedDay = e.detail.value
-					setOutput()
-				}}
-				on:clear={() => {
-					selectedDay = ''
-					setOutput()
-				}}
-				items={Array.from({ length: computeDayPerMonth(selectedMonth, selectedYear) }, (_, i) => {
-					return { label: String(i + 1), value: String(i + 1) }
-				})}
-				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
-				containerStyles={(darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				placeholder="Select a day"
-			/>
+			<div class="grow">
+				<Select
+					portal={false}
+					value={selectedDay}
+					on:change={(e) => {
+						selectedDay = e.detail.value
+						setOutput()
+					}}
+					on:clear={() => {
+						selectedDay = ''
+						setOutput()
+					}}
+					items={Array.from({ length: computeDayPerMonth(selectedMonth, selectedYear) }, (_, i) => {
+						return { label: String(i + 1), value: String(i + 1) }
+					})}
+					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
+					containerStyles={(darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					placeholder="Select a day"
+				/>
+			</div>
 		{/if}
 		{#if resolvedConfig?.enableMonth}
-			<Select
-				portal={false}
-				value={selectedMonth}
-				on:change={(e) => {
-					selectedMonth = e.detail.value
-					setOutput()
-				}}
-				on:clear={() => {
-					selectedMonth = ''
-					setOutput()
-				}}
-				items={monthItems}
-				placeholder="Select a month"
-				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
-				containerStyles={(darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-				clearable
-			/>
+			<div
+				class={twMerge('grow', resolvedConfig?.orientation === 'horizontal' ? 'w-2/3' : 'w-full')}
+			>
+				<Select
+					portal={false}
+					value={selectedMonth}
+					on:change={(e) => {
+						selectedMonth = e.detail.value
+						setOutput()
+					}}
+					on:clear={() => {
+						selectedMonth = ''
+						setOutput()
+					}}
+					items={monthItems}
+					placeholder="Select a month"
+					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
+					containerStyles={(darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
+					clearable
+				/>
+			</div>
 		{/if}
 		{#if resolvedConfig?.enableYear}
-			<Select
-				portal={false}
-				value={selectedYear}
-				on:change={(e) => {
-					selectedYear = e.detail.value
-					setOutput()
-				}}
-				on:clear={() => {
-					selectedYear = ''
-					setOutput()
-				}}
-				items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`)}
-				placeholder="Select a year"
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
-				containerStyles={(darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-				clearable
-			/>
+			<div class="grow">
+				<Select
+					portal={false}
+					value={selectedYear}
+					on:change={(e) => {
+						selectedYear = e.detail.value
+						setOutput()
+					}}
+					on:clear={() => {
+						selectedYear = ''
+						setOutput()
+					}}
+					items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`)}
+					placeholder="Select a year"
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
+					containerStyles={(darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
+					clearable
+				/>
+			</div>
 		{/if}
 	</div>
 </AlignWrapper>
