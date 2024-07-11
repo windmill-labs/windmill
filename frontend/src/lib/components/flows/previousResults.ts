@@ -127,6 +127,49 @@ export function getPreviousIds(id: string, flow: OpenFlow, include_node: boolean
 		.flat()
 }
 
+export function getFailureStepPropPicker(flowState: FlowState, flow: OpenFlow, args: any) {
+	const allIds = flow.value.modules.map((x) => x.id)
+	let priorIds = Object.fromEntries(
+		allIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
+	)
+
+	const flowInput = getFlowInput(
+		dfs(flow.value.modules[0].id, flow),
+		flowState,
+		args,
+		flow.schema as Schema
+	)
+
+	return {
+		pickableProperties: {
+			flow_input: schemaToObject(flow.schema as any, args),
+			priorIds: priorIds,
+			previousId: undefined,
+			hasResume: false
+		},
+		extraLib: `
+/**
+* Error object
+*/
+declare const error: {
+	message: string
+	name: string
+	stack: string
+}
+
+/**
+* result by id
+*/
+declare const results = ${JSON.stringify(priorIds)}
+
+/**
+* flow input as an object
+*/
+declare const flow_input = ${JSON.stringify(flowInput)};
+		`
+	}
+}
+
 export function getStepPropPicker(
 	flowState: FlowState,
 	parentModule: FlowModule | undefined,
