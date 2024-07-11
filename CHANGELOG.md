@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.361.1](https://github.com/windmill-labs/windmill/compare/v1.361.0...v1.361.1) (2024-07-11)
+
+
+### Bug Fixes
+
+* improve filter jobs query ([583190f](https://github.com/windmill-labs/windmill/commit/583190f883e2a82fb6d0ab0d882283d5da5436c5))
+
+## [1.361.0](https://github.com/windmill-labs/windmill/compare/v1.360.1...v1.361.0) (2024-07-11)
+
+
+### Features
+
+* **frontend:** add support for GFM and fix max-width issue ([#4057](https://github.com/windmill-labs/windmill/issues/4057)) ([133a278](https://github.com/windmill-labs/windmill/commit/133a2789120c50f2733af4bce5290bd7365b566d))
+* **frontend:** improve table action UX ([#4056](https://github.com/windmill-labs/windmill/issues/4056)) ([a6eeb68](https://github.com/windmill-labs/windmill/commit/a6eeb68b77c49e2fa41e2bb62e72ce4446841fbc))
+
+
+### Bug Fixes
+
+* fix migration for instances starting from scratch ([b4f0b32](https://github.com/windmill-labs/windmill/commit/b4f0b32c40bc63b4063816f51c5a30679edf03f4))
+* **frontend:** fix run page ms readability ([#4059](https://github.com/windmill-labs/windmill/issues/4059)) ([0b932ca](https://github.com/windmill-labs/windmill/commit/0b932cac6f8cd959a10d057e53985d876fe158f2))
+* **frontend:** fix style panel title ([#4058](https://github.com/windmill-labs/windmill/issues/4058)) ([c853db4](https://github.com/windmill-labs/windmill/commit/c853db4e0570346b35dcb2249723e42b1af86547))
+* improve completed_job index ([e450300](https://github.com/windmill-labs/windmill/commit/e450300c225a965cde3472013b5ae7fb83200a31))
+* improve performance of cancel_all ([1d1dde0](https://github.com/windmill-labs/windmill/commit/1d1dde0d91644c8b973a4104a93d4c7cd123ac56))
+
+## [1.360.1](https://github.com/windmill-labs/windmill/compare/v1.360.0...v1.360.1) (2024-07-09)
+
+
+### Bug Fixes
+
+* fix previous_result not always working for failure steps ([23a00c5](https://github.com/windmill-labs/windmill/commit/23a00c55e95054ecebbcbb829499f5a1d622efd5))
+* **frontend:** Reload the flowStateStore when a node is restored (undo) ([#4049](https://github.com/windmill-labs/windmill/issues/4049)) ([6e52632](https://github.com/windmill-labs/windmill/commit/6e526327dd0259eb096fdaf387dfc9206936c19b))
+* improve flow version fix migration ([#4050](https://github.com/windmill-labs/windmill/issues/4050)) ([eda6629](https://github.com/windmill-labs/windmill/commit/eda6629bb381469ba27e5a479bb39f7428920aec))
+* make dedicated workers work with dates in bun ([7f49798](https://github.com/windmill-labs/windmill/commit/7f49798e3fb7a2aa528388a1718fd459de19deb8))
+* update flow path ([#4053](https://github.com/windmill-labs/windmill/issues/4053)) ([82c88ad](https://github.com/windmill-labs/windmill/commit/82c88ad3b893e3222391ade65a10dfb2ef1c0fc7))
+
 ## [1.360.0](https://github.com/windmill-labs/windmill/compare/v1.359.0...v1.360.0) (2024-07-08)
 
 
