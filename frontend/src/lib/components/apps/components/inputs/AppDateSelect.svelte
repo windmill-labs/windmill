@@ -13,6 +13,7 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { enUS, fr, de, pt, ja } from 'date-fns/locale'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -54,26 +55,30 @@
 		}
 	}
 
+	function getLocale(locale: string = 'en-US') {
+		const localeMapping: { [key: string]: Locale } = {
+			'en-US': enUS,
+			'en-GB': enUS,
+			'en-IE': enUS,
+			'de-DE': de,
+			'fr-FR': fr,
+			'br-FR': fr,
+			'ja-JP': ja,
+			'pt-TL': pt,
+			'fr-CA': fr,
+			'en-CA': enUS
+		}
+		return localeMapping[resolvedConfig?.locale as string] || enUS
+	}
+
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue
 
 		if (value) {
 			const date = parseISO(value)
+			const locale = getLocale(resolvedConfig.locale)
 			selectedDay = String(date.getDate())
-			selectedMonth = [
-				'January',
-				'February',
-				'March',
-				'April',
-				'May',
-				'June',
-				'July',
-				'August',
-				'September',
-				'October',
-				'November',
-				'December'
-			][date.getMonth()]
+			selectedMonth = formatDateFns(date, 'MMMM', { locale })
 			selectedYear = String(date.getFullYear())
 		}
 	}
@@ -131,6 +136,61 @@
 			outputs?.result.set(undefined)
 		}
 	}
+
+	function computeMonthItems(locale: string = 'en-US') {
+		return [
+			{
+				label: formatDateFns(new Date(2000, 0, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'January'
+			},
+			{
+				label: formatDateFns(new Date(2000, 1, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'February'
+			},
+			{
+				label: formatDateFns(new Date(2000, 2, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'March'
+			},
+			{
+				label: formatDateFns(new Date(2000, 3, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'April'
+			},
+			{
+				label: formatDateFns(new Date(2000, 4, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'May'
+			},
+			{
+				label: formatDateFns(new Date(2000, 5, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'June'
+			},
+			{
+				label: formatDateFns(new Date(2000, 6, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'July'
+			},
+			{
+				label: formatDateFns(new Date(2000, 7, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'August'
+			},
+			{
+				label: formatDateFns(new Date(2000, 8, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'September'
+			},
+			{
+				label: formatDateFns(new Date(2000, 9, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'October'
+			},
+			{
+				label: formatDateFns(new Date(2000, 10, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'November'
+			},
+			{
+				label: formatDateFns(new Date(2000, 11, 1), 'MMMM', { locale: getLocale(locale) }),
+				value: 'December'
+			}
+		]
+	}
+
+	$: monthItems = computeMonthItems(resolvedConfig?.locale)
 </script>
 
 {#each Object.keys(components['dateselectcomponent'].initialData.configuration) as key (key)}
@@ -200,20 +260,7 @@
 					selectedMonth = ''
 					setOutput()
 				}}
-				items={[
-					'January',
-					'February',
-					'March',
-					'April',
-					'May',
-					'June',
-					'July',
-					'August',
-					'September',
-					'October',
-					'November',
-					'December'
-				]}
+				items={monthItems}
 				placeholder="Select a month"
 				class={twMerge('text-clip grow min-w-0', css?.input?.class, 'wm-date-select')}
 				containerStyles={(darkMode
