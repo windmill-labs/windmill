@@ -789,5 +789,8 @@ export const quickStyleProperties: Record<
 	},
 	navbarcomponent: {
 		container: containerDefaultProps
+	},
+	dateselectcomponent: {
+		input: inputDefaultProps
 	}
 }
