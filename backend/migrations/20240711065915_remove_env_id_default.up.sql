@@ -1,0 +1,5 @@
+-- Add up migration script here
+ALTER TABLE queue ALTER COLUMN env_id DROP NOT NULL;
+ALTER TABLE queue ALTER COLUMN env_id DROP DEFAULT;
+ALTER TABLE completed_job ALTER COLUMN env_id DROP NOT NULL;
+ALTER TABLE completed_job ALTER COLUMN env_id DROP DEFAULT;

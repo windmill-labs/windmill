@@ -1004,3 +1004,25 @@ export function maxHeight(
 
 	return Math.max(maxRowPerGrid, maxRows)
 }
+
+export function isTableAction(id: string, app: App): boolean {
+	const [tableId, actionId] = id.split('_')
+
+	if (!tableId || !actionId) {
+		return false
+	}
+
+	const table = findGridItem(app, tableId)
+	if (
+		!table ||
+		(table.data.type !== 'tablecomponent' &&
+			table.data.type !== 'aggridcomponent' &&
+			table.data.type !== 'aggridcomponentee' &&
+			table.data.type !== 'dbexplorercomponent' &&
+			table.data.type !== 'aggridinfinitecomponent' &&
+			table.data.type !== 'aggridinfinitecomponentee')
+	) {
+		return false
+	}
+	return true
+}
