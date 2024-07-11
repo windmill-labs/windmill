@@ -160,7 +160,7 @@
 				Object.entries(flowModuleStates ?? [])
 					.filter(([k, v]) => k.startsWith('failure'))
 					.forEach(([k, v]) => {
-						nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
+						nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module, k))
 					})
 			}
 			const flatNodes = flattenNestedNodes(nestedNodes)
@@ -726,8 +726,14 @@
 		}
 	}
 
-	function createErrorHandler(mod: FlowModule, parent_module?: string): Node {
-		const nId = 'failure'
+	function createErrorHandler(
+		mod: FlowModule,
+		parent_module?: string,
+		customNodeId?: string | undefined
+	): Node {
+		// When needed, we can add a custom node id to the error handler
+		// used for nested error handlers in for loop for example
+		const nId = customNodeId ?? 'failure'
 		parent_module && (errorHandlers[parent_module] = nId)
 		let label = 'Error handler'
 		return {

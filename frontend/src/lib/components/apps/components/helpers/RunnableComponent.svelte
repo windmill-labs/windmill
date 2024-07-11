@@ -631,7 +631,10 @@
 		delete $errorByComponent[id]
 
 		if ($runnableComponents[id]) {
-			delete $runnableComponents[id]
+			$runnableComponents[id] = {
+				...$runnableComponents[id],
+				cb: $runnableComponents[id].cb.filter((cb) => cb !== cancellableRun)
+			}
 			$runnableComponents = $runnableComponents
 		}
 	})
