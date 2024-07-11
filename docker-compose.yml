@@ -112,7 +112,7 @@ services:
   # The indexer powers full-text job and log search, an EE feature.
   windmill_indexer:
     image: ${WM_IMAGE}
-    # pull_policy: always
+    pull_policy: always
     deploy:
       replicas: 0 # set to 1 to enable full-text job and log search
     restart: unless-stopped
