@@ -1362,7 +1362,7 @@ async fn cancel_jobs(
                    , tag
                    , priority FROM queue 
         WHERE id = any($2) AND running = false AND parent_job IS NULL AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED
-        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, serde_json::json!({"error": 42}))
+        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
         .fetch_all(&mut *tx)
         .await?.into_iter().map(|x| x.id).collect::<Vec<Uuid>>();
 
