@@ -205,36 +205,46 @@ async fn fix_flow_versioning_migration(
     migrator: &mut CustomMigrator,
     db: &DB,
 ) -> Result<(), Error> {
-    migrator.lock().await?;
+    let has_done_migration = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
 
-    if migrator
-        .list_applied_migrations()
-        .await?
-        .iter()
-        .any(|x| x.version == 20240630102146)
-    {
-        let has_done_migration = sqlx::query_scalar!(
+    if !has_done_migration {
+        migrator.lock().await?;
+
+        if migrator
+            .list_applied_migrations()
+            .await?
+            .iter()
+            .any(|x| x.version == 20240630102146)
+        {
+            let has_done_migration = sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
             )
             .fetch_one(db)
             .await?
             .unwrap_or(false);
 
-        if !has_done_migration {
-            let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
-            tracing::info!("Applying fix_flow_versioning_2.sql");
-            let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-            tx.execute(query).await?;
-            tracing::info!("Applied fix_flow_versioning_2.sql");
-            sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('fix_flow_versioning_2')")
+            if !has_done_migration {
+                let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
+                tracing::info!("Applying fix_flow_versioning_2.sql");
+                let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
+                tx.execute(query).await?;
+                tracing::info!("Applied fix_flow_versioning_2.sql");
+                sqlx::query!(
+                    "INSERT INTO windmill_migrations (name) VALUES ('fix_flow_versioning_2')"
+                )
                 .execute(&mut *tx)
                 .await?;
-            tx.commit().await?;
+                tx.commit().await?;
+            }
         }
+
+        migrator.unlock().await?;
     }
-
-    migrator.unlock().await?;
-
     Ok(())
 }
 
