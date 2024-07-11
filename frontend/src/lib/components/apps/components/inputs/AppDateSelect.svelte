@@ -91,6 +91,30 @@
 	let selectedMonth: string | undefined = undefined
 	let selectedYear: string | undefined = undefined
 
+	$: monthItems = computeMonthItems(resolvedConfig?.locale)
+
+	function updateOutputs(enableDay?: boolean, enableMonth?: boolean, enableYear?: boolean) {
+		if (enableDay) {
+			outputs.day.set(Number(selectedDay))
+		} else {
+			outputs.day.set(undefined)
+		}
+
+		if (enableMonth) {
+			outputs.month.set(monthItems.findIndex((item) => item.value === selectedMonth) + 1)
+		} else {
+			outputs.month.set(undefined)
+		}
+
+		if (enableYear) {
+			outputs.year.set(Number(selectedYear))
+		} else {
+			outputs.year.set(undefined)
+		}
+	}
+
+	$: updateOutputs(resolvedConfig.enableDay, resolvedConfig.enableMonth, resolvedConfig.enableYear)
+
 	function computeMonthItems(locale: string = 'en-US') {
 		return [
 			{
@@ -143,8 +167,6 @@
 			}
 		]
 	}
-
-	$: monthItems = computeMonthItems(resolvedConfig?.locale)
 
 	function computeDayPerMonth(selectedMonth: string | undefined, selectedYear: string | undefined) {
 		if (!selectedMonth || !selectedYear) {
