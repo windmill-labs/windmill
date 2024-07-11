@@ -101,7 +101,9 @@
 		}
 
 		if (enableMonth) {
-			outputs.month.set(monthItems.findIndex((item) => item.value === selectedMonth) + 1)
+			const monthIndex = monthItems.findIndex((item) => item.label === selectedMonth)
+
+			outputs.month.set(monthIndex + 1)
 		} else {
 			outputs.month.set(undefined)
 		}
