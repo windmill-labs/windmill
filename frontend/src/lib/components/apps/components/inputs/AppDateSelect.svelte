@@ -37,35 +37,12 @@
 	}
 
 	let outputs = initOutput($worldStore, id, {
-		result: undefined as string | undefined
+		day: undefined as number | undefined,
+		month: undefined as number | undefined,
+		year: undefined as number | undefined
 	})
 
 	$: !value && handleDefault(resolvedConfig.defaultValue)
-
-	function formatDate(dateString: string, formatString: string = 'dd.MM.yyyy') {
-		if (formatString === '') {
-			formatString = 'dd.MM.yyyy'
-		}
-
-		if (!resolvedConfig.enableDay) {
-			formatString = formatString.replace(/dd[^a-zA-Z]*|[^a-zA-Z]*dd/, '').trim()
-		}
-
-		if (!resolvedConfig.enableMonth) {
-			formatString = formatString.replace(/MM[^a-zA-Z]*|[^a-zA-Z]*MM/, '').trim()
-		}
-
-		if (!resolvedConfig.enableYear) {
-			formatString = formatString.replace(/yyyy[^a-zA-Z]*|[^a-zA-Z]*yyyy/, '').trim()
-		}
-
-		try {
-			const isoDate = parseISO(dateString)
-			return formatDateFns(isoDate, formatString)
-		} catch (error) {
-			return undefined
-		}
-	}
 
 	function getLocale(locale: string = 'en-US') {
 		const localeMapping: { [key: string]: Locale } = {
@@ -92,62 +69,27 @@
 			selectedDay = String(date.getDate())
 			selectedMonth = formatDateFns(date, 'MMMM', { locale })
 			selectedYear = String(date.getFullYear())
+
+			if (resolvedConfig?.enableDay) {
+				outputs.day.set(Number(selectedDay))
+			}
+
+			if (resolvedConfig?.enableMonth) {
+				outputs.month.set(date.getMonth() + 1)
+			}
+
+			if (resolvedConfig?.enableYear) {
+				outputs.year.set(Number(selectedYear))
+			}
 		}
 	}
+
 	let css = initCss($app.css?.dateinputcomponent, customCss)
 
 	let darkMode: boolean = false
 	let selectedDay: string | undefined = undefined
 	let selectedMonth: string | undefined = undefined
 	let selectedYear: string | undefined = undefined
-
-	function setOutput() {
-		let dateParts = [] as string[]
-
-		if (resolvedConfig.enableYear && selectedYear) {
-			dateParts.push(selectedYear)
-		} else {
-			dateParts.push('1900')
-		}
-
-		if (resolvedConfig.enableMonth && selectedMonth) {
-			const monthIndex =
-				[
-					'January',
-					'February',
-					'March',
-					'April',
-					'May',
-					'June',
-					'July',
-					'August',
-					'September',
-					'October',
-					'November',
-					'December'
-				].indexOf(selectedMonth) + 1
-
-			dateParts.push(String(monthIndex).padStart(2, '0'))
-		} else {
-			dateParts.push('01')
-		}
-
-		if (resolvedConfig.enableDay && selectedDay) {
-			dateParts.push(String(selectedDay).padStart(2, '0'))
-		} else {
-			dateParts.push('01')
-		}
-
-		const dateString = dateParts.join('-')
-
-		if (dateParts.length > 0) {
-			const formattedDate = formatDate(dateString, resolvedConfig.outputFormat)
-
-			outputs?.result.set(formattedDate)
-		} else {
-			outputs?.result.set(undefined)
-		}
-	}
 
 	function computeMonthItems(locale: string = 'en-US') {
 		return [
@@ -274,11 +216,11 @@
 					value={selectedDay}
 					on:change={(e) => {
 						selectedDay = e.detail.value
-						setOutput()
+						outputs.day.set(Number(selectedDay))
 					}}
 					on:clear={() => {
 						selectedDay = ''
-						setOutput()
+						outputs.day.set(undefined)
 					}}
 					items={Array.from({ length: computeDayPerMonth(selectedMonth, selectedYear) }, (_, i) => {
 						return { label: String(i + 1), value: String(i + 1) }
@@ -288,7 +230,7 @@
 						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
 					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					placeholder="Select a day"
+					placeholder="Pick a day"
 				/>
 			</div>
 		{/if}
@@ -301,14 +243,14 @@
 					value={selectedMonth}
 					on:change={(e) => {
 						selectedMonth = e.detail.value
-						setOutput()
+						outputs.month.set(monthItems.findIndex((item) => item.value === selectedMonth) + 1)
 					}}
 					on:clear={() => {
 						selectedMonth = ''
-						setOutput()
+						outputs.month.set(undefined)
 					}}
 					items={monthItems}
-					placeholder="Select a month"
+					placeholder="Pick a month"
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
 					containerStyles={(darkMode
 						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
@@ -326,14 +268,14 @@
 					value={selectedYear}
 					on:change={(e) => {
 						selectedYear = e.detail.value
-						setOutput()
+						outputs.year.set(Number(selectedYear))
 					}}
 					on:clear={() => {
 						selectedYear = ''
-						setOutput()
+						outputs.year.set(undefined)
 					}}
 					items={Array.from({ length: 201 }, (_, i) => `${1900 + i}`)}
-					placeholder="Select a year"
+					placeholder="Pick a year"
 					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 					class={twMerge('text-clip min-w-0', css?.input?.class, 'wm-date-select')}
 					containerStyles={(darkMode

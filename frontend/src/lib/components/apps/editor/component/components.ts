@@ -3976,13 +3976,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: undefined,
 					fieldType: 'date'
 				},
-				outputFormat: {
-					type: 'static',
-					value: 'yyyy-MM-dd',
-					fieldType: 'text',
-					tooltip:
-						'Depending on the field you want to use, you can change the format here. For example, `YYYY-MM-DD`, `MM/DD/YYYY`, etc.'
-				},
+
 				orientation: {
 					type: 'static',
 					value: 'horizontal',
