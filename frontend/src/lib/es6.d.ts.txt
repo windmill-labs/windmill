@@ -4798,4 +4798,373 @@ interface ArrayBufferView {
       * The offset in bytes of the array.
       */
     byteOffset: number;
+}interface Array<T> {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: T, fromIndex?: number): boolean;
+}
+
+interface ReadonlyArray<T> {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: T, fromIndex?: number): boolean;
+}
+
+interface Int8Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Uint8Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Uint8ClampedArray {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Int16Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Uint16Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Int32Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Uint32Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Float32Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+
+interface Float64Array {
+    /**
+     * Determines whether an array includes a certain element, returning true or false as appropriate.
+     * @param searchElement The element to search for.
+     * @param fromIndex The position in this array at which to begin searching for searchElement.
+     */
+    includes(searchElement: number, fromIndex?: number): boolean;
+}
+/// <reference lib="es2015" />
+/// <reference lib="es2016.array.include" />
+/// <reference lib="es2016.intl" />
+declare namespace Intl {
+    /**
+     * The `Intl.getCanonicalLocales()` method returns an array containing
+     * the canonical locale names. Duplicates will be omitted and elements
+     * will be validated as structurally valid language tags.
+     *
+     * [MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/getCanonicalLocales)
+     *
+     * @param locale A list of String values for which to get the canonical locale names
+     * @returns An array containing the canonical and validated locale names.
+     */
+    function getCanonicalLocales(locale?: string | readonly string[]): string[];
+}
+interface DateConstructor {
+    /**
+     * Returns the number of milliseconds between midnight, January 1, 1970 Universal Coordinated Time (UTC) (or GMT) and the specified date.
+     * @param year The full year designation is required for cross-century date accuracy. If year is between 0 and 99 is used, then year is assumed to be 1900 + year.
+     * @param monthIndex The month as a number between 0 and 11 (January to December).
+     * @param date The date as a number between 1 and 31.
+     * @param hours Must be supplied if minutes is supplied. A number from 0 to 23 (midnight to 11pm) that specifies the hour.
+     * @param minutes Must be supplied if seconds is supplied. A number from 0 to 59 that specifies the minutes.
+     * @param seconds Must be supplied if milliseconds is supplied. A number from 0 to 59 that specifies the seconds.
+     * @param ms A number from 0 to 999 that specifies the milliseconds.
+     */
+    UTC(year: number, monthIndex?: number, date?: number, hours?: number, minutes?: number, seconds?: number, ms?: number): number;
+}
+/// <reference lib="es2016" />
+/// <reference lib="es2017.object" />
+/// <reference lib="es2017.sharedmemory" />
+/// <reference lib="es2017.string" />
+/// <reference lib="es2017.intl" />
+/// <reference lib="es2017.typedarrays" />
+/// <reference lib="es2017.date" />
+declare namespace Intl {
+    interface DateTimeFormatPartTypesRegistry {
+        day: any;
+        dayPeriod: any;
+        era: any;
+        hour: any;
+        literal: any;
+        minute: any;
+        month: any;
+        second: any;
+        timeZoneName: any;
+        weekday: any;
+        year: any;
+    }
+
+    type DateTimeFormatPartTypes = keyof DateTimeFormatPartTypesRegistry;
+
+    interface DateTimeFormatPart {
+        type: DateTimeFormatPartTypes;
+        value: string;
+    }
+
+    interface DateTimeFormat {
+        formatToParts(date?: Date | number): DateTimeFormatPart[];
+    }
+}
+interface ObjectConstructor {
+    /**
+     * Returns an array of values of the enumerable own properties of an object
+     * @param o Object that contains the properties and methods. This can be an object that you created or an existing Document Object Model (DOM) object.
+     */
+    values<T>(o: { [s: string]: T; } | ArrayLike<T>): T[];
+
+    /**
+     * Returns an array of values of the enumerable own properties of an object
+     * @param o Object that contains the properties and methods. This can be an object that you created or an existing Document Object Model (DOM) object.
+     */
+    values(o: {}): any[];
+
+    /**
+     * Returns an array of key/values of the enumerable own properties of an object
+     * @param o Object that contains the properties and methods. This can be an object that you created or an existing Document Object Model (DOM) object.
+     */
+    entries<T>(o: { [s: string]: T; } | ArrayLike<T>): [string, T][];
+
+    /**
+     * Returns an array of key/values of the enumerable own properties of an object
+     * @param o Object that contains the properties and methods. This can be an object that you created or an existing Document Object Model (DOM) object.
+     */
+    entries(o: {}): [string, any][];
+
+    /**
+     * Returns an object containing all own property descriptors of an object
+     * @param o Object that contains the properties and methods. This can be an object that you created or an existing Document Object Model (DOM) object.
+     */
+    getOwnPropertyDescriptors<T>(o: T): { [P in keyof T]: TypedPropertyDescriptor<T[P]>; } & { [x: string]: PropertyDescriptor; };
+}
+/// <reference lib="es2015.symbol" />
+/// <reference lib="es2015.symbol.wellknown" />
+
+interface SharedArrayBuffer {
+    /**
+     * Read-only. The length of the ArrayBuffer (in bytes).
+     */
+    readonly byteLength: number;
+
+    /**
+     * Returns a section of an SharedArrayBuffer.
+     */
+    slice(begin: number, end?: number): SharedArrayBuffer;
+    readonly [Symbol.species]: SharedArrayBuffer;
+    readonly [Symbol.toStringTag]: "SharedArrayBuffer";
+}
+
+interface SharedArrayBufferConstructor {
+    readonly prototype: SharedArrayBuffer;
+    new (byteLength: number): SharedArrayBuffer;
+}
+declare var SharedArrayBuffer: SharedArrayBufferConstructor;
+
+interface ArrayBufferTypes {
+    SharedArrayBuffer: SharedArrayBuffer;
+}
+
+interface Atomics {
+    /**
+     * Adds a value to the value at the given position in the array, returning the original value.
+     * Until this atomic operation completes, any other read or write operation against the array
+     * will block.
+     */
+    add(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, value: number): number;
+
+    /**
+     * Stores the bitwise AND of a value with the value at the given position in the array,
+     * returning the original value. Until this atomic operation completes, any other read or
+     * write operation against the array will block.
+     */
+    and(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, value: number): number;
+
+    /**
+     * Replaces the value at the given position in the array if the original value equals the given
+     * expected value, returning the original value. Until this atomic operation completes, any
+     * other read or write operation against the array will block.
+     */
+    compareExchange(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, expectedValue: number, replacementValue: number): number;
+
+    /**
+     * Replaces the value at the given position in the array, returning the original value. Until
+     * this atomic operation completes, any other read or write operation against the array will
+     * block.
+     */
+    exchange(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, value: number): number;
+
+    /**
+     * Returns a value indicating whether high-performance algorithms can use atomic operations
+     * (`true`) or must use locks (`false`) for the given number of bytes-per-element of a typed
+     * array.
+     */
+    isLockFree(size: number): boolean;
+
+    /**
+     * Returns the value at the given position in the array. Until this atomic operation completes,
+     * any other read or write operation against the array will block.
+     */
+    load(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number): number;
+
+    /**
+     * Stores the bitwise OR of a value with the value at the given position in the array,
+     * returning the original value. Until this atomic operation completes, any other read or write
+     * operation against the array will block.
+     */
+    or(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, value: number): number;
+
+    /**
+     * Stores a value at the given position in the array, returning the new value. Until this
+     * atomic operation completes, any other read or write operation against the array will block.
+     */
+    store(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, value: number): number;
+
+    /**
+     * Subtracts a value from the value at the given position in the array, returning the original
+     * value. Until this atomic operation completes, any other read or write operation against the
+     * array will block.
+     */
+    sub(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, value: number): number;
+
+    /**
+     * If the value at the given position in the array is equal to the provided value, the current
+     * agent is put to sleep causing execution to suspend until the timeout expires (returning
+     * `"timed-out"`) or until the agent is awoken (returning `"ok"`); otherwise, returns
+     * `"not-equal"`.
+     */
+    wait(typedArray: Int32Array, index: number, value: number, timeout?: number): "ok" | "not-equal" | "timed-out";
+
+    /**
+     * Wakes up sleeping agents that are waiting on the given index of the array, returning the
+     * number of agents that were awoken.
+     * @param typedArray A shared Int32Array.
+     * @param index The position in the typedArray to wake up on.
+     * @param count The number of sleeping agents to notify. Defaults to +Infinity.
+     */
+    notify(typedArray: Int32Array, index: number, count?: number): number;
+
+    /**
+     * Stores the bitwise XOR of a value with the value at the given position in the array,
+     * returning the original value. Until this atomic operation completes, any other read or write
+     * operation against the array will block.
+     */
+    xor(typedArray: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array, index: number, value: number): number;
+
+    readonly [Symbol.toStringTag]: "Atomics";
+}
+
+declare var Atomics: Atomics;
+interface String {
+    /**
+     * Pads the current string with a given string (possibly repeated) so that the resulting string reaches a given length.
+     * The padding is applied from the start (left) of the current string.
+     *
+     * @param maxLength The length of the resulting string once the current string has been padded.
+     *        If this parameter is smaller than the current string's length, the current string will be returned as it is.
+     *
+     * @param fillString The string to pad the current string with.
+     *        If this string is too long, it will be truncated and the left-most part will be applied.
+     *        The default value for this parameter is " " (U+0020).
+     */
+    padStart(maxLength: number, fillString?: string): string;
+
+    /**
+     * Pads the current string with a given string (possibly repeated) so that the resulting string reaches a given length.
+     * The padding is applied from the end (right) of the current string.
+     *
+     * @param maxLength The length of the resulting string once the current string has been padded.
+     *        If this parameter is smaller than the current string's length, the current string will be returned as it is.
+     *
+     * @param fillString The string to pad the current string with.
+     *        If this string is too long, it will be truncated and the left-most part will be applied.
+     *        The default value for this parameter is " " (U+0020).
+     */
+    padEnd(maxLength: number, fillString?: string): string;
+}
+interface Int8ArrayConstructor {
+    new (): Int8Array;
+}
+
+interface Uint8ArrayConstructor {
+    new (): Uint8Array;
+}
+
+interface Uint8ClampedArrayConstructor {
+    new (): Uint8ClampedArray;
+}
+
+interface Int16ArrayConstructor {
+    new (): Int16Array;
+}
+
+interface Uint16ArrayConstructor {
+    new (): Uint16Array;
+}
+
+interface Int32ArrayConstructor {
+    new (): Int32Array;
+}
+
+interface Uint32ArrayConstructor {
+    new (): Uint32Array;
+}
+
+interface Float32ArrayConstructor {
+    new (): Float32Array;
+}
+
+interface Float64ArrayConstructor {
+    new (): Float64Array;
 }
