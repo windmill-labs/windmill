@@ -701,7 +701,7 @@ fn generate_get_job_query(no_logs: bool, table: &str) -> String {
     return format!("SELECT 
     id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, 
     CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, 
-    {log_expr} as logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+    {log_expr} as logs, raw_code, canceled, canceled_by, canceled_reason, job_kind,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language,
     raw_lock, email, visible_to_owner, mem_peak, tag, priority, {additional_fields}
     FROM {table}
@@ -1298,6 +1298,12 @@ async fn cancel_jobs(
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
+    sqlx::query!(
+        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = 'cancelled all by user' WHERE id IN (SELECT id FROM queue where id = any($2) AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED)",
+        username,
+        &jobs,
+        w_id
+    ).execute(db).await?;
     for job_id in jobs.into_iter() {
         let rsmq = rsmq.clone();
         match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
@@ -1410,7 +1416,7 @@ async fn count_queue_jobs(
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND running = false",
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND running = false AND canceled = false",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
         )
@@ -4598,7 +4604,7 @@ async fn get_completed_job<'a>(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     let job_o = sqlx::query_as::<_, CompletedJob>("SELECT id, workspace_id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, 
-    CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind, env_id,
+    CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as args, CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result, logs, deleted, raw_code, canceled, canceled_by, canceled_reason, job_kind,
     schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, language, started_at, is_skipped,
     raw_lock, email, visible_to_owner, mem_peak, tag, priority, result->'wm_labels' as labels FROM completed_job WHERE id = $1 AND workspace_id = $2")
         .bind(id)
