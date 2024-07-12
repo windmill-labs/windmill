@@ -47,6 +47,7 @@ pub mod tracing_init;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
+pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 
@@ -185,7 +186,10 @@ async fn reset() -> () {
     todo!()
 }
 
-pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
+pub async fn connect_db(
+    server_mode: bool,
+    indexer_mode: bool,
+) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
     use std::env::var;
     use tokio::fs::File;
@@ -211,12 +215,16 @@ pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Po
             if server_mode {
                 DEFAULT_MAX_CONNECTIONS_SERVER
             } else {
-                DEFAULT_MAX_CONNECTIONS_WORKER
-                    * std::env::var("NUM_WORKERS")
-                        .ok()
-                        .map(|x| x.parse().ok())
-                        .flatten()
-                        .unwrap_or(1)
+                if indexer_mode {
+                    DEFAULT_MAX_CONNECTIONS_INDEXER
+                } else {
+                    DEFAULT_MAX_CONNECTIONS_WORKER
+                        * std::env::var("NUM_WORKERS")
+                            .ok()
+                            .map(|x| x.parse().ok())
+                            .flatten()
+                            .unwrap_or(1)
+                }
             }
         }
     };
