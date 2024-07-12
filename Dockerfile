@@ -9,7 +9,7 @@ RUN yum install -y rust-toolset
 RUN yum update -y && \
     yum install -y git openssl-devel npm nodejs
 
-RUN rustup component add rustfmt
+RUN yum install rustfmt
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
 RUN cargo install sccache --version ^0.8
