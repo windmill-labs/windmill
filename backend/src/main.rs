@@ -216,9 +216,11 @@ async fn windmill_main() -> anyhow::Result<()> {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false)
-        && (mode == Mode::Server || mode == Mode::Standalone || mode == Mode::Indexer);
+        && (mode == Mode::Server || mode == Mode::Standalone);
 
-    let server_bind_address: IpAddr = if server_mode {
+    let indexer_mode = mode == Mode::Indexer;
+
+    let server_bind_address: IpAddr = if server_mode || indexer_mode {
         std::env::var("SERVER_BIND_ADDR")
             .ok()
             .and_then(|x| x.parse().ok())
@@ -311,7 +313,7 @@ Windmill Community Edition {GIT_VERSION}
 
     let worker_mode = num_workers > 0;
 
-    if server_mode || worker_mode {
+    if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
         let port = if server_mode {
