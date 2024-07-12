@@ -19,25 +19,15 @@ export async function waitJob(id: string) {
 	let syncIteration: number = 0
 	let errorIteration: number = 0
 	let job: any
-	let finished: string[] = []
-	let running = false
 
 	return new Promise((resolve, reject) => {
 		async function checkJob() {
 			try {
-				if (!workspace) {
-					throw new Error('Workspace not found')
-				}
-
 				const maybeJob = await JobService.getCompletedJobResultMaybe({
 					workspace: workspace!,
 					id,
 					getStarted: false
 				})
-
-				if (maybeJob.started && !running) {
-					running = true
-				}
 
 				if (maybeJob.completed) {
 					job = { ...maybeJob, id }
@@ -48,7 +38,6 @@ export async function waitJob(id: string) {
 						resolve(job.result)
 					}
 
-					finished.push(id)
 					return
 				}
 			} catch (err) {
