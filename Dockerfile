@@ -56,7 +56,7 @@ ARG features=""
 COPY --from=planner /windmill/recipe.json recipe.json
 
 RUN yum update -y && \
-    yum install -y libxml2-devel libxmlsec1-devel clang llvm-devel cmake
+    yum install -y libxml2-devel xmlsec1-devel clang llvm-devel cmake
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
