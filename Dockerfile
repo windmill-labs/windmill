@@ -7,7 +7,7 @@ FROM ${RUST_IMAGE} AS rust_base
 RUN yum install -y rust-toolset
 
 RUN yum update -y && \
-    yum install -y git openssl-devel pkgconfig npm curl nodejs
+    yum install -y git openssl-devel npm nodejs
 
 RUN rustup component add rustfmt
 
