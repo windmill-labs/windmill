@@ -42,7 +42,7 @@ jobs:
             latest=false
           tags: |
             type=sha
-            type=branch,event=workflow_dispatch
+            type=ref,event=workflow_dispatch
 
       - name: Login to registry
         uses: docker/login-action@v2
