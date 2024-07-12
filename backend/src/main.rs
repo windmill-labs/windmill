@@ -259,7 +259,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     tracing::info!("Connecting to database...");
-    let db = windmill_common::connect_db(server_mode).await?;
+    let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
     tracing::info!("Database connected");
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
