@@ -14,6 +14,7 @@ export async function downloadZip(
   includeUsers?: boolean,
   includeGroups?: boolean,
   includeSettings?: boolean,
+  includeKey?: boolean,
   defaultTs?: "bun" | "deno"
 ): Promise<JSZip | undefined> {
   const requestHeaders: HeadersInit & { set(x: string, y: string): void } =
@@ -40,9 +41,9 @@ export async function downloadZip(
         includeSchedules ?? false
       }&include_users=${includeUsers ?? false}&include_groups=${
         includeGroups ?? false
-      }&include_settings=${includeSettings ?? false}&default_ts=${
-        defaultTs ?? "bun"
-      }`,
+      }&include_settings=${includeSettings ?? false}&include_key=${
+        includeKey ?? false
+      }&default_ts=${defaultTs ?? "bun"}`,
     {
       headers: requestHeaders,
       method: "GET",

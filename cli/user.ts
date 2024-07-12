@@ -6,6 +6,7 @@ import {
   removeType,
   removePathPrefix,
 } from "./types.ts";
+import { compareInstanceObjects } from "./instance.ts";
 import {
   colors,
   Command,
@@ -21,6 +22,9 @@ import {
   yamlParse,
 } from "./deps.ts";
 import { ExportedUser } from "../../windmill-deno-client/windmill-api/models/ExportedUser.ts";
+import { InstanceGroup } from "./deps.ts";
+import { SettingService } from "./deps.ts";
+import { ExportedInstanceGroup } from "./deps.ts";
 
 async function list(opts: GlobalOptions) {
   await requireLogin(opts);
@@ -171,13 +175,18 @@ export async function pushWorkspaceUser(
   } else {
     console.log(colors.bold.yellow("Creating new user: " + email));
     try {
+      const automatedUsernameCreation: boolean = await SettingService.getGlobal(
+        {
+          key: "automate_username_creation",
+        }
+      );
       await WorkspaceService.addUser({
         workspace: workspace,
         requestBody: {
           email: email,
           is_admin: localUser.role === "admin",
           operator: localUser.role === "operator",
-          username: localUser.username,
+          username: !automatedUsernameCreation ? localUser.username : undefined,
         },
       });
     } catch (e) {
@@ -371,33 +380,82 @@ export async function pushGroup(
   }
 }
 
-export async function pullInstanceUsers() {
-  log.info("Pulling users from instance...");
-  const exportedUsers = await UserService.globalUsersExport();
+export async function pullInstanceUsers(preview: boolean = false) {
+  const remoteUsers = await UserService.globalUsersExport();
 
-  await Deno.writeTextFile(
-    "instance_users.yaml",
-    yamlStringify(exportedUsers as any)
-  );
-
-  log.info("Users written to instance_users.yaml");
+  if (preview) {
+    let localUsers: ExportedUser[] = [];
+    try {
+      const raw = await Deno.readTextFile("instance_users.yaml");
+      localUsers = yamlParse(raw) as ExportedUser[];
+    } catch {}
+    return compareInstanceObjects(remoteUsers, localUsers, "email", "user");
+  } else {
+    log.info("Pulling users from instance...");
+    await Deno.writeTextFile(
+      "instance_users.yaml",
+      yamlStringify(remoteUsers as any)
+    );
+    log.info(colors.green("Users written to instance_users.yaml"));
+  }
 }
 
-export async function pushInstanceUsers(deleteDefaultSuperadmin?: boolean) {
-  log.info("Pushing users to instance...");
-  const raw = await Deno.readTextFile("instance_users.yaml");
+export async function pushInstanceUsers(preview: boolean = false) {
+  const remoteUsers = await UserService.globalUsersExport();
+  const localUsers = (await Deno.readTextFile("instance_users.yaml")
+    .then((raw) => yamlParse(raw))
+    .catch(() => [])) as ExportedUser[];
 
-  if (deleteDefaultSuperadmin) {
-    await UserService.globalUserDelete({ email: "admin@windmill.dev" });
+  if (preview) {
+    return compareInstanceObjects(localUsers, remoteUsers, "email", "user");
+  } else {
+    log.info("Pushing users to instance...");
+    await UserService.globalUsersOverwrite({
+      requestBody: localUsers,
+    });
+
+    log.info(colors.green("Users pushed to the instance"));
   }
+}
 
-  const users = yamlParse(raw) as ExportedUser[];
+export async function pullInstanceGroups(preview = false) {
+  const remoteGroups = await GroupService.exportInstanceGroups();
 
-  await UserService.globalUsersImport({
-    requestBody: users,
-  });
+  if (preview) {
+    let localGroups: InstanceGroup[] = [];
+    try {
+      const raw = await Deno.readTextFile("instance_groups.yaml");
+      localGroups = yamlParse(raw) as InstanceGroup[];
+    } catch {}
+    return compareInstanceObjects(remoteGroups, localGroups, "name", "group");
+  } else {
+    log.info("Pulling groups from instance...");
 
-  log.info("Users pushed to the instance");
+    await Deno.writeTextFile(
+      "instance_groups.yaml",
+      yamlStringify(remoteGroups as any)
+    );
+
+    log.info(colors.green("Groups written to instance_groups.yaml"));
+  }
+}
+
+export async function pushInstanceGroups(preview: boolean = false) {
+  const remoteGroups = await GroupService.exportInstanceGroups();
+  const localGroups = (await Deno.readTextFile("instance_groups.yaml")
+    .then((raw) => yamlParse(raw))
+    .catch(() => [])) as ExportedInstanceGroup[];
+
+  if (preview) {
+    return compareInstanceObjects(localGroups, remoteGroups, "name", "group");
+  } else {
+    log.info("Pushing groups to instance...");
+    await GroupService.overwriteInstanceGroups({
+      requestBody: localGroups,
+    });
+
+    log.info(colors.green("Groups pushed to the instance"));
+  }
 }
 
 const command = new Command()

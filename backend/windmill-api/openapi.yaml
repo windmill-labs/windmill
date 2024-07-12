@@ -439,10 +439,10 @@ paths:
             text/plain:
               schema:
                 type: string
-  /users/import:
+  /users/overwrite:
     post:
-      summary: global import users (require super admin and EE)
-      operationId: globalUsersImport
+      summary: global overwrite users (require super admin and EE)
+      operationId: globalUsersOverwrite
       tags:
         - user
       requestBody:
@@ -2026,6 +2026,8 @@ paths:
               properties:
                 new_key:
                   type: string
+                skip_reencrypt:
+                  type: boolean
               required:
                 - new_key
 
@@ -6882,6 +6884,44 @@ paths:
             text/plain:
               schema:
                 type: string
+  /groups/export:
+    get:
+      summary: export instance groups
+      operationId: exportInstanceGroups
+      tags:
+        - group
+      responses:
+        "200":
+          description: exported instance groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportedInstanceGroup"
+
+  /groups/overwrite:
+    post:
+      summary: overwrite instance groups
+      operationId: overwriteInstanceGroups
+      tags:
+        - group
+      requestBody:
+        description: overwrite instance groups
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportedInstanceGroup"
+      responses:
+        "200":
+          description: success message
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/groups/list:
     get:
@@ -11182,7 +11222,7 @@ components:
         name:
           type: string
         value:
-          type: string
+          type: object
       required:
         - name
         - value
@@ -11193,6 +11233,26 @@ components:
         name:
           type: string
         config:
+          type: object
+      required:
+        - name
+    
+    ExportedInstanceGroup:
+      type: object
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
+        id:
+          type: string
+        scim_display_name:
+          type: string
+        external_id:
           type: string
       required:
         - name

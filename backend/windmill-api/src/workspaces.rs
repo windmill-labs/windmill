@@ -1350,6 +1350,7 @@ async fn get_encryption_key(
 #[derive(Deserialize)]
 struct SetEncryptionKeyRequest {
     new_key: String,
+    skip_reencrypt: Option<bool>,
 }
 
 async fn set_encryption_key(
@@ -1375,37 +1376,40 @@ async fn set_encryption_key(
     )
     .execute(&db)
     .await?;
-    let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
-    let mut truncated_new_key = request.new_key.clone();
-    truncated_new_key.truncate(8);
-    tracing::warn!(
-        "Re-encrypting all secrets for workspace {}. New key is {}***",
-        w_id,
-        truncated_new_key
-    );
+    if !request.skip_reencrypt.unwrap_or(false) {
+        let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
-    let all_variables = sqlx::query!(
-        "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
-        w_id
-    )
-    .fetch_all(&db)
-    .await?;
-
-    for variable in all_variables {
-        if !variable.is_secret {
-            continue;
-        }
-        let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
-        let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
-        sqlx::query!(
-            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
-            new_encrypted_value,
+        let mut truncated_new_key = request.new_key.clone();
+        truncated_new_key.truncate(8);
+        tracing::warn!(
+            "Re-encrypting all secrets for workspace {}. New key is {}***",
             w_id,
-            variable.path
+            truncated_new_key
+        );
+
+        let all_variables = sqlx::query!(
+            "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
+            w_id
         )
-        .execute(&db)
+        .fetch_all(&db)
         .await?;
+
+        for variable in all_variables {
+            if !variable.is_secret {
+                continue;
+            }
+            let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
+            let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
+            sqlx::query!(
+                "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+                new_encrypted_value,
+                w_id,
+                variable.path
+            )
+            .execute(&db)
+            .await?;
+        }
     }
 
     return Ok(());
@@ -2312,6 +2316,7 @@ struct ArchiveQueryParams {
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
+    include_key: Option<bool>,
     default_ts: Option<String>,
 }
 
@@ -2406,6 +2411,7 @@ struct SimplifiedSettings {
     git_sync: Option<Value>,
     default_app: Option<String>,
     default_scripts: Option<Value>,
+    name: String,
 }
 
 async fn tarball_workspace(
@@ -2424,6 +2430,7 @@ async fn tarball_workspace(
         include_users,
         include_groups,
         include_settings,
+        include_key,
         default_ts,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
@@ -2765,17 +2772,42 @@ async fn tarball_workspace(
                 error_handler_extra_args, 
                 error_handler_muted_on_cancel, 
                 large_file_storage, 
-                git_sync, 
+                git_sync,
                 default_app,
-                default_scripts 
+                default_scripts,
+                workspace.name
             FROM workspace_settings
+            LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
             WHERE workspace_id = $1"#,
             &w_id
         ).fetch_one(&mut *tx).await?;
 
-        let settings_str = &to_string_without_metadata(&settings, true, None).unwrap();
+        let settings_str = serde_json::to_value(settings)
+            .map(|v| serde_json::to_string_pretty(&v).ok())
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::InternalErr("Error serializing settings".to_string()))?;
+
         archive
             .write_to_archive(&settings_str, "settings.json")
+            .await?;
+    }
+
+    if include_key.unwrap_or(false) {
+        let key = sqlx::query_scalar!(
+            "SELECT key FROM workspace_key WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let key_json = serde_json::to_value(key)
+            .map(|v| serde_json::to_string_pretty(&v).ok())
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::InternalErr("Error serializing enryption key".to_string()))?;
+        archive
+            .write_to_archive(&key_json, "encryption_key.json")
             .await?;
     }
 

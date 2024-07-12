@@ -20,6 +20,7 @@ import hub from "./hub.ts";
 import folder from "./folder.ts";
 import schedule from "./schedule.ts";
 import sync from "./sync.ts";
+import instance from "./instance.ts";
 import dev from "./dev.ts";
 import { fetchVersion, tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
@@ -89,6 +90,7 @@ let command: any = new Command()
   .command("schedule", schedule)
   .command("dev", dev)
   .command("sync", sync)
+  .command("instance", instance)
 
   .command("version", "Show version information")
   .action(async (opts) => {

@@ -105,7 +105,7 @@ pub fn global_service() -> Router {
         )
         .route("/leave_instance", post(leave_instance))
         .route("/export", get(export_global_users))
-        .route("/import", post(import_global_users))
+        .route("/overwrite", post(overwrite_global_users))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -2657,12 +2657,27 @@ async fn export_global_users(
     authed: ApiAuthed,
 ) -> JsonResult<Vec<ExportedGlobalUser>> {
     require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
     let users = sqlx::query_as!(
         ExportedGlobalUser,
         "SELECT email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username FROM password"
     )
-    .fetch_all(&db)
+    .fetch_all(&mut *tx)
     .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.export_export",
+        ActionKind::Execute,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
     Ok(Json(users))
 }
 
@@ -2674,17 +2689,20 @@ async fn export_global_users() -> JsonResult<String> {
 }
 
 #[cfg(feature = "enterprise")]
-async fn import_global_users(
+async fn overwrite_global_users(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Json(users): Json<Vec<ExportedGlobalUser>>,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+    sqlx::query!("DELETE FROM password")
+        .execute(&mut *tx)
+        .await?;
     for user in users {
         sqlx::query!(
             "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (email) DO UPDATE SET password_hash = $2, login_type = $3, super_admin = $4, verified = $5, name = $6, company = $7, first_time_user = $8, username = $9",
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
             user.email,
             user.password_hash,
             user.login_type,
@@ -2695,14 +2713,25 @@ async fn import_global_users(
             user.first_time_user,
             user.username
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
     }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.import_global",
+        ActionKind::Create,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
     Ok("loaded global users".to_string())
 }
 
 #[cfg(not(feature = "enterprise"))]
-async fn import_global_users() -> JsonResult<String> {
+async fn overwrite_global_users() -> JsonResult<String> {
     Err(Error::BadRequest(
         "This feature is only available in the enterprise version".to_string(),
     ))

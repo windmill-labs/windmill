@@ -161,7 +161,7 @@ export async function add(
   opts: GlobalOptions & {
     create: boolean;
     createWorkspaceName: string | undefined;
-    createUsername: string;
+    createUsername: string | undefined;
   },
   workspaceName: string | undefined,
   workspaceId: string | undefined,

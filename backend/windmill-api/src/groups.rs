@@ -50,6 +50,8 @@ pub fn global_service() -> Router {
         .route("/delete/:name", delete(delete_igroup))
         .route("/adduser/:name", post(add_user_igroup))
         .route("/removeuser/:name", post(remove_user_igroup))
+        .route("/export", get(export_igroups))
+        .route("/overwrite", post(overwrite_igroups))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -758,4 +760,119 @@ async fn remove_user(
     .await?;
 
     Ok(format!("Removed {} to group {}", user_username, name))
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Serialize, Deserialize)]
+struct ExportedIGroup {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scim_display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    emails: Option<Vec<String>>,
+}
+
+#[cfg(feature = "enterprise")]
+async fn export_igroups(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<ExportedIGroup>> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+    let igroups = sqlx::query_as!(
+        ExportedIGroup,
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, id, scim_display_name, external_id FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name",
+    ).fetch_all(&mut *tx).await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "igroups.export",
+        ActionKind::Execute,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(igroups))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn export_igroups() -> JsonResult<String> {
+    Err(Error::BadRequest(
+        "This feature is only available in the enterprise version".to_string(),
+    ))
+}
+
+#[cfg(feature = "enterprise")]
+async fn overwrite_igroups(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(igroups): Json<Vec<ExportedIGroup>>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+
+    sqlx::query!("DELETE FROM email_to_igroup")
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM instance_group")
+        .execute(&mut *tx)
+        .await?;
+
+    for igroup in igroups.iter() {
+        sqlx::query!(
+            "INSERT INTO instance_group (name, summary, id, scim_display_name, external_id) VALUES ($1, $2, $3, $4, $5)",
+            igroup.name,
+            igroup.summary,
+            igroup.id,
+            igroup.scim_display_name,
+            igroup.external_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        if let Some(emails) = &igroup.emails {
+            for email in emails.iter() {
+                sqlx::query!(
+                    "INSERT INTO email_to_igroup (email, igroup) VALUES ($1, $2)",
+                    email,
+                    igroup.name,
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "igroups.import",
+        ActionKind::Create,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+    Ok("Imported igroups".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn overwrite_igroups() -> JsonResult<String> {
+    Err(Error::BadRequest(
+        "This feature is only available in the enterprise version".to_string(),
+    ))
 }

@@ -52,13 +52,6 @@ import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
 } from "./metadata.ts";
-import { pushInstanceUsers, pullInstanceUsers } from "./user.ts";
-import {
-  pushInstanceSettings,
-  pullInstanceSettings,
-  pullInstanceConfigs,
-  pushInstanceConfigs,
-} from "./settings.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -583,6 +576,7 @@ export async function elementsToMap(
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;
+    if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
@@ -635,6 +629,7 @@ interface Skips {
   includeUsers?: boolean | undefined;
   includeGroups?: boolean | undefined;
   includeSettings?: boolean | undefined;
+  includeKey?: boolean | undefined;
 }
 
 async function compareDynFSElement(
@@ -716,30 +711,32 @@ async function compareDynFSElement(
 
 function getOrderFromPath(p: string) {
   const typ = getTypeStrFromPath(p);
-  if (typ == "folder") {
+  if (typ == "settings") {
     return 0;
-  } else if (typ == "resource-type") {
+  } else if (typ == "folder") {
     return 1;
-  } else if (typ == "resource") {
+  } else if (typ == "resource-type") {
     return 2;
-  } else if (typ == "script") {
+  } else if (typ == "resource") {
     return 3;
-  } else if (typ == "flow") {
+  } else if (typ == "script") {
     return 4;
-  } else if (typ == "app") {
+  } else if (typ == "flow") {
     return 5;
-  } else if (typ == "schedule") {
+  } else if (typ == "app") {
     return 6;
-  } else if (typ == "variable") {
+  } else if (typ == "schedule") {
     return 7;
-  } else if (typ == "user") {
+  } else if (typ == "variable") {
     return 8;
-  } else if (typ == "group") {
+  } else if (typ == "user") {
     return 9;
-  } else if (typ == "settings") {
+  } else if (typ == "group") {
     return 10;
-  } else {
+  } else if (typ == "encryption_key") {
     return 11;
+  } else {
+    return 12;
   }
 }
 
@@ -759,7 +756,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
-    if (typ == "resource-type" || typ == "settings") {
+    if (
+      typ == "resource-type" ||
+      typ == "settings" ||
+      typ == "encryption_key"
+    ) {
       return p.includes(SEP);
     } else {
       return (
@@ -847,7 +848,7 @@ export async function ignoreF(wmillconf: {
   };
 }
 
-async function pull(opts: GlobalOptions & SyncOptions) {
+export async function pull(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
 
   if (opts.stateful) {
@@ -875,6 +876,7 @@ async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
+      opts.includeKey,
       opts.defaultTs
     ))!,
     !opts.json,
@@ -1115,7 +1117,7 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(opts: GlobalOptions & SyncOptions) {
+export async function push(opts: GlobalOptions & SyncOptions) {
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
   if (opts.raw) {
@@ -1151,6 +1153,7 @@ async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeUsers,
       opts.includeGroups,
       opts.includeSettings,
+      opts.includeKey,
       opts.defaultTs
     ))!,
     !opts.json,
@@ -1401,39 +1404,6 @@ async function push(opts: GlobalOptions & SyncOptions) {
   }
 }
 
-type InstanceSyncOptions = {
-  skipUsers?: boolean;
-  removeDefaultSuperadmin?: boolean;
-  skipSettings?: boolean;
-  skipConfigs?: boolean;
-};
-
-async function instancePull(opts: GlobalOptions & InstanceSyncOptions) {
-  await requireLogin(opts);
-  if (!opts.skipUsers) {
-    await pullInstanceUsers();
-  }
-  if (!opts.skipSettings) {
-    await pullInstanceSettings();
-  }
-  if (!opts.skipConfigs) {
-    await pullInstanceConfigs();
-  }
-}
-
-async function instancePush(opts: GlobalOptions & InstanceSyncOptions) {
-  await requireLogin(opts);
-  if (!opts.skipUsers) {
-    await pushInstanceUsers(opts.removeDefaultSuperadmin);
-  }
-  if (!opts.skipSettings) {
-    await pushInstanceSettings();
-  }
-  if (!opts.skipConfigs) {
-    await pushInstanceConfigs();
-  }
-}
-
 const command = new Command()
   .description(
     "sync local with a remote workspaces or the opposite (push or pull)"
@@ -1468,6 +1438,7 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -1505,6 +1476,7 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option("--include-key", "Include workspace encryption key")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
@@ -1518,24 +1490,6 @@ const command = new Command()
     "Include a message that will be added to all scripts/flows/apps updated during this push"
   )
   // deno-lint-ignore no-explicit-any
-  .action(push as any)
-  .command("instance-pull")
-  .description("Pull instance settings, users and configs and overwrite local")
-  .option("--skip-users", "Skip pulling users")
-  .option("--skip-settings", "Skip pulling settings")
-  .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
-  .action(instancePull as any)
-  .command("instance-push")
-  .description(
-    "Push instance settings, users and configs (upsert but no delete)"
-  )
-  .option("--skip-users", "Skip pushing users")
-  .option(
-    "--remove-default-superadmin",
-    "Remove the default superadmin admin@windmill.dev user from the remote"
-  )
-  .option("--skip-settings", "Skip pushing settings")
-  .option("--skip-configs", "Skip pushing configs (worker groups and SMTP)")
-  .action(instancePush as any);
+  .action(push as any);
 
 export default command;

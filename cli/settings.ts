@@ -2,13 +2,16 @@ import { SettingService } from "./deps.ts";
 import { yamlStringify } from "./deps.ts";
 import { GlobalSetting } from "./deps.ts";
 import { Config } from "./deps.ts";
+import { Confirm } from "./deps.ts";
+import { colors } from "./deps.ts";
 import { ConfigService } from "./deps.ts";
 import { yamlParse } from "./deps.ts";
 import { WorkspaceService, log } from "./deps.ts";
+import { compareInstanceObjects } from "./instance.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 
-interface SimplifiedSettings {
+export interface SimplifiedSettings {
   // slack_team_id?: string;
   // slack_name?: string;
   // slack_command_script?: string;
@@ -27,6 +30,7 @@ interface SimplifiedSettings {
   git_sync?: any;
   default_app?: string;
   default_scripts?: any;
+  name: string;
 }
 
 export async function pushWorkspaceSettings(
@@ -39,6 +43,11 @@ export async function pushWorkspaceSettings(
     const remoteSettings = await WorkspaceService.getSettings({
       workspace,
     });
+
+    const workspaceName = await WorkspaceService.getWorkspaceName({
+      workspace,
+    });
+
     settings = {
       // slack_team_id: remoteSettings.slack_team_id,
       // slack_name: remoteSettings.slack_name,
@@ -61,6 +70,7 @@ export async function pushWorkspaceSettings(
       git_sync: remoteSettings.git_sync,
       default_app: remoteSettings.default_app,
       default_scripts: remoteSettings.default_scripts,
+      name: workspaceName,
     };
   } catch (err) {
     throw new Error(`Failed to get workspace settings: ${err}`);
@@ -204,70 +214,217 @@ export async function pushWorkspaceSettings(
       },
     });
   }
+
+  if (localSettings.name !== settings.name) {
+    log.debug(`Updating workspace name...`);
+    await WorkspaceService.changeWorkspaceName({
+      workspace,
+      requestBody: {
+        new_name: localSettings.name,
+      },
+    });
+  }
 }
 
-export async function pullInstanceSettings() {
-  log.info("Pulling settings from instance");
-  const settings = await SettingService.listGlobalSettings();
-
-  await Deno.writeTextFile(
-    "instance_settings.yaml",
-    yamlStringify(settings as any)
-  );
-
-  log.info("Settings written to instance_settings.yaml");
+export async function pushWorkspaceKey(
+  workspace: string,
+  _path: string,
+  key: string | undefined,
+  localKey: string
+) {
+  try {
+    key = await WorkspaceService.getWorkspaceEncryptionKey({
+      workspace,
+    }).then((r) => r.key);
+  } catch (err) {
+    throw new Error(`Failed to get workspace encryption key: ${err}`);
+  }
+  if (localKey && key !== localKey) {
+    const confirm = await Confirm.prompt({
+      message:
+        "The local workspace encryption key does not match the remote. Do you want to reencrypt all your secrets on the remote with the new key?\nSay 'no' if your local secrets are already encrypted with the new key (e.g. workspace/instance migration)\nOtherwise, say 'yes' and pull the secrets after the reencryption.\n",
+      default: true,
+    });
+    log.debug(`Updating workspace encryption key...`);
+    await WorkspaceService.setWorkspaceEncryptionKey({
+      workspace,
+      requestBody: {
+        new_key: localKey,
+        skip_reencrypt: !confirm,
+      },
+    });
+  } else {
+    log.debug(`Workspace encryption key is up to date`);
+  }
 }
 
-export async function pushInstanceSettings() {
-  log.info("Pushing settings to instance");
-  const settings = yamlParse(
-    await Deno.readTextFile("instance_settings.yaml")
-  ) as GlobalSetting[];
+export async function pullInstanceSettings(preview = false) {
+  const remoteSettings = await SettingService.listGlobalSettings();
 
-  for (const setting of settings) {
+  if (preview) {
+    let localSettings: GlobalSetting[] = [];
+
     try {
-      await SettingService.setGlobal({
-        key: setting.name,
-        requestBody: {
-          value: setting.value,
-        },
-      });
-    } catch (err) {
-      log.error(`Failed to set setting ${setting.name}: ${err}`);
-    }
+      localSettings = yamlParse(
+        await Deno.readTextFile("instance_settings.yaml")
+      ) as GlobalSetting[];
+    } catch {}
+
+    return compareInstanceObjects(
+      remoteSettings,
+      localSettings,
+      "name",
+      "setting"
+    );
+  } else {
+    log.info("Pulling settings from instance");
+
+    await Deno.writeTextFile(
+      "instance_settings.yaml",
+      yamlStringify(remoteSettings as any)
+    );
+
+    log.info(colors.green("Settings written to instance_settings.yaml"));
+  }
+}
+
+export async function pushInstanceSettings(
+  preview: boolean = false,
+  baseUrl?: string
+) {
+  const remoteSettings = await SettingService.listGlobalSettings();
+  let localSettings = (await Deno.readTextFile("instance_settings.yaml")
+    .then((raw) => yamlParse(raw))
+    .catch(() => [])) as GlobalSetting[];
+
+  if (baseUrl) {
+    localSettings = localSettings.filter((s) => s.name !== "base_url");
+    localSettings.push({
+      name: "base_url",
+      value: baseUrl,
+    });
   }
 
-  log.info("Settings pushed to instance");
-}
-
-export async function pullInstanceConfigs() {
-  log.info("Pulling configs from instance");
-  const configs = await ConfigService.listConfigs();
-
-  await Deno.writeTextFile(
-    "instance_configs.yaml",
-    yamlStringify(configs as any)
-  );
-
-  log.info("Configs written to instance_configs.yaml");
-}
-
-export async function pushInstanceConfigs() {
-  log.info("Pushing configs to instance");
-  const configs = yamlParse(
-    await Deno.readTextFile("instance_configs.yaml")
-  ) as Config[];
-
-  for (const config of configs) {
-    try {
-      await ConfigService.updateConfig({
-        name: config.name,
-        requestBody: config.config,
-      });
-    } catch (err) {
-      log.error(`Failed to set config ${config.name}: ${err}`);
+  if (preview) {
+    return compareInstanceObjects(
+      localSettings,
+      remoteSettings,
+      "name",
+      "setting"
+    );
+  } else {
+    for (const setting of localSettings) {
+      const remoteMatch = remoteSettings.find((s) => s.name === setting.name);
+      if (remoteMatch && deepEqual(remoteMatch, setting)) {
+        continue;
+      }
+      try {
+        await SettingService.setGlobal({
+          key: setting.name,
+          requestBody: {
+            value: setting.value,
+          },
+        });
+      } catch (err) {
+        log.error(`Failed to set setting ${setting.name}: ${err}`);
+      }
     }
-  }
 
-  log.info("Configs pushed to instance");
+    for (const remoteSetting of remoteSettings) {
+      const localMatch = localSettings.find(
+        (s) => s.name === remoteSetting.name
+      );
+      if (!localMatch) {
+        try {
+          await SettingService.setGlobal({
+            key: remoteSetting.name,
+            requestBody: {
+              value: null,
+            },
+          });
+        } catch (err) {
+          log.error(`Failed to delete setting ${remoteSetting.name}: ${err}`);
+        }
+      }
+    }
+
+    log.info(colors.green("Settings pushed to instance"));
+  }
+}
+
+export async function pullInstanceConfigs(preview = false) {
+  const remoteConfigs = await ConfigService.listConfigs();
+
+  if (preview) {
+    let localConfigs: Config[] = [];
+    try {
+      localConfigs = yamlParse(
+        await Deno.readTextFile("instance_configs.yaml")
+      ) as Config[];
+    } catch {}
+
+    return compareInstanceObjects(
+      remoteConfigs,
+      localConfigs,
+      "name",
+      "config"
+    );
+  } else {
+    log.info("Pulling configs from instance");
+
+    await Deno.writeTextFile(
+      "instance_configs.yaml",
+      yamlStringify(remoteConfigs as any)
+    );
+
+    log.info(colors.green("Configs written to instance_configs.yaml"));
+  }
+}
+
+export async function pushInstanceConfigs(preview: boolean = false) {
+  const remoteConfigs = await ConfigService.listConfigs();
+  const localConfigs = (await Deno.readTextFile("instance_configs.yaml")
+    .then((raw) => yamlParse(raw))
+    .catch(() => [])) as Config[];
+
+  if (preview) {
+    return compareInstanceObjects(
+      localConfigs,
+      remoteConfigs,
+      "name",
+      "config"
+    );
+  } else {
+    log.info("Pushing configs to instance");
+    for (const config of localConfigs) {
+      const remoteMatch = remoteConfigs.find((c) => c.name === config.name);
+      if (remoteMatch && deepEqual(remoteMatch, config)) {
+        continue;
+      }
+      try {
+        await ConfigService.updateConfig({
+          name: config.name,
+          requestBody: config.config,
+        });
+      } catch (err) {
+        log.error(`Failed to set config ${config.name}: ${err}`);
+      }
+    }
+
+    for (const removeConfig of remoteConfigs) {
+      const localMatch = localConfigs.find((c) => c.name === removeConfig.name);
+
+      if (!localMatch) {
+        try {
+          await ConfigService.deleteConfig({
+            name: removeConfig.name,
+          });
+        } catch (err) {
+          log.error(`Failed to delete config ${removeConfig.name}: ${err}`);
+        }
+      }
+    }
+
+    log.info(colors.green("Configs pushed to instance"));
+  }
 }

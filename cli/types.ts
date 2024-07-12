@@ -14,7 +14,7 @@ import { deepEqual } from "./utils.ts";
 import { pushSchedule } from "./schedule.ts";
 import { pushWorkspaceUser } from "./user.ts";
 import { pushGroup } from "./user.ts";
-import { pushWorkspaceSettings } from "./settings.ts";
+import { pushWorkspaceSettings, pushWorkspaceKey } from "./settings.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -132,6 +132,8 @@ export async function pushObj(
     await pushGroup(workspace, p, befObj, newObj);
   } else if (typeEnding === "settings") {
     await pushWorkspaceSettings(workspace, p, befObj, newObj);
+  } else if (typeEnding === "encryption_key") {
+    await pushWorkspaceKey(workspace, p, befObj, newObj);
   } else {
     throw new Error(
       `The item ${p} has an unrecognized type ending ${typeEnding}`
@@ -168,7 +170,8 @@ export function getTypeStrFromPath(
   | "schedule"
   | "user"
   | "group"
-  | "settings" {
+  | "settings"
+  | "encryption_key" {
   if (p.includes(".flow" + SEP)) {
     return "flow";
   }
@@ -204,7 +207,8 @@ export function getTypeStrFromPath(
     typeEnding === "schedule" ||
     typeEnding === "user" ||
     typeEnding === "group" ||
-    typeEnding === "settings"
+    typeEnding === "settings" ||
+    typeEnding === "encryption_key"
   ) {
     return typeEnding;
   } else {
