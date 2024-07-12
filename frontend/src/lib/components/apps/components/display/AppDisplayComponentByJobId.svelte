@@ -1,53 +1,59 @@
 <script lang="ts">
-	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
 	import {
 		IS_APP_PUBLIC_CONTEXT_KEY,
 		type AppViewerContext,
 		type ComponentCustomCSS,
 		type RichConfigurations
 	} from '../../types'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { initCss } from '../../utils'
-	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import type { Job } from '$lib/gen'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
 	export let id: string
-	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'displaycomponent'> | undefined = undefined
-	export let render: boolean
+	export let initializing: boolean | undefined = false
+	export let customCss: ComponentCustomCSS<'jobidlogcomponent'> | undefined = undefined
 	export let configuration: RichConfigurations
+	export let render: boolean
 
+	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	let result: any = undefined
-
-	const resolvedConfig = initConfig(
-		components['displaycomponent'].initialData.configuration,
+	let resolvedConfig = initConfig(
+		components['jobiddisplaycomponent'].initialData.configuration,
 		configuration
 	)
 
-	$componentControl[id] = {
-		setValue(value: string) {
-			result = value
-		}
-	}
-
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
-		loading: false
+		loading: false,
+		jobId: undefined
 	})
 
-	let css = initCss($app.css?.displaycomponent, customCss)
+	initializing = false
+
+	let css = initCss($app.css?.jobiddisplaycomponent, customCss)
+
+	let testJobLoader: TestJobLoader | undefined = undefined
+	let testIsLoading: boolean = false
+	let testJob: Job | undefined = undefined
+
+	$: if (resolvedConfig.jobId) {
+		outputs.loading.set(true)
+		testJobLoader?.watchJob(resolvedConfig?.['jobId'])
+	}
+
+	let result: any = undefined
 </script>
 
-{#each Object.keys(components['displaycomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['jobiddisplaycomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
@@ -62,17 +68,31 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.displaycomponent}
+		componentStyle={$app.css?.jobiddisplaycomponent}
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+<TestJobLoader
+	workspaceOverride={workspace}
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+	on:done={(e) => {
+		outputs.loading.set(false)
+		outputs.jobId.set(e.detail.id)
+		outputs.result.set(e.detail.result)
+		result = e.detail.result
+	}}
+/>
+
+<InitializeComponent {id} />
+
+{#if render}
 	<div class="flex flex-col w-full h-full component-wrapper">
 		<div
 			class={twMerge(
 				'w-full border-b p-2 text-xs font-semibold text-primary bg-surface-secondary',
-				css?.header?.class,
-				'wm-rich-result-header'
+				css?.header?.class
 			)}
 			style={css?.header?.style}
 		>
@@ -93,4 +113,4 @@
 			<DisplayResult {result} {requireHtmlApproval} disableExpand={resolvedConfig?.hideDetails} />
 		</div>
 	</div>
-</RunnableWrapper>
+{/if}

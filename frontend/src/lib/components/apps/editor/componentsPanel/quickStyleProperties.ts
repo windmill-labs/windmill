@@ -792,5 +792,9 @@ export const quickStyleProperties: Record<
 	},
 	dateselectcomponent: {
 		input: inputDefaultProps
+	},
+	jobiddisplaycomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
 	}
 }
