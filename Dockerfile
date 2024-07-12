@@ -1,14 +1,13 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.78-slim-bookworm
+ARG RUST_IMAGE=registry.access.redhat.com/ubi9/ubi:latest
 ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
-RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
+RUN yum install -y rust-toolset
 
-RUN apt-get -y update \
-    && apt-get install -y \
-    curl nodejs
+RUN yum update -y && \
+    yum install -y git openssl-devel pkgconfig npm curl nodejs
 
 RUN rustup component add rustfmt
 
