@@ -239,7 +239,7 @@
 
 		Object.entries(recursiveRefresh).forEach(([key, v]) => {
 			if (modId) {
-				if ((root && key == loopJob.job) || key == last) {
+				if ((root && key == loopJob?.job) || key == last) {
 					v(false)
 				} else {
 				}
@@ -338,7 +338,7 @@
 			let modId = flowJobIds?.moduleId
 			if (modId) {
 				globalRefreshes[modId] = async (loopJob) => {
-					setIteration(loopJob.index, loopJob.job, false, modId)
+					setIteration(loopJob.index, loopJob.job, false, modId ?? '')
 					refresh(true, loopJob)
 				}
 			}
