@@ -19,6 +19,7 @@
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import FlowJobsMenu from './FlowJobsMenu.svelte'
 
 	export let mod: FlowModule
 	export let trigger: boolean
@@ -33,6 +34,9 @@
 	export let disableAi: boolean = false
 	export let wrapperId: string | undefined = undefined
 	export let retries: number | undefined = undefined
+	export let flowJobs:
+		| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
+		| undefined
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
 
@@ -48,6 +52,7 @@
 		select: string
 		newBranch: { module: FlowModule }
 		move: { module: FlowModule } | undefined
+		selectedIteration: { index: number; id: string }
 	}>()
 
 	$: itemProps = {
@@ -121,6 +126,19 @@
 		{#if annotation && annotation != ''}
 			<div class="absolute z-10 left-0 -top-5 center-center text-tertiary">
 				{annotation}
+			</div>
+		{/if}
+		{#if flowJobs && !insertable}
+			<div class="absolute z-10 right-8 -top-5">
+				<FlowJobsMenu
+					on:selectedIteration={(e) => {
+						dispatch('selectedIteration', e.detail)
+					}}
+					flowJobsSuccess={flowJobs.flowJobsSuccess}
+					flowJobs={flowJobs.flowJobs}
+					selected={flowJobs.selected}
+					index={idx}
+				/>
 			</div>
 		{/if}
 

@@ -400,6 +400,7 @@
 	})
 
 	onDestroy(() => {
+		sync = false
 		if (intervalId) {
 			clearInterval(intervalId)
 		}

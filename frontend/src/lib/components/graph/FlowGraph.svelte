@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
-	import { type FlowModule } from '../../gen'
+	import { type FlowModule, type FlowStatusModule } from '../../gen'
 	import {
 		NODE,
 		createIdGenerator,
@@ -123,7 +123,9 @@
 					true,
 					undefined,
 					undefined,
-					'Input'
+					'Input',
+					undefined,
+					success == undefined ? undefined : success ? 'Success' : 'Failure'
 				)
 			)
 
@@ -150,6 +152,8 @@
 					true,
 					undefined,
 					undefined,
+					undefined,
+					success == undefined ? undefined : success ? 'Success' : 'Failure',
 					undefined
 				)
 			)
@@ -269,7 +273,8 @@
 			insertableEnd,
 			false,
 			modules,
-			wrapper
+			wrapper,
+			undefined
 		)
 	}
 
@@ -291,19 +296,6 @@
 		return []
 	}
 
-	function getResultColor(): string {
-		const isDark = document.documentElement.classList.contains('dark')
-
-		switch (success) {
-			case true:
-				return getStateColor('Success')
-			case false:
-				return getStateColor('Failure')
-			default:
-				return isDark ? '#2e3440' : '#fff'
-		}
-	}
-
 	function flowModuleToNode(
 		parentIds: string[],
 		mod: FlowModule,
@@ -313,8 +305,15 @@
 		insertableEnd: boolean,
 		branchable: boolean,
 		modules: FlowModule[],
-		wrapper: FlowModule | undefined = undefined
+		wrapper: FlowModule | undefined,
+		flowJobs:
+			| { flowJobs: string[]; selected: number; flowJobsSuccess?: (boolean | undefined)[] }
+			| undefined
 	): Node {
+		let type = flowModuleStates?.[mod.id]?.type
+		if (!type && flowJobs) {
+			type = 'InProgress'
+		}
 		return {
 			type: 'node',
 			id: mod.id,
@@ -330,12 +329,13 @@
 						branchable,
 						retries: flowModuleStates?.[mod.id]?.retries,
 						duration_ms: flowModuleStates?.[mod.id]?.duration_ms,
-						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
-						annotation,
+						bgColor: getStateColor(type),
+						annotation: annotation,
 						modules,
 						moving,
 						disableAi,
-						wrapperId: wrapper?.id
+						wrapperId: wrapper?.id,
+						flowJobs
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'delete') {
@@ -353,6 +353,8 @@
 							dispatch('newBranch', detail)
 						} else if (e == 'move') {
 							dispatch('move', { module: mod, modules })
+						} else if (e == 'selectedIteration') {
+							dispatch('selectedIteration', { ...detail, moduleId: mod.id })
 						}
 					}
 				}
@@ -373,6 +375,7 @@
 		parent: NestedNodes | string | undefined,
 		loopDepth: number
 	): Loop {
+		let state = flowModuleStates?.[module.id]
 		const loop: Loop = {
 			type: 'loop',
 			items: [
@@ -380,21 +383,30 @@
 					getParentIds(parent),
 					module,
 					undefined,
-					flowModuleStates?.[module.id]?.iteration
-						? 'Iteration ' +
-								flowModuleStates?.[module.id]?.iteration +
-								'/' +
-								(flowModuleStates?.[module.id]?.iteration_total ?? '?')
+					state?.flow_jobs
+						? 'iterations ' + state?.flow_jobs?.length + '/' + (state?.iteration_total ?? '?')
 						: '',
 					loopDepth,
 					false,
 					false,
-					modules
+					modules,
+					undefined,
+					state?.flow_jobs
+						? {
+								flowJobs: state?.flow_jobs,
+								selected: state?.selectedForloopIndex ?? -1,
+								flowJobsSuccess: state?.flow_jobs_success
+						  }
+						: undefined
 				)
 			]
 		}
 		const innerModules = module.value.modules
-
+		let borderStatus: FlowStatusModule['type'] | undefined = undefined
+		let success = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0]
+		if (success != undefined) {
+			borderStatus = success ? 'Success' : 'Failure'
+		}
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
@@ -408,6 +420,8 @@
 				undefined,
 				undefined,
 				undefined,
+				undefined,
+				borderStatus,
 				true,
 				module
 			)
@@ -436,7 +450,9 @@
 				true,
 				undefined,
 				module.id,
-				undefined
+				undefined,
+				undefined,
+				flowModuleStates?.[module.id]?.type
 			)
 		)
 		return loop
@@ -460,7 +476,9 @@
 			loopDepth,
 			false,
 			true,
-			modules
+			modules,
+			undefined,
+			undefined
 		)
 		const bitems: NestedNodes[] = []
 		const branchParent = [node.id]
@@ -477,6 +495,8 @@
 					false,
 					undefined,
 					undefined,
+					undefined,
+					undefined,
 					undefined
 				)
 			])
@@ -485,6 +505,24 @@
 		branches.forEach(({ summary, modules, removable }, i) => {
 			const items: NestedNodes = []
 
+			let borderStatus: FlowStatusModule['type'] | undefined = undefined
+			if (module.value.type == 'branchall' || module.value.type == 'forloopflow') {
+				let flow_jobs_success = flowModuleStates?.[module.id]?.flow_jobs_success
+				if (!flow_jobs_success) {
+					borderStatus = 'WaitingForPriorSteps'
+				} else {
+					let status = flow_jobs_success?.[i]
+					if (status == undefined) {
+						borderStatus = 'WaitingForExecutor'
+					} else {
+						borderStatus = status ? 'Success' : 'Failure'
+					}
+				}
+			} else if (module.value.type == 'branchone') {
+				if (flowModuleStates?.[module.id]?.branchChosen == i) {
+					borderStatus = 'Success'
+				}
+			}
 			items.push(
 				createVirtualNode(
 					branchParent,
@@ -498,6 +536,8 @@
 					removable ? { module, index: i } : undefined,
 					undefined,
 					undefined,
+					undefined,
+					borderStatus,
 					false,
 					wrapper
 				)
@@ -533,7 +573,9 @@
 				true,
 				undefined,
 				module.id,
-				undefined
+				undefined,
+				undefined,
+				flowModuleStates?.[module.id]?.type
 			),
 			items: bitems
 		}
@@ -665,11 +707,19 @@
 		deleteBranch: { module: FlowModule; index: number } | undefined,
 		mid: string | undefined,
 		fixed_id: string | undefined,
+		module_status: FlowStatusModule['type'] | undefined,
+		borderStatus: FlowStatusModule['type'] | undefined,
 		center: boolean = true,
 		wrapperNode: FlowModule | undefined = undefined
 	): Node {
 		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
 
+		let bgColor
+		if (module_status) {
+			bgColor = getStateColor(module_status)
+		} else {
+			bgColor = document.documentElement.classList.contains('dark') ? '#2e3440' : '#dfe6ee'
+		}
 		return {
 			type: 'node',
 			id: id.toString(),
@@ -686,12 +736,8 @@
 						label,
 						insertable,
 						modules,
-						bgColor:
-							label == 'Result'
-								? getResultColor()
-								: document.documentElement.classList.contains('dark')
-								? '#2e3440'
-								: '#dfe6ee',
+						bgColor,
+						borderStatus,
 						selected: $selectedId == label,
 						index,
 						selectable,
