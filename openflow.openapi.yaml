@@ -481,6 +481,10 @@ components:
           type: array
           items:
             type: string
+        flow_jobs_success:
+          type: array
+          items:
+            type: boolean
         branch_chosen:
           type: object
           properties:
