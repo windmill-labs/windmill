@@ -47,12 +47,15 @@ export type GraphModuleState = {
 	type: FlowStatusModule['type']
 	args: any
 	logs?: string
+	flow_jobs_results?: any
+	branchChosen?: number
 	result?: any
 	scheduled_for?: Date
 	job_id?: string
 	parent_module?: string
 	selectedForloop?: string
 	selectedForloopIndex?: number
+	flow_jobs_success?: (boolean | undefined)[]
 	flow_jobs?: string[]
 	iteration_total?: number
 	retries?: number
