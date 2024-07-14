@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/common'
-	import type { FlowModule, FlowStatusModule } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { ClipboardCopy, ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -9,7 +9,6 @@
 	import { copilotInfo } from '$lib/stores'
 	import Menu from '$lib/components/common/menu/Menu.svelte'
 	import InsertTriggerButton from './InsertTriggerButton.svelte'
-	import { getStateColor } from '$lib/components/graph'
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
@@ -24,7 +23,7 @@
 	export let center = true
 	export let disableAi: boolean = false
 	export let wrapperNode: FlowModule | undefined = undefined
-	export let borderStatus: FlowStatusModule['type'] | undefined = undefined
+	export let borderColor: string | undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -82,7 +81,7 @@
 	id={`flow-editor-virtual-${label}`}
 >
 	<div
-		style={borderStatus ? `border-color: ${getStateColor(borderStatus)}` : ''}
+		style={borderColor ? `border-color: ${borderColor};` : ''}
 		class="flex gap-1 justify-between {center
 			? 'items-center'
 			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
