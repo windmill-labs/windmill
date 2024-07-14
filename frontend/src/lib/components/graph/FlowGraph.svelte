@@ -88,6 +88,8 @@
 
 	let oldRebuildOnChange = rebuildOnChange ? JSON.parse(JSON.stringify(rebuildOnChange)) : undefined
 
+	let darkMode = false
+
 	function triggerRebuild() {
 		if (!deepEqual(oldRebuildOnChange, rebuildOnChange)) {
 			oldRebuildOnChange = JSON.parse(JSON.stringify(rebuildOnChange))
@@ -125,7 +127,7 @@
 					undefined,
 					'Input',
 					undefined,
-					success == undefined ? undefined : success ? 'Success' : 'Failure'
+					undefined
 				)
 			)
 
@@ -329,7 +331,7 @@
 						branchable,
 						retries: flowModuleStates?.[mod.id]?.retries,
 						duration_ms: flowModuleStates?.[mod.id]?.duration_ms,
-						bgColor: getStateColor(type),
+						bgColor: getStateColor(type, darkMode),
 						annotation: annotation,
 						modules,
 						moving,
@@ -716,9 +718,9 @@
 
 		let bgColor
 		if (module_status) {
-			bgColor = getStateColor(module_status)
+			bgColor = getStateColor(module_status, darkMode)
 		} else {
-			bgColor = document.documentElement.classList.contains('dark') ? '#2e3440' : '#dfe6ee'
+			bgColor = darkMode ? '#2e3440' : '#dfe6ee'
 		}
 		return {
 			type: 'node',
@@ -737,7 +739,9 @@
 						insertable,
 						modules,
 						bgColor,
-						borderStatus,
+						borderColor: borderStatus
+							? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')
+							: undefined,
 						selected: $selectedId == label,
 						index,
 						selectable,
@@ -793,7 +797,7 @@
 						label,
 						insertable: false,
 						modules: undefined,
-						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
+						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type, darkMode),
 						selected: $selectedId == mod.id,
 						index: 0,
 						selectable: true,
@@ -824,8 +828,6 @@
 	onMount(() => {
 		onThemeChange()
 	})
-
-	let darkMode = false
 </script>
 
 <DarkModeObserver bind:darkMode on:change={onThemeChange} />
