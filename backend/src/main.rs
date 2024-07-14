@@ -316,7 +316,7 @@ Windmill Community Edition {GIT_VERSION}
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
-        let port = if server_mode {
+        let port = if server_mode || indexer_mode {
             port_var.unwrap_or(DEFAULT_PORT as u16)
         } else {
             port_var.unwrap_or(0)
