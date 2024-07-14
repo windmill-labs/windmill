@@ -16,7 +16,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	export let description: string = ''
-	export let format: string = ''
+	export let format: string | undefined = undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
 	export let oneOf: SchemaProperty[] | undefined = undefined

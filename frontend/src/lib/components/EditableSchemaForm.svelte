@@ -87,7 +87,6 @@
 				hasChanged = hasChanged || alignOrderWithProperties(schema.properties[k])
 			}
 			if (!norder.includes(k)) {
-				console.log('adding', k, index)
 				norder = [...norder.slice(0, index), k, ...norder.slice(index)]
 			}
 			index += 1
@@ -100,21 +99,23 @@
 		return hasChanged
 	}
 	function onSchemaChange() {
-		dispatch('change', schema)
+		let editSchema = false
 		if (alignOrderWithProperties(schema)) {
-			schema = schema
+			editSchema = true
 		}
 		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
 		if (schema?.properties && !deepEqual(lkeys, keys)) {
 			keys = [...lkeys]
-			schema = schema
+			editSchema = true
 			if (opened == undefined) {
 				opened = keys[0]
 			}
 		}
+		if (editSchema) {
+			schema = schema
+		}
 	}
 
-	let renderCount: number = 0
 	let opened: string | undefined = keys[0]
 	let selected = ''
 
@@ -194,25 +195,25 @@
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
 				<div class="p-4">
-					{#key renderCount}
-						<SchemaFormDnd
-							{schema}
-							{dndType}
-							bind:args
-							on:click={(e) => {
-								opened = e.detail
-							}}
-							on:reorder={(e) => {
-								schema.order = e.detail
-							}}
-							on:change={() => {
-								schema = schema
-								dispatch('change', schema)
-							}}
-							{lightweightMode}
-							prettifyHeader={isAppInput}
-						/>
-					{/key}
+					<SchemaFormDnd
+						{schema}
+						{dndType}
+						bind:args
+						on:click={(e) => {
+							opened = e.detail
+						}}
+						on:reorder={(e) => {
+							schema.order = e.detail
+							schema = schema
+							dispatch('change', schema)
+						}}
+						on:change={() => {
+							schema = schema
+							dispatch('change', schema)
+						}}
+						{lightweightMode}
+						prettifyHeader={isAppInput}
+					/>
 				</div>
 			</Pane>
 		{/if}
@@ -468,8 +469,9 @@
 																	schema.required = schema.required?.filter((x) => x !== argName)
 																}
 															}}
-															on:schemaChange={() => {
-																renderCount++
+															on:schemaChange={(e) => {
+																schema = schema
+																dispatch('change', schema)
 															}}
 														/>
 													{/if}
