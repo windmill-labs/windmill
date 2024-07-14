@@ -14,6 +14,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let description: string = ''
 	export let format: string | undefined = undefined
@@ -40,6 +41,7 @@
 		  }
 		| undefined = undefined
 
+	const dispatch = createEventDispatcher()
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let oneOfSelected: string | undefined =
@@ -88,6 +90,7 @@
 				order
 			}
 		}
+		dispatch('change', schema)
 	}
 </script>
 
