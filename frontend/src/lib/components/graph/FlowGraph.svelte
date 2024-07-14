@@ -522,7 +522,7 @@
 				}
 			} else if (module.value.type == 'branchone') {
 				if (flowModuleStates?.[module.id]?.branchChosen == i) {
-					borderStatus = 'Success'
+					borderStatus = flowModuleStates?.[module.id]?.type
 				}
 			}
 			items.push(
