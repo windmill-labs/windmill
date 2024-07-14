@@ -7,7 +7,8 @@
 			foo: {
 				type: 'string'
 			}
-		}
+		},
+		order: ['foo']
 	}
 </script>
 
