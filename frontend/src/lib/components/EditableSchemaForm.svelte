@@ -428,6 +428,8 @@
 																				type: e.detail
 																			}
 																		}
+																		schema = schema
+																		dispatch('change', schema)
 																	}}
 																>
 																	{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
