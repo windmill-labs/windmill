@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.362.0](https://github.com/windmill-labs/windmill/compare/v1.361.1...v1.362.0) (2024-07-14)
+
+
+### Features
+
+* **frontend:** date select component ([#4064](https://github.com/windmill-labs/windmill/issues/4064)) ([3b4a376](https://github.com/windmill-labs/windmill/commit/3b4a3762087cc3f75f7ac297b236bfd98f858076))
+* Full-text search on runs using tantivy and command palette for quick actions ([#4046](https://github.com/windmill-labs/windmill/issues/4046)) ([7ea554a](https://github.com/windmill-labs/windmill/commit/7ea554a7fd315dd6f91b9cbdc12c36fdf50ede9e))
+* improve cancel all for non started jobs ([#4065](https://github.com/windmill-labs/windmill/issues/4065)) ([2747e1b](https://github.com/windmill-labs/windmill/commit/2747e1b0879a734077df363594363ea552f96f9c))
+* improve flow status viewer (show branch chosen + all iterations in for loop) ([#4074](https://github.com/windmill-labs/windmill/issues/4074)) ([b498664](https://github.com/windmill-labs/windmill/commit/b498664c76246931d77cdf6740b15160bd8379a5))
+
+
+### Bug Fixes
+
+* **frontend:** app editor improvements ([#4052](https://github.com/windmill-labs/windmill/issues/4052)) ([fd4fe15](https://github.com/windmill-labs/windmill/commit/fd4fe15f49be5cd68c4af8fdba8dbaf61cbc68cc))
+
 ## [1.361.1](https://github.com/windmill-labs/windmill/compare/v1.361.0...v1.361.1) (2024-07-11)
 
 
