@@ -258,6 +258,15 @@ declare function clearFiles(id: string): void;
  * @param message message to display
  */
 declare function showToast(message: string, error?: boolean): void;
+
+/**
+ * Wait for a job to finish
+ * @param id job id
+ * @returns the result of the job
+ */
+declare async function waitJob(id: string): Promise<any>;
+
+
 `
 		: ''
 }
