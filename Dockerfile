@@ -76,6 +76,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 RUN subscription-manager unregister
 
+RUN ln -s /windmill/target/release/windmill /usr/local/bin/windmill
+
 RUN windmill cache
 
 CMD ["windmill"]
