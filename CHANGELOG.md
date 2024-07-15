@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.364.1](https://github.com/windmill-labs/windmill/compare/v1.364.0...v1.364.1) (2024-07-15)
+
+
+### Bug Fixes
+
+* fix cli build ([1deccc4](https://github.com/windmill-labs/windmill/commit/1deccc476d4db07e1530ac5b642e619b9d7b618f))
+
 ## [1.364.0](https://github.com/windmill-labs/windmill/compare/v1.363.0...v1.364.0) (2024-07-15)
 
 
