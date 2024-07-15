@@ -577,7 +577,15 @@ where
             let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
                 Some(path_vec[3].to_owned())
             } else {
-                None
+                if path_vec.len() >= 5
+                    && path_vec[0] == ""
+                    && path_vec[2] == "srch"
+                    && path_vec[3] == "w"
+                {
+                    Some(path_vec[4].to_string())
+                } else {
+                    None
+                }
             };
             if let Some(token) = token_o {
                 if let Ok(Extension(cache)) =
