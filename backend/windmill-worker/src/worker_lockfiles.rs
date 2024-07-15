@@ -640,7 +640,8 @@ fn get_deployment_msg_and_parent_path_from_args(
     (deployment_message, parent_path)
 }
 
-async fn lock_modules<'c>(
+#[async_recursion]
+async fn lock_modules<'c: 'async_recursion>(
     modules: Vec<FlowModule>,
     job: &QueuedJob,
     mem_peak: &mut i32,
