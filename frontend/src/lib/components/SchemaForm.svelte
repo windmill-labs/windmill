@@ -98,7 +98,6 @@
 	}
 
 	function reorder() {
-		dispatch('change')
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
 			if (schema?.order && Array.isArray(schema.order)) {
@@ -117,7 +116,11 @@
 					})
 				schema.properties = n
 			}
-			keys = Object.keys(schema.properties ?? {})
+			let nkeys = Object.keys(schema.properties ?? {})
+			if (!deepEqual(keys, nkeys)) {
+				keys = nkeys
+				dispatch('change')
+			}
 		}
 
 		if (!noDelete && hasExtraKeys()) {

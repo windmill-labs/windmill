@@ -124,8 +124,12 @@
 	}
 
 	async function loadUser() {
-		const user = await getUserExt(workspace!)
-		$userStore = user
+		try {
+			const user = await getUserExt(workspace!)
+			$userStore = user
+		} catch (e) {
+			sendUserToast(`Failed to load user ${e}`, true)
+		}
 	}
 
 	let darkModeToggle: DarkModeToggle
@@ -440,7 +444,7 @@
 		testStepStore,
 		saveDraft: () => {},
 		initialPath: '',
-		flowInputsStore: writable<FlowInput | undefined>(undefined)
+		flowInputsStore: writable<FlowInput>({})
 	})
 
 	$: updateFlow($flowStore)

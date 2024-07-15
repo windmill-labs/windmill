@@ -789,5 +789,12 @@ export const quickStyleProperties: Record<
 	},
 	navbarcomponent: {
 		container: containerDefaultProps
+	},
+	dateselectcomponent: {
+		input: inputDefaultProps
+	},
+	jobiddisplaycomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
 	}
 }

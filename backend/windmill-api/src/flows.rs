@@ -730,7 +730,7 @@ async fn update_flow(
 
     sqlx::query!(
         "UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
-        version, flow_path, w_id
+        version, nf.path, w_id
     ).execute(&mut tx).await?;
 
     if is_new_path {

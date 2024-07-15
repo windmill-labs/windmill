@@ -1,5 +1,125 @@
 # Changelog
 
+## [1.363.0](https://github.com/windmill-labs/windmill/compare/v1.362.0...v1.363.0) (2024-07-15)
+
+
+### Features
+
+* **frontend:** Rich result by id component ([#4069](https://github.com/windmill-labs/windmill/issues/4069)) ([546c343](https://github.com/windmill-labs/windmill/commit/546c343811a6eb66a49670c915e984cb68f5aab1))
+
+
+### Bug Fixes
+
+* **frontend:** flow editor improvements ([#4008](https://github.com/windmill-labs/windmill/issues/4008)) ([e6dfa39](https://github.com/windmill-labs/windmill/commit/e6dfa390bbf27ed8d4d13128c33b7fd5b2ef69ab))
+* improve schema editor ([2ec8ce5](https://github.com/windmill-labs/windmill/commit/2ec8ce5b7da76d7b5429120b749c66ffb833ff68))
+* make indexer opt-in when in standalone mode ([#4076](https://github.com/windmill-labs/windmill/issues/4076)) ([3e31977](https://github.com/windmill-labs/windmill/commit/3e31977ba1de984d256dbd888b769ddd9f566b04))
+
+## [1.362.0](https://github.com/windmill-labs/windmill/compare/v1.361.1...v1.362.0) (2024-07-14)
+
+
+### Features
+
+* **frontend:** date select component ([#4064](https://github.com/windmill-labs/windmill/issues/4064)) ([3b4a376](https://github.com/windmill-labs/windmill/commit/3b4a3762087cc3f75f7ac297b236bfd98f858076))
+* Full-text search on runs using tantivy and command palette for quick actions ([#4046](https://github.com/windmill-labs/windmill/issues/4046)) ([7ea554a](https://github.com/windmill-labs/windmill/commit/7ea554a7fd315dd6f91b9cbdc12c36fdf50ede9e))
+* improve cancel all for non started jobs ([#4065](https://github.com/windmill-labs/windmill/issues/4065)) ([2747e1b](https://github.com/windmill-labs/windmill/commit/2747e1b0879a734077df363594363ea552f96f9c))
+* improve flow status viewer (show branch chosen + all iterations in for loop) ([#4074](https://github.com/windmill-labs/windmill/issues/4074)) ([b498664](https://github.com/windmill-labs/windmill/commit/b498664c76246931d77cdf6740b15160bd8379a5))
+
+
+### Bug Fixes
+
+* **frontend:** app editor improvements ([#4052](https://github.com/windmill-labs/windmill/issues/4052)) ([fd4fe15](https://github.com/windmill-labs/windmill/commit/fd4fe15f49be5cd68c4af8fdba8dbaf61cbc68cc))
+
+## [1.361.1](https://github.com/windmill-labs/windmill/compare/v1.361.0...v1.361.1) (2024-07-11)
+
+
+### Bug Fixes
+
+* improve filter jobs query ([583190f](https://github.com/windmill-labs/windmill/commit/583190f883e2a82fb6d0ab0d882283d5da5436c5))
+
+## [1.361.0](https://github.com/windmill-labs/windmill/compare/v1.360.1...v1.361.0) (2024-07-11)
+
+
+### Features
+
+* **frontend:** add support for GFM and fix max-width issue ([#4057](https://github.com/windmill-labs/windmill/issues/4057)) ([133a278](https://github.com/windmill-labs/windmill/commit/133a2789120c50f2733af4bce5290bd7365b566d))
+* **frontend:** improve table action UX ([#4056](https://github.com/windmill-labs/windmill/issues/4056)) ([a6eeb68](https://github.com/windmill-labs/windmill/commit/a6eeb68b77c49e2fa41e2bb62e72ce4446841fbc))
+
+
+### Bug Fixes
+
+* fix migration for instances starting from scratch ([b4f0b32](https://github.com/windmill-labs/windmill/commit/b4f0b32c40bc63b4063816f51c5a30679edf03f4))
+* **frontend:** fix run page ms readability ([#4059](https://github.com/windmill-labs/windmill/issues/4059)) ([0b932ca](https://github.com/windmill-labs/windmill/commit/0b932cac6f8cd959a10d057e53985d876fe158f2))
+* **frontend:** fix style panel title ([#4058](https://github.com/windmill-labs/windmill/issues/4058)) ([c853db4](https://github.com/windmill-labs/windmill/commit/c853db4e0570346b35dcb2249723e42b1af86547))
+* improve completed_job index ([e450300](https://github.com/windmill-labs/windmill/commit/e450300c225a965cde3472013b5ae7fb83200a31))
+* improve performance of cancel_all ([1d1dde0](https://github.com/windmill-labs/windmill/commit/1d1dde0d91644c8b973a4104a93d4c7cd123ac56))
+
+## [1.360.1](https://github.com/windmill-labs/windmill/compare/v1.360.0...v1.360.1) (2024-07-09)
+
+
+### Bug Fixes
+
+* fix previous_result not always working for failure steps ([23a00c5](https://github.com/windmill-labs/windmill/commit/23a00c55e95054ecebbcbb829499f5a1d622efd5))
+* **frontend:** Reload the flowStateStore when a node is restored (undo) ([#4049](https://github.com/windmill-labs/windmill/issues/4049)) ([6e52632](https://github.com/windmill-labs/windmill/commit/6e526327dd0259eb096fdaf387dfc9206936c19b))
+* improve flow version fix migration ([#4050](https://github.com/windmill-labs/windmill/issues/4050)) ([eda6629](https://github.com/windmill-labs/windmill/commit/eda6629bb381469ba27e5a479bb39f7428920aec))
+* make dedicated workers work with dates in bun ([7f49798](https://github.com/windmill-labs/windmill/commit/7f49798e3fb7a2aa528388a1718fd459de19deb8))
+* update flow path ([#4053](https://github.com/windmill-labs/windmill/issues/4053)) ([82c88ad](https://github.com/windmill-labs/windmill/commit/82c88ad3b893e3222391ade65a10dfb2ef1c0fc7))
+
+## [1.360.0](https://github.com/windmill-labs/windmill/compare/v1.359.0...v1.360.0) (2024-07-08)
+
+
+### Features
+
+* **frontend:** add custom actions header ([#4044](https://github.com/windmill-labs/windmill/issues/4044)) ([9e5a3f9](https://github.com/windmill-labs/windmill/commit/9e5a3f98bdc3b66736b099f5828a4c7060b653cd))
+
+
+### Bug Fixes
+
+* always run flow versioning edge case fix migration ([#4047](https://github.com/windmill-labs/windmill/issues/4047)) ([9b2919b](https://github.com/windmill-labs/windmill/commit/9b2919be329f687740e1169aae61073437d328a5))
+* **frontend:** fix min rows for LightWeightArgInput ([#4045](https://github.com/windmill-labs/windmill/issues/4045)) ([0d35741](https://github.com/windmill-labs/windmill/commit/0d3574158dbe963c940e06b98896f5d4ab3c3edb))
+* improve failure id assignment for parallel forloop ([5657ccd](https://github.com/windmill-labs/windmill/commit/5657ccdbe4b19756f6365579d8ef4760450d08d7))
+* persist enums change for string type ([a264a38](https://github.com/windmill-labs/windmill/commit/a264a383de5e57c25b4d3b9250f260f3ed64fc2d))
+
+## [1.359.0](https://github.com/windmill-labs/windmill/compare/v1.358.1...v1.359.0) (2024-07-08)
+
+
+### Features
+
+* **frontend:** improve table actions ([#4040](https://github.com/windmill-labs/windmill/issues/4040)) ([0ffac69](https://github.com/windmill-labs/windmill/commit/0ffac69406e1cd068a172b528037bb396fe9e092))
+
+
+### Bug Fixes
+
+* **backend:** make value of flow_version not null ([#4039](https://github.com/windmill-labs/windmill/issues/4039)) ([11b05b3](https://github.com/windmill-labs/windmill/commit/11b05b3d17897d45cda032353eecbd24ad7f2ec5))
+* flow versioning edge case ([#4037](https://github.com/windmill-labs/windmill/issues/4037)) ([729f911](https://github.com/windmill-labs/windmill/commit/729f911b436613991c351c6c48db9429d6a8e8cb))
+* **frontend:** fix navbar item overflow ([#4041](https://github.com/windmill-labs/windmill/issues/4041)) ([95c2e1b](https://github.com/windmill-labs/windmill/commit/95c2e1b21c1e0ca169513bf1fa773fe9e8dd8e81))
+* improve handling of schedules with retries and concurrency limits ([e100622](https://github.com/windmill-labs/windmill/commit/e10062234efa2b87364468a089b6a888123f73b6))
+* improve input history ([db19c86](https://github.com/windmill-labs/windmill/commit/db19c86a2d5da734fb3485056447b5bf879bd68e))
+* improve performance of content search for large repos ([299e7cf](https://github.com/windmill-labs/windmill/commit/299e7cf5cf87aedf53b97d002545031de49fc9b9))
+
+## [1.358.1](https://github.com/windmill-labs/windmill/compare/v1.358.0...v1.358.1) (2024-07-05)
+
+
+### Bug Fixes
+
+* fix vscode extension dev mode with flows ([b30bde9](https://github.com/windmill-labs/windmill/commit/b30bde9a9bf7fa912cd34b5fa956df4b58a6bf5c))
+
+## [1.358.0](https://github.com/windmill-labs/windmill/compare/v1.357.0...v1.358.0) (2024-07-05)
+
+
+### Features
+
+* **backend:** better filtering for audit logs API ([#4023](https://github.com/windmill-labs/windmill/issues/4023)) ([fde9d2a](https://github.com/windmill-labs/windmill/commit/fde9d2a3f3e673df121e87bc7c5cf567e0641e29))
+* **frontend:** add vertical navbars ([#4027](https://github.com/windmill-labs/windmill/issues/4027)) ([aa4967e](https://github.com/windmill-labs/windmill/commit/aa4967ef1e7edf0a794f4202a31f7233f09e2fd8))
+* **frontend:** app navbar ([#3992](https://github.com/windmill-labs/windmill/issues/3992)) ([7434edd](https://github.com/windmill-labs/windmill/commit/7434edda065701e0cf41b9c72e96cead37b30b32))
+* restore flow version as fork ([#4032](https://github.com/windmill-labs/windmill/issues/4032)) ([d724761](https://github.com/windmill-labs/windmill/commit/d724761ecc02bf8a515e4562f4330258a4ef52d2))
+
+
+### Bug Fixes
+
+* **frontend:** fix navbar navigation for not deployed apps ([#4033](https://github.com/windmill-labs/windmill/issues/4033)) ([a9c4555](https://github.com/windmill-labs/windmill/commit/a9c455567b386d92e13a7d9c51dc05ca3e51e0db))
+* **frontend:** fix theme leak ([#4029](https://github.com/windmill-labs/windmill/issues/4029)) ([c4673f8](https://github.com/windmill-labs/windmill/commit/c4673f8dc5a664773800bfa24b901e36d63e8b70))
+* **frontend:** improve component list ([#4028](https://github.com/windmill-labs/windmill/issues/4028)) ([448d5ad](https://github.com/windmill-labs/windmill/commit/448d5ad2283bc82d9ac90fdde45a76879f3758ff))
+
 ## [1.357.0](https://github.com/windmill-labs/windmill/compare/v1.356.1...v1.357.0) (2024-07-04)
 
 

@@ -16,8 +16,10 @@ export function* createIdGenerator(): Generator<number, number, unknown> {
 	}
 }
 
-export function getStateColor(state: FlowStatusModule['type'] | undefined): string {
-	const isDark = document.documentElement.classList.contains('dark')
+export function getStateColor(
+	state: FlowStatusModule['type'] | undefined,
+	isDark: boolean
+): string {
 	switch (state) {
 		case 'Success':
 			return isDark ? '#059669' : 'rgb(193, 255, 216)'

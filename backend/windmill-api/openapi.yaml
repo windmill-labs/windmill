@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.357.0
+  version: 1.363.0
   title: Windmill API
 
   contact:
@@ -7777,6 +7777,14 @@ paths:
           required: true
           schema:
             type: string
+        - name: input
+          in: query
+          schema:
+            type: boolean
+        - name: allow_large
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: args
@@ -8655,6 +8663,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtendedJobs"
 
+  /srch/w/{workspace}/index/search/job:
+    get:
+      summary: Search through jobs with a string query
+      operationId: searchJobsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        dancer:
+                          type: string
+                  hits:
+                    description: the jobs that matched the query
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobSearchHit"
+
+
 components:
   securitySchemes:
     bearerAuth:
@@ -9258,8 +9302,6 @@ components:
           type: string
         name:
           type: string
-        args:
-          type: object
         created_by:
           type: string
         created_at:
@@ -11256,3 +11298,9 @@ components:
           type: string
       required:
         - name
+
+    JobSearchHit:
+      type: object
+      properties:
+        dancer:
+          type: string

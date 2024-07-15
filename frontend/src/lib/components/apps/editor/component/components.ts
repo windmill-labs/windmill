@@ -164,6 +164,7 @@ export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
@@ -276,6 +277,8 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 	navbarItems: NavbarItem[]
 }
 
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -351,6 +354,8 @@ export type TypedComponent =
 	| AggridInfiniteComponentEe
 	| MultiSelectComponentV2
 	| NavBarComponent
+	| DateSelectComponent
+	| JobIdDisplayComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -742,6 +747,12 @@ const aggridcomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -845,6 +856,12 @@ const aggridinfinitecomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -3778,6 +3795,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					value: true,
 					tooltip: 'Allow visible footer for pagination and download'
+				},
+				customActionsHeader: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Custom header for the actions columns'
 				}
 			},
 			componentInput: undefined
@@ -3908,7 +3931,102 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						},
 						no: {}
 					}
-				} as const
+				} as const,
+				orientation: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'horizontal',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
+				}
+			}
+		}
+	},
+	dateselectcomponent: {
+		name: 'Date Select',
+		icon: Calendar,
+		documentationLink: `${documentationBaseUrl}/date_select`,
+		dims: '3:4-6:4' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			verticalAlignment: 'center',
+
+			configuration: {
+				enableDay: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableMonth: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableYear: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'date'
+				},
+
+				orientation: {
+					type: 'static',
+					value: 'horizontal',
+					fieldType: 'select',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
+				},
+				locale: {
+					type: 'static',
+					value: 'en-US',
+					fieldType: 'select',
+					selectOptions: selectOptions.localeOptions,
+					tooltip: 'Format on the month names'
+				}
+			}
+		}
+	},
+	jobiddisplaycomponent: {
+		name: 'Rich result by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/rich_result_by_job_id`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display logs from'
+				},
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Result'
+				},
+				hideDetails: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				}
 			}
 		}
 	}

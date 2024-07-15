@@ -328,7 +328,10 @@
 
 	// Animation logic for cssInput
 	$: animateCssInput($cssEditorOpen)
-	$: $cssEditorOpen && secondaryMenuLeft?.open(StylePanel, {})
+	$: $cssEditorOpen &&
+		secondaryMenuLeft?.open(StylePanel, {
+			type: 'style'
+		})
 
 	function animateCssInput(cssEditorOpen: boolean) {
 		if (cssEditorOpen && !cssToggled) {

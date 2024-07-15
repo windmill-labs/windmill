@@ -522,7 +522,7 @@
 								<Password bind:password={value} />
 							{:else}
 								<textarea
-									rows={extra?.['rows'] || 1}
+									rows={extra?.['minRows'] || 1}
 									bind:this={el}
 									on:focus={(e) => {
 										dispatch('focus')

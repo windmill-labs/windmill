@@ -147,7 +147,6 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `/flows/add?template=${flow.path}`,
-					variant: 'border',
 					color: 'light',
 					size: 'xs',
 					startIcon: GitFork

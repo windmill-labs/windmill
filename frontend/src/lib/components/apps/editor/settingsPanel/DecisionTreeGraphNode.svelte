@@ -15,7 +15,7 @@
 	export let canDelete: boolean = true
 	export let canAddBranch: boolean = true
 	export let index: number
-
+	export let darkMode: boolean
 	let open: boolean = false
 
 	const dispatch = createEventDispatcher<{
@@ -39,7 +39,7 @@
 			selected ? 'outline outline-2 outline-offset-2 outline-gray-600' : '',
 			'flex flex-row gap-2 items-center justify-between'
 		)}
-		style="width: 275px; height: 34px; background-color: {getStateColor(undefined)};"
+		style="width: 275px; height: 34px; background-color: {getStateColor(undefined, darkMode)};"
 		on:click={() => {
 			selected = true
 			dispatch('select', node.id)

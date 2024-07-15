@@ -57,6 +57,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+mod indexer_ee;
 mod inputs;
 mod integration;
 #[cfg(feature = "parquet")]
@@ -143,6 +144,8 @@ pub async fn add_webhook_allowed_origin(
 pub async fn run_server(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    index_reader: Option<windmill_indexer::indexer_ee::IndexReader>,
+    index_writer: Option<windmill_indexer::indexer_ee::IndexWriter>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
@@ -177,6 +180,8 @@ pub async fn run_server(
         .layer(Extension(rsmq))
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
+        .layer(Extension(index_reader))
+        .layer(Extension(index_writer))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
         .layer(DefaultBodyLimit::max(
@@ -266,6 +271,10 @@ pub async fn run_server(
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
+                .nest(
+                    "/srch/w/:workspace_id/index",
+                    indexer_ee::workspaced_service(),
+                )
                 .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",

@@ -119,6 +119,7 @@ struct UntaggedFlowStatusModule {
     job: Option<Uuid>,
     iterator: Option<Iterator>,
     flow_jobs: Option<Vec<Uuid>>,
+    flow_jobs_success: Option<Vec<Option<bool>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -150,6 +151,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
@@ -164,6 +167,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -176,6 +181,8 @@ pub enum FlowStatusModule {
         job: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs: Option<Vec<Uuid>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_success: Option<Vec<Option<bool>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -225,6 +232,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 iterator: untagged.iterator,
                 flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
@@ -238,6 +246,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .job
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
@@ -250,6 +259,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                     .job
                     .ok_or_else(|| serde::de::Error::missing_field("job"))?,
                 flow_jobs: untagged.flow_jobs,
+                flow_jobs_success: untagged.flow_jobs_success,
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
             }),
@@ -291,6 +301,24 @@ impl FlowStatusModule {
             FlowStatusModule::InProgress { flow_jobs, .. } => flow_jobs.clone(),
             FlowStatusModule::Success { flow_jobs, .. } => flow_jobs.clone(),
             FlowStatusModule::Failure { flow_jobs, .. } => flow_jobs.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn branch_chosen(&self) -> Option<BranchChosen> {
+        match self {
+            FlowStatusModule::InProgress { branch_chosen, .. } => branch_chosen.clone(),
+            FlowStatusModule::Success { branch_chosen, .. } => branch_chosen.clone(),
+            FlowStatusModule::Failure { branch_chosen, .. } => branch_chosen.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn flow_jobs_success(&self) -> Option<Vec<Option<bool>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            FlowStatusModule::Success { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            FlowStatusModule::Failure { flow_jobs_success, .. } => flow_jobs_success.clone(),
             _ => None,
         }
     }

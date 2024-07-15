@@ -1924,7 +1924,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     drop(job_completed_tx);
 
-    send_result.await.expect("send result failed");
+    if let Err(e) = send_result.await {
+        tracing::error!("error in awaiting send_result process: {e:?}")
+    }
     tracing::info!("worker {} exited", worker_name);
 }
 

@@ -180,7 +180,7 @@ pub async fn cancel_single_job<'c>(
         });
     } else {
         let id: Option<Uuid> = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND canceled = false RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 AND (canceled = false OR canceled_reason != $2) RETURNING id",
             username,
             reason,
             job_running.id,
@@ -1954,7 +1954,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             WHERE id = $1
             RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
                 running,  script_hash,  script_path,  args,   right(logs, 900000) as logs,  raw_code,  canceled,  canceled_by,  
-                canceled_reason,  last_ping,  job_kind,  env_id,  schedule_path,  permissioned_as, 
+                canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as, 
                 flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
                 same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
                  root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
@@ -2006,7 +2006,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             )
             RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
             running,  script_hash,  script_path,  args,   null as logs,  raw_code,  canceled,  canceled_by,  
-            canceled_reason,  last_ping,  job_kind,  env_id,  schedule_path,  permissioned_as, 
+            canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as, 
             flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
             same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
              root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
@@ -2039,7 +2039,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
                     )
                     RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
                     running,  script_hash,  script_path,  args,  null as logs,  raw_code,  canceled,  canceled_by,  
-                    canceled_reason,  last_ping,  job_kind,  env_id,  schedule_path,  permissioned_as, 
+                    canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as, 
                     flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
                     same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
                      root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
@@ -4011,11 +4011,16 @@ async fn restarted_flows_resolution(
                         }
                         let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
                         new_flow_jobs.truncate(branch_or_iteration_n);
+                        let mut new_flow_jobs_success = module.flow_jobs_success();
+                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                            new_flow_jobs_success.truncate(branch_or_iteration_n);
+                        }
                         truncated_modules.push(FlowStatusModule::InProgress {
                             id: module.id(),
                             job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
                             iterator: None,
                             flow_jobs: Some(new_flow_jobs),
+                            flow_jobs_success: new_flow_jobs_success,
                             branch_chosen: None,
                             branchall: Some(BranchAllStatus {
                                 branch: branch_or_iteration_n - 1, // Doing minus one here as this variable reflects the latest finished job in the iteration
@@ -4043,7 +4048,10 @@ async fn restarted_flows_resolution(
                         }
                         let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
                         new_flow_jobs.truncate(branch_or_iteration_n);
-
+                        let mut new_flow_jobs_success = module.flow_jobs_success();
+                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                            new_flow_jobs_success.truncate(branch_or_iteration_n);
+                        }
                         truncated_modules.push(FlowStatusModule::InProgress {
                             id: module.id(),
                             job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
@@ -4052,6 +4060,7 @@ async fn restarted_flows_resolution(
                                 itered: vec![], // Setting itered to empty array here, such that input transforms will be re-computed by worker_flows
                             }),
                             flow_jobs: Some(new_flow_jobs),
+                            flow_jobs_success: new_flow_jobs_success,
                             branch_chosen: None,
                             branchall: None,
                             parallel: parallel,
@@ -4074,14 +4083,7 @@ async fn restarted_flows_resolution(
             // else we simply "transfer" the module from the completed flow to the new one if it's a success
             step_n = step_n + 1;
             match module.clone() {
-                FlowStatusModule::Success {
-                    id: _,
-                    job: _,
-                    flow_jobs: _,
-                    branch_chosen: _,
-                    approvers: _,
-                    failed_retries: _,
-                } => Ok(truncated_modules.push(module)),
+                FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
                 _ => Err(Error::InternalErr(format!(
                     "Flow cannot be restarted from a non successful module",
                 ))),

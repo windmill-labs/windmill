@@ -11,7 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { classNames } from '$lib/utils'
+	import { classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {
@@ -37,14 +37,18 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft } from 'lucide-svelte'
+	import { ArrowLeft, Search } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspacedOpenai } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
+	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
+	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import { setContext } from 'svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
+	let globalSearchModal: GlobalSearchModal | undefined = undefined
 	let isCollapsed = false
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -244,6 +248,12 @@
 	$: if (isCollapsed && $userStore?.operator) {
 		isCollapsed = false
 	}
+
+	function openSearchModal(text?: string): void {
+		globalSearchModal?.openSearchWithPrefilledText(text)
+	}
+
+	setContext("openSearchWithPrefilledText", openSearchModal)
 </script>
 
 <svelte:window bind:innerWidth />
@@ -258,6 +268,7 @@
 		</div>
 	</CenteredModal>
 {:else if $userStore}
+	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
@@ -328,6 +339,15 @@
 									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 										<WorkspaceMenu />
 										<FavoriteMenu {favoriteLinks} />
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => openSearchModal()}
+											isCollapsed={false}
+											icon={Search}
+											label="Search"
+											class="!text-xs"
+											shortcut={`${getModifierKey()}k`}
+										/>
 									</div>
 
 									<SidebarContent isCollapsed={false} />
@@ -367,6 +387,15 @@
 							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
 								<WorkspaceMenu {isCollapsed} />
 								<FavoriteMenu {favoriteLinks} {isCollapsed} />
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
+									{isCollapsed}
+									icon={Search}
+									label="Search"
+									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
+								/>
 							</div>
 
 							<SidebarContent {isCollapsed} />
@@ -446,6 +475,15 @@
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 								<WorkspaceMenu />
 								<FavoriteMenu {favoriteLinks} />
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
+									{isCollapsed}
+									icon={Search}
+									label="Search"
+									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
+								/>
 							</div>
 
 							<SidebarContent {isCollapsed} />
