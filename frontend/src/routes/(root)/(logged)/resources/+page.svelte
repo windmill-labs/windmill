@@ -480,7 +480,14 @@
 					</div>
 				</div>
 			</div>
-			<EditableSchemaWrapper bind:schema={newResourceType.schema} fullHeight />
+			<EditableSchemaWrapper
+				watchChanges
+				on:change={() => {
+					console.log('change')
+				}}
+				bind:schema={newResourceType.schema}
+				fullHeight
+			/>
 		</div>
 	</DrawerContent>
 </Drawer>

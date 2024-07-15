@@ -4011,11 +4011,16 @@ async fn restarted_flows_resolution(
                         }
                         let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
                         new_flow_jobs.truncate(branch_or_iteration_n);
+                        let mut new_flow_jobs_success = module.flow_jobs_success();
+                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                            new_flow_jobs_success.truncate(branch_or_iteration_n);
+                        }
                         truncated_modules.push(FlowStatusModule::InProgress {
                             id: module.id(),
                             job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
                             iterator: None,
                             flow_jobs: Some(new_flow_jobs),
+                            flow_jobs_success: new_flow_jobs_success,
                             branch_chosen: None,
                             branchall: Some(BranchAllStatus {
                                 branch: branch_or_iteration_n - 1, // Doing minus one here as this variable reflects the latest finished job in the iteration
@@ -4043,7 +4048,10 @@ async fn restarted_flows_resolution(
                         }
                         let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
                         new_flow_jobs.truncate(branch_or_iteration_n);
-
+                        let mut new_flow_jobs_success = module.flow_jobs_success();
+                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                            new_flow_jobs_success.truncate(branch_or_iteration_n);
+                        }
                         truncated_modules.push(FlowStatusModule::InProgress {
                             id: module.id(),
                             job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
@@ -4052,6 +4060,7 @@ async fn restarted_flows_resolution(
                                 itered: vec![], // Setting itered to empty array here, such that input transforms will be re-computed by worker_flows
                             }),
                             flow_jobs: Some(new_flow_jobs),
+                            flow_jobs_success: new_flow_jobs_success,
                             branch_chosen: None,
                             branchall: None,
                             parallel: parallel,
@@ -4074,14 +4083,7 @@ async fn restarted_flows_resolution(
             // else we simply "transfer" the module from the completed flow to the new one if it's a success
             step_n = step_n + 1;
             match module.clone() {
-                FlowStatusModule::Success {
-                    id: _,
-                    job: _,
-                    flow_jobs: _,
-                    branch_chosen: _,
-                    approvers: _,
-                    failed_retries: _,
-                } => Ok(truncated_modules.push(module)),
+                FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
                 _ => Err(Error::InternalErr(format!(
                     "Flow cannot be restarted from a non successful module",
                 ))),
