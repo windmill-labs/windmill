@@ -8,7 +8,13 @@ import type { Schedule } from './scheduleUtils'
 export type FlowInput = Record<
 	string,
 	{
-		requiredInputsFilled?: Record<string, boolean>
+		flowStepWarnings?: Record<
+			string,
+			{
+				message: string
+				type: 'error' | 'warning'
+			}
+		>
 	}
 >
 

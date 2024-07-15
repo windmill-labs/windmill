@@ -44,7 +44,8 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { loadSchemaFromModule } from '../flowInfers'
-	import { initRequiredInputFilled, setRequiredInputFilled } from '../utils'
+	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
+	import { debounce } from '$lib/utils'
 
 	const {
 		selectedId,
@@ -128,8 +129,12 @@
 			if (inputTransformSchemaForm) {
 				inputTransformSchemaForm.setArgs(input_transforms)
 				if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
-					$flowInputsStore![flowModule?.id] = {
-						requiredInputsFilled: initRequiredInputFilled(flowModule.value, schema ?? {})
+					$flowInputsStore[flowModule?.id] = {
+						flowStepWarnings: await initFlowStepWarnings(
+							flowModule.value,
+							schema ?? {},
+							$flowStore?.value?.modules?.map((m) => m?.id) ?? []
+						)
 					}
 				}
 			} else {
@@ -176,21 +181,25 @@
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
 
-	function setFlowInput(argName: string) {
-		if ($flowInputsStore && $flowInputsStore?.[flowModule.id] === undefined) {
-			$flowInputsStore[flowModule.id] = {}
-		}
-
+	let debouncedWarning = debounce((argName: string) => {
 		if ($flowInputsStore) {
-			const requiredInputsFilled = setRequiredInputFilled(
+			computeFlowStepWarning(
 				argName,
 				flowModule.value,
-				$flowInputsStore[flowModule.id].requiredInputsFilled ?? {},
-				$flowStateStore[$selectedId]?.schema
-			)
-
-			$flowInputsStore[flowModule.id].requiredInputsFilled = requiredInputsFilled
+				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
+				$flowStateStore[$selectedId]?.schema ?? {},
+				$flowStore?.value?.modules?.map((m) => m?.id) ?? []
+			).then((flowStepWarnings) => {
+				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
+			})
 		}
+	}, 100)
+
+	function setFlowInput(argName: string) {
+		if ($flowInputsStore && flowModule.id && $flowInputsStore?.[flowModule.id] === undefined) {
+			$flowInputsStore[flowModule.id] = {}
+		}
+		debouncedWarning(argName)
 	}
 </script>
 
