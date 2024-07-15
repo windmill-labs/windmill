@@ -23,7 +23,7 @@
 	export let password: boolean = false
 	export let noExtra = false
 	export let dateFormat: string | undefined
-	export let enumLabels: Record<string, string> = {}
+	export let enumLabels: Record<string, string> | undefined = undefined
 	export let overrideAllowKindChange: boolean = true
 	export let originalType: string | undefined = undefined
 
@@ -93,6 +93,9 @@
 	]
 
 	function onEnumKeyChange(oldKey: string, newKey: string) {
+		if (enumLabels === undefined) {
+			enumLabels = {}
+		}
 		if (oldKey !== newKey) {
 			enumLabels[newKey] = enumLabels[oldKey]
 			delete enumLabels[oldKey]
@@ -200,6 +203,9 @@
 								placeholder="Optional title..."
 								on:input={(event) => {
 									if (event?.currentTarget.value === '') {
+										if (enumLabels === undefined) {
+											enumLabels = {}
+										}
 										delete enumLabels[e]
 									}
 								}}

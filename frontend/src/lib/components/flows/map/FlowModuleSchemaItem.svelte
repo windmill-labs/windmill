@@ -51,7 +51,7 @@
 <div
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer',
-		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
+		selected ? 'outline outline-offset-1 outline-2  outline-gray-600 dark:outline-gray-400' : '',
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
@@ -142,7 +142,7 @@
 
 	<div
 		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-			border border-gray-400 p-2 text-2xs module text-primary"
+			border border-gray-400 dark:border-gray-600 p-2 text-2xs module text-primary"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />
