@@ -150,7 +150,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
-    let mut enable_indexer: bool = false;
+    let mut enable_standalone_indexer: bool = false;
 
     let mode = std::env::var("MODE")
         .map(|x| x.to_lowercase())
@@ -182,11 +182,10 @@ async fn windmill_main() -> anyhow::Result<()> {
                 {
                     panic!("Indexer mode requires the tantivy feature flag");
                 }
-                enable_indexer = true;
                 #[cfg(feature = "tantivy")]
                 Mode::Indexer
             } else if &x == "standalone+search"{
-                    enable_indexer = true;
+                    enable_standalone_indexer = true;
                     tracing::info!("Binary is in 'standalone' mode with search enabled");
                     Mode::Standalone
             }
@@ -366,7 +365,7 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(feature = "tantivy")]
         let should_index_jobs =
-            enable_indexer && (mode == Mode::Indexer || mode == Mode::Standalone);
+              mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
 
         #[cfg(not(feature = "tantivy"))]
         let should_index_jobs = false;
