@@ -19,7 +19,7 @@
 
 	export let id: string
 	export let initializing: boolean | undefined = false
-	export let customCss: ComponentCustomCSS<'jobidlogcomponent'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined = undefined
 	export let configuration: RichConfigurations
 	export let render: boolean
 
