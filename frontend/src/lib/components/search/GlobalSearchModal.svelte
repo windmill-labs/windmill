@@ -21,6 +21,7 @@
 		HomeIcon,
 		LayoutDashboardIcon,
 		Loader2,
+		Loader2Icon,
 		PlayIcon,
 		Search,
 		SearchCode
@@ -38,6 +39,8 @@
 	import { Alert } from '../common'
 
 	let open: boolean = false
+
+	openModal()
 
 	let searchTerm: string = ''
 	let textInput: HTMLInputElement
@@ -467,26 +470,26 @@
 					open = false
 				}}
 			>
-				<div class="py-2 items-center">
-					<div class="px-4 flex flex-row gap-1 items-center pb-1 mb-2 border-b">
-						<Search />
-						<div class="relative inline-block w-full">
-							<input
-								id="quickSearchInput"
-								bind:this={textInput}
-								type="text"
-								class="quick-search-input"
-								bind:value={searchTerm}
-							/>
-							<label
-								for="quickSearchInput"
-								class="absolute top-1/2 left-2 transform -translate-y-1/2 pointer-events-none text-gray-400 transition-all duration-200 whitespace-pre"
-								>{placeholderFromPrefix(searchTerm)}</label
-							>
-						</div>
+				<div class="px-6 py-2 flex flex-row gap-1 items-center border-b">
+					<Search size="16" />
+					<div class="relative inline-block w-full">
+						<input
+							id="quickSearchInput"
+							bind:this={textInput}
+							type="text"
+							class="quick-search-input"
+							bind:value={searchTerm}
+						/>
+						<label
+							for="quickSearchInput"
+							class="absolute top-1/2 left-2 transform -translate-y-1/2 pointer-events-none text-gray-400 transition-all duration-200 whitespace-pre"
+							>{placeholderFromPrefix(searchTerm)}</label
+						>
 					</div>
-					<div class="px-4 overflow-scroll max-h-[30rem]">
-						{#if tab === 'default' || tab === 'switch-mode'}
+				</div>
+				<div class="overflow-y-scroll max-h-[30rem] relative#faton">
+					{#if tab === 'default' || tab === 'switch-mode'}
+						<div class="p-2">
 							{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
 								<QuickMenuItem
 									on:select={el?.action}
@@ -498,25 +501,35 @@
 									shortcutKey={el?.shortcutKey}
 								/>
 							{/each}
-						{/if}
-						{#if tab === 'default'}
+						</div>
+					{/if}
+
+					{#if tab === 'default'}
+						<div class="p-2">
 							{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
-								<div class="mt-2 pt-2 pb-1 px-1 text-xs text-sm font-bold border-t text-tertiary"
-									>Flows/Scripts/Apps</div
-								>
+								<div class="mt-2 pt-2 pb-1 px-1 text-xs font-bold border-t text-tertiary">
+									Flows/Scripts/Apps
+								</div>
+								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
+									<QuickMenuItem
+										on:select={() => gotoWindmillItemPage(el)}
+										on:hover={() => (selectedItem = el)}
+										id={el?.search_id}
+										hovered={el?.path === selectedItem?.path}
+										label={(el.summary ? `${el.summary} - ` : '') +
+											el.path +
+											(el.starred ? ' ★' : '')}
+										icon={iconForWindmillItem(el.type)}
+									/>
+								{/each}
+							{:else}
+								<div class="px-2 py-1 flex flex-row gap-2 items-center">
+									Loading
+
+									<Loader2Icon size={16} class="animate-spin" />
+								</div>
 							{/if}
-							{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
-								<QuickMenuItem
-									on:select={() => gotoWindmillItemPage(el)}
-									on:hover={() => (selectedItem = el)}
-									id={el?.search_id}
-									hovered={el?.path === selectedItem?.path}
-									label={(el.summary ? `${el.summary} - ` : '') +
-										el.path +
-										(el.starred ? ' ★' : '')}
-									icon={iconForWindmillItem(el.type)}
-								/>
-							{/each}
+
 							{#if (itemMap[tab] ?? []).length === 0}
 								<div class="flex w-full justify-center items-center h-48">
 									<div class="text-tertiary text-center">
@@ -525,113 +538,107 @@
 									</div>
 								</div>
 							{/if}
-						{:else if tab === 'content'}
-							<ContentSearchInner
-								classNameInner="max-h-[20rem]"
-								search={removePrefix(searchTerm, '#')}
-								bind:this={contentSearch}
-							/>
-						{:else if tab === 'logs'}
-							<div class="p-2">
-								<Alert title="Service log search is coming soon" type="info">
-									Full text search on windmill's service logs is coming soon
-								</Alert>
-							</div>
-						{:else if tab === 'runs'}
-							<div class="flex h-96">
-								{#if loadingCompletedRuns}
-									<div class="flex w-full justify-center items-center h-48">
-										<div class="text-tertiary text-center">
-											<Loader2 size={34} class="animate-spin" />
-										</div>
+						</div>
+					{:else if tab === 'content'}
+						<ContentSearchInner
+							classNameInner="max-h-[20rem]"
+							search={removePrefix(searchTerm, '#')}
+							bind:this={contentSearch}
+						/>
+					{:else if tab === 'logs'}
+						<div class="p-2">
+							<Alert title="Service log search is coming soon" type="info">
+								Full text search on windmill's service logs is coming soon
+							</Alert>
+						</div>
+					{:else if tab === 'runs'}
+						<div class="flex h-96 p-2">
+							{#if loadingCompletedRuns}
+								<div class="flex w-full justify-center items-center h-48">
+									<div class="text-tertiary text-center">
+										<Loader2 size={34} class="animate-spin" />
 									</div>
-								{:else if itemMap['runs'] && itemMap['runs'].length > 0}
-									<div class="w-5/12 overflow-scroll">
-										{#each itemMap['runs'] ?? [] as r}
-											<QuickMenuItem
-												on:hover={() => {
-													selectedItem = r
-													selectedWorkspace = r?.document.workspace_id[0]
-												}}
-												on:select={() => {
-													open = false
-													goto(`/run/${r?.document.id[0]}`)
-												}}
-												id={r?.document.id[0]}
-												hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
-												icon={r?.icon}
-											>
-												<svelte:fragment slot="itemReplacement">
-													<button
-														class={twMerge(
-															`w-full flex items-center justify-between gap-1 py-2 px-2 text-left border rounded-sm transition-a`,
-															r?.document.id === selectedItem?.document?.id
-																? 'bg-surface-hover'
-																: ''
-														)}
-														on:click={() => {}}
+								</div>
+							{:else if itemMap['runs'] && itemMap['runs'].length > 0}
+								<div class="w-5/12 overflow-scroll">
+									{#each itemMap['runs'] ?? [] as r}
+										<QuickMenuItem
+											on:hover={() => {
+												selectedItem = r
+												selectedWorkspace = r?.document.workspace_id[0]
+											}}
+											on:select={() => {
+												open = false
+												goto(`/run/${r?.document.id[0]}`)
+											}}
+											id={r?.document.id[0]}
+											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
+											icon={r?.icon}
+										>
+											<svelte:fragment slot="itemReplacement">
+												<button
+													class={twMerge(
+														`w-full flex items-center justify-between gap-1 py-2 px-2 text-left border rounded-sm transition-a`,
+														r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
+													)}
+													on:click={() => {}}
+												>
+													<div
+														class="w-full h-full items-center text-xs font-normal grid grid-cols-10 gap-0 min-w-0"
 													>
-														<div
-															class="w-full h-full items-center text-xs font-normal grid grid-cols-10 gap-0 min-w-0"
-														>
-															<div class="col-span-1">
-																<div
-																	class="rounded-full w-2 h-2 {r?.document.success[0]
-																		? 'bg-green-400'
-																		: 'bg-red-400'}"
-																/>
-															</div>
-															<div class="col-span-5">
-																{r?.document.script_path}
-															</div>
+														<div class="col-span-1">
 															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-															>
-																{displayDateOnly(new Date(r?.document.created_at[0]))}
-															</div>
-															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-															>
-																<TimeAgo date={r?.document.created_at[0] ?? ''} />
-															</div>
+																class="rounded-full w-2 h-2 {r?.document.success[0]
+																	? 'bg-green-400'
+																	: 'bg-red-400'}"
+															/>
 														</div>
-													</button>
-												</svelte:fragment>
-											</QuickMenuItem>
-										{/each}
-									</div>
-									{#if selectedItem === undefined}
-										select a result to preview
-									{:else}
-										<div class="w-7/12 overflow-y-scroll">
-											<JobPreview
-												id={selectedItem?.document?.id[0]}
-												workspace={selectedWorkspace}
-											/>
-										</div>
-									{/if}
+														<div class="col-span-5">
+															{r?.document.script_path}
+														</div>
+														<div
+															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+														>
+															{displayDateOnly(new Date(r?.document.created_at[0]))}
+														</div>
+														<div
+															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+														>
+															<TimeAgo date={r?.document.created_at[0] ?? ''} />
+														</div>
+													</div>
+												</button>
+											</svelte:fragment>
+										</QuickMenuItem>
+									{/each}
+								</div>
+								{#if selectedItem === undefined}
+									select a result to preview
 								{:else}
-									<div class="flex w-full justify-center items-center h-96">
-										<div class="text-tertiary text-center">
-											<div class="text-2xl font-bold">No runs found</div>
-											<div class="text-sm">There were no completed runs that match your query</div>
-											<div class="text-sm"
-												>Note that new runs might take a while to become searchable (by default
-												~5min)</div
-											>
-											{#if !$enterpriseLicense}
-												<div class="py-6" />
-
-												<Alert title="This is an EE feature" type="warning">
-													Full-text search on jobs is only available on EE.
-												</Alert>
-											{/if}
-										</div>
+									<div class="w-7/12 overflow-y-scroll">
+										<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
 									</div>
 								{/if}
-							</div>
-						{/if}
-					</div>
+							{:else}
+								<div class="flex w-full justify-center items-center h-96">
+									<div class="text-tertiary text-center">
+										<div class="text-2xl font-bold">No runs found</div>
+										<div class="text-sm">There were no completed runs that match your query</div>
+										<div class="text-sm"
+											>Note that new runs might take a while to become searchable (by default ~5min)</div
+										>
+										{#if !$enterpriseLicense}
+											<div class="py-6" />
+
+											<Alert title="This is an EE feature" type="warning">
+												Full-text search on jobs is only available on EE.
+											</Alert>
+										{/if}
+									</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>

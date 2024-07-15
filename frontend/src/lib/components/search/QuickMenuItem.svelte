@@ -43,16 +43,20 @@
 	}
 </script>
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	{id}
 	on:click|stopPropagation={runAction}
 	on:mouseenter={() => dispatch('hover')}
-	class={`rounded-md w-full ${hovered ? 'bg-surface-hover' : ''}`}
+	class={`rounded-md w-full transition-all cursor-pointer hover:bg-surface-hover ${
+		hovered ? 'bg-surface-hover' : ''
+	}`}
 >
 	{#if $$slots.itemReplacement}
 		<slot name="itemReplacement" />
 	{:else}
-		<div class="flex flex-row gap-2 items-center px-1 py-0.5 rounded-md pr-6 font-light">
+		<div class="flex flex-row gap-2 items-center px-2 py-0.5 rounded-md pr-6 font-light">
 			<div class="w-4">
 				{#if icon}
 					<svelte:component this={icon} size={14} />
