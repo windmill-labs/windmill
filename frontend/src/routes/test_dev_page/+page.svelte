@@ -5,7 +5,14 @@
 		type: 'object',
 		properties: {
 			foo: {
-				type: 'string'
+				type: 'string',
+				description: '',
+				required: [],
+				nullable: false,
+				default: '',
+				disableVariablePicker: false,
+				disableCreate: false,
+				password: false
 			}
 		},
 		order: ['foo']
