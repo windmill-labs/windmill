@@ -245,8 +245,10 @@ datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
 zstd = "=0.12.4"
-aws-config = "^1"
-aws-sdk-sts = "^1"
+aws-config = "=1.4.0"
+aws-sdk-sts = "=1.26.0"
+aws-sdk-ssooidc = "=1.26.0"
+aws-sdk-sso = "=1.26.0"
 
 crc = "^3"
 tar = "^0"
