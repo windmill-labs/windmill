@@ -216,6 +216,19 @@
 						true
 					)
 				}
+
+				/**
+				 * else if (mod.type === 'Failure' || mod.type === 'WaitingForPriorSteps') {
+					if (job?.type === 'CompletedJob') {
+						setModuleState('b', {
+							type: 'Failure',
+							args: job?.args,
+							job_id: job?.id,
+							result: job?.result
+						})
+					}
+				}
+				*/
 			})
 		}
 	}
