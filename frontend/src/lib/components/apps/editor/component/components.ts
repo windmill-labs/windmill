@@ -164,6 +164,7 @@ export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
@@ -354,6 +355,7 @@ export type TypedComponent =
 	| MultiSelectComponentV2
 	| NavBarComponent
 	| DateSelectComponent
+	| JobIdDisplayComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -3992,6 +3994,38 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'select',
 					selectOptions: selectOptions.localeOptions,
 					tooltip: 'Format on the month names'
+				}
+			}
+		}
+	},
+	jobiddisplaycomponent: {
+		name: 'Rich result by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/rich_result_by_job_id`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display logs from'
+				},
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Result'
+				},
+				hideDetails: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'Hide the details section: the object keys, the clipboard button and the maximise button'
 				}
 			}
 		}
