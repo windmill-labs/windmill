@@ -59,7 +59,7 @@ RUN --mount=type=secret,id=rh_username \
 RUN subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
 
 RUN yum update -y && \
-    yum install -y libxml2-devel xmlsec1-devel clang llvm-devel cmake
+    yum install -y libxml2-devel xmlsec1-devel clang llvm-devel cmake libtool-ltdl-devel
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
@@ -74,6 +74,7 @@ COPY .git/ .git/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
+RUN subscription-manager unregister
 
 FROM ${PYTHON_IMAGE}
 
