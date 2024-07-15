@@ -55,7 +55,7 @@
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? JSON.parse(JSON.stringify(value)) : value
+				nargs[key] = value === 'object' ? structuredClone(value) : value
 			}
 		})
 		args = nargs
@@ -498,6 +498,7 @@
 							on:change={() => {
 								try {
 									schema = JSON.parse(schemaString)
+									dispatch('change', schema)
 									error = ''
 								} catch (err) {
 									error = err.message

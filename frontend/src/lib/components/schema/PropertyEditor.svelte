@@ -14,7 +14,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	export let description: string = ''
 	export let format: string | undefined = undefined
@@ -28,10 +28,10 @@
 	export let customErrorMessage: string | undefined = undefined
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
-	export let properties: Record<string, any> = {}
+	export let properties: Record<string, any> | undefined = undefined
 	export let isFlowInput: boolean = false
 	export let isAppInput: boolean = false
-	export let order: string[] = []
+	export let order: string[] | undefined = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -81,6 +81,28 @@
 		order
 	}
 
+	let initialExtra: any = structuredClone({ order: undefined, properties: undefined, ...extra })
+
+	let mounted = false
+	let firstOnContentChange = true
+	onMount(() => {
+		mounted = true
+	})
+
+	$: extra && mounted && onContentChange()
+
+	function onContentChange() {
+		if (firstOnContentChange) {
+			firstOnContentChange = false
+			return
+		}
+		if (!deepEqual(extra, initialExtra)) {
+			initialExtra = structuredClone(extra)
+			console.debug('property content updated')
+			dispatch('change')
+		}
+	}
+
 	$: (properties || order) && updateSchema()
 
 	function updateSchema() {
@@ -89,8 +111,9 @@
 				properties,
 				order
 			}
+			console.debug('property schema updated')
+			dispatch('change')
 		}
-		dispatch('change', schema)
 	}
 </script>
 
@@ -128,6 +151,7 @@
 				placeholder="Enter a placeholder"
 				rows="1"
 				bind:value={placeholder}
+				on:change={() => dispatch('change')}
 				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
 			/>
 		</Label>
