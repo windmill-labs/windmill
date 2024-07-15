@@ -20,8 +20,8 @@ import {
   GranularAclService,
   yamlStringify,
   yamlParse,
+  ExportedUser,
 } from "./deps.ts";
-import { ExportedUser } from "../../windmill-deno-client/windmill-api/models/ExportedUser.ts";
 import { InstanceGroup } from "./deps.ts";
 import { SettingService } from "./deps.ts";
 import { ExportedInstanceGroup } from "./deps.ts";
@@ -175,11 +175,10 @@ export async function pushWorkspaceUser(
   } else {
     console.log(colors.bold.yellow("Creating new user: " + email));
     try {
-      const automatedUsernameCreation: boolean = await SettingService.getGlobal(
-        {
+      const automatedUsernameCreation: boolean =
+        (await SettingService.getGlobal({
           key: "automate_username_creation",
-        }
-      );
+        })) as boolean;
       await WorkspaceService.addUser({
         workspace: workspace,
         requestBody: {
