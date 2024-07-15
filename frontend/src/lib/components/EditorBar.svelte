@@ -9,7 +9,6 @@
 	import { base } from '$lib/navigation'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import ResourceEditor from './ResourceEditor.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
@@ -45,6 +44,7 @@
 	import { getResetCode } from '$lib/script_helpers'
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import Popover from './Popover.svelte'
+	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	export let lang: SupportedLanguage | undefined
 	export let editor: Editor | undefined
@@ -73,7 +73,7 @@
 	let resourcePicker: ItemPicker
 	let resourceTypePicker: ItemPicker
 	let variableEditor: VariableEditor
-	let resourceEditor: ResourceEditor
+	let resourceEditor: ResourceEditorDrawer
 	let showContextVarPicker = false
 	let showVarPicker = false
 	let showResourcePicker = false
@@ -499,7 +499,7 @@ $res = json_decode(curl_exec($ch));`)
 			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
 	/>
 {/if}
-<ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
+<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.353.0
+  version: 1.362.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -481,6 +481,10 @@ components:
           type: array
           items:
             type: string
+        flow_jobs_success:
+          type: array
+          items:
+            type: boolean
         branch_chosen:
           type: object
           properties:

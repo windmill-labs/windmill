@@ -62,58 +62,51 @@
 
 	const history: string[] = []
 
+	function updateCurrentNode(node, index) {
+		currentNodeId = node.next[index].id
+		history.push(node.id)
+		selectedConditionIndex = index + 1
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: nodes.findIndex((node) => node.id == currentNodeId)
+		}
+	}
+
 	function next() {
 		const resolvedNodeConditions = resolvedConditions[currentNodeId]
+		const node = nodes.find((node) => node.id == currentNodeId)
 
-		let found: boolean = false
+		if (!node) {
+			return
+		}
 
-		resolvedNodeConditions.forEach((condition, index) => {
-			if (found) return
-
-			const node = nodes.find((node) => node.id == currentNodeId)
-
-			if (condition && node && resolvedNext[node.id] !== false) {
-				found = true
-				currentNodeId = node.next[index].id
-
-				history.push(node.id)
-
-				selectedConditionIndex = index + 1
-
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: nodes.findIndex((node) => node.id == currentNodeId)
-				}
+		for (let index = 0; index < resolvedNodeConditions.length; index++) {
+			const condition = resolvedNodeConditions[index]
+			if (condition && resolvedNext[node.id] !== false) {
+				updateCurrentNode(node, index)
+				return
 			}
-		})
+		}
+	}
+	function updateFocusedGrid(nodeId) {
+		currentNodeId = nodeId
+		selectedConditionIndex = nodes.findIndex((node) => node.id == currentNodeId)
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: selectedConditionIndex
+		}
 	}
 
 	function prev() {
-		const previsouNodeId = history.pop()
+		const previousNodeId = history.pop()
 
-		if (previsouNodeId) {
-			currentNodeId = previsouNodeId
-
-			selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
-
-			$focusedGrid = {
-				parentComponentId: id,
-				subGridIndex: selectedConditionIndex
-			}
+		if (previousNodeId) {
+			updateFocusedGrid(previousNodeId)
 		} else {
-			// if no history, go to first node
-
+			// if no history, go to the first node
 			const node = getFirstNode(nodes)
-
 			if (node) {
-				currentNodeId = node.id
-
-				selectedConditionIndex = nodes.findIndex((next) => next.id == currentNodeId)
-
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: selectedConditionIndex
-				}
+				updateFocusedGrid(node.id)
 			}
 		}
 	}

@@ -29,6 +29,7 @@
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'retries' = 'error_handler'
 
@@ -37,6 +38,7 @@
 	let edit = true
 	let schedule: string = '0 0 12 * *'
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+	let paused_until: string | undefined = undefined
 
 	let itemKind: 'flow' | 'script' = 'script'
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
@@ -80,6 +82,8 @@
 		runnable = undefined
 		is_flow = nis_flow
 		schedule = '0 0 12 * *'
+		paused_until = undefined
+		showPauseUntil = false
 		let defaultErrorHandlerMaybe = undefined
 		let defaultRecoveryHandlerMaybe = undefined
 		if ($workspaceStore) {
@@ -249,6 +253,8 @@
 			enabled = s.enabled
 			schedule = s.schedule
 			timezone = s.timezone
+			paused_until = s.paused_until
+			showPauseUntil = paused_until !== undefined
 			summary = s.summary ?? ''
 			script_path = s.script_path ?? ''
 			await loadScript(script_path)
@@ -330,7 +336,8 @@
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
-					tag: tag
+					tag: tag,
+					paused_until: paused_until
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -358,7 +365,8 @@
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
-					tag: tag
+					tag: tag,
+					paused_until: paused_until
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -392,6 +400,9 @@
 
 	let pathC: Path
 	let dirtyPath = false
+
+	let showPauseUntil = false
+	$: !showPauseUntil && (paused_until = undefined)
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
@@ -407,9 +418,9 @@
 						variant="border"
 						startIcon={{ icon: List }}
 						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-						href={`${base}/runs/${script_path}`}
+						href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
 					>
-						View Runs
+						View runs
 					</Button>
 				</div>
 				<div class="mr-8 center-center -mt-1">
@@ -509,6 +520,18 @@
 					<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 				</svelte:fragment>
 				<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
+				<Toggle
+					options={{
+						right: 'Pause schedule until...',
+						rightTooltip:
+							'Pausing the schedule will program the next job to run as if the schedule starts at the time the pause is lifted, instead of now.'
+					}}
+					bind:checked={showPauseUntil}
+					size="xs"
+				/>
+				{#if showPauseUntil}
+					<DateTimeInput bind:value={paused_until} />
+				{/if}
 			</Section>
 			<Section label="Runnable">
 				{#if !edit}

@@ -138,7 +138,7 @@ pub struct OptAuthedClient(Option<AuthedClient>);
 pub async fn eval_timeout(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
-    flow_input: Option<Arc<HashMap<String, Box<RawValue>>>>,
+    flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
 ) -> anyhow::Result<Box<RawValue>> {
@@ -563,7 +563,7 @@ async fn op_resource(
 
 pub struct TransformContext {
     pub envs: HashMap<String, Arc<Box<RawValue>>>,
-    pub flow_input: Option<Arc<HashMap<String, Box<RawValue>>>>,
+    pub flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
 }
 
 #[op2]
@@ -575,7 +575,7 @@ fn op_get_context(op_state: Rc<RefCell<OpState>>, #[string] id: &str) -> String 
         client
             .flow_input
             .as_ref()
-            .and_then(|x| serde_json::to_string(&x).ok())
+            .and_then(|x| serde_json::to_string(x.as_ref()).ok())
             .unwrap_or_else(|| "null".to_string())
     } else {
         client

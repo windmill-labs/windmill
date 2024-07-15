@@ -1,20 +1,23 @@
 <script lang="ts">
-	import { defaultIfEmptyString, emptyString, truncateHash } from '$lib/utils'
+	import {
+		computeSharableHash as computeSharableHash,
+		defaultIfEmptyString,
+		emptyString,
+		truncateHash
+	} from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
-	import CliHelpBox from './CliHelpBox.svelte'
 	import { Badge, Button } from './common'
 	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
 
-	import CollapseLink from './CollapseLink.svelte'
-	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI } from '$lib/consts'
 	import TimeAgo from './TimeAgo.svelte'
-	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Popup from './common/popup/Popup.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
+	import { page } from '$app/stores'
+	import { replaceState } from '$app/navigation'
 
 	export let runnable:
 		| {
@@ -44,8 +47,6 @@
 	export let topButton = false
 	export let loading = false
 	export let noVariablePicker = false
-	export let viewCliRun = false
-	export let isFlow: boolean
 	export let viewKeybinding = false
 
 	export let scheduledForStr: string | undefined
@@ -68,9 +69,26 @@
 
 	export let isValid = true
 
-	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
-		args
-	)}'`
+	$: onArgsChange(args)
+	let debounced: NodeJS.Timeout | undefined = undefined
+
+	function onArgsChange(args: any) {
+		try {
+			debounced && clearTimeout(debounced)
+			debounced = setTimeout(() => {
+				const nurl = new URL(window.location.href)
+				nurl.hash = computeSharableHash(args)
+
+				try {
+					replaceState(nurl.toString(), $page.state)
+				} catch (e) {
+					console.error(e)
+				}
+			}, 200)
+		} catch (e) {
+			console.error('Impossible to set hash in args', e)
+		}
+	}
 </script>
 
 <div class="max-w-3xl">
@@ -89,7 +107,7 @@
 						<div class="flex items-center gap-2">
 							<span class="text-sm text-tertiary">
 								{#if runnable}
-									Edited <TimeAgo withDate date={runnable.created_at || ''} /> by {runnable.created_by ||
+									Edited <TimeAgo withDate agoOnlyIfRecent date={runnable.created_at || ''} /> by {runnable.created_by ||
 										'unknown'}
 								{/if}
 							</span>
@@ -212,19 +230,5 @@
 		>
 			{buttonText}
 		</Button>
-	{/if}
-
-	{#if viewCliRun}
-		<div>
-			<div class="mt-4" />
-			{#if SCRIPT_VIEW_SHOW_RUN_FROM_CLI}
-				<CollapseLink small text="Run it from CLI">
-					<div class="mt-2" />
-					<ClipboardPanel content={cliCommand} />
-					<CliHelpBox />
-				</CollapseLink>
-			{/if}
-			<div class="mb-20" />
-		</div>
 	{/if}
 </div>

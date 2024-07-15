@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { base } from '$lib/navigation'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
@@ -21,7 +22,11 @@
 	}
 
 	$: if ($workspaceStore && $page.params.path) {
-		loadApp()
+		if (app && $page.params.path === app.path) {
+			console.log('App already loaded')
+		} else {
+			loadApp()
+		}
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
@@ -57,6 +62,8 @@
 				isEditor={false}
 				noBackend={false}
 				{hideRefreshBar}
+				replaceStateFn={(path) => replaceState(path, $page.state)}
+				gotoFn={(path, opt) => goto(path, opt)}
 			/>
 			{#if can_write && !hideEditBtn}
 				<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">

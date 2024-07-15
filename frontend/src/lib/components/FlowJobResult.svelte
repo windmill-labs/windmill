@@ -64,9 +64,11 @@
 </Drawer>
 <div
 	class:border={!noBorder}
-	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow border border-tertiary-inverse h-full"
+	class="grid {!col
+		? 'grid-cols-2'
+		: 'grid-rows-2'} shadow border border-tertiary-inverse grow overflow-hidden"
 >
-	<div class="bg-surface {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
+	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>
 		{#if result !== undefined}
 			<DisplayResult {workspaceId} {jobId} {filename} {result} />
@@ -76,7 +78,7 @@
 			<div class="text-gray-400">No result (result is undefined)</div>
 		{/if}
 	</div>
-	<div class="overflow-auto {col ? '' : 'max-h-80'} h-full relative">
+	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
 		<div class="absolute z-40 text-sm top-1.5 left-2"
 			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
 		>

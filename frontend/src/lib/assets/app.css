@@ -28,33 +28,7 @@
 		list-style-type: '- ';
 		padding-left: 3rem;
 	}
-	.splitpanes--vertical > .splitpanes__pane {
-		transition: none !important;
-	}
 
-	.splitpanes--horizontal > .splitpanes__pane {
-		transition: none !important;
-	}
-
-	.monaco-workbench > .notifications-toasts.visible {
-		display: none !important;
-	}
-
-	.monaco-editor .suggest-widget {
-		z-index: 10001 !important;
-	}
-
-	.nowrap pre code.hljs {
-		whitespace: normal !important;
-	}
-
-	.z5000 {
-		z-index: 5000 !important;
-	}
-
-	.foo {
-		color: red !important;
-	}
 	.autocomplete-list-item-create {
 		@apply !text-primary-inverse !bg-surface-inverse;
 	}
@@ -74,34 +48,8 @@
 	.autocomplete-list {
 		@apply !bg-surface;
 	}
-	pre code.hljs {
-		overflow: visible !important;
-	}
-
-	svelte-virtual-list-row {
-		overflow: visible !important;
-	}
-
-	svelte-virtual-list-contents > * + * {
-		border-top-width: 1px !important;
-		border-bottom-width: 0px !important;
-	}
-
-	.monaco-editor textarea:focus {
-		box-shadow: none !important;
-	}
-
-	.Template-editor span.mtk20 {
-		color: black !important;
-	}
 }
 
-@layer components {
-	/* Flow graph viewer -> Svelvet library internal class overwrite */
-	.Node {
-		display: flex !important;
-	}
-}
 @layer utilities {
 	@variants responsive {
 		/* Hide scrollbar for Chrome, Safari and Opera */
@@ -117,28 +65,35 @@
 	}
 }
 
-.grid-cell-centered {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-.grid-cell-centered .svelte-select {
-	height: 32px !important;
+.splitpanes--vertical > .splitpanes__pane {
+	transition: none !important;
 }
 
-.grid-cell-centered .selected-item {
-	margin-top: -4px;
+.splitpanes--horizontal > .splitpanes__pane {
+	transition: none !important;
 }
 
-.ol-overlaycontainer-stopevent {
-	@apply flex flex-col justify-start items-end;
-}
-.ol-control button {
-	@apply w-7 h-7 center-center bg-surface border text-secondary 
-	rounded mt-1 mr-1 shadow duration-200 hover:bg-surface-hover focus:bg-surface-hover;
+.monaco-workbench > .notifications-toasts.visible {
+	display: none !important;
 }
 
-/* Components */
+.monaco-editor .suggest-widget {
+	z-index: 10001 !important;
+}
+
+svelte-virtual-list-row {
+	overflow: visible !important;
+}
+
+svelte-virtual-list-contents > * + * {
+	border-top-width: 1px !important;
+	border-bottom-width: 0px !important;
+}
+
+.monaco-editor textarea:focus {
+	box-shadow: none !important;
+}
+
 .component-wrapper {
 	@apply rounded-component border overflow-hidden border-gray-300 dark:border-gray-600;
 }

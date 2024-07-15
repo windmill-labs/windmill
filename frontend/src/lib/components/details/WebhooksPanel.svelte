@@ -17,10 +17,18 @@
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
+	import HighlightTheme from '../HighlightTheme.svelte'
 
 	let userSettings: UserSettings
 
-	export let webhooks: {
+	export let token: string
+	export let args: any
+	export let scopes: string[] = []
+	export let isFlow: boolean = false
+	export let hash: string | undefined = undefined
+	export let path: string
+
+	let webhooks: {
 		async: {
 			hash?: string
 			path: string
@@ -31,10 +39,39 @@
 			get_path?: string
 		}
 	}
-	export let token: string
-	export let args: any
-	export let scopes: string[] = []
-	export let isFlow: boolean = false
+
+	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
+
+	function computeScriptWebhooks(hash: string | undefined, path: string) {
+		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/`
+		return {
+			async: {
+				hash: `${base}run/h/${hash}`,
+				path: `${base}run/p/${path}`
+			},
+			sync: {
+				hash: `${base}run_wait_result/h/${hash}`,
+				path: `${base}run_wait_result/p/${path}`,
+				get_path: `${base}run_wait_result/p/${path}`
+			}
+		}
+	}
+
+	function computeFlowWebhooks(path: string) {
+		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/`
+
+		let urlAsync = `${base}run/f/${path}`
+		let urlSync = `${base}run_wait_result/f/${path}`
+		return {
+			async: {
+				path: urlAsync
+			},
+			sync: {
+				path: urlSync,
+				get_path: urlSync
+			}
+		}
+	}
 
 	let webhookType: 'async' | 'sync' = DEFAULT_WEBHOOK_TYPE
 	let requestType: 'hash' | 'path' | 'get_path' = isFlow ? 'path' : 'path'
@@ -181,6 +218,8 @@ done`
 }`
 	}
 </script>
+
+<HighlightTheme />
 
 <UserSettings
 	bind:this={userSettings}

@@ -70,13 +70,14 @@ pub async fn handle_dedicated_process(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     job_completed_tx: JobCompletedSender,
     token: &str,
-    mut jobs_rx: Receiver<Arc<QueuedJob>>,
+    mut jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
     worker_name: &str,
     db: &DB,
     script_path: &str,
     mode: &str,
 ) -> std::result::Result<(), error::Error> {
     //do not cache local dependencies
+
     let mut child = {
         let mut cmd = Command::new(command_path);
         cmd.current_dir(job_dir)
@@ -130,7 +131,7 @@ pub async fn handle_dedicated_process(
         }
     });
 
-    let mut jobs = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
+    let mut jobs: VecDeque<Arc<QueuedJob>> = VecDeque::with_capacity(MAX_BUFFERED_DEDICATED_JOBS);
     // let mut i = 0;
     // let mut j = 0;
     let mut alive = true;
@@ -150,12 +151,18 @@ pub async fn handle_dedicated_process(
             },
             line = err_reader.next_line() => {
                 if let Some(line) = line.expect("line is ok") {
-                    tracing::debug!("stderr dedicated worker: {line}");
+                    tracing::error!("stderr dedicated worker: {line}");
                     logs.push_str("[stderr] ");
                     logs.push_str(&line);
                     logs.push_str("\n");
                 } else {
-                    tracing::info!("dedicated worker process exited");
+                    tracing::info!("dedicated worker process exited {script_path}");
+                    let mut last_stdout = "".to_string();
+                    while let Some(line) = reader.next_line().await.ok().flatten() {
+                        last_stdout = line;
+                        last_stdout.push_str("\n");
+                    }
+                    tracing::info!("Last stdout for {script_path}: {last_stdout}");
                     break;
                 }
             },
@@ -164,7 +171,7 @@ pub async fn handle_dedicated_process(
 
                 if let Some(line) = line.expect("line is ok") {
                     if line == "start" {
-                        tracing::info!("dedicated worker process started");
+                        tracing::info!("dedicated worker process started {script_path}");
                         continue;
                     }
                     tracing::debug!("processed job: |{line}|");
@@ -173,6 +180,7 @@ pub async fn handle_dedicated_process(
                         tracing::info!("job completed on dedicated worker {script_path}: {}", job.id);
                         match serde_json::from_str::<Box<serde_json::value::RawValue>>(&line.replace("wm_res[success]:", "").replace("wm_res[error]:", "")) {
                             Ok(result) => {
+                                let result = Arc::new(result);
                                 append_logs(&job.id, &job.workspace_id,  logs.clone(), db).await;
                                 if line.starts_with("wm_res[success]:") {
                                     job_completed_tx.send(JobCompleted { job , result, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string() }).await.unwrap()
@@ -182,7 +190,7 @@ pub async fn handle_dedicated_process(
                             },
                             Err(e) => {
                                 tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                                job_completed_tx.send(JobCompleted { job , result: to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")})),  mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
+                                job_completed_tx.send(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))),  mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string() }).await.unwrap();
                             },
                         };
                         logs = init_log.clone();
@@ -191,7 +199,13 @@ pub async fn handle_dedicated_process(
                         logs.push_str("\n");
                     }
                 } else {
-                    tracing::info!("dedicated worker process exited");
+                    tracing::info!("dedicated worker {script_path} process exited");
+                    let mut last_stderr = "".to_string();
+                    while let Some(line) = err_reader.next_line().await.ok().flatten() {
+                        last_stderr = line;
+                        last_stderr.push_str("\n");
+                    }
+                    tracing::info!("Last stderr for {script_path}: {last_stderr}");
                     break;
                 }
             },
@@ -217,12 +231,17 @@ pub async fn handle_dedicated_process(
 
     child
         .await
-        .map_err(|e| anyhow::anyhow!("child process encountered an error: {e:#}"))?;
-    tracing::info!("dedicated worker child process exited successfully");
+        .map_err(|e| anyhow::anyhow!("child process {script_path} encountered an error: {e:#}"))?;
+
+    tracing::info!("dedicated worker {script_path} child process exited successfully");
     Ok(())
 }
 
-type DedicatedWorker = (String, Sender<Arc<QueuedJob>>, Option<JoinHandle<()>>);
+type DedicatedWorker = (
+    String,
+    Sender<std::sync::Arc<QueuedJob>>,
+    Option<JoinHandle<()>>,
+);
 
 // spawn one dedicated worker per compatible steps of the flow, associating the node id to the dedicated worker channel send
 #[async_recursion]
@@ -240,7 +259,8 @@ async fn spawn_dedicated_workers_for_flow(
     job_completed_tx: &JobCompletedSender,
 ) -> Vec<DedicatedWorker> {
     let mut workers = vec![];
-    let mut script_path_to_worker: HashMap<String, Sender<Arc<QueuedJob>>> = HashMap::new();
+    let mut script_path_to_worker: HashMap<String, Sender<std::sync::Arc<QueuedJob>>> =
+        HashMap::new();
     for module in modules.iter() {
         let value = module.get_value();
         if let Ok(value) = value {
@@ -278,8 +298,8 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::ForloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
-                        path,
                         w_id,
+                        path,
                         killpill_tx.clone(),
                         killpill_rx,
                         db,
@@ -294,8 +314,8 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::WhileloopFlow { modules, .. } => {
                     let w = spawn_dedicated_workers_for_flow(
                         &modules,
-                        path,
                         w_id,
+                        path,
                         killpill_tx.clone(),
                         killpill_rx,
                         db,
@@ -315,8 +335,8 @@ async fn spawn_dedicated_workers_for_flow(
                     {
                         let w = spawn_dedicated_workers_for_flow(
                             &modules,
-                            path,
                             w_id,
+                            path,
                             killpill_tx.clone(),
                             killpill_rx,
                             db,
@@ -333,8 +353,8 @@ async fn spawn_dedicated_workers_for_flow(
                     for branch in branches {
                         let w = spawn_dedicated_workers_for_flow(
                             &branch.modules,
-                            path,
                             w_id,
+                            path,
                             killpill_tx.clone(),
                             killpill_rx,
                             db,
@@ -389,7 +409,7 @@ pub async fn create_dedicated_worker_map(
     worker_name: &str,
     job_completed_tx: &JobCompletedSender,
 ) -> (
-    HashMap<String, Sender<Arc<QueuedJob>>>,
+    HashMap<String, Sender<std::sync::Arc<QueuedJob>>>,
     bool,
     Vec<JoinHandle<()>>,
 ) {
@@ -400,7 +420,11 @@ pub async fn create_dedicated_worker_map(
         if let Some(flow_path) = _wp.path.strip_prefix("flow/") {
             is_flow_worker = true;
             let value = sqlx::query_scalar!(
-                "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                "SELECT flow_version.value 
+                FROM flow 
+                LEFT JOIN flow_version 
+                    ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+                WHERE flow.path = $1 AND flow.workspace_id = $2",
                 flow_path,
                 _wp.workspace_id
             )
@@ -476,6 +500,8 @@ pub async fn create_dedicated_worker_map(
         (HashMap::new(), false, dedicated_handles)
     }
 }
+
+#[derive(Debug, Clone)]
 pub enum SpawnWorker {
     Script { path: String, hash: Option<ScriptHash> },
     RawScript { path: String, content: String, lock: Option<String>, lang: ScriptLang },
@@ -515,13 +541,20 @@ async fn spawn_dedicated_worker(
     #[cfg(feature = "enterprise")]
     {
         let (dedicated_worker_tx, dedicated_worker_rx) =
-            tokio::sync::mpsc::channel::<Arc<QueuedJob>>(MAX_BUFFERED_DEDICATED_JOBS);
+            tokio::sync::mpsc::channel::<std::sync::Arc<QueuedJob>>(MAX_BUFFERED_DEDICATED_JOBS);
         let killpill_rx = killpill_rx.resubscribe();
         let db = db.clone();
         let base_internal_url = base_internal_url.to_string();
         let worker_name = worker_name.to_string();
         let job_completed_tx = job_completed_tx.clone();
-        let job_dir = format!("{}/dedicated", worker_dir);
+        let job_dir = format!(
+            "{}/dedicated{}",
+            worker_dir,
+            node_id
+                .as_ref()
+                .map(|x| format!("-{x}"))
+                .unwrap_or_else(|| "".to_string())
+        );
         tokio::fs::create_dir_all(&job_dir)
             .await
             .expect("create dir");
@@ -534,7 +567,7 @@ async fn spawn_dedicated_worker(
         let path2 = path.clone();
         let w_id = w_id.to_string();
 
-        let (content, lock, language, envs, codebase) = match sw {
+        let (content, lock, language, envs, codebase) = match sw.clone() {
             SpawnWorker::Script { path, hash } => {
                 let q = if let Some(hash) = hash {
                     get_script_content_by_hash(&hash, &w_id, &db).await.map(
@@ -664,7 +697,7 @@ async fn spawn_dedicated_worker(
                 }
                 _ => unreachable!("Non supported language for dedicated worker"),
             } {
-                tracing::error!("error in dedicated worker: {:?}", e);
+                tracing::error!("error in dedicated worker for {sw:#?}: {:?}", e);
             };
             if let Err(e) = killpill_tx.clone().send(()) {
                 tracing::error!("failed to send final killpill to dedicated worker: {:?}", e);

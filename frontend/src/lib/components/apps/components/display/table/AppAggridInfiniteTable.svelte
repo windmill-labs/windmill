@@ -90,6 +90,12 @@
 
 			if (!runnableComponent && result) {
 				params.successCallback(result, result.length)
+				return
+			}
+
+			if (!runnableComponent && !result) {
+				params.successCallback([], 0)
+				return
 			}
 
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {

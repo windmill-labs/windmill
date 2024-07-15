@@ -9,3 +9,4 @@ tests-out/
 storageState.json
 .env.production
 dist/
+static/tsdocs/

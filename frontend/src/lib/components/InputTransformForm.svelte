@@ -287,6 +287,7 @@
 												arg.value = undefined
 											}
 											arg.expr = undefined
+											arg.type = 'static'
 										}
 									} else {
 										if (arg) {

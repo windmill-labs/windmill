@@ -32,6 +32,7 @@
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -342,6 +343,7 @@
 	let seeS3PreviewFileFromList = ''
 </script>
 
+<HighlightTheme />
 {#if is_render_all}
 	<div class="flex flex-col w-full gap-6">
 		{#if !noControls}

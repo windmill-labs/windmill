@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
+	import { goto, base } from '$lib/navigation'
+	import { goto, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -26,8 +27,7 @@
 		hubBaseUrlStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/navigation'
-	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
+	import { emptyString, tryEvery } from '$lib/utils'
 	import {
 		Code2,
 		Slack,
@@ -569,6 +569,31 @@
 			interval: 500,
 			timeout: 5000
 		})
+	}
+
+	let debounced: NodeJS.Timeout | undefined = undefined
+	export function setQueryWithoutLoad(
+		url: URL,
+		args: { key: string; value: string | null | undefined }[],
+		bounceTime?: number
+	): void {
+		debounced && clearTimeout(debounced)
+		debounced = setTimeout(() => {
+			const nurl = new URL(url.toString())
+			for (const { key, value } of args) {
+				if (value) {
+					nurl.searchParams.set(key, value)
+				} else {
+					nurl.searchParams.delete(key)
+				}
+			}
+
+			try {
+				replaceState(nurl.toString(), $page.state)
+			} catch (e) {
+				console.error(e)
+			}
+		}, bounceTime ?? 200)
 	}
 </script>
 

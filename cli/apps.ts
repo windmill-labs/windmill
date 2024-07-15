@@ -104,7 +104,7 @@ export async function pushApp(
   }
 }
 
-async function list(opts: GlobalOptions) {
+async function list(opts: GlobalOptions & { includeDraftOnly?: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -116,6 +116,7 @@ async function list(opts: GlobalOptions) {
       workspace: workspace.workspaceId,
       page,
       perPage,
+      includeDraftOnly: opts.includeDraftOnly ?? false,
     });
     page += 1;
     total.push(...res);

@@ -46,7 +46,7 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectedId} and is a branching step (if-else). 
+The current step is ${$selectedId} and is a branching step (if-else). 
 The user wants to generate a predicate for the branching condition.
 Here's the user's request: ${instructions}
 You can find the details of all the steps below:

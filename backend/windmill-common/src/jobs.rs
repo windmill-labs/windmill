@@ -113,14 +113,6 @@ pub struct QueuedJob {
 }
 
 impl QueuedJob {
-    pub fn get_args(&self) -> HashMap<String, Box<RawValue>> {
-        if let Some(args) = self.args.as_ref() {
-            args.0.clone()
-        } else {
-            HashMap::new()
-        }
-    }
-
     pub fn script_path(&self) -> &str {
         self.script_path
             .as_ref()
@@ -287,8 +279,8 @@ impl CompletedJob {
 }
 
 #[derive(sqlx::FromRow)]
-pub struct BranchResults<'a> {
-    pub result: &'a RawValue,
+pub struct BranchResults {
+    pub result: sqlx::types::Json<Box<RawValue>>,
     pub id: Uuid,
 }
 
@@ -318,6 +310,7 @@ pub enum JobPayload {
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
+        version: i64,
     },
     AppDependencies {
         path: String,
@@ -383,9 +376,9 @@ type Tag = String;
 
 pub type DB = Pool<Postgres>;
 
-pub async fn script_path_to_payload(
+pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgres>>(
     script_path: &str,
-    db: &DB,
+    db: E,
     w_id: &str,
 ) -> error::Result<(JobPayload, Option<Tag>, Option<bool>, Option<i32>)> {
     let (job_payload, tag, delete_after_use, script_timeout) = if script_path.starts_with("hub/") {
@@ -471,13 +464,13 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     ))
 }
 
-pub async fn get_payload_tag_from_prefixed_path(
+pub async fn get_payload_tag_from_prefixed_path<'e, E: sqlx::Executor<'e, Database = Postgres>>(
     path: &str,
-    db: &DB,
+    db: E,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>), Error> {
     let (payload, tag, _, _) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), &db, w_id).await?
+        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id).await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
         let r = sqlx::query!(

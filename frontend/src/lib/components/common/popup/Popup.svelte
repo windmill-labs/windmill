@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Popover, PopoverButton, PopoverPanel, Transition } from '@rgossiaux/svelte-headlessui'
-	import Portal from 'svelte-portal'
+	import ConditionalPortal from '../drawer/ConditionalPortal.svelte'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
 
 	export let floatingConfig: ComputeConfig = {
@@ -13,6 +13,7 @@
 	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 
 	export let blockOpen = false
+	export let shouldUsePortal: boolean = true
 </script>
 
 <Popover on:close class="leading-none">
@@ -21,7 +22,7 @@
 			<slot name="button" />
 		</div>
 	</PopoverButton>
-	<Portal>
+	<ConditionalPortal condition={shouldUsePortal}>
 		<div use:floatingContent class="z5000">
 			<Transition
 				show={blockOpen || undefined}
@@ -39,5 +40,5 @@
 				</PopoverPanel>
 			</Transition>
 		</div>
-	</Portal>
+	</ConditionalPortal>
 </Popover>
