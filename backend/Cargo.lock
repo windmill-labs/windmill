@@ -5642,7 +5642,7 @@ checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall 0.5.2",
+ "redox_syscall 0.5.3",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -6602,9 +6602,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c82cf8cff14456045f55ec4241383baeff27af886adb72ffb2162f99911de0fd"
+checksum = "2a908a6e00f1fdd0dfd9c0eb08ce85126f6d8bbda50017e74bc4a4b7d4a926a4"
 dependencies = [
  "bitflags 2.6.0",
 ]
@@ -10295,7 +10295,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -10335,7 +10335,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -10414,7 +10414,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -10432,7 +10432,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "chrono",
  "serde",
@@ -10445,7 +10445,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "aws-config",
@@ -10484,7 +10484,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "regex",
  "rsmq_async",
@@ -10499,7 +10499,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -10516,7 +10516,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -10524,7 +10524,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10535,7 +10535,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -10547,7 +10547,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10558,7 +10558,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10572,7 +10572,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -10583,7 +10583,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10600,7 +10600,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -10611,7 +10611,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -10630,7 +10630,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -10649,7 +10649,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -10682,7 +10682,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "serde",
  "wasm-bindgen",
@@ -10693,7 +10693,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.363.0"
+version = "1.364.0"
 dependencies = [
  "anyhow",
  "async-recursion",

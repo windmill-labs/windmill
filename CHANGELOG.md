@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.364.0](https://github.com/windmill-labs/windmill/compare/v1.363.0...v1.364.0) (2024-07-15)
+
+
+### Features
+
+* rehydrate instance settings/configs/users from CLI ([#4035](https://github.com/windmill-labs/windmill/issues/4035)) ([0f7f7c3](https://github.com/windmill-labs/windmill/commit/0f7f7c37a97efda3fa41f1856aec658425349abd))
+
+
+### Bug Fixes
+
+* improve generate flow locks ([304b90f](https://github.com/windmill-labs/windmill/commit/304b90fa2751a024f294efe8bbe587d9524f3418))
+
 ## [1.363.0](https://github.com/windmill-labs/windmill/compare/v1.362.0...v1.363.0) (2024-07-15)
 
 
