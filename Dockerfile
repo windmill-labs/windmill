@@ -10,8 +10,6 @@ RUN yum update -y && \
     yum install -y git openssl-devel npm nodejs rustfmt
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef --version ^0.1
-RUN cargo install sccache --version ^0.8
-ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/backend/sccache
 
 WORKDIR /windmill
 
@@ -47,7 +45,6 @@ COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
 
 FROM rust_base AS builder
@@ -59,7 +56,6 @@ RUN yum update -y && \
     yum install -y libxml2-devel xmlsec1 clang llvm-devel cmake
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
@@ -70,7 +66,6 @@ COPY --from=frontend /backend/windmill-api/openapi-deref.yaml ./windmill-api/ope
 COPY .git/ .git/
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
