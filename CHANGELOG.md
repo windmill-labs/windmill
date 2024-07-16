@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.364.2](https://github.com/windmill-labs/windmill/compare/v1.364.1...v1.364.2) (2024-07-16)
+
+
+### Bug Fixes
+
+* **frontend:** Handle three significant digits for jobs that ran in less than 1 min ([#4084](https://github.com/windmill-labs/windmill/issues/4084)) ([2859d78](https://github.com/windmill-labs/windmill/commit/2859d78f3fe8c261ce4ca1af6a4a5ee53b6aeb29))
+
 ## [1.364.1](https://github.com/windmill-labs/windmill/compare/v1.364.0...v1.364.1) (2024-07-15)
 
 
