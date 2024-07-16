@@ -182,6 +182,14 @@
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
 
+	$: $selectedId && onSelectedIdChange()
+
+	function onSelectedIdChange() {
+		if (!$flowStateStore[$selectedId]?.schema) {
+			reload(flowModule)
+		}
+	}
+
 	let debouncedWarning = debounce((argName: string) => {
 		if ($flowInputsStore) {
 			computeFlowStepWarning(
