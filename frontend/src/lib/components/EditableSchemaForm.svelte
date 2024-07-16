@@ -330,6 +330,7 @@
 									<div class="p-4 border-t">
 										{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 											{#if typeof args == 'object' && schema?.properties[argName]}
+
 												<PropertyEditor
 													bind:description={schema.properties[argName].description}
 													type={schema.properties[argName].type}
