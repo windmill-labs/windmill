@@ -40,8 +40,6 @@
 
 	let open: boolean = false
 
-	openModal()
-
 	let searchTerm: string = ''
 	let textInput: HTMLInputElement
 	let selectedWorkspace: string | undefined = undefined
@@ -80,7 +78,7 @@
 		},
 		{
 			search_id: 'switchto:log-search',
-			label: 'Search windmill logs',
+			label: 'Search Windmill logs',
 			action: () => switchMode('logs'),
 			shortcutKey: LOGS_PREFIX,
 			icon: Search
@@ -487,7 +485,7 @@
 						>
 					</div>
 				</div>
-				<div class="overflow-y-scroll max-h-[30rem] relative#faton">
+				<div class="overflow-y-auto max-h-[30rem] relative">
 					{#if tab === 'default' || tab === 'switch-mode'}
 						<div class="p-2">
 							{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
@@ -540,11 +538,7 @@
 							{/if}
 						</div>
 					{:else if tab === 'content'}
-						<ContentSearchInner
-							classNameInner="max-h-[20rem]"
-							search={removePrefix(searchTerm, '#')}
-							bind:this={contentSearch}
-						/>
+						<ContentSearchInner search={removePrefix(searchTerm, '#')} bind:this={contentSearch} />
 					{:else if tab === 'logs'}
 						<div class="p-2">
 							<Alert title="Service log search is coming soon" type="info">
@@ -560,7 +554,7 @@
 									</div>
 								</div>
 							{:else if itemMap['runs'] && itemMap['runs'].length > 0}
-								<div class="w-5/12 overflow-scroll">
+								<div class="w-5/12 overflow-y-auto border rounded-md divide-y">
 									{#each itemMap['runs'] ?? [] as r}
 										<QuickMenuItem
 											on:hover={() => {
@@ -574,40 +568,36 @@
 											id={r?.document.id[0]}
 											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
 											icon={r?.icon}
+											containerClass="!rounded-none"
 										>
 											<svelte:fragment slot="itemReplacement">
-												<button
+												<div
 													class={twMerge(
-														`w-full flex items-center justify-between gap-1 py-2 px-2 text-left border rounded-sm transition-a`,
+														`w-full flex flex-row items-center gap-4 p-2 transition-all`,
 														r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
 													)}
-													on:click={() => {}}
 												>
 													<div
-														class="w-full h-full items-center text-xs font-normal grid grid-cols-10 gap-0 min-w-0"
-													>
-														<div class="col-span-1">
+														class="rounded-full w-2 h-2 {r?.document.success[0]
+															? 'bg-green-400'
+															: 'bg-red-400'}"
+													/>
+													<div class="flex flex-col gap-2">
+														<div class="text-xs"> {r?.document.script_path} </div>
+														<div class="flex flex-row gap-2">
 															<div
-																class="rounded-full w-2 h-2 {r?.document.success[0]
-																	? 'bg-green-400'
-																	: 'bg-red-400'}"
-															/>
-														</div>
-														<div class="col-span-5">
-															{r?.document.script_path}
-														</div>
-														<div
-															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-														>
-															{displayDateOnly(new Date(r?.document.created_at[0]))}
-														</div>
-														<div
-															class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-														>
-															<TimeAgo date={r?.document.created_at[0] ?? ''} />
+																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+															>
+																{displayDateOnly(new Date(r?.document.created_at[0]))}
+															</div>
+															<div
+																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+															>
+																<TimeAgo date={r?.document.created_at[0] ?? ''} />
+															</div>
 														</div>
 													</div>
-												</button>
+												</div>
 											</svelte:fragment>
 										</QuickMenuItem>
 									{/each}

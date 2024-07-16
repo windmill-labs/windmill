@@ -8,6 +8,7 @@
 	export let label: string = ''
 	export let icon: any = undefined
 	export let shortcutKey: string | undefined = undefined
+	export let containerClass: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -49,9 +50,12 @@
 	{id}
 	on:click|stopPropagation={runAction}
 	on:mouseenter={() => dispatch('hover')}
-	class={`rounded-md w-full transition-all cursor-pointer hover:bg-surface-hover ${
-		hovered ? 'bg-surface-hover' : ''
-	}`}
+	class={twMerge(
+		`rounded-md w-full transition-all cursor-pointer hover:bg-surface-hover ${
+			hovered ? 'bg-surface-hover' : ''
+		}`,
+		containerClass
+	)}
 >
 	{#if $$slots.itemReplacement}
 		<slot name="itemReplacement" />

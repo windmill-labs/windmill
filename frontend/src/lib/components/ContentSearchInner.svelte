@@ -1,16 +1,25 @@
 <script lang="ts">
 	import { AppService, FlowService, ResourceService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { Boxes, Code2, Edit, LayoutDashboard, Loader2 } from 'lucide-svelte'
+	import {
+		ArrowDown,
+		Boxes,
+		Code2,
+		Edit,
+		ExternalLink,
+		LayoutDashboard,
+		Loader2
+	} from 'lucide-svelte'
 	import SearchItems from './SearchItems.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './home/FlowIcon.svelte'
 	import { Alert, Button } from './common'
 	import YAML from 'yaml'
+	import { twMerge } from 'tailwind-merge'
+	import ContentSearchInnerItem from './ContentSearchInnerItem.svelte'
 
 	export let search: string = ''
-	export let classNameInner = 'max-h-[80vh]'
 
 	export async function open(nsearch?: string) {
 		await Promise.all([loadScripts(), loadResources(), loadApps(), loadFlows()])
@@ -204,7 +213,7 @@
 		</div>
 	</div>
 
-	<div class={classNameInner}>
+	<div class={twMerge('p-2')}>
 		{#if !$enterpriseLicense}
 			<div class="py-1" />
 
@@ -219,125 +228,171 @@
 			<div class="flex flex-col gap-4">
 				{#if (searchKind == 'all' || searchKind == 'scripts') && filteredScriptItems?.length > 0}
 					{#each filteredScriptItems.slice(0, showNbScripts) ?? [] as item}
-						<div>
-							<div class="text-sm font-semibold"
-								><a href="/scripts/get/{item.path}">Script: {item.path}</a></div
-							>
-							<div class="flex gap-2 justify-between">
-								<pre class="text-xs border rounded-md p-2 overflow-auto max-h-40 w-full"
-									><code>{@html item.marked}</code></pre
+						<ContentSearchInnerItem
+							title={`Script: ${item.path}`}
+							href={`/scripts/get/${item.path}`}
+						>
+							<svelte:fragment slot="actions">
+								<Button
+									href={`/scripts/get/${item.path}`}
+									color="light"
+									size="xs"
+									startIcon={{ icon: ExternalLink }}
 								>
+									Open
+								</Button>
 
-								<div class="flex gap-2">
-									<Button
-										on:click|once={() => {
-											window.open(`/scripts/edit/${item.path}?no_draft=true`, '_blank')?.focus()
-										}}
-										color="light"
-										size="sm"
-										startIcon={{ icon: Edit }}
-									>
-										Edit
-									</Button>
-								</div>
-							</div>
-						</div>
+								<Button
+									href={`/scripts/edit/${item.path}?no_draft=true`}
+									target="_blank"
+									color="light"
+									size="xs"
+									startIcon={{ icon: Edit }}
+								>
+									Edit
+								</Button>
+							</svelte:fragment>
+							<pre class="text-xs border rounded-md p-2 overflow-auto max-h-40 w-full"
+								><code>{@html item.marked}</code>
+							</pre>
+						</ContentSearchInnerItem>
 					{/each}
 					{#if filteredScriptItems.length > showNbScripts}
-						<a
-							href="#"
-							class="text-center font-semibold cursor-pointer pb-40"
+						<Button
+							color="light"
+							size="xs"
 							on:click={() => {
 								showNbScripts += 30
 							}}
+							startIcon={{
+								icon: ArrowDown
+							}}
 						>
-							({showNbScripts} of {filteredScriptItems.length}) Show more scripts
-						</a>
+							Show more scripts ({showNbScripts} of {filteredScriptItems.length})
+						</Button>
 					{/if}
 				{/if}
 				{#if (searchKind == 'all' || searchKind == 'resources') && filteredResourceItems?.length > 0}
 					{#each filteredResourceItems.slice(0, showNbResources) ?? [] as item}
-						<div>
-							<div class="text-sm font-semibold">Resource: {item.path}</div>
-							<div class="flex gap-2 justify-between">
-								<pre class="text-xs border p-2 overflow-auto max-h-40 w-full max-w-2xl"
-									><code>{@html item.marked}</code></pre
+						<ContentSearchInnerItem
+							title={`Resource: ${item.path}`}
+							href={`/resources#${item.path}`}
+						>
+							<svelte:fragment slot="actions">
+								<Button
+									href={`/resources#${item.path}`}
+									color="light"
+									target="_blank"
+									size="xs"
+									startIcon={{ icon: Edit }}
 								>
-							</div>
-						</div>
+									Edit
+								</Button>
+							</svelte:fragment>
+							<pre class="text-xs border rounded-md p-2 overflow-auto max-h-40 w-full"
+								><code>{@html item.marked}</code></pre
+							>
+						</ContentSearchInnerItem>
 					{/each}
 					{#if filteredResourceItems.length > showNbResources}
-						<a
-							href="#"
-							class="text-center font-semibold cursor-pointer pb-40"
+						<Button
+							color="light"
+							size="xs"
 							on:click={() => {
 								showNbResources += 30
 							}}
+							startIcon={{
+								icon: ArrowDown
+							}}
 						>
-							({showNbResources} of {filteredResourceItems.length}) Show more resources
-						</a>
+							Show more resources ({showNbResources} of {filteredResourceItems.length})
+						</Button>
 					{/if}
 				{/if}
 				{#if (searchKind == 'all' || searchKind == 'flows') && filteredFlowItems?.length > 0}
 					{#each filteredFlowItems.slice(0, showNbFlows) ?? [] as item}
-						<div>
-							<div class="text-sm font-semibold"
-								><a href="/flows/get/{item.path}">Flow: {item.path}</a></div
-							>
-							<div class="flex gap-2 justify-between">
-								<pre class="text-xs border p-2 overflow-auto max-h-40 w-full max-w-2xl"
-									><code>{@html item.marked}</code></pre
+						<ContentSearchInnerItem title={`Flow: ${item.path}`} href={`/flows/get/${item.path}`}>
+							<svelte:fragment slot="actions">
+								<Button
+									href={`/flows/get/${item.path}`}
+									color="light"
+									size="xs"
+									startIcon={{ icon: ExternalLink }}
 								>
-								<div>
-									<div class="flex gap-2">
-										<Button
-											on:click|once={() => {
-												window.open(`/flows/edit/${item.path}?no_draft=true`, '_blank')?.focus()
-											}}
-											color="light"
-											size="sm"
-											startIcon={{ icon: Edit }}>Edit</Button
-										>
-									</div>
-								</div>
-							</div>
-						</div>
+									Open
+								</Button>
+								<Button
+									href={`/flows/edit/${item.path}?no_draft=true`}
+									color="light"
+									target="_blank"
+									size="xs"
+									startIcon={{ icon: Edit }}
+								>
+									Edit
+								</Button>
+							</svelte:fragment>
+
+							<pre class="text-xs border p-2 overflow-auto max-h-40 w-full"
+								><code>{@html item.marked}</code></pre
+							>
+						</ContentSearchInnerItem>
 					{/each}
 					{#if filteredFlowItems.length > showNbFlows}
-						<a
-							href="#"
-							class="text-center font-semibold cursor-pointer pb-40"
+						<Button
+							color="light"
+							size="xs"
 							on:click={() => {
-								showNbScripts += 30
+								showNbFlows += 30
+							}}
+							startIcon={{
+								icon: ArrowDown
 							}}
 						>
-							({showNbFlows} of {filteredFlowItems.length}) Show more flows
-						</a>
+							Show more flows ({showNbFlows} of {filteredFlowItems.length})
+						</Button>
 					{/if}
 				{/if}
 				{#if (searchKind == 'all' || searchKind == 'apps') && filteredAppItems?.length > 0}
 					{#each filteredAppItems.slice(0, showNbApps) ?? [] as item}
-						<div>
-							<div class="text-sm font-semibold"
-								><a href="/apps/get/{item.path}">App: {item.path}</a></div
-							>
-							<div class="flex gap-2 justify-between">
-								<pre class="text-xs border p-2 overflow-auto max-h-40 w-full max-w-2xl"
-									><code>{@html item.marked}</code></pre
+						<ContentSearchInnerItem title={`App: ${item.path}`} href={`/apps/get/${item.path}`}>
+							<svelte:fragment slot="actions">
+								<Button
+									href={`/apps/get/${item.path}`}
+									color="light"
+									size="xs"
+									startIcon={{ icon: ExternalLink }}
 								>
-							</div>
-						</div>
+									Open
+								</Button>
+								<Button
+									href={`/flows/edit/${item.path}?no_draft=true`}
+									color="light"
+									target="_blank"
+									size="xs"
+									startIcon={{ icon: Edit }}
+								>
+									Edit
+								</Button>
+							</svelte:fragment>
+
+							<pre class="text-xs border p-2 overflow-auto max-h-40 w-full"
+								><code>{@html item.marked}</code></pre
+							>
+						</ContentSearchInnerItem>
 					{/each}
 					{#if filteredAppItems.length > showNbApps}
-						<a
-							href="#"
-							class="text-center font-semibold cursor-pointer pb-40"
+						<Button
+							color="light"
+							size="xs"
 							on:click={() => {
 								showNbApps += 30
 							}}
+							startIcon={{
+								icon: ArrowDown
+							}}
 						>
-							({showNbApps} of {filteredAppItems.length}) Show more apps
-						</a>
+							Show more apps ({showNbApps} of {filteredAppItems.length})
+						</Button>
 					{/if}
 				{/if}
 			</div>
