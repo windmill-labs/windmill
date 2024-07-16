@@ -129,7 +129,7 @@ export function msToReadableTime(ms: number | undefined): string {
 	} else if (minutes > 0) {
 		return `${minutes}m ${seconds % 60}s`
 	} else {
-		return `${seconds}s`
+		return `${msToSec(ms)}s`
 	}
 }
 
