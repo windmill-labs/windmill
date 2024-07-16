@@ -46,6 +46,7 @@
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
 	import { debounce } from '$lib/utils'
+	import { dfs } from '../dfs'
 
 	const {
 		selectedId,
@@ -133,7 +134,7 @@
 						flowStepWarnings: await initFlowStepWarnings(
 							flowModule.value,
 							schema ?? {},
-							$flowStore?.value?.modules?.map((m) => m?.id) ?? []
+							dfs($flowStore.value.modules, (fm) => fm.id)
 						)
 					}
 				}
