@@ -11,7 +11,7 @@ jemalloc = ["dep:tikv-jemalloc-ctl"]
 prometheus = ["dep:prometheus"]
 flamegraph = ["dep:tracing-flame"]
 loki = ["dep:tracing-loki"]
-parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:bytes"]
+parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts", "dep:bytes"]
 
 [lib]
 name = "windmill_common"
@@ -47,8 +47,6 @@ object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
-aws-sdk-sso = { workspace = true, optional = true }
-aws-sdk-ssooidc = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes = { workspace = true, optional = true }
 mail-send.workspace = true

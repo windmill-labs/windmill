@@ -10481,8 +10481,6 @@ version = "1.361.1"
 dependencies = [
  "anyhow",
  "aws-config",
- "aws-sdk-sso",
- "aws-sdk-ssooidc",
  "aws-sdk-sts",
  "axum",
  "bytes",

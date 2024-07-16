@@ -63,9 +63,6 @@ jobs:
           push: true
           build-args: |
             features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc
-          secrets: |
-            rh_username=${{ secrets.RH_USERNAME }}
-            rh_password=${{ secrets.RH_PASSWORD }}
           tags: |
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
