@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto, base } from '$lib/navigation'
-	import { goto, replaceState } from '$app/navigation'
+	import { replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
