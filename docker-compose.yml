@@ -124,6 +124,10 @@ services:
       - MODE=indexer
       #how often will new jobs be added to the index to be searched
       - TANTIVY_REFRESH_INDEX_PERIOD__S=300
+      #how many documents to batch in one commit
+      - TANTIVY_DOC_COMMIT_MAX_BATCH_SIZE=100000
+      #log memory usage and progress every so many documents indexed
+      - TANTIVY_SHOW_MEMORY_EVERY=10000
     depends_on:
       db:
         condition: service_healthy
