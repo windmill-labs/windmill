@@ -60,10 +60,10 @@
 	{#if $$slots.itemReplacement}
 		<slot name="itemReplacement" />
 	{:else}
-		<div class="flex flex-row gap-2 items-center px-2 py-0.5 rounded-md pr-6 font-light">
+		<div class="flex flex-row gap-2 items-center px-2 py-1.5 rounded-md pr-6 text-sm">
 			<div class="w-4">
 				{#if icon}
-					<svelte:component this={icon} size={14} />
+					<svelte:component this={icon} size={16} />
 				{:else if shortcutKey != undefined}
 					<div class="font-bold flex items-center justify-center w-full">
 						<span

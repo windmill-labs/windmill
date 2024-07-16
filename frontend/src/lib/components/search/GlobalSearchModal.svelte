@@ -21,7 +21,6 @@
 		HomeIcon,
 		LayoutDashboardIcon,
 		Loader2,
-		Loader2Icon,
 		PlayIcon,
 		Search,
 		SearchCode
@@ -333,6 +332,7 @@
 	onDestroy(() => {
 		window.removeEventListener('keydown', handleKeydown)
 	})
+
 	$: searchTerm, handleSearch()
 
 	function placeholderFromPrefix(text: string): string {
@@ -437,18 +437,24 @@
 		await handleSearch()
 	}
 
-	async function openModal() {
-		open = !open
+	async function focusTextInput() {
 		await tick()
+
+		textInput?.focus()
+		textInput?.select()
+
 		if (open) {
 			if (combinedItems == undefined) {
 				combinedItems = await fetchCombinedItems()
 				handleSearch()
 			}
 			selectedItem = selectItem(0)
-			textInput.focus()
-			textInput.select()
 		}
+	}
+
+	async function openModal() {
+		open = !open
+		focusTextInput()
 	}
 </script>
 
@@ -468,7 +474,7 @@
 					open = false
 				}}
 			>
-				<div class="px-6 py-2 flex flex-row gap-1 items-center border-b">
+				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b">
 					<Search size="16" />
 					<div class="relative inline-block w-full">
 						<input
@@ -487,25 +493,28 @@
 				</div>
 				<div class="overflow-y-auto max-h-[30rem] relative">
 					{#if tab === 'default' || tab === 'switch-mode'}
-						<div class="p-2">
-							{#each (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e)) as el}
-								<QuickMenuItem
-									on:select={el?.action}
-									on:hover={() => (selectedItem = el)}
-									id={el?.search_id}
-									hovered={el?.search_id === selectedItem?.search_id}
-									label={el?.label}
-									icon={el?.icon}
-									shortcutKey={el?.shortcutKey}
-								/>
-							{/each}
-						</div>
+						{@const items = (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e))}
+						{#if items.length > 0}
+							<div class="p-2 border-b">
+								{#each items as el}
+									<QuickMenuItem
+										on:select={el?.action}
+										on:hover={() => (selectedItem = el)}
+										id={el?.search_id}
+										hovered={el?.search_id === selectedItem?.search_id}
+										label={el?.label}
+										icon={el?.icon}
+										shortcutKey={el?.shortcutKey}
+									/>
+								{/each}
+							</div>
+						{/if}
 					{/if}
 
 					{#if tab === 'default'}
 						<div class="p-2">
 							{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
-								<div class="mt-2 pt-2 pb-1 px-1 text-xs font-bold border-t text-tertiary">
+								<div class="py-2 px-1 text-xs font-semibold text-tertiary">
 									Flows/Scripts/Apps
 								</div>
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
@@ -520,12 +529,6 @@
 										icon={iconForWindmillItem(el.type)}
 									/>
 								{/each}
-							{:else}
-								<div class="px-2 py-1 flex flex-row gap-2 items-center">
-									Loading
-
-									<Loader2Icon size={16} class="animate-spin" />
-								</div>
 							{/if}
 
 							{#if (itemMap[tab] ?? []).length === 0}
@@ -610,7 +613,7 @@
 									</div>
 								{/if}
 							{:else}
-								<div class="flex w-full justify-center items-center h-96">
+								<div class="flex w-full justify-center items-center">
 									<div class="text-tertiary text-center">
 										<div class="text-2xl font-bold">No runs found</div>
 										<div class="text-sm">There were no completed runs that match your query</div>
