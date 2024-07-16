@@ -175,33 +175,33 @@
 			</ToggleButtonGroup>
 		</div>
 	</div>
-	<div class="mt-1">
+	<div class="px-2">
 		<div class="text-xs text-secondary">
-			Searching among <div class="inline-flex"
-				>{#if scripts}{scripts?.length}{:else}
+			Searching among <div class="inline-flex">
+				{#if scripts}{scripts?.length}{:else}
 					<Loader2 size={10} class="animate-spin " />
-				{/if}</div
-			>
+				{/if}
+			</div>
 			scripts,
-			<div class="inline-flex"
-				>{#if resources}{resources?.length}{:else}
+			<div class="inline-flex">
+				{#if resources}{resources?.length}{:else}
 					<Loader2 size={10} class="animate-spin " />
-				{/if}</div
-			>
+				{/if}
+			</div>
 			resources,
-			<div class="inline-flex"
-				>{#if flows}{flows?.length}{:else}
+			<div class="inline-flex">
+				{#if flows}{flows?.length}{:else}
 					<Loader2 size={10} class="animate-spin " />
-				{/if}</div
-			>
+				{/if}
+			</div>
 			flows,
-			<div class="inline-flex"
-				>{#if apps}{apps?.length}{:else}
+			<div class="inline-flex">
+				{#if apps}{apps?.length}{:else}
 					<Loader2 size={10} class="animate-spin " />
-				{/if}</div
-			>
-			apps</div
-		>
+				{/if}
+			</div>
+			apps
+		</div>
 	</div>
 
 	<div class={classNameInner}>
