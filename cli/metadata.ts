@@ -128,7 +128,7 @@ export async function generateFlowLockInternal(
 
   if (!justUpdateMetadataLock) {
     const changedScripts = [];
-    //find hashes that do not correspond to preivous hashes
+    //find hashes that do not correspond to previous hashes
     for (const [path, hash] of Object.entries(hashes)) {
       if (path == TOP_HASH) {
         continue;

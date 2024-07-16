@@ -104,6 +104,8 @@ pub fn global_service() -> Router {
             post(update_tutorial_progress).get(get_tutorial_progress),
         )
         .route("/leave_instance", post(leave_instance))
+        .route("/export", get(export_global_users))
+        .route("/overwrite", post(overwrite_global_users))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -577,7 +579,15 @@ where
             let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
                 Some(path_vec[3].to_owned())
             } else {
-                None
+                if path_vec.len() >= 5
+                    && path_vec[0] == ""
+                    && path_vec[2] == "srch"
+                    && path_vec[3] == "w"
+                {
+                    Some(path_vec[4].to_string())
+                } else {
+                    None
+                }
             };
             if let Some(token) = token_o {
                 if let Ok(Extension(cache)) =
@@ -2633,6 +2643,106 @@ async fn username_to_email(
     let email = not_found_if_none(email, "user", username)?;
 
     Ok(email)
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Serialize, Deserialize)]
+struct ExportedGlobalUser {
+    email: String,
+    password_hash: Option<String>,
+    login_type: String,
+    super_admin: bool,
+    verified: bool,
+    name: Option<String>,
+    company: Option<String>,
+    first_time_user: bool,
+    username: Option<String>,
+}
+
+#[cfg(feature = "enterprise")]
+async fn export_global_users(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<Vec<ExportedGlobalUser>> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+    let users = sqlx::query_as!(
+        ExportedGlobalUser,
+        "SELECT email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username FROM password"
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.export_export",
+        ActionKind::Execute,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(users))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn export_global_users() -> JsonResult<String> {
+    Err(Error::BadRequest(
+        "This feature is only available in the enterprise version".to_string(),
+    ))
+}
+
+#[cfg(feature = "enterprise")]
+async fn overwrite_global_users(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(users): Json<Vec<ExportedGlobalUser>>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+    sqlx::query!("DELETE FROM password")
+        .execute(&mut *tx)
+        .await?;
+    for user in users {
+        sqlx::query!(
+            "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            user.email,
+            user.password_hash,
+            user.login_type,
+            user.super_admin,
+            user.verified,
+            user.name,
+            user.company,
+            user.first_time_user,
+            user.username
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.import_global",
+        ActionKind::Create,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok("loaded global users".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn overwrite_global_users() -> JsonResult<String> {
+    Err(Error::BadRequest(
+        "This feature is only available in the enterprise version".to_string(),
+    ))
 }
 
 #[derive(Deserialize)]
