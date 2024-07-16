@@ -19,6 +19,7 @@
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
 	import { initFlowStepWarnings } from '../utils'
+	import { dfs } from '../dfs'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
@@ -68,7 +69,7 @@
 				flowStepWarnings: await initFlowStepWarnings(
 					module?.value,
 					$flowStateStore[module?.id]?.schema,
-					$flowStore.value.modules.map((m) => m.id)
+					dfs($flowStore.value.modules, (fm) => fm.id)
 				)
 			}
 		}
@@ -151,7 +152,7 @@
 							flowStepWarnings: await initFlowStepWarnings(
 								module.value,
 								$flowStateStore[module.id].schema,
-								$flowStore.value.modules.map((m) => m.id)
+								dfs($flowStore.value.modules, (fm) => fm.id)
 							)
 						}
 					}
