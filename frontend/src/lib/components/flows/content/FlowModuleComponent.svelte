@@ -185,7 +185,7 @@
 	$: $selectedId && onSelectedIdChange()
 
 	function onSelectedIdChange() {
-		if (!$flowStateStore[$selectedId]?.schema) {
+		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
 	}
