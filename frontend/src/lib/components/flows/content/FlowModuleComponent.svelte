@@ -362,7 +362,7 @@
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div
-							class={advancedSelected === 'runtime' ? 'h-[calc(100%-64px)]' : 'h-[calc(100%-32px)]'}
+							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}
 						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
 								<div class="h-full overflow-auto" id="flow-editor-step-input">
