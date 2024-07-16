@@ -22,6 +22,7 @@
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 	import DBTableSelect from './DBTableSelect.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
+	import AppPicker from '$lib/components/wizards/AppPicker.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -69,7 +70,7 @@
 				</select>
 			{/if}
 		{:else if fieldType === 'icon-select'}
-			<IconSelectInput bind:componentInput />
+			<IconSelectInput bind:value={componentInput.value} />
 		{:else if fieldType === 'tab-select'}
 			<TabSelectInput bind:componentInput />
 		{:else if fieldType === 'resource' && subFieldType && ['mysql', 'postgres', 'ms_sql_server', 'snowflake', 'bigquery'].includes(subFieldType)}
@@ -313,6 +314,8 @@
 					</Label>
 				</div>
 			</div>
+		{:else if fieldType === 'app-path'}
+			<AppPicker bind:value={componentInput.value} />
 		{:else}
 			<div class="flex gap-1 relative w-full">
 				<textarea

@@ -104,6 +104,8 @@ pub fn global_service() -> Router {
             post(update_tutorial_progress).get(get_tutorial_progress),
         )
         .route("/leave_instance", post(leave_instance))
+        .route("/export", get(export_global_users))
+        .route("/overwrite", post(overwrite_global_users))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -119,20 +121,18 @@ pub fn make_unauthed_service() -> Router {
 }
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
-    if label.as_ref().is_some_and(|x| x.starts_with("webhook-")) {
-        label
-    } else if label
-        .as_ref()
-        .is_some_and(|x| x.starts_with("ephemeral-script-end-user-"))
-    {
-        Some(
+    match label {
+        Some(label) if label.starts_with("webhook-") => Some(label),
+        Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
             label
-                .unwrap()
                 .trim_start_matches("ephemeral-script-end-user-")
                 .to_string(),
-        )
-    } else {
-        None
+        ),
+        Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
+        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
+            Some(format!("label-{label}"))
+        }
+        _ => None,
     }
 }
 
@@ -579,7 +579,15 @@ where
             let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
                 Some(path_vec[3].to_owned())
             } else {
-                None
+                if path_vec.len() >= 5
+                    && path_vec[0] == ""
+                    && path_vec[2] == "srch"
+                    && path_vec[3] == "w"
+                {
+                    Some(path_vec[4].to_string())
+                } else {
+                    None
+                }
             };
             if let Some(token) = token_o {
                 if let Ok(Extension(cache)) =
@@ -2478,7 +2486,11 @@ async fn get_all_runnables(
             })?;
         let mut tx = db.clone().begin(&nauthed).await?;
         let flows = sqlx::query!(
-            "SELECT workspace_id as workspace, path, summary, description, schema FROM flow WHERE workspace_id = $1", workspace
+            "SELECT flow.workspace_id as workspace, flow.path, summary, description, flow_version.schema 
+            FROM flow 
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.workspace_id = $1",
+            workspace
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -2631,6 +2643,106 @@ async fn username_to_email(
     let email = not_found_if_none(email, "user", username)?;
 
     Ok(email)
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Serialize, Deserialize)]
+struct ExportedGlobalUser {
+    email: String,
+    password_hash: Option<String>,
+    login_type: String,
+    super_admin: bool,
+    verified: bool,
+    name: Option<String>,
+    company: Option<String>,
+    first_time_user: bool,
+    username: Option<String>,
+}
+
+#[cfg(feature = "enterprise")]
+async fn export_global_users(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<Vec<ExportedGlobalUser>> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+    let users = sqlx::query_as!(
+        ExportedGlobalUser,
+        "SELECT email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username FROM password"
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.export_export",
+        ActionKind::Execute,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(users))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn export_global_users() -> JsonResult<String> {
+    Err(Error::BadRequest(
+        "This feature is only available in the enterprise version".to_string(),
+    ))
+}
+
+#[cfg(feature = "enterprise")]
+async fn overwrite_global_users(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(users): Json<Vec<ExportedGlobalUser>>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    let mut tx = db.begin().await?;
+    sqlx::query!("DELETE FROM password")
+        .execute(&mut *tx)
+        .await?;
+    for user in users {
+        sqlx::query!(
+            "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            user.email,
+            user.password_hash,
+            user.login_type,
+            user.super_admin,
+            user.verified,
+            user.name,
+            user.company,
+            user.first_time_user,
+            user.username
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.import_global",
+        ActionKind::Create,
+        "global",
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok("loaded global users".to_string())
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn overwrite_global_users() -> JsonResult<String> {
+    Err(Error::BadRequest(
+        "This feature is only available in the enterprise version".to_string(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -2918,7 +3030,19 @@ async fn update_username_in_workpsace<'c>(
 
     // ---- flows ----
     sqlx::query!(
-        r#"UPDATE flow SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"INSERT INTO flow
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at) 
+        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, concurrency_key, versions, value, schema, edited_by, edited_at
+            FROM flow 
+            WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE flow_version SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id
@@ -2927,14 +3051,12 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET edited_by = $1 WHERE edited_by = $2 AND workspace_id = $3",
-        new_username,
+        "DELETE FROM flow WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
         old_username,
         w_id
     )
     .execute(&mut **tx)
-    .await
-    .unwrap();
+    .await?;
 
     sqlx::query!(
         "UPDATE flow SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",

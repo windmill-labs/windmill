@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
+	import { displayDate, msToReadableTime, truncateHash, truncateRev } from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -64,9 +64,9 @@
 >
 	<div class="w-1/12 flex justify-center">
 		{#if isSelectingJobsToCancel && isJobCancelable(job)}
-		<div class="px-2">
-			<input type="checkbox" checked={selected}/>
-		</div>
+			<div class="px-2">
+				<input type="checkbox" checked={selected} />
+			</div>
 		{/if}
 		{#if isExternal}
 			<Badge color="gray" baseClass="!px-1.5">
@@ -105,11 +105,11 @@
 		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
-					Started <TimeAgo date={job.started_at ?? ''} />
+					Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
 					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-						(Ran in {msToSec(
+						(Ran in {msToReadableTime(
 							job.duration_ms
-						)}s{#if job.job_kind == 'flow' || job.job_kind == 'flowpreview'}&nbsp;total{/if})
+						)}{#if job.job_kind == 'flow' || job.job_kind == 'flowpreview'}&nbsp;total{/if})
 					{/if}
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
@@ -121,7 +121,11 @@
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Scheduled for {displayDate(job.scheduled_for)}
 				{:else}
-					Waiting for executor (created <TimeAgo date={job.created_at || ''} />)
+					Waiting for executor (created <TimeAgo
+						withDate
+						agoOnlyIfRecent
+						date={job.created_at || ''}
+					/>)
 				{/if}
 			{/if}
 		</div>

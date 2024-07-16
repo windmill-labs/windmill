@@ -17,5 +17,7 @@ jobs:
         with:
           toolchain: stable
       - name: update lockfile
-        run: cd backend && cargo generate-lockfile
+        run: |
+          cd backend
+          cargo generate-lockfile
       - uses: stefanzweifel/git-auto-commit-action@v4

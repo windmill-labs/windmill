@@ -26,8 +26,10 @@
 		Share,
 		Archive,
 		Clipboard,
-		Eye
+		Eye,
+		HistoryIcon
 	} from 'lucide-svelte'
+	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -66,10 +68,12 @@
 		}
 	}
 	let scheduleEditor: ScheduleEditor
+	let flowHistory: FlowHistory
 </script>
 
 {#if menuOpen}
 	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<FlowHistory bind:this={flowHistory} path={flow.path} />
 {/if}
 
 <Row
@@ -192,6 +196,14 @@
 							deploymentDrawer.openDrawer(path, 'flow')
 						},
 						disabled: archived,
+						hide: $userStore?.operator
+					},
+					{
+						displayName: 'Deployments',
+						icon: HistoryIcon,
+						action: () => {
+							flowHistory.open()
+						},
 						hide: $userStore?.operator
 					},
 					{

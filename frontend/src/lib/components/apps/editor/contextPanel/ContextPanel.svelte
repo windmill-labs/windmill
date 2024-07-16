@@ -10,6 +10,7 @@
 	import BackgroundScriptsOutput from './components/BackgroundScriptsOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 	import { ClearableInput } from '../../../common'
+	import DocLink from '../settingsPanel/DocLink.svelte'
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { search } = getContext<ContextPanelContext>('ContextPanel')
@@ -18,6 +19,11 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
+	<svelte:fragment slot="action">
+		<div class="p-0.5">
+			<DocLink docLink="https://www.windmill.dev/docs/apps/outputs" />
+		</div>
+	</svelte:fragment>
 	<div
 		class={classNames(
 			'bg-surface w-full h-full z-30 overflow-auto',

@@ -141,7 +141,8 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 		id,
 		value: {
 			type: 'branchall',
-			branches: [{ modules: [] }]
+			branches: [{ modules: [] }],
+			parallel: true
 		},
 		summary: ''
 	}

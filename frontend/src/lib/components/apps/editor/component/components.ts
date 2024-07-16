@@ -48,13 +48,15 @@ import {
 	UploadCloud,
 	AlertTriangle,
 	Clock,
-	CalendarClock
+	CalendarClock,
+	AppWindow
 } from 'lucide-svelte'
 import type {
 	Aligned,
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
+	OneOfConfiguration,
 	RichConfiguration,
 	RichConfigurations,
 	StaticRichConfigurations
@@ -162,6 +164,7 @@ export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
@@ -261,6 +264,21 @@ export type DecisionTreeComponent = BaseComponent<'decisiontreecomponent'> & {
 
 export type AlertComponent = BaseComponent<'alertcomponent'>
 
+export type NavbarItem = {
+	path: OneOfConfiguration
+	label: RichConfiguration
+	caption?: string
+	disabled: RichConfiguration
+	hidden: RichConfiguration
+	icon?: string
+}
+
+export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
+	navbarItems: NavbarItem[]
+}
+
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -335,6 +353,9 @@ export type TypedComponent =
 	| AggridInfiniteComponent
 	| AggridInfiniteComponentEe
 	| MultiSelectComponentV2
+	| NavBarComponent
+	| DateSelectComponent
+	| JobIdDisplayComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -726,6 +747,12 @@ const aggridcomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -829,6 +856,12 @@ const aggridinfinitecomponentconst = {
 				fieldType: 'boolean',
 				value: true,
 				tooltip: 'Allow visible footer for pagination and download'
+			},
+			customActionsHeader: {
+				type: 'static',
+				fieldType: 'text',
+				value: undefined,
+				tooltip: 'Custom header for the actions columns'
 			}
 		},
 		componentInput: {
@@ -2189,6 +2222,11 @@ This is a paragraph.
 					value: true,
 
 					tooltip: 'Set the width of the options popup to 100% of the select width'
+				},
+				disabled: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
 				}
 			}
 		}
@@ -2627,6 +2665,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: undefined,
 					fieldType: 'datetime'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -2893,6 +2936,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: 'Selected file',
 					fieldType: 'text'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -3551,7 +3599,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								fieldType: 'template',
 								connections: [],
 								onDemandOnly: true
-							} as EvalV2AppInput
+							} as EvalV2AppInput,
+							disabled: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean'
+							}
 						}
 					}
 				} as const
@@ -3742,6 +3795,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'boolean',
 					value: true,
 					tooltip: 'Allow visible footer for pagination and download'
+				},
+				customActionsHeader: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Custom header for the actions columns'
 				}
 			},
 			componentInput: undefined
@@ -3812,6 +3871,161 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				}
+			}
+		}
+	},
+	navbarcomponent: {
+		name: 'Navbar',
+		icon: AppWindow,
+		documentationLink: `${documentationBaseUrl}/navbar`,
+		dims: '12:1-12:2' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			image: { class: '', style: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Title'
+				},
+				borderColor: {
+					type: 'static',
+					value: '#555',
+					fieldType: 'color'
+				},
+				logo: {
+					type: 'oneOf',
+					selected: 'no',
+					labels: {
+						yes: 'Use logo',
+						no: 'No logo'
+					},
+					configuration: {
+						yes: {
+							source: {
+								type: 'static',
+								value: '/logo.svg',
+								fieldType: 'text',
+								fileUpload: {
+									accept: 'image/*',
+									convertTo: 'base64'
+								}
+							},
+							sourceKind: {
+								fieldType: 'select',
+								type: 'static',
+								selectOptions: selectOptions.imageSourceKind,
+								value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+							},
+							altText: {
+								type: 'static',
+								value: '',
+								fieldType: 'text',
+								tooltip: "This text will appear if the image can't be loaded for any reason"
+							}
+						},
+						no: {}
+					}
+				} as const,
+				orientation: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'horizontal',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
+				}
+			}
+		}
+	},
+	dateselectcomponent: {
+		name: 'Date Select',
+		icon: Calendar,
+		documentationLink: `${documentationBaseUrl}/date_select`,
+		dims: '3:4-6:4' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			verticalAlignment: 'center',
+
+			configuration: {
+				enableDay: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableMonth: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				enableYear: {
+					type: 'static',
+					value: true,
+					fieldType: 'boolean'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'date'
+				},
+
+				orientation: {
+					type: 'static',
+					value: 'horizontal',
+					fieldType: 'select',
+					selectOptions: [
+						{ value: 'horizontal', label: 'Horizontal' },
+						{ value: 'vertical', label: 'Vertical' }
+					]
+				},
+				locale: {
+					type: 'static',
+					value: 'en-US',
+					fieldType: 'select',
+					selectOptions: selectOptions.localeOptions,
+					tooltip: 'Format on the month names'
+				}
+			}
+		}
+	},
+	jobiddisplaycomponent: {
+		name: 'Rich result by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/rich_result_by_job_id`,
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display logs from'
+				},
+				title: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Result'
+				},
+				hideDetails: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'Hide the details section: the object keys, the clipboard button and the maximise button'
 				}
 			}
 		}

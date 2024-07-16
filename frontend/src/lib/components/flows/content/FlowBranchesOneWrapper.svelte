@@ -47,7 +47,6 @@
 						<h3 class="my-4">
 							{value.branches.length + 1} branch{value.branches.length + 1 > 1 ? 'es' : ''}
 						</h3>
-						<p>Add branches and steps directly on the graph.</p>
 						<div class="py-2">
 							<div class="flex flex-row gap-2 text-sm p-2">
 								<Badge large={true} color="blue">Default branch</Badge>
@@ -83,6 +82,7 @@
 								</div>
 							{/each}
 						</div>
+						<p class="text-sm">Add branches and steps directly on the graph.</p>
 					</div>
 				</Pane>
 				{#if flowModule}

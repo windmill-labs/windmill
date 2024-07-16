@@ -1,19 +1,3 @@
-FROM debian:buster-slim as downloader
-
-ARG TARGETPLATFORM
-
-SHELL ["/bin/bash", "-c"]
-
-RUN apt update -y
-RUN apt install -y unzip curl
-
-RUN [ "$TARGETPLATFORM" == "linux/amd64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.44.1/deno-x86_64-unknown-linux-gnu.zip -o deno.zip || true
-RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v1.44.1/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
-
-
-RUN unzip deno.zip && rm deno.zip
-
-
 FROM nikolaik/python-nodejs:python3.11-nodejs19-slim
 
 RUN apt-get update \
@@ -42,8 +26,7 @@ ENV GOBIN=/usr/local/go/bin
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
 RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
 
-COPY --from=downloader /deno /usr/bin/deno
-RUN chmod 755 /usr/bin/deno
+COPY --from=denoland/deno:1.44.4 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 COPY Pipfile .
 

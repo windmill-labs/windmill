@@ -75,6 +75,9 @@
 	import AppCurrencyInput from '../../components/inputs/currency/AppCurrencyInput.svelte'
 	import AppSliderInputs from '../../components/inputs/AppSliderInputs.svelte'
 	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
+	import AppNavbar from '../../components/display/AppNavbar.svelte'
+	import AppDateSelect from '../../components/inputs/AppDateSelect.svelte'
+	import AppDisplayComponentByJobId from '../../components/display/AppDisplayComponentByJobId.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -101,6 +104,12 @@
 		outTimeout && clearTimeout(outTimeout)
 		outTimeout = setTimeout(() => {
 			if ($hoverStore !== undefined) {
+				// In order to avoid flickering when hovering over table actions,
+				// we leave the actions to manage the hover state
+				if ($hoverStore.startsWith(`${component.id}_`)) {
+					return
+				}
+
 				$hoverStore = undefined
 			}
 		}, 50)
@@ -821,6 +830,30 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				verticalAlignment={component.verticalAlignment}
+				{render}
+			/>
+		{:else if component.type === 'navbarcomponent'}
+			<AppNavbar
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				navbarItems={component.navbarItems}
+				{render}
+			/>
+		{:else if component.type === 'dateselectcomponent'}
+			<AppDateSelect
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				verticalAlignment={component.verticalAlignment}
+				{render}
+			/>
+		{:else if component.type === 'jobiddisplaycomponent'}
+			<AppDisplayComponentByJobId
+				id={component.id}
+				customCss={component.customCss}
+				bind:initializing
+				configuration={component.configuration}
 				{render}
 			/>
 		{/if}

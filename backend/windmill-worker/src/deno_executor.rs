@@ -394,8 +394,7 @@ async fn build_import_map(
 
 #[cfg(feature = "enterprise")]
 use crate::{dedicated_worker::handle_dedicated_process, JobCompletedSender};
-#[cfg(feature = "enterprise")]
-use std::sync::Arc;
+
 #[cfg(feature = "enterprise")]
 use tokio::sync::mpsc::Receiver;
 
@@ -410,7 +409,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<()> {
@@ -445,15 +444,14 @@ pub async fn start_worker(
         let args = windmill_parser_ts::parse_deno_signature(inner_content, true, None)?.args;
         let dates = args
             .iter()
-            .enumerate()
-            .filter_map(|(i, x)| {
+            .filter_map(|x| {
                 if matches!(x.typ, Typ::Datetime) {
-                    Some(i)
+                    Some(x.name.clone())
                 } else {
                     None
                 }
             })
-            .map(|x| return format!("args[{x}] = args[{x}] ? new Date(args[{x}]) : undefined"))
+            .map(|x| return format!("{x} = {x} ? new Date({x}) : undefined"))
             .join("\n");
 
         let spread = args.into_iter().map(|x| x.name).join(",");
@@ -482,6 +480,7 @@ for await (const chunk of Deno.stdin.readable) {{
         }}
         try {{
             let {{ {spread} }} = JSON.parse(line) 
+            {dates}
             let res: any = await main(...[ {spread} ]);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
         }} catch (e) {{

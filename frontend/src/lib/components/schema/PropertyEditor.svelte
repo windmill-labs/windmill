@@ -14,9 +14,10 @@
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	export let description: string = ''
-	export let format: string = ''
+	export let format: string | undefined = undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
 	export let oneOf: SchemaProperty[] | undefined = undefined
@@ -27,10 +28,10 @@
 	export let customErrorMessage: string | undefined = undefined
 	export let title: string | undefined = undefined
 	export let placeholder: string | undefined = undefined
-	export let properties: Record<string, any> = {}
+	export let properties: Record<string, any> | undefined = undefined
 	export let isFlowInput: boolean = false
 	export let isAppInput: boolean = false
-	export let order: string[] = []
+	export let order: string[] | undefined = undefined
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object'
@@ -40,6 +41,7 @@
 		  }
 		| undefined = undefined
 
+	const dispatch = createEventDispatcher()
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let oneOfSelected: string | undefined =
@@ -79,6 +81,28 @@
 		order
 	}
 
+	let initialExtra: any = structuredClone({ order: undefined, properties: undefined, ...extra })
+
+	let mounted = false
+	let firstOnContentChange = true
+	onMount(() => {
+		mounted = true
+	})
+
+	$: extra && mounted && onContentChange()
+
+	function onContentChange() {
+		if (firstOnContentChange) {
+			firstOnContentChange = false
+			return
+		}
+		if (!deepEqual(extra, initialExtra)) {
+			initialExtra = structuredClone(extra)
+			console.debug('property content updated')
+			dispatch('change')
+		}
+	}
+
 	$: (properties || order) && updateSchema()
 
 	function updateSchema() {
@@ -87,6 +111,8 @@
 				properties,
 				order
 			}
+			console.debug('property schema updated')
+			dispatch('change')
 		}
 	}
 </script>
@@ -117,7 +143,7 @@
 			<svelte:fragment slot="header">
 				<Tooltip light>
 					Will be displayed in the input field when the field is empty. If not set, the default
-					value will be used. The placeholder is disabled depending on the field typ, format, etc.
+					value will be used. The placeholder is disabled depending on the field type, format, etc.
 				</Tooltip>
 			</svelte:fragment>
 
@@ -125,6 +151,7 @@
 				placeholder="Enter a placeholder"
 				rows="1"
 				bind:value={placeholder}
+				on:change={() => dispatch('change')}
 				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
 			/>
 		</Label>

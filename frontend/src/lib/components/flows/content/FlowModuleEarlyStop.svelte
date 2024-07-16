@@ -8,12 +8,23 @@
 	import { getContext } from 'svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import Section from '$lib/components/Section.svelte'
+	import { getStepPropPicker } from '../previousResults'
 
-	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore, flowStore, previewArgs } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 
 	let editor: SimpleEditor | undefined = undefined
+	$: stepPropPicker = getStepPropPicker(
+		$flowStateStore,
+		undefined,
+		undefined,
+		flowModule.id,
+		$flowStore,
+		$previewArgs,
+		false
+	)
 
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 	$: result = $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR
@@ -52,16 +63,19 @@
 		>
 			{#if flowModule.stop_after_if}
 				<Toggle
+					size="xs"
 					bind:checked={flowModule.stop_after_if.skip_if_stopped}
 					options={{
 						right: 'Label flow as "skipped" if stopped'
 					}}
 				/>
-				<span class="text-xs font-bold">Stop condition expression</span>
+				<span class="mt-2 text-xs font-bold">Stop condition expression</span>
 				<div class="border w-full">
 					<PropPickerWrapper
-						{result}
+						notSelectable
+						flow_input={stepPropPicker.pickableProperties.flow_input}
 						pickableProperties={undefined}
+						{result}
 						on:select={({ detail }) => {
 							editor?.insertAtCursor(detail)
 							editor?.focus()
@@ -79,10 +93,11 @@
 			{:else}
 				<Toggle
 					disabled
+					size="xs"
 					options={{
 						right: 'Label flow as "skipped" if stopped'
 					}}
-				/> <span class="text-xs font-bold">Stop condition expression</span>
+				/> <span class="mt-2 text-xs font-bold">Stop condition expression</span>
 				<textarea disabled rows="3" class="min-h-[80px]" />
 			{/if}
 		</div>

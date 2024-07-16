@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.352.0"
+version = "1.364.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -13,6 +13,7 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-git-sync",
+    "./windmill-indexer",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -24,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.352.0"
+version = "1.364.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -52,6 +53,7 @@ flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
+tantivy = ["windmill-indexer/tantivy"]
 
 [dependencies]
 anyhow.workspace = true
@@ -62,6 +64,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
+windmill-indexer.workspace = true
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
@@ -80,7 +83,8 @@ gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
-pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
+
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -103,6 +107,7 @@ windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
+windmill-indexer = {path = "./windmill-indexer"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -114,7 +119,7 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
-axum = { version = "^0.7", features = ["multipart"] } 
+axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
@@ -159,19 +164,19 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_fetch = "0.179.0"
-deno_tls = "0.142.0"
-deno_console = "0.155.0"
-deno_url = "0.155.0"
-deno_webidl = "0.155.0"
-deno_web = "0.186.0"
-deno_net = "0.147.0"
-deno_core = "0.284.0"
-deno_ast = { version = "0.39.0", features = ["transpiling"] }
+deno_fetch = "0.182.0"
+deno_tls = "0.145.0"
+deno_console = "0.158.0"
+deno_url = "0.158.0"
+deno_webidl = "0.158.0"
+deno_web = "0.189.0"
+deno_net = "0.150.0"
+deno_core = "0.290.0"
+deno_ast = { version = "=0.39.2", features = ["transpiling"] }
 async-recursion = "^1"
 swc_common = "=0.33.26"
-swc_ecma_parser = "=0.144.1"
-swc_ecma_ast = "=0.113.4"
+swc_ecma_parser = "=0.144.3"
+swc_ecma_ast = "=0.113.7"
 swc_ecma_visit = "=0.99.1"
 base64 = "0.21.0"
 hmac = "0.12.1"
@@ -207,13 +212,14 @@ rsmq_async = { version = "5.1.5" }
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "=0.2.89"
-serde-wasm-bindgen = "0.4"
-wasm-bindgen-test = "0.3.0"
+wasm-bindgen = "0.2.92"
+serde-wasm-bindgen = "0.6.5"
+wasm-bindgen-test = "0.3.42"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
-bit-vec = "0.6.3"
+bit-vec = "=0.6.3"
+mappable-rc = "^0"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
@@ -253,3 +259,5 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 
 # 0.1.12 broken (nested dependency of swc_common) 
 triomphe = "<0.1.12"
+
+tantivy = "0.22.0"

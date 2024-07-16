@@ -536,10 +536,10 @@
 					{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
 				</span>
 				<Label label="Filter by args">
-					<JsonEditor on:change bind:error={argError} bind:code={copyArgFilter} />
+					<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
 				</Label>
 				<Label label="Filter by result">
-					<JsonEditor on:change bind:error={resultError} bind:code={copyResultFilter} />
+					<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
 				</Label>
 
 				<div class="flex flex-row gap-2 justify-between">
@@ -549,7 +549,6 @@
 						on:click={() => {
 							argFilter = ''
 							resultFilter = ''
-							close(null)
 						}}
 					>
 						Clear
@@ -561,7 +560,6 @@
 						on:click={() => {
 							argFilter = copyArgFilter
 							resultFilter = copyResultFilter
-							close(null)
 						}}
 					>
 						Set args/result filter

@@ -36,6 +36,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { replaceState } from '$app/navigation'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -100,6 +101,7 @@
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
+	let lookback: number = 1
 
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
@@ -230,7 +232,7 @@
 
 		let newPath = path ? `/${path}` : '/'
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
-		history.replaceState(history.state, '', newUrl.toString())
+		replaceState(newUrl.toString(), $page.state)
 	}
 
 	function reloadJobsWithoutFilterError() {
@@ -340,37 +342,35 @@
 	async function cancelVisibleJobs() {
 		isSelectingJobsToCancel = true
 		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
-		if (selectedIds.length === 0 ) {
-			sendUserToast("There are no visible jobs that can be canceled", true)
+		if (selectedIds.length === 0) {
+			sendUserToast('There are no visible jobs that can be canceled', true)
 		}
 	}
 	async function cancelFilteredJobs() {
 		isCancelingFilteredJobs = true
 		fetchingFilteredJobs = true
 		const selectedFilters = {
-				workspace: $workspaceStore ?? '',
-				startedBefore: maxTs,
-				startedAfter: minTs,
-				schedulePath,
-				scriptPathExact: path === null || path === '' ? undefined : path,
-				createdBy: user === null || user === '' ? undefined : user,
-				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
-				jobKinds,
-				success: success == 'success' ? true : success == 'failure' ? false : undefined,
-				running: success == 'running' ? true : undefined,
-				isNotSchedule: showSchedules == false ? true : undefined,
-				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
-				args:
-					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
-						? argFilter
-						: undefined,
-				result:
-					resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
-						? resultFilter
-						: undefined,
-				allWorkspaces: allWorkspaces ? true : undefined,
-				concurrencyKey: concurrencyKey ?? undefined
-			}
+			workspace: $workspaceStore ?? '',
+			startedBefore: maxTs,
+			startedAfter: minTs,
+			schedulePath,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			jobKinds,
+			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			running: success == 'running' ? true : undefined,
+			isNotSchedule: showSchedules == false ? true : undefined,
+			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined,
+			allWorkspaces: allWorkspaces ? true : undefined,
+			concurrencyKey: concurrencyKey ?? undefined
+		}
 
 		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
 		jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
@@ -386,6 +386,14 @@
 		return j.type === 'QueuedJob' && !j.schedule_path
 	}
 
+	function jobCountString(count: number) {
+		return `${count} ${count == 1 ? 'job' : 'jobs'}`
+	}
+
+	function setLookback(lookbackInDays: number) {
+		lookback = lookbackInDays
+	}
+
 	const warnJobLimitMsg =
 		'The exact number of concurrent job at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
 
@@ -393,10 +401,6 @@
 		graph === 'ConcurrencyChart' &&
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
-
-	$: if (selectedIds.length === 0) {
-		isSelectingJobsToCancel = false
-	}
 </script>
 
 <JobLoader
@@ -428,6 +432,7 @@
 	{resultError}
 	bind:loading
 	bind:this={jobLoader}
+	lookback={graphIsRunsChart ? 0 : lookback}
 />
 
 <ConfirmationModal
@@ -454,7 +459,7 @@
 </ConfirmationModal>
 
 <ConfirmationModal
-	title={`Confirm cancelling the jobs visible on this page`}
+	title={`Confirm cancelling the selected jobs`}
 	confirmationText={`Cancel ${jobIdsToCancel.length} jobs`}
 	open={isCancelingVisibleJobs}
 	on:confirmed={async () => {
@@ -551,11 +556,48 @@
 							/>
 						</ToggleButtonGroup>
 					</div>
+					{#if !graphIsRunsChart}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'None',
+									action: () => setLookback(0)
+								},
+								{
+									displayName: '1 day',
+									action: () => setLookback(1)
+								},
+								{
+									displayName: '3 days',
+									action: () => setLookback(3)
+								},
+								{
+									displayName: '7 days',
+									action: () => setLookback(7)
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<ChevronDown class="w-5 h-5" />
+									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
+									<Tooltip>
+										How far behind the min datetime to start considering jobs for the concurrency
+										graph. Change this value to include jobs started before the set time window for
+										the computation of the graph
+									</Tooltip>
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
 				</div>
 			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
 					bind:selectedIds
+					canSelect={!isSelectingJobsToCancel}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -587,13 +629,6 @@
 					{#if isSelectingJobsToCancel}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
 							<Button
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							/>
-							<Button
 								startIcon={{ icon: X }}
 								size="xs"
 								color="gray"
@@ -603,6 +638,16 @@
 									selectedIds = []
 								}}
 							/>
+							<Button
+								disabled={selectedIds.length == 0}
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
+							>
+								Cancel {jobCountString(selectedIds.length)}
+							</Button>
 						</div>
 					{:else if !$userStore?.is_admin && !$superadmin}
 						<DropdownV2
@@ -681,10 +726,18 @@
 						/>
 
 						<CalendarPicker
+							clearable={true}
 							date={minTs}
 							label="Min datetimes"
 							on:change={async ({ detail }) => {
 								minTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								minTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
 									jobLoader?.loadJobs(minTs, maxTs, true)
@@ -702,10 +755,18 @@
 							disabled
 						/>
 						<CalendarPicker
+							clearable={true}
 							date={maxTs}
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								maxTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
 									jobLoader?.loadJobs(minTs, maxTs, true)
@@ -834,11 +895,48 @@
 						<ToggleButton value="RunChart" label="Duration" />
 						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
 					</ToggleButtonGroup>
+					{#if !graphIsRunsChart}
+						<DropdownV2
+							items={[
+								{
+									displayName: 'None',
+									action: () => setLookback(0)
+								},
+								{
+									displayName: '1 day',
+									action: () => setLookback(1)
+								},
+								{
+									displayName: '3 days',
+									action: () => setLookback(3)
+								},
+								{
+									displayName: '7 days',
+									action: () => setLookback(7)
+								}
+							]}
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<div
+									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
+								>
+									<ChevronDown class="w-5 h-5" />
+									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
+									<Tooltip>
+										How far behind the min datetime to start considering jobs for the concurrency
+										graph. Change this value to include jobs started before the set time window for
+										the computation of the graph
+									</Tooltip>
+								</div>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
 				</div>
 			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
 					bind:selectedIds
+					canSelect={!isSelectingJobsToCancel}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -872,13 +970,6 @@
 					{#if isSelectingJobsToCancel}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
 							<Button
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							/>
-							<Button
 								startIcon={{ icon: X }}
 								size="xs"
 								color="gray"
@@ -888,6 +979,16 @@
 									selectedIds = []
 								}}
 							/>
+							<Button
+								disabled={selectedIds.length == 0}
+								startIcon={{ icon: Check }}
+								size="xs"
+								color="red"
+								variant="contained"
+								on:click={cancelSelectedJobs}
+							>
+								Cancel {jobCountString(selectedIds.length)}
+							</Button>
 						</div>
 					{:else if !$userStore?.is_admin && !$superadmin}
 						<DropdownV2
@@ -968,10 +1069,18 @@
 						/>
 
 						<CalendarPicker
+							clearable={true}
 							date={minTs}
 							label="Min datetimes"
 							on:change={async ({ detail }) => {
 								minTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								minTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
 									jobLoader?.loadJobs(minTs, maxTs, true)
@@ -989,10 +1098,18 @@
 							disabled
 						/>
 						<CalendarPicker
+							clearable={true}
 							date={maxTs}
 							label="Max datetimes"
 							on:change={async ({ detail }) => {
 								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								maxTs = undefined
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
 									jobLoader?.loadJobs(minTs, maxTs, true)

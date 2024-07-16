@@ -15,7 +15,7 @@
 		VariableService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Badge from './common/badge/Badge.svelte'
@@ -26,7 +26,6 @@
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
-	import ContentSearch from './ContentSearch.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app' | 'raw_app'
 	let meta: Meta | undefined = undefined
@@ -263,12 +262,8 @@
 		!dirty && (dirty = true)
 	}
 
-	let contentSearch: ContentSearch
+	const openSearchWithPrefilledText: (t?: string) => void = getContext("openSearchWithPrefilledText")
 </script>
-
-{#if kind != 'app' && kind != 'schedule' && initialPath != '' && initialPath != undefined}
-	<ContentSearch bind:this={contentSearch} />
-{/if}
 
 <Drawer bind:this={newFolder}>
 	<DrawerContent
@@ -462,7 +457,7 @@
 					variant="border"
 					color="dark"
 					on:click={() => {
-						contentSearch?.open(initialPath)
+						openSearchWithPrefilledText("#")
 					}}
 					startIcon={{ icon: SearchCode }}
 				>

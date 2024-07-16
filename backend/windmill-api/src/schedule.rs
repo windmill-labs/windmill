@@ -72,6 +72,7 @@ pub struct NewSchedule {
     pub ws_error_handler_muted: Option<bool>,
     pub retry: Option<serde_json::Value>,
     pub tag: Option<String>,
+    pub paused_until: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -157,9 +158,9 @@ async fn create_schedule(
         "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
             is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, \
             on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, \
-            ws_error_handler_muted, retry, summary, no_flow_overlap, tag \
+            ws_error_handler_muted, retry, summary, no_flow_overlap, tag, paused_until \
         ) VALUES ( \
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22 \
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23 \
         ) RETURNING *")
         .bind(&w_id)
         .bind(&ns.path)
@@ -183,6 +184,7 @@ async fn create_schedule(
         .bind(&ns.summary)
         .bind(&ns.no_flow_overlap.unwrap_or(false))
         .bind(&ns.tag)
+        .bind(&ns.paused_until)
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e:#}")))?;
@@ -247,8 +249,8 @@ async fn edit_schedule(
         "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, \
             on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, \
             on_recovery_extra_args = $10, ws_error_handler_muted = $11, retry = $12, summary = $13, \
-            no_flow_overlap = $14, tag = $15
-        WHERE path = $16 AND workspace_id = $17 RETURNING *")
+            no_flow_overlap = $14, tag = $15, paused_until = $16
+        WHERE path = $17 AND workspace_id = $18 RETURNING *")
         .bind(&es.schedule)
         .bind(&es.timezone)
         .bind(&es.args)
@@ -264,6 +266,7 @@ async fn edit_schedule(
         .bind(&es.summary)
         .bind(&es.no_flow_overlap.unwrap_or(false))
         .bind(&es.tag)
+        .bind(&es.paused_until)
         .bind(&path)
         .bind(&w_id)
     .fetch_one(&mut tx)
@@ -379,6 +382,7 @@ pub struct ScheduleWJobs {
     pub summary: Option<String>,
     pub no_flow_overlap: bool,
     pub tag: Option<String>,
+    pub paused_until: Option<DateTime<Utc>>,
 }
 
 async fn list_schedule_with_jobs(
@@ -790,6 +794,7 @@ pub struct EditSchedule {
     pub retry: Option<serde_json::Value>,
     pub no_flow_overlap: Option<bool>,
     pub tag: Option<String>,
+    pub paused_until: Option<DateTime<Utc>>,
 }
 
 pub async fn clear_schedule<'c>(

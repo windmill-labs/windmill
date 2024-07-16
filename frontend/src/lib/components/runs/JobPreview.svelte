@@ -133,7 +133,11 @@
 		<span class="font-semibold text-xs leading-6">Arguments</span>
 
 		<div class="w-full">
-			<JobArgs args={job?.args} />
+			<JobArgs
+				id={job?.id}
+				workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+				args={job?.args}
+			/>
 		</div>
 
 		{#if job?.type === 'CompletedJob'}

@@ -287,6 +287,7 @@
 												arg.value = undefined
 											}
 											arg.expr = undefined
+											arg.type = 'static'
 										}
 									} else {
 										if (arg) {
@@ -329,6 +330,7 @@
 						on:click={() => {
 							focusProp(argName, 'connect', (path) => {
 								connectProperty(path)
+								dispatch('change', { argName })
 								return true
 							})
 						}}

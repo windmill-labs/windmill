@@ -11,6 +11,7 @@
 	} from '$lib/gen'
 	import {
 		canWrite,
+		computeSharableHash,
 		copyToClipboard,
 		displayDate,
 		emptyString,
@@ -43,7 +44,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import {
 		enterpriseLicense,
-		runFormStore,
+		initialArgsStore,
 		superadmin,
 		userStore,
 		userWorkspaces,
@@ -83,6 +84,7 @@
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -255,12 +257,14 @@
 
 	function forkPreview() {
 		if (job?.job_kind == 'flowpreview') {
+			$initialArgsStore = job?.args
 			const state = {
 				flow: { value: job?.raw_flow },
 				path: job?.script_path + '_fork'
 			}
 			window.open(`/flows/add#${encodeState(state)}`)
 		} else {
+			$initialArgsStore = job?.args
 			let n: NewScript = {
 				path: job?.script_path + '_fork',
 				summary: 'Fork of preview of ' + job?.script_path,
@@ -274,6 +278,8 @@
 
 	let scheduleEditor: ScheduleEditor
 </script>
+
+<HighlightTheme />
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
@@ -561,8 +567,7 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={() => {
-						$runFormStore = job?.args
-						goto(viewHref)
+						goto(viewHref + `#${computeSharableHash(job?.args)}`)
 					}}
 					color="blue"
 					size="sm"
@@ -574,7 +579,7 @@
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
 							on:click|once={() => {
-								$runFormStore = job?.args
+								$initialArgsStore = job?.args
 								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
@@ -696,7 +701,11 @@
 			class="flex flex-col gap-y-8 sm:grid sm:grid-cols-3 sm:gap-10 max-w-7xl mx-auto w-full px-4"
 		>
 			<div class="col-span-2">
-				<JobArgs args={job?.args} />
+				<JobArgs
+					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+					id={job?.id}
+					args={job?.args}
+				/>
 			</div>
 			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />

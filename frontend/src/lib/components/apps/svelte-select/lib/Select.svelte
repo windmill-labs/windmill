@@ -668,7 +668,6 @@
 			bind:value={filterText}
 			placeholder={placeholderText}
 			style={inputStyles}
-			{disabled}
 		/>
 	</div>
 
@@ -867,7 +866,7 @@
 
 	.disabled input::placeholder {
 		color: var(--disabled-placeholder-color, #c1c6cc);
-		opacity: var(--disabled-placeholder-opacity, 1);
+		opacity: var(--disabled-placeholder-opacity, 0.8);
 	}
 
 	.selected-item {

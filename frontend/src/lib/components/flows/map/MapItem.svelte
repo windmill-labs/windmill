@@ -19,6 +19,7 @@
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import FlowJobsMenu from './FlowJobsMenu.svelte'
 
 	export let mod: FlowModule
 	export let trigger: boolean
@@ -33,6 +34,9 @@
 	export let disableAi: boolean = false
 	export let wrapperId: string | undefined = undefined
 	export let retries: number | undefined = undefined
+	export let flowJobs:
+		| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
+		| undefined
 
 	$: idx = modules.findIndex((m) => m.id === mod.id)
 
@@ -48,6 +52,7 @@
 		select: string
 		newBranch: { module: FlowModule }
 		move: { module: FlowModule } | undefined
+		selectedIteration: { index: number; id: string }
 	}>()
 
 	$: itemProps = {
@@ -123,6 +128,19 @@
 				{annotation}
 			</div>
 		{/if}
+		{#if flowJobs && !insertable}
+			<div class="absolute z-10 right-8 -top-5">
+				<FlowJobsMenu
+					on:selectedIteration={(e) => {
+						dispatch('selectedIteration', e.detail)
+					}}
+					flowJobsSuccess={flowJobs.flowJobsSuccess}
+					flowJobs={flowJobs.flowJobs}
+					selected={flowJobs.selected}
+					index={idx}
+				/>
+			</div>
+		{/if}
 
 		<div class={moving == mod.id ? 'opacity-50' : ''}>
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
@@ -138,6 +156,11 @@
 					on:click={() => dispatch('select', mod.id)}
 					{...itemProps}
 					{bgColor}
+					warningMessage={mod?.value?.type === 'forloopflow' &&
+					mod?.value?.iterator?.type === 'javascript' &&
+					mod?.value?.iterator?.expr === ''
+						? 'Iterator expression is empty'
+						: ''}
 				>
 					<div slot="icon">
 						<Repeat size={16} />

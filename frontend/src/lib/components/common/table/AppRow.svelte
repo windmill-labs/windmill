@@ -3,7 +3,7 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, type AppWithLastVersion, DraftService, type ListableApp } from '$lib/gen'
+	import { AppService, DraftService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -44,25 +44,16 @@
 	const dispatch = createEventDispatcher()
 
 	let appExport: AppJsonEditor
-	let appDeploymentHistory: AppDeploymentHistory
+	let appDeploymentHistory: AppDeploymentHistory | undefined = undefined
 
 	async function loadAppJson() {
 		appExport.open(app.path)
-	}
-
-	async function loadDeployements() {
-		const napp: AppWithLastVersion = (await AppService.getAppByPath({
-			workspace: $workspaceStore!,
-			path: app.path
-		})) as unknown as AppWithLastVersion
-
-		appDeploymentHistory.open(napp.path)
 	}
 </script>
 
 {#if menuOpen}
 	<AppJsonEditor on:change bind:this={appExport} />
-	<AppDeploymentHistory bind:this={appDeploymentHistory} />
+	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}
 
 <Row
@@ -189,7 +180,7 @@
 					{
 						displayName: 'Deployments',
 						icon: History,
-						action: () => loadDeployements(),
+						action: () => appDeploymentHistory?.open(),
 						hide: $userStore?.operator
 					},
 					{

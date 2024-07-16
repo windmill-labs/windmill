@@ -9,6 +9,7 @@
 	import TabContent from './common/tabs/TabContent.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { Badge } from './common'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let schema: Schema | undefined | any = emptySchema()
 
@@ -19,6 +20,8 @@
 		return []
 	}
 </script>
+
+<HighlightTheme />
 
 <div class="w-full">
 	<Tabs selected="arguments">

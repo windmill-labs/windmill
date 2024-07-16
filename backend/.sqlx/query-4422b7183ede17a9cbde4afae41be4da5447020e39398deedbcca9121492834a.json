@@ -130,6 +130,11 @@
       },
       {
         "ordinal": 25,
+        "name": "paused_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 26,
         "name": "jobs",
         "type_info": "JsonArray"
       }
@@ -166,6 +171,7 @@
       true,
       true,
       false,
+      true,
       true,
       null
     ]

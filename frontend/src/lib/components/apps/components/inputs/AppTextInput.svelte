@@ -76,7 +76,6 @@
 		'windmillapp w-full py-1.5 px-2 text-sm',
 		'app-editor-input',
 		css?.input?.class ?? '',
-		resolvedConfig.disabled ? 'placeholder:text-gray-400 dark:placeholder:text-gray-600' : '',
 		'wm-input',
 		'wm-text-input'
 	)
