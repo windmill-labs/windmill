@@ -110,7 +110,12 @@
 				customCss?.container?.class
 			)}
 		>
-			<DisplayResult {result} {requireHtmlApproval} disableExpand={resolvedConfig?.hideDetails} />
+			<DisplayResult
+				workspaceId={workspace}
+				{result}
+				{requireHtmlApproval}
+				disableExpand={resolvedConfig?.hideDetails}
+			/>
 		</div>
 	</div>
 {/if}
