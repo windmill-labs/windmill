@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.364.3](https://github.com/windmill-labs/windmill/compare/v1.364.2...v1.364.3) (2024-07-16)
+
+
+### Bug Fixes
+
+* fix erronous not connected error message ([9a5dc97](https://github.com/windmill-labs/windmill/commit/9a5dc97b184a6b4a027baaa244c117885fb86fbb))
+* fix missing workspaceId on display result of apps ([bfbbeab](https://github.com/windmill-labs/windmill/commit/bfbbeabe4f57ed65a0190715028ed6df9a201e06))
+
 ## [1.364.2](https://github.com/windmill-labs/windmill/compare/v1.364.1...v1.364.2) (2024-07-16)
 
 
