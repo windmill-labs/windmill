@@ -10448,12 +10448,14 @@ name = "windmill-common"
 version = "1.364.2"
 dependencies = [
  "anyhow",
+ "async-stream",
  "aws-config",
  "aws-sdk-sts",
  "axum",
  "bytes",
  "chrono",
  "cron",
+ "futures-core",
  "git-version",
  "hex",
  "hmac",
@@ -10502,12 +10504,14 @@ name = "windmill-indexer"
 version = "1.364.2"
 dependencies = [
  "anyhow",
+ "bytes",
  "chrono",
  "futures",
  "serde",
  "serde_json",
  "sqlx",
  "tantivy",
+ "tempfile",
  "tokio",
  "tracing",
  "uuid 1.10.0",

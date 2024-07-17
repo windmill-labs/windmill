@@ -24,3 +24,5 @@ tracing.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 futures.workspace = true
+tempfile.workspace = true
+bytes.workspace = true
