@@ -40,10 +40,11 @@
 	export let enum_: EnumType = undefined
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
 				multiselect?: string[]
+				resourceType?: string
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -329,6 +330,11 @@
 														<option>{e}</option>
 													{/each}
 												</select>
+											{:else if itemsType?.type == 'resource' && itemsType?.resourceType}
+												<LightweightResourcePicker
+													bind:value={v}
+													resourceType={itemsType?.resourceType}
+												/>
 											{:else}
 												<input type="text" bind:value={v} />
 											{/if}
@@ -522,7 +528,7 @@
 								<Password bind:password={value} />
 							{:else}
 								<textarea
-									rows={extra?.['rows'] || 1}
+									rows={extra?.['minRows'] || 1}
 									bind:this={el}
 									on:focus={(e) => {
 										dispatch('focus')

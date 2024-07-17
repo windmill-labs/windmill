@@ -38,7 +38,7 @@
 			type: 'array',
 			items: {
 				type: 'string',
-				multiselect: allUserGroups
+				enum: allUserGroups
 			}
 		}
 	}

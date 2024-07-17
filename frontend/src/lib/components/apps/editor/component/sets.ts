@@ -19,7 +19,8 @@ const layout: ComponentSet = {
 		'modalcomponent',
 		'steppercomponent',
 		'carousellistcomponent',
-		'decisiontreecomponent'
+		'decisiontreecomponent',
+		'navbarcomponent'
 	]
 } as const
 
@@ -52,7 +53,8 @@ const inputs: ComponentSet = {
 		'resourceselectcomponent',
 		'multiselectcomponentv2',
 		'selecttabcomponent',
-		'selectstepcomponent'
+		'selectstepcomponent',
+		'dateselectcomponent'
 	]
 } as const
 
@@ -69,6 +71,7 @@ const display: ComponentSet = {
 		'displaycomponent',
 		'jobidlogcomponent',
 		'jobidflowstatuscomponent',
+		'jobiddisplaycomponent',
 		'statcomponent',
 		'menucomponent',
 		'alertcomponent'

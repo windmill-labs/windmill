@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { Network, Plus, Trash } from 'lucide-svelte'
 	import type { AppComponent, DecisionTreeNode } from '../component'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -12,6 +12,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import { debounce } from '$lib/utils'
 	import type { AppViewerContext } from '../../types'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	export let component: AppComponent
 	export let nodes: DecisionTreeNode[]
@@ -102,9 +103,9 @@
 											<div class="grow relative">
 												<InputsSpecEditor
 													key={`condition-${selectedNode.id}-${index}`}
-													customTitle={`${index > 0 ? 'Otherwise ' : ''}Goes to branch ${
-														index + 1
-													} (First node: ${nodes?.findIndex((node) => node.id == subNode.id)}) if:`}
+													customTitle={index === 0
+														? 'Goes to the default branch'
+														: `${index > 0 ? 'Otherwise ' : ''}Goes to branch ${index}`}
 													bind:componentInput={subNode.condition}
 													id={selectedNode.id}
 													userInputEnabled={false}
@@ -120,10 +121,23 @@
 													displayType={false}
 													fixedOverflowWidgets={false}
 												/>
+												<div class="flex flex-row gap-1 mt-2">
+													<Badge>
+														{`Next node id: ${subNode.id}`}
+													</Badge>
+													<Badge color="indigo">
+														{`Next tab index: ${nodes?.findIndex((node) => node.id == subNode.id)}`}
+													</Badge>
+												</div>
 											</div>
 										</div>
 									{/if}
 								{/each}
+
+								<Alert type="info" class="mt-4" title="Multiple branches" size="xs">
+									The conditions above are evaluated in order. The first condition that is met will
+									be the branch that is taken.
+								</Alert>
 							{/if}
 							{#key selectedNode.id}
 								{#if selectedNode.allowed}

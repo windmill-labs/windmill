@@ -117,7 +117,7 @@
 <div class="w-full h-full mt-2 text-sm text-tertiary">
 	<p>Waiting to be resumed</p>
 	{#if description != undefined}
-		<DisplayResult noControls result={description} />
+		<DisplayResult {workspaceId} noControls result={description} />
 	{/if}
 	<div>
 		{#if isOwner || resumeUrl}

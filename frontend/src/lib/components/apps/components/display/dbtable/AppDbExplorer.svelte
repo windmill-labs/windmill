@@ -290,6 +290,11 @@
 				return
 			}
 
+			if (!runnableComponent) {
+				params.successCallback([], 0)
+				return
+			}
+
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
 				done: (items) => {
 					let lastRow = -1

@@ -66,7 +66,7 @@
 				<span class="!text-xs">
 					<HighlightCode language={stepDetail.value.language} code={stepDetail.value.content} />
 				</span>
-				<h3 class="mb-2">Lockfile</h3>
+				<h3 class="mt-4 mb-2">Lockfile</h3>
 				<div>
 					{#if stepDetail.value.lock}
 						<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
@@ -171,7 +171,7 @@
 							>{stepDetail.value.lock}</pre
 						>
 					{:else}
-						<p class="bg-surface-secondary text-sm p-2">
+						<p class="bg-surface-secondary text-sm p-2 rounded">
 							There is no lockfile for this inline script
 						</p>
 					{/if}

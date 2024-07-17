@@ -2,7 +2,7 @@
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { sendUserToast } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
+	import type { AppViewerContext, ComponentCustomCSS, ContextPanelContext } from '../../../types'
 
 	import type { TableAction, components } from '$lib/components/apps/editor/component'
 	import { deepEqual } from 'fast-equals'
@@ -39,6 +39,7 @@
 	let inputs = {}
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
+	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const { app, selectedComponent, componentControl, darkMode } = context
 
 	let css = initCss($app.css?.aggridcomponent, customCss)
@@ -120,6 +121,11 @@
 		const rowIndex = p.node.rowIndex ?? 0
 		const row = p.data
 
+		const componentContext = new Map<string, any>([
+			['AppViewerContext', context],
+			['ContextPanel', contextPanel]
+		])
+
 		new AppAggridTableActions({
 			target: c.eGui,
 			props: {
@@ -155,7 +161,7 @@
 					outputs?.inputs.set(inputs, true)
 				}
 			},
-			context: new Map([['AppViewerContext', context]])
+			context: componentContext
 		})
 	})
 
@@ -206,7 +212,9 @@
 
 		if (actions && actions.length > 0) {
 			r.push({
-				headerName: 'Actions',
+				headerName: resolvedConfig?.customActionsHeader
+					? resolvedConfig?.customActionsHeader
+					: 'Actions',
 				cellRenderer: tableActionsFactory,
 				autoHeight: true,
 				cellStyle: { textAlign: 'center' },

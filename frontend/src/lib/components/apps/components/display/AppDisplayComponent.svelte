@@ -24,7 +24,9 @@
 	export let configuration: RichConfigurations
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl, workspace } =
+		getContext<AppViewerContext>('AppViewerContext')
+
 	let result: any = undefined
 
 	const resolvedConfig = initConfig(
@@ -75,7 +77,7 @@
 			)}
 			style={css?.header?.style}
 		>
-			{resolvedConfig?.title ?? 'Result'}
+			{resolvedConfig?.title ? resolvedConfig?.title : 'Result'}
 		</div>
 		<div
 			style={twMerge(
@@ -89,7 +91,12 @@
 				customCss?.container?.class
 			)}
 		>
-			<DisplayResult {result} {requireHtmlApproval} disableExpand={resolvedConfig?.hideDetails} />
+			<DisplayResult
+				workspaceId={workspace}
+				{result}
+				{requireHtmlApproval}
+				disableExpand={resolvedConfig?.hideDetails}
+			/>
 		</div>
 	</div>
 </RunnableWrapper>

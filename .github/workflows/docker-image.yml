@@ -135,7 +135,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
             ${{ steps.meta-ee-public.outputs.tags }}
@@ -198,7 +198,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
             PYTHON_IMAGE=python:3.12.2-slim-bookworm
           tags: |
             ${{ steps.meta-ee-public-py312.outputs.tags }}

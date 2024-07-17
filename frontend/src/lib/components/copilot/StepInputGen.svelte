@@ -84,16 +84,25 @@
 				results: pickableProperties?.priorIds,
 				flow_input: pickableProperties?.flow_input
 			}
+			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${selectedId}, you can find the details for the step and previous ones below:
+The current step is ${$selectedId}, you can find the details for the step and previous ones below:
 ${flowDetails}
 Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. 
 All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
-When the step is in a loop, the iterator value is accessible as flow_input.iter.value
+${
+	isInsideLoop
+		? 'As the step is in a loop, the iterator value is accessible as flow_input.iter.value.'
+		: 'As the step is not in a loop, flow_input.iter.value is not available.'
+}
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
-Favor results and flow_input.iter.value over flow inputs.
+${
+	isInsideLoop
+		? 'Favor results and flow_input.iter.value over flow inputs.'
+		: 'Favor results over flow inputs'
+}
 If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.

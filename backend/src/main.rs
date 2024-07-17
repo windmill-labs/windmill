@@ -150,6 +150,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
+    let mut enable_standalone_indexer: bool = false;
+
     let mode = std::env::var("MODE")
         .map(|x| x.to_lowercase())
         .map(|x| {
@@ -174,7 +176,20 @@ async fn windmill_main() -> anyhow::Result<()> {
                 }
                 #[cfg(feature = "enterprise")]
                 Mode::Agent
-            } else {
+            } else if &x == "indexer" {
+                tracing::info!("Binary is in 'indexer' mode");
+                #[cfg(not(feature = "tantivy"))]
+                {
+                    panic!("Indexer mode requires the tantivy feature flag");
+                }
+                #[cfg(feature = "tantivy")]
+                Mode::Indexer
+            } else if &x == "standalone+search"{
+                    enable_standalone_indexer = true;
+                    tracing::info!("Binary is in 'standalone' mode with search enabled");
+                    Mode::Standalone
+            }
+            else {
                 if &x != "standalone" {
                     tracing::error!("mode not recognized, defaulting to standalone: {x}");
                 } else {
@@ -188,7 +203,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             Mode::Standalone
         });
 
-    let num_workers = if mode == Mode::Server {
+    let num_workers = if mode == Mode::Server || mode == Mode::Indexer {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -209,7 +224,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         .unwrap_or(false)
         && (mode == Mode::Server || mode == Mode::Standalone);
 
-    let server_bind_address: IpAddr = if server_mode {
+    let indexer_mode = mode == Mode::Indexer;
+
+    let server_bind_address: IpAddr = if server_mode || indexer_mode {
         std::env::var("SERVER_BIND_ADDR")
             .ok()
             .and_then(|x| x.parse().ok())
@@ -248,7 +265,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     tracing::info!("Connecting to database...");
-    let db = windmill_common::connect_db(server_mode).await?;
+    let db = windmill_common::connect_db(server_mode, indexer_mode).await?;
     tracing::info!("Database connected");
 
     let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
@@ -302,10 +319,10 @@ Windmill Community Edition {GIT_VERSION}
 
     let worker_mode = num_workers > 0;
 
-    if server_mode || worker_mode {
+    if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
-        let port = if server_mode {
+        let port = if server_mode || indexer_mode {
             port_var.unwrap_or(DEFAULT_PORT as u16)
         } else {
             port_var.unwrap_or(0)
@@ -346,11 +363,37 @@ Windmill Community Edition {GIT_VERSION}
             .await
             .expect("could not create initial server dir");
 
+        #[cfg(feature = "tantivy")]
+        let should_index_jobs =
+              mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
+
+        #[cfg(not(feature = "tantivy"))]
+        let should_index_jobs = false;
+
+        let (index_reader, index_writer) = if should_index_jobs {
+            let (r, w) = windmill_indexer::indexer_ee::init_index()?;
+            (Some(r), Some(w))
+        } else {
+            (None, None)
+        };
+
+        let indexer_rx = killpill_rx.resubscribe();
+        let index_writer2 = index_writer.clone();
+        let indexer_f = async {
+            if let Some(index_writer) = index_writer2 {
+                windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
+                    .await;
+            }
+            Ok(())
+        };
+
         let server_f = async {
             if !is_agent {
                 windmill_api::run_server(
                     db.clone(),
                     rsmq2,
+                    index_reader,
+                    index_writer,
                     addr,
                     server_killpill_rx,
                     base_internal_tx,
@@ -597,7 +640,14 @@ Windmill Community Edition {GIT_VERSION}
             schedule_key_renewal(&HTTP_CLIENT, &db).await;
         }
 
-        futures::try_join!(shutdown_signal, workers_f, monitor_f, server_f, metrics_f)?;
+        futures::try_join!(
+            shutdown_signal,
+            workers_f,
+            monitor_f,
+            server_f,
+            metrics_f,
+            indexer_f
+        )?;
     } else {
         tracing::info!("Nothing to do, exiting.");
     }

@@ -37,13 +37,13 @@
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { setQuery } from '$lib/navigation'
-	import ContentSearch from '../ContentSearch.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import { Popup } from '../common'
+	import { getContext } from 'svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -289,7 +289,7 @@
 	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
 	$: storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 
-	let contentSearch: ContentSearch
+	const openSearchWithPrefilledText: (t?: string) => void = getContext("openSearchWithPrefilledText")
 
 	let viewCodeDrawer: Drawer
 	let viewCodeTitle: string | undefined
@@ -332,7 +332,6 @@
 	</DrawerContent>
 </Drawer>
 
-<ContentSearch bind:this={contentSearch} />
 <CenteredPage>
 	<div class="flex flex-wrap gap-2 items-center justify-between w-full mt-2">
 		<div class="flex justify-start">
@@ -397,7 +396,7 @@
 			</button>
 		</div>
 		<Button
-			on:click={() => contentSearch?.open()}
+			on:click={() => openSearchWithPrefilledText("#")}
 			variant="border"
 			size="sm"
 			spacingSize="lg"

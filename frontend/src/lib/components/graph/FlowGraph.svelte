@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
-	import { type FlowModule } from '../../gen'
+	import { type FlowModule, type FlowStatusModule } from '../../gen'
 	import {
 		NODE,
 		createIdGenerator,
@@ -26,6 +26,7 @@
 	import { deepEqual } from 'fast-equals'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import type { FlowInput } from '../flows/types'
+	import { dfsByModule } from '../flows/previousResults'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -88,6 +89,8 @@
 
 	let oldRebuildOnChange = rebuildOnChange ? JSON.parse(JSON.stringify(rebuildOnChange)) : undefined
 
+	let darkMode = false
+
 	function triggerRebuild() {
 		if (!deepEqual(oldRebuildOnChange, rebuildOnChange)) {
 			oldRebuildOnChange = JSON.parse(JSON.stringify(rebuildOnChange))
@@ -123,7 +126,9 @@
 					true,
 					undefined,
 					undefined,
-					'Input'
+					'Input',
+					undefined,
+					undefined
 				)
 			)
 
@@ -150,6 +155,8 @@
 					true,
 					undefined,
 					undefined,
+					undefined,
+					success == undefined ? undefined : success ? 'Success' : 'Failure',
 					undefined
 				)
 			)
@@ -160,7 +167,7 @@
 				Object.entries(flowModuleStates ?? [])
 					.filter(([k, v]) => k.startsWith('failure'))
 					.forEach(([k, v]) => {
-						nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
+						nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module, k))
 					})
 			}
 			const flatNodes = flattenNestedNodes(nestedNodes)
@@ -178,20 +185,35 @@
 
 			if (useDataflow && $selectedId) {
 				let deps = getDependeeAndDependentComponents($selectedId, modules ?? [], failureModule)
+
 				if (deps) {
 					Object.entries(deps.dependees).forEach((x, i) => {
-						let pid = x[0]
-						edges.push({
-							id: `dep-${pid}-${$selectedId}`,
-							source: pid,
-							target: $selectedId!,
-							labelBgColor: 'white',
-							arrow: false,
-							animate: true,
-							noHandle: true,
-							label: pid,
-							type: 'bezier',
-							offset: i * 20
+						const inputs = x[1]
+
+						inputs?.forEach((input, index) => {
+							let pid = x[0]
+
+							if (input?.startsWith('flow_input.iter')) {
+								const parent = dfsByModule($selectedId!, modules ?? [])?.pop()
+
+								if (parent?.id) {
+									pid = parent.id
+								}
+							}
+
+							edges.push({
+								id: `dep-${pid}-${$selectedId}-${input}`,
+								source: pid,
+								target: $selectedId!,
+								labelBgColor: darkMode ? '#999' : 'white',
+								edgeColor: darkMode ? 'white' : 'black',
+								arrow: false,
+								animate: true,
+								noHandle: true,
+								label: pid,
+								type: 'bezier',
+								offset: index * 20
+							})
 						})
 					})
 
@@ -201,7 +223,8 @@
 							id: `dep-${pid}-${$selectedId}`,
 							source: $selectedId!,
 							target: pid,
-							labelBgColor: 'white',
+							labelBgColor: darkMode ? '#999' : 'white',
+							edgeColor: darkMode ? 'white' : 'black',
 							arrow: false,
 							animate: true,
 							noHandle: true,
@@ -267,7 +290,8 @@
 			insertableEnd,
 			false,
 			modules,
-			wrapper
+			wrapper,
+			undefined
 		)
 	}
 
@@ -289,19 +313,6 @@
 		return []
 	}
 
-	function getResultColor(): string {
-		const isDark = document.documentElement.classList.contains('dark')
-
-		switch (success) {
-			case true:
-				return getStateColor('Success')
-			case false:
-				return getStateColor('Failure')
-			default:
-				return isDark ? '#2e3440' : '#fff'
-		}
-	}
-
 	function flowModuleToNode(
 		parentIds: string[],
 		mod: FlowModule,
@@ -311,8 +322,15 @@
 		insertableEnd: boolean,
 		branchable: boolean,
 		modules: FlowModule[],
-		wrapper: FlowModule | undefined = undefined
+		wrapper: FlowModule | undefined,
+		flowJobs:
+			| { flowJobs: string[]; selected: number; flowJobsSuccess?: (boolean | undefined)[] }
+			| undefined
 	): Node {
+		let type = flowModuleStates?.[mod.id]?.type
+		if (!type && flowJobs) {
+			type = 'InProgress'
+		}
 		return {
 			type: 'node',
 			id: mod.id,
@@ -328,12 +346,13 @@
 						branchable,
 						retries: flowModuleStates?.[mod.id]?.retries,
 						duration_ms: flowModuleStates?.[mod.id]?.duration_ms,
-						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
-						annotation,
+						bgColor: getStateColor(type, darkMode),
+						annotation: annotation,
 						modules,
 						moving,
 						disableAi,
-						wrapperId: wrapper?.id
+						wrapperId: wrapper?.id,
+						flowJobs
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'delete') {
@@ -351,6 +370,8 @@
 							dispatch('newBranch', detail)
 						} else if (e == 'move') {
 							dispatch('move', { module: mod, modules })
+						} else if (e == 'selectedIteration') {
+							dispatch('selectedIteration', { ...detail, moduleId: mod.id })
 						}
 					}
 				}
@@ -371,6 +392,7 @@
 		parent: NestedNodes | string | undefined,
 		loopDepth: number
 	): Loop {
+		let state = flowModuleStates?.[module.id]
 		const loop: Loop = {
 			type: 'loop',
 			items: [
@@ -378,21 +400,30 @@
 					getParentIds(parent),
 					module,
 					undefined,
-					flowModuleStates?.[module.id]?.iteration
-						? 'Iteration ' +
-								flowModuleStates?.[module.id]?.iteration +
-								'/' +
-								(flowModuleStates?.[module.id]?.iteration_total ?? '?')
+					state?.flow_jobs
+						? 'iterations ' + state?.flow_jobs?.length + '/' + (state?.iteration_total ?? '?')
 						: '',
 					loopDepth,
 					false,
 					false,
-					modules
+					modules,
+					undefined,
+					state?.flow_jobs
+						? {
+								flowJobs: state?.flow_jobs,
+								selected: state?.selectedForloopIndex ?? -1,
+								flowJobsSuccess: state?.flow_jobs_success
+						  }
+						: undefined
 				)
 			]
 		}
 		const innerModules = module.value.modules
-
+		let borderStatus: FlowStatusModule['type'] | undefined = undefined
+		let success = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0]
+		if (success != undefined) {
+			borderStatus = success ? 'Success' : 'Failure'
+		}
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
@@ -406,6 +437,8 @@
 				undefined,
 				undefined,
 				undefined,
+				undefined,
+				borderStatus,
 				true,
 				module
 			)
@@ -434,7 +467,9 @@
 				true,
 				undefined,
 				module.id,
-				undefined
+				undefined,
+				undefined,
+				flowModuleStates?.[module.id]?.type
 			)
 		)
 		return loop
@@ -458,7 +493,9 @@
 			loopDepth,
 			false,
 			true,
-			modules
+			modules,
+			undefined,
+			undefined
 		)
 		const bitems: NestedNodes[] = []
 		const branchParent = [node.id]
@@ -475,6 +512,8 @@
 					false,
 					undefined,
 					undefined,
+					undefined,
+					undefined,
 					undefined
 				)
 			])
@@ -483,6 +522,24 @@
 		branches.forEach(({ summary, modules, removable }, i) => {
 			const items: NestedNodes = []
 
+			let borderStatus: FlowStatusModule['type'] | undefined = undefined
+			if (module.value.type == 'branchall' || module.value.type == 'forloopflow') {
+				let flow_jobs_success = flowModuleStates?.[module.id]?.flow_jobs_success
+				if (!flow_jobs_success) {
+					borderStatus = 'WaitingForPriorSteps'
+				} else {
+					let status = flow_jobs_success?.[i]
+					if (status == undefined) {
+						borderStatus = 'WaitingForExecutor'
+					} else {
+						borderStatus = status ? 'Success' : 'Failure'
+					}
+				}
+			} else if (module.value.type == 'branchone') {
+				if (flowModuleStates?.[module.id]?.branchChosen == i) {
+					borderStatus = flowModuleStates?.[module.id]?.type
+				}
+			}
 			items.push(
 				createVirtualNode(
 					branchParent,
@@ -496,6 +553,8 @@
 					removable ? { module, index: i } : undefined,
 					undefined,
 					undefined,
+					undefined,
+					borderStatus,
 					false,
 					wrapper
 				)
@@ -531,7 +590,9 @@
 				true,
 				undefined,
 				module.id,
-				undefined
+				undefined,
+				undefined,
+				flowModuleStates?.[module.id]?.type
 			),
 			items: bitems
 		}
@@ -663,11 +724,19 @@
 		deleteBranch: { module: FlowModule; index: number } | undefined,
 		mid: string | undefined,
 		fixed_id: string | undefined,
+		module_status: FlowStatusModule['type'] | undefined,
+		borderStatus: FlowStatusModule['type'] | undefined,
 		center: boolean = true,
 		wrapperNode: FlowModule | undefined = undefined
 	): Node {
 		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
 
+		let bgColor
+		if (module_status) {
+			bgColor = getStateColor(module_status, darkMode)
+		} else {
+			bgColor = darkMode ? '#2e3440' : '#dfe6ee'
+		}
 		return {
 			type: 'node',
 			id: id.toString(),
@@ -684,12 +753,10 @@
 						label,
 						insertable,
 						modules,
-						bgColor:
-							label == 'Result'
-								? getResultColor()
-								: document.documentElement.classList.contains('dark')
-								? '#2e3440'
-								: '#dfe6ee',
+						bgColor,
+						borderColor: borderStatus
+							? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')
+							: undefined,
 						selected: $selectedId == label,
 						index,
 						selectable,
@@ -724,8 +791,14 @@
 		}
 	}
 
-	function createErrorHandler(mod: FlowModule, parent_module?: string): Node {
-		const nId = (-idGenerator.next().value - 1 + 1100).toString()
+	function createErrorHandler(
+		mod: FlowModule,
+		parent_module?: string,
+		customNodeId?: string | undefined
+	): Node {
+		// When needed, we can add a custom node id to the error handler
+		// used for nested error handlers in for loop for example
+		const nId = customNodeId ?? 'failure'
 		parent_module && (errorHandlers[parent_module] = nId)
 		let label = 'Error handler'
 		return {
@@ -739,7 +812,7 @@
 						label,
 						insertable: false,
 						modules: undefined,
-						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
+						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type, darkMode),
 						selected: $selectedId == mod.id,
 						index: 0,
 						selectable: true,
@@ -772,7 +845,7 @@
 	})
 </script>
 
-<DarkModeObserver on:change={onThemeChange} />
+<DarkModeObserver bind:darkMode on:change={onThemeChange} />
 
 <!-- {JSON.stringify(flowModuleStates)} -->
 <div

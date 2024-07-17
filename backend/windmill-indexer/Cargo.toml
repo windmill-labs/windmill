@@ -1,0 +1,26 @@
+[package]
+name = "windmill-indexer"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_indexer"
+path = "src/lib.rs"
+
+[features]
+default = []
+tantivy = ["dep:tantivy"]
+
+[dependencies]
+windmill-common.workspace = true
+tantivy = {workspace = true, optional = true}
+tokio.workspace = true
+sqlx.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+futures.workspace = true

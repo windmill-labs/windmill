@@ -81,6 +81,9 @@ export function argSigToJsonSchemaType(
 		if (t.str) {
 			newS.originalType = 'enum'
 			newS.enum = t.str
+		} else if (oldS.originalType == 'string' && oldS.enum) {
+			newS.originalType = 'string'
+			newS.enum = oldS.enum
 		} else {
 			newS.originalType = 'string'
 			newS.enum = undefined
@@ -98,6 +101,8 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string' }
 		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
 			newS.items = { type: 'string', enum: t.list.str }
+		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
+			newS.items = { type: 'resource', resourceType: t.list.resource as string }
 		} else {
 			newS.items = { type: 'object' }
 		}

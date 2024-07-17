@@ -402,72 +402,8 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 (tstype_to_typ(&types[other_p]).0, true)
             } else {
                 if types.len() > 1 {
-                    let one_of_values: Vec<OneOfVariant> = types
-                        .into_iter()
-                        .map_while(|x| match &**x {
-                            TsType::TsTypeLit(TsTypeLit { members, .. }) => {
-                                let label = members
-                                    .iter()
-                                    .find_map(|y| match y {
-                                        TsTypeElement::TsPropertySignature(
-                                            TsPropertySignature { key, type_ann, .. },
-                                        ) => match (&**key, type_ann) {
-                                            (Expr::Ident(Ident { sym, .. }), type_ann) => {
-                                                if sym.to_string() == "label" {
-                                                    type_ann.as_ref().map(|z| match &*z.type_ann {
-                                                        TsType::TsLitType(TsLitType {
-                                                            lit: TsLit::Str(Str { value, .. }),
-                                                            ..
-                                                        }) => Some(value.to_string()),
-                                                        _ => None,
-                                                    })
-                                                } else {
-                                                    None
-                                                }
-                                            }
-                                            _ => None,
-                                        },
-                                        _ => None,
-                                    })
-                                    .flatten();
-
-                                match label {
-                                    Some(label) => {
-                                        let properties: Vec<ObjectProperty> = members
-                                            .into_iter()
-                                            .filter_map(|x| match x {
-                                                TsTypeElement::TsPropertySignature(
-                                                    TsPropertySignature { key, type_ann, .. },
-                                                ) => match (*key.to_owned(), type_ann) {
-                                                    (Expr::Ident(Ident { sym, .. }), type_ann) => {
-                                                        Some(ObjectProperty {
-                                                            key: sym.to_string(),
-                                                            typ: type_ann
-                                                                .as_ref()
-                                                                .map(|typ| {
-                                                                    Box::new(
-                                                                        tstype_to_typ(
-                                                                            &*typ.type_ann,
-                                                                        )
-                                                                        .0,
-                                                                    )
-                                                                })
-                                                                .unwrap_or(Box::new(Typ::Unknown)),
-                                                        })
-                                                    }
-                                                    _ => None,
-                                                },
-                                                _ => None,
-                                            })
-                                            .collect();
-                                        Some(OneOfVariant { label, properties })
-                                    }
-                                    _ => None,
-                                }
-                            }
-                            _ => None,
-                        })
-                        .collect();
+                    let one_of_values: Vec<OneOfVariant> =
+                        types.into_iter().map_while(parse_one_of_type).collect();
 
                     if one_of_values.len() == types.len() {
                         return (Typ::OneOf(one_of_values), false);
@@ -531,6 +467,66 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
         }
         _ => (Typ::Unknown, false),
     }
+}
+
+fn parse_one_of_type(x: &Box<TsType>) -> Option<OneOfVariant> {
+    match &**x {
+        TsType::TsTypeLit(TsTypeLit { members, .. }) => {
+            let label = one_of_label(members)?;
+            let properties = one_of_properties(members);
+            Some(OneOfVariant { label, properties })
+        }
+        _ => None,
+    }
+}
+
+fn one_of_label(members: &Vec<TsTypeElement>) -> Option<String> {
+    members.iter().find_map(|y| {
+        let TsTypeElement::TsPropertySignature(TsPropertySignature { key, type_ann, .. }) = y
+        else {
+            return None;
+        };
+
+        let Expr::Ident(Ident { sym, .. }) = &**key else {
+            return None;
+        };
+        if sym != "label" {
+            return None;
+        }
+
+        let Some(type_ann) = type_ann.as_ref() else {
+            return None;
+        };
+        let TsType::TsLitType(TsLitType { lit: TsLit::Str(Str { value, .. }), .. }) =
+            &*type_ann.type_ann
+        else {
+            return None;
+        };
+
+        Some(value.to_string())
+    })
+}
+
+fn one_of_properties(members: &Vec<TsTypeElement>) -> Vec<ObjectProperty> {
+    members
+        .iter()
+        .filter_map(|x| {
+            let TsTypeElement::TsPropertySignature(TsPropertySignature { key, type_ann, .. }) = x
+            else {
+                return None;
+            };
+
+            let Expr::Ident(Ident { sym, .. }) = *key.to_owned() else {
+                return None;
+            };
+            let typ = type_ann
+                .as_ref()
+                .map(|typ| Box::new(tstype_to_typ(&*typ.type_ann).0))
+                .unwrap_or(Box::new(Typ::Unknown));
+
+            Some(ObjectProperty { key: sym.to_string(), typ })
+        })
+        .collect()
 }
 
 fn find_undefined(types: &Vec<Box<TsType>>) -> Option<usize> {

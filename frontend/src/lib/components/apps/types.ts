@@ -269,6 +269,8 @@ export type AppViewerContext = {
 	cssEditorOpen: Writable<boolean>
 	previewTheme: Writable<string | undefined>
 	debuggingComponents: Writable<Record<string, number>>
+	replaceStateFn?: ((url: string) => void) | undefined
+	gotoFn?: ((url: string, opt?: Record<string, any> | undefined) => void) | undefined
 }
 
 export type AppEditorContext = {

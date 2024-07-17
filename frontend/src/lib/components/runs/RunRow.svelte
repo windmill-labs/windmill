@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import type { Job } from '$lib/gen'
-	import { displayDate, msToSec, truncateHash, truncateRev } from '$lib/utils'
+	import { displayDate, msToReadableTime, truncateHash, truncateRev } from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -107,9 +107,9 @@
 				{#if 'started_at' in job && job.started_at}
 					Started <TimeAgo withDate agoOnlyIfRecent date={job.started_at ?? ''} />
 					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-						(Ran in {msToSec(
+						(Ran in {msToReadableTime(
 							job.duration_ms
-						)}s{#if job.job_kind == 'flow' || job.job_kind == 'flowpreview'}&nbsp;total{/if})
+						)}{#if job.job_kind == 'flow' || job.job_kind == 'flowpreview'}&nbsp;total{/if})
 					{/if}
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning

@@ -172,9 +172,10 @@
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
 		<DrawerContent noPadding title="UI Customisation" on:close={schemaFormDrawer.closeDrawer}>
 			<svelte:fragment slot="actions">
-				<AddProperty bind:schema />
+				<AddProperty on:change bind:schema />
 			</svelte:fragment>
 			<EditableSchemaForm
+				on:change
 				bind:this={editableSchemaForm}
 				bind:schema
 				isAppInput

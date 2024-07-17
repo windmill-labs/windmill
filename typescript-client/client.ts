@@ -94,7 +94,7 @@ export async function getResource(
 }
 
 /**
- * Get a resource value by path
+ * Get the true root job id
  * @param jobId job id to get the root job id from (default to current job)
  * @returns root job id
  */

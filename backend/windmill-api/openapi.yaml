@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.356.1
+  version: 1.364.3
   title: Windmill API
 
   contact:
@@ -114,6 +114,16 @@ paths:
         - $ref: "#/components/parameters/After"
         - $ref: "#/components/parameters/Username"
         - $ref: "#/components/parameters/Operation"
+        - name: operations
+          in: query
+          description: comma separated list of exact operations to include
+          schema:
+            type: string
+        - name: exclude_operations
+          in: query
+          description: comma separated list of operations to exclude
+          schema:
+            type: string
         - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
 
@@ -429,6 +439,44 @@ paths:
             text/plain:
               schema:
                 type: string
+  /users/overwrite:
+    post:
+      summary: global overwrite users (require super admin and EE)
+      operationId: globalUsersOverwrite
+      tags:
+        - user
+      requestBody:
+        description: List of users
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportedUser"
+      responses:
+        "200":
+          description: Success message
+          content:
+            text/plain:
+              schema:
+                type: string
+  
+  /users/export:
+    get:
+      summary: global export users (require super admin and EE)
+      operationId: globalUsersExport
+      tags:
+        - user
+      responses:
+        "200":
+          description: exported users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportedUser"
 
   /w/{workspace}/users/delete/{username}:
     delete:
@@ -839,6 +887,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  
+  /settings/list_global:
+    get:
+      summary: list global settings
+      operationId: listGlobalSettings
+      tags:
+        - setting
+      responses:
+        "200":
+          description: list of settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GlobalSetting"
 
   /users/email:
     get:
@@ -1961,6 +2026,8 @@ paths:
               properties:
                 new_key:
                   type: string
+                skip_reencrypt:
+                  type: boolean
               required:
                 - new_key
 
@@ -6817,6 +6884,44 @@ paths:
             text/plain:
               schema:
                 type: string
+  /groups/export:
+    get:
+      summary: export instance groups
+      operationId: exportInstanceGroups
+      tags:
+        - group
+      responses:
+        "200":
+          description: exported instance groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportedInstanceGroup"
+
+  /groups/overwrite:
+    post:
+      summary: overwrite instance groups
+      operationId: overwriteInstanceGroups
+      tags:
+        - group
+      requestBody:
+        description: overwrite instance groups
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportedInstanceGroup"
+      responses:
+        "200":
+          description: success message
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/groups/list:
     get:
@@ -7405,6 +7510,22 @@ paths:
               schema:
                 type: string
 
+  /configs/list:
+    get:
+      summary: list configs
+      operationId: listConfigs
+      tags:
+        - config
+      responses:
+        "200":
+          description: list of configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Config"
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -7656,6 +7777,14 @@ paths:
           required: true
           schema:
             type: string
+        - name: input
+          in: query
+          schema:
+            type: boolean
+        - name: allow_large
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: args
@@ -8534,6 +8663,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtendedJobs"
 
+  /srch/w/{workspace}/index/search/job:
+    get:
+      summary: Search through jobs with a string query
+      operationId: searchJobsIndex
+      tags:
+        - indexSearch
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search_query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query_parse_errors:
+                    description: a list of the terms that couldn't be parsed (and thus ignored)
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        dancer:
+                          type: string
+                  hits:
+                    description: the jobs that matched the query
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JobSearchHit"
+
+
 components:
   securitySchemes:
     bearerAuth:
@@ -9137,8 +9302,6 @@ components:
           type: string
         name:
           type: string
-        args:
-          type: object
         created_by:
           type: string
         created_at:
@@ -11069,3 +11232,75 @@ components:
       required:
         - jobs
         - obscured_jobs
+    
+    ExportedUser:
+      type: object
+      properties:
+        email:
+          type: string
+        password_hash:
+          type: string
+        super_admin:
+          type: boolean
+        verified:
+          type: boolean
+        name:
+          type: string
+        company:
+          type: string
+        first_time_user:
+          type: boolean
+        username:
+          type: string
+      required:
+        - email
+        - super_admin
+        - verified
+        - first_time_user
+
+    GlobalSetting:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: object
+      required:
+        - name
+        - value
+
+    Config:
+      type: object
+      properties:
+        name:
+          type: string
+        config:
+          type: object
+      required:
+        - name
+    
+    ExportedInstanceGroup:
+      type: object
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        emails:
+          type: array
+          items:
+            type: string
+        id:
+          type: string
+        scim_display_name:
+          type: string
+        external_id:
+          type: string
+      required:
+        - name
+
+    JobSearchHit:
+      type: object
+      properties:
+        dancer:
+          type: string
