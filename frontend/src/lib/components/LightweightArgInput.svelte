@@ -44,7 +44,7 @@
 				contentEncoding?: 'base64'
 				enum?: string[]
 				multiselect?: string[]
-				resource?: string
+				resourceType?: string
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -330,10 +330,10 @@
 														<option>{e}</option>
 													{/each}
 												</select>
-											{:else if itemsType?.type == 'resource' && itemsType.resource}
+											{:else if itemsType?.type == 'resource' && itemsType.resourceType}
 												<LightweightResourcePicker
 													bind:value={v}
-													resourceType={itemsType?.resource}
+													resourceType={itemsType?.resourceType}
 												/>
 											{:else}
 												<input type="text" bind:value={v} />

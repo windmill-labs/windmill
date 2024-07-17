@@ -29,7 +29,7 @@ export interface SchemaProperty {
 		type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 		contentEncoding?: 'base64'
 		enum?: string[]
-		resource?: string
+		resourceType?: string
 	}
 	min?: number
 	max?: number

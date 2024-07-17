@@ -37,7 +37,7 @@
 				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
-				resource?: string
+				resourceType?: string
 				multiselect?: string[]
 		  }
 		| undefined = undefined

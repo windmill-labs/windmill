@@ -101,18 +101,10 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string' }
 		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
 			newS.items = { type: 'string', enum: t.list.str }
+		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
+			newS.items = { type: 'resource', resourceType: t.list.resource as string }
 		} else {
-			let resource: string | undefined = undefined
-
-			if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
-				resource = t.list.resource as string
-			}
-
-			if (resource) {
-				newS.items = { type: 'resource', resource: resource }
-			} else {
-				newS.items = { type: 'object' }
-			}
+			newS.items = { type: 'object' }
 		}
 	} else {
 		newS.type = 'object'

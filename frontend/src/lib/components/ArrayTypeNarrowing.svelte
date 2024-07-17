@@ -5,6 +5,7 @@
 	import Label from './Label.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Badge from './common/badge/Badge.svelte'
+	import Alert from './common/alert/Alert.svelte'
 
 	export let canEditResourceType: boolean = false
 	export let itemsType:
@@ -12,7 +13,7 @@
 				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
-				resource?: string
+				resourceType?: string
 		  }
 		| undefined
 
@@ -40,35 +41,44 @@
 				} else if (selected == 'bytes') {
 					itemsType = { type: 'string', contentEncoding: 'base64' }
 				} else if (selected == 'resource') {
-					itemsType = { type: 'resource', resource: itemsType?.resource }
+					itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
 				} else {
 					itemsType = undefined
 				}
 			}}
 			id="array-type-narrowing"
 		>
-			<option value="string" disabled={Boolean(itemsType?.resource)}> Items are strings</option>
-			<option value="enum" disabled={Boolean(itemsType?.resource)}
-				>Items are strings from an enum</option
-			>
-			<option value="object" disabled={Boolean(itemsType?.resource)}>
-				Items are objects (JSON)</option
-			>
+			<option value="string"> Items are strings</option>
+			<option value="enum">Items are strings from an enum</option>
+			<option value="object"> Items are objects (JSON)</option>
 			<option value="resource"> Items are resources</option>
-			<option value="number" disabled={Boolean(itemsType?.resource)}>Items are numbers</option>
-			<option value="bytes" disabled={Boolean(itemsType?.resource)}>Items are bytes</option>
+			<option value="number">Items are numbers</option>
+			<option value="bytes">Items are bytes</option>
 		</select>
 	</Label>
 {:else}
 	<Label label="Resource type">
 		<Badge color="blue">
-			{itemsType?.resource}
+			{itemsType?.resourceType}
 		</Badge>
 	</Label>
 {/if}
 
+{#if itemsType?.type === 'resource'}
+	<Alert
+		type="warning"
+		title="Value"
+		size="xs"
+		tooltip="Learn how to use the SDK to get the resource by using the path."
+		documentationLink="https://www.windmill.dev/docs/code_editor/add_variables_resources#fetching-them-from-within-a-script-by-using-the-wmill-client-in-the-respective-language"
+	>
+		The value passed is the path of the resource, not the resource itself. You can use the SDK to
+		get the resource by using the path.
+	</Alert>
+{/if}
+
 {#if canEditResourceType && itemsType?.type == 'resource'}
-	<ResourceTypePicker bind:value={itemsType.resource} />
+	<ResourceTypePicker bind:value={itemsType.resourceType} />
 {/if}
 
 {#if Array.isArray(itemsType?.enum)}
