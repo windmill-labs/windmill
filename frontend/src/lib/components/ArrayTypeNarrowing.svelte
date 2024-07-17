@@ -4,6 +4,7 @@
 	import { fade } from 'svelte/transition'
 	import Label from './Label.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	export let canEditResourceType: boolean = false
 	export let itemsType:
@@ -23,40 +24,48 @@
 			: 'string'
 </script>
 
-<Label label="Items type">
-	<select
-		bind:value={selected}
-		on:change={() => {
-			if (selected == 'enum') {
-				itemsType = { type: 'string', enum: [] }
-			} else if (selected == 'string') {
-				itemsType = { type: 'string' }
-			} else if (selected == 'number') {
-				itemsType = { type: 'number' }
-			} else if (selected == 'object') {
-				itemsType = { type: 'object' }
-			} else if (selected == 'bytes') {
-				itemsType = { type: 'string', contentEncoding: 'base64' }
-			} else if (selected == 'resource') {
-				itemsType = { type: 'resource', resource: itemsType?.resource }
-			} else {
-				itemsType = undefined
-			}
-		}}
-		id="array-type-narrowing"
-	>
-		<option value="string" disabled={Boolean(itemsType?.resource)}> Items are strings</option>
-		<option value="enum" disabled={Boolean(itemsType?.resource)}
-			>Items are strings from an enum</option
+{#if canEditResourceType}
+	<Label label="Items type">
+		<select
+			bind:value={selected}
+			on:change={() => {
+				if (selected == 'enum') {
+					itemsType = { type: 'string', enum: [] }
+				} else if (selected == 'string') {
+					itemsType = { type: 'string' }
+				} else if (selected == 'number') {
+					itemsType = { type: 'number' }
+				} else if (selected == 'object') {
+					itemsType = { type: 'object' }
+				} else if (selected == 'bytes') {
+					itemsType = { type: 'string', contentEncoding: 'base64' }
+				} else if (selected == 'resource') {
+					itemsType = { type: 'resource', resource: itemsType?.resource }
+				} else {
+					itemsType = undefined
+				}
+			}}
+			id="array-type-narrowing"
 		>
-		<option value="object" disabled={Boolean(itemsType?.resource)}>
-			Items are objects (JSON)</option
-		>
-		<option value="resource"> Items are resources</option>
-		<option value="number" disabled={Boolean(itemsType?.resource)}>Items are numbers</option>
-		<option value="bytes" disabled={Boolean(itemsType?.resource)}>Items are bytes</option>
-	</select>
-</Label>
+			<option value="string" disabled={Boolean(itemsType?.resource)}> Items are strings</option>
+			<option value="enum" disabled={Boolean(itemsType?.resource)}
+				>Items are strings from an enum</option
+			>
+			<option value="object" disabled={Boolean(itemsType?.resource)}>
+				Items are objects (JSON)</option
+			>
+			<option value="resource"> Items are resources</option>
+			<option value="number" disabled={Boolean(itemsType?.resource)}>Items are numbers</option>
+			<option value="bytes" disabled={Boolean(itemsType?.resource)}>Items are bytes</option>
+		</select>
+	</Label>
+{:else}
+	<Label label="Resource type">
+		<Badge color="blue">
+			{itemsType?.resource}
+		</Badge>
+	</Label>
+{/if}
 
 {#if canEditResourceType && itemsType?.type == 'resource'}
 	<ResourceTypePicker bind:value={itemsType.resource} />
