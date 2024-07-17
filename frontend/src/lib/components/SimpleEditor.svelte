@@ -370,7 +370,6 @@
 		{suggestion}
 	</div>
 {/if}
-
 <div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
 
 <style lang="postcss">

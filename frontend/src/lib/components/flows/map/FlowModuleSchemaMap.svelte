@@ -194,7 +194,7 @@
 				flowStepWarnings: await initFlowStepWarnings(
 					module.value,
 					$flowStateStore?.[module.id]?.schema ?? {},
-					$flowStore?.value?.modules?.map((m) => m.id) ?? []
+					dfs($flowStore.value.modules, (fm) => fm.id)
 				)
 			}
 		}

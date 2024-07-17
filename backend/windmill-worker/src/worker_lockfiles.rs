@@ -498,13 +498,31 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         )
     })?;
 
-    let version = job
-        .script_hash
-        .clone()
-        .ok_or_else(|| {
-            Error::InternalErr("Flow Dependency requires script hash (flow version)".to_owned())
-        })?
-        .0;
+    let skip_flow_update = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("skip_flow_update")
+                .map(|v| serde_json::from_str::<bool>(v.get()).ok())
+                .flatten()
+        })
+        .flatten()
+        .unwrap_or(false);
+
+    let version = if skip_flow_update {
+        None
+    } else {
+        Some(
+            job.script_hash
+                .clone()
+                .ok_or_else(|| {
+                    Error::InternalErr(
+                        "Flow Dependency requires script hash (flow version)".to_owned(),
+                    )
+                })?
+                .0,
+        )
+    };
 
     let raw_flow = job.raw_flow.clone().map(|v| Ok(v)).unwrap_or_else(|| {
         Err(Error::InternalErr(
@@ -563,18 +581,12 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
             "status": "Flow lock generation was canceled",
         })));
     }
-    let skip_flow_update = job
-        .args
-        .as_ref()
-        .map(|x| {
-            x.get("skip_flow_update")
-                .map(|v| serde_json::from_str::<bool>(v.get()).ok())
-                .flatten()
-        })
-        .flatten()
-        .unwrap_or(false);
 
     if !skip_flow_update {
+        let version = version.ok_or_else(|| {
+            Error::InternalErr("Flow Dependency requires script hash (flow version)".to_owned())
+        })?;
+
         sqlx::query!(
             "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
             new_flow_value,
@@ -590,22 +602,23 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         )
         .execute(db)
         .await?;
-    }
-    tx.commit().await?;
 
-    if let Err(e) = handle_deployment_metadata(
-        &job.email,
-        &job.created_by,
-        &db,
-        &job.workspace_id,
-        DeployedObject::Flow { path: job_path, parent_path, version },
-        deployment_message,
-        rsmq.clone(),
-        false,
-    )
-    .await
-    {
-        tracing::error!(%e, "error handling deployment metadata");
+        tx.commit().await?;
+
+        if let Err(e) = handle_deployment_metadata(
+            &job.email,
+            &job.created_by,
+            &db,
+            &job.workspace_id,
+            DeployedObject::Flow { path: job_path, parent_path, version },
+            deployment_message,
+            rsmq.clone(),
+            false,
+        )
+        .await
+        {
+            tracing::error!(%e, "error handling deployment metadata");
+        }
     }
 
     Ok(to_raw_value_owned(json!({
