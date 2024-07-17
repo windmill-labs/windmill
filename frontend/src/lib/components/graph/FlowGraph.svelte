@@ -202,7 +202,7 @@
 							}
 
 							edges.push({
-								id: `dep-${pid}-${$selectedId}`,
+								id: `dep-${pid}-${$selectedId}-${input}`,
 								source: pid,
 								target: $selectedId!,
 								labelBgColor: darkMode ? '#999' : 'white',
