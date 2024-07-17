@@ -1,12 +1,33 @@
 <script lang="ts">
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { deepEqual } from 'fast-equals'
 	export let code: string | undefined
 	export let value: any = undefined
 	export let error = ''
 	export let editor: SimpleEditor | undefined = undefined
 	export let small = false
 
+	function setCodeWhenValueChanges() {
+		try {
+			const parsedCode = JSON.parse(code ?? '')
+			if (deepEqual(parsedCode, value)) {
+				return
+			}
+		} catch (e) {
+			console.log('error', e)
+		}
+
+		if (value) {
+			editor?.setCode(JSON.stringify(value, null, 2))
+		}
+	}
+
+	let prevValue = value
+
+	$: prevValue !== value && setCodeWhenValueChanges()
+
 	$: tooBig = code && code?.length > 1000000
+
 	function parseJson() {
 		try {
 			if (code == '') {
