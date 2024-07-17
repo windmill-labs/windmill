@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.365.0](https://github.com/windmill-labs/windmill/compare/v1.364.3...v1.365.0) (2024-07-17)
+
+
+### Features
+
+* **frontend:** array of resources ([#4095](https://github.com/windmill-labs/windmill/issues/4095)) ([5542b7d](https://github.com/windmill-labs/windmill/commit/5542b7d04d0aabff29636b6e0e2e7ff6b5098206))
+
+
+### Bug Fixes
+
+* **frontend:** close the content search modal when clicking on an item ([#4098](https://github.com/windmill-labs/windmill/issues/4098)) ([c8c5c27](https://github.com/windmill-labs/windmill/commit/c8c5c2785b2c88d35f5bfe8ed65935dd658afd98))
+* **frontend:** Display 'parallel'and 'skip failure' even when a summary is set ([#4099](https://github.com/windmill-labs/windmill/issues/4099)) ([319454e](https://github.com/windmill-labs/windmill/commit/319454ecf2143703dd7aca9147a9c7d95f83c6a6))
+* **frontend:** fix flow graph when anode has multiple steps to the flow inputs ([#4097](https://github.com/windmill-labs/windmill/issues/4097)) ([fc749c6](https://github.com/windmill-labs/windmill/commit/fc749c687c3919ad57f8bdd7e0b2313c57f0d737))
+* **frontend:** fix use inputs flow preview ([#4094](https://github.com/windmill-labs/windmill/issues/4094)) ([7aa2189](https://github.com/windmill-labs/windmill/commit/7aa2189feca1b502674c5c1957f207b3dd1e7264))
+* **frontend:** improve search modal ([#4088](https://github.com/windmill-labs/windmill/issues/4088)) ([cdc7190](https://github.com/windmill-labs/windmill/commit/cdc7190d8962ca98e78d04e3a7f4da7aa3391ec3))
+
 ## [1.364.3](https://github.com/windmill-labs/windmill/compare/v1.364.2...v1.364.3) (2024-07-16)
 
 
