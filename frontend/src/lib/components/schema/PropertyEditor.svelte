@@ -158,7 +158,7 @@
 		</Label>
 
 		{#if type == 'array'}
-			<ArrayTypeNarrowing bind:itemsType />
+			<ArrayTypeNarrowing bind:itemsType canEditResourceType={isFlowInput || isAppInput} />
 		{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 			<div>
 				<Label label="Field settings">

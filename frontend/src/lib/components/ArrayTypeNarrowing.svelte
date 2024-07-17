@@ -3,7 +3,9 @@
 	import { Button } from './common'
 	import { fade } from 'svelte/transition'
 	import Label from './Label.svelte'
+	import ResourceTypePicker from './ResourceTypePicker.svelte'
 
+	export let canEditResourceType: boolean = false
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
@@ -15,9 +17,7 @@
 
 	let selected: 'string' | 'number' | 'object' | 'bytes' | 'enum' | 'resource' | undefined =
 		itemsType?.type != 'string'
-			? itemsType?.resource
-				? 'resource'
-				: itemsType?.type
+			? itemsType?.type
 			: Array.isArray(itemsType?.enum)
 			? 'enum'
 			: 'string'
@@ -38,7 +38,7 @@
 			} else if (selected == 'bytes') {
 				itemsType = { type: 'string', contentEncoding: 'base64' }
 			} else if (selected == 'resource') {
-				itemsType = { type: 'object', resource: itemsType?.resource }
+				itemsType = { type: 'resource', resource: itemsType?.resource }
 			} else {
 				itemsType = undefined
 			}
@@ -57,9 +57,14 @@
 		<option value="bytes" disabled={Boolean(itemsType?.resource)}>Items are bytes</option>
 	</select>
 </Label>
+
+{#if canEditResourceType && itemsType?.type == 'resource'}
+	<ResourceTypePicker bind:value={itemsType.resource} />
+{/if}
+
 {#if Array.isArray(itemsType?.enum)}
 	<label for="input" class="text-secondary text-xs">
-		Enums
+		Enum
 		<div class="flex flex-col gap-1">
 			{#each itemsType?.enum || [] as e}
 				<div class="flex flex-row max-w-md gap-1 items-center">

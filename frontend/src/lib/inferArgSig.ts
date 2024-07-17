@@ -109,7 +109,7 @@ export function argSigToJsonSchemaType(
 			}
 
 			if (resource) {
-				newS.items = { type: 'object', resource: resource }
+				newS.items = { type: 'resource', resource: resource }
 			} else {
 				newS.items = { type: 'object' }
 			}
@@ -118,7 +118,6 @@ export function argSigToJsonSchemaType(
 		newS.type = 'object'
 	}
 
-	// 1. Case format resource
 	// 2. List of objects -> only once for properties
 
 	const preservedFields = [

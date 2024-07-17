@@ -394,7 +394,7 @@
 															enum_={itemsType?.enum ?? []}
 															enumLabels={extra['enumLabels']}
 														/>
-													{:else if itemsType?.type == 'object' && itemsType.resource}
+													{:else if itemsType?.type == 'resource' && itemsType.resource}
 														<ResourcePicker bind:value={v} resourceType={itemsType?.resource} />
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
