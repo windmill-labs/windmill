@@ -114,6 +114,7 @@
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	let inputLibraryDrawer: Drawer
+	let renderCount: number = 0
 </script>
 
 <CapturePayload bind:this={capturePayload} />
@@ -129,6 +130,7 @@
 			on:selected_args={(e) => {
 				$previewArgs = JSON.parse(JSON.stringify(e.detail))
 				inputLibraryDrawer?.closeDrawer()
+				renderCount++
 			}}
 		/>
 	</DrawerContent>
@@ -311,13 +313,15 @@
 
 	<div class="overflow-y-auto grow flex flex-col pr-4">
 		<div class="border-b">
-			<SchemaForm
-				noVariablePicker
-				compact
-				class="py-4 max-w-3xl"
-				schema={$flowStore.schema}
-				bind:args={$previewArgs}
-			/>
+			{#key renderCount}
+				<SchemaForm
+					noVariablePicker
+					compact
+					class="py-4 max-w-3xl"
+					schema={$flowStore.schema}
+					bind:args={$previewArgs}
+				/>
+			{/key}
 		</div>
 		<div class="pt-4 flex flex-col grow">
 			{#if jobId}
