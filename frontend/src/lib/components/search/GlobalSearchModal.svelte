@@ -456,25 +456,26 @@
 		open = !open
 		focusTextInput()
 	}
+	let height: number | undefined = undefined
 </script>
 
 {#if open}
 	<Portal>
 		<div
 			class={twMerge(
-				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50`,
+				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 flex items-center justify-center`,
 				' bg-black bg-opacity-40',
 				'z-[1100]'
 			)}
 		>
 			<div
-				class={'max-w-4xl lg:mx-auto mx-10 mt-40 bg-surface rounded-lg relative'}
+				class={'max-w-4xl w-full h-[80vh] bg-surface rounded-lg relative'}
 				use:clickOutside={false}
 				on:click_outside={() => {
 					open = false
 				}}
 			>
-				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b">
+				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b" bind:clientHeight={height}>
 					<Search size="16" />
 					<div class="relative inline-block w-full">
 						<input
@@ -491,7 +492,7 @@
 						>
 					</div>
 				</div>
-				<div class="overflow-y-auto max-h-[30rem] relative">
+				<div class="overflow-y-auto relative" style={`height: calc(100% - ${height + 1}px);`}>
 					{#if tab === 'default' || tab === 'switch-mode'}
 						{@const items = (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e))}
 						{#if items.length > 0}

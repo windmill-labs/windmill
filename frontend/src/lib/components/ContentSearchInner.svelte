@@ -365,7 +365,7 @@
 									Open
 								</Button>
 								<Button
-									href={`/flows/edit/${item.path}?no_draft=true`}
+									href={`/apps/edit/${item.path}?no_draft=true`}
 									color="light"
 									target="_blank"
 									size="xs"
