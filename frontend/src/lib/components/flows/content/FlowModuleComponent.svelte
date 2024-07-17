@@ -46,6 +46,7 @@
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { computeFlowStepWarning, initFlowStepWarnings } from '../utils'
 	import { debounce } from '$lib/utils'
+	import { dfs } from '../dfs'
 
 	const {
 		selectedId,
@@ -133,7 +134,7 @@
 						flowStepWarnings: await initFlowStepWarnings(
 							flowModule.value,
 							schema ?? {},
-							$flowStore?.value?.modules?.map((m) => m?.id) ?? []
+							dfs($flowStore.value.modules, (fm) => fm.id)
 						)
 					}
 				}
@@ -180,6 +181,14 @@
 	let forceReload = 0
 	let editorPanelSize = noEditor ? 0 : flowModule.value.type == 'script' ? 30 : 50
 	let editorSettingsPanelSize = 100 - editorPanelSize
+
+	$: $selectedId && onSelectedIdChange()
+
+	function onSelectedIdChange() {
+		if (!$flowStateStore?.[$selectedId]?.schema && flowModule) {
+			reload(flowModule)
+		}
+	}
 
 	let debouncedWarning = debounce((argName: string) => {
 		if ($flowInputsStore) {
@@ -353,7 +362,7 @@
 							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div
-							class={advancedSelected === 'runtime' ? 'h-[calc(100%-64px)]' : 'h-[calc(100%-32px)]'}
+							class={advancedSelected === 'runtime' ? 'h-[calc(100%-68px)]' : 'h-[calc(100%-34px)]'}
 						>
 							{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow')}
 								<div class="h-full overflow-auto" id="flow-editor-step-input">
