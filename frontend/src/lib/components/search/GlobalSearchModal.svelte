@@ -550,7 +550,7 @@
 							</Alert>
 						</div>
 					{:else if tab === 'runs'}
-						<div class="flex h-96 p-2">
+						<div class="flex h-full p-2">
 							{#if loadingCompletedRuns}
 								<div class="flex w-full justify-center items-center h-48">
 									<div class="text-tertiary text-center">
