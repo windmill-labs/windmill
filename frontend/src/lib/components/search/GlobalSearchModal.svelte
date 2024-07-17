@@ -456,6 +456,11 @@
 		open = !open
 		focusTextInput()
 	}
+
+	function closeModal() {
+		open = false
+	}
+
 	let height: number | undefined = undefined
 </script>
 
@@ -542,7 +547,13 @@
 							{/if}
 						</div>
 					{:else if tab === 'content'}
-						<ContentSearchInner search={removePrefix(searchTerm, '#')} bind:this={contentSearch} />
+						<ContentSearchInner
+							search={removePrefix(searchTerm, '#')}
+							bind:this={contentSearch}
+							on:close={() => {
+								closeModal()
+							}}
+						/>
 					{:else if tab === 'logs'}
 						<div class="p-2">
 							<Alert title="Service log search is coming soon" type="info">

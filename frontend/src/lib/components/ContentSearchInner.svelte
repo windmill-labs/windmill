@@ -18,7 +18,9 @@
 	import YAML from 'yaml'
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInnerItem from './ContentSearchInnerItem.svelte'
+	import { createEventDispatcher } from 'svelte'
 
+	const dispatch = createEventDispatcher()
 	export let search: string = ''
 
 	export async function open(nsearch?: string) {
@@ -231,6 +233,7 @@
 						<ContentSearchInnerItem
 							title={`Script: ${item.path}`}
 							href={`/scripts/get/${item.path}`}
+							on:close
 						>
 							<svelte:fragment slot="actions">
 								<Button
@@ -238,6 +241,9 @@
 									color="light"
 									size="xs"
 									startIcon={{ icon: ExternalLink }}
+									on:click={() => {
+										dispatch('close')
+									}}
 								>
 									Open
 								</Button>
@@ -277,6 +283,7 @@
 						<ContentSearchInnerItem
 							title={`Resource: ${item.path}`}
 							href={`/resources#${item.path}`}
+							on:close
 						>
 							<svelte:fragment slot="actions">
 								<Button
@@ -311,13 +318,20 @@
 				{/if}
 				{#if (searchKind == 'all' || searchKind == 'flows') && filteredFlowItems?.length > 0}
 					{#each filteredFlowItems.slice(0, showNbFlows) ?? [] as item}
-						<ContentSearchInnerItem title={`Flow: ${item.path}`} href={`/flows/get/${item.path}`}>
+						<ContentSearchInnerItem
+							title={`Flow: ${item.path}`}
+							href={`/flows/get/${item.path}`}
+							on:close
+						>
 							<svelte:fragment slot="actions">
 								<Button
 									href={`/flows/get/${item.path}`}
 									color="light"
 									size="xs"
 									startIcon={{ icon: ExternalLink }}
+									on:click={() => {
+										dispatch('close')
+									}}
 								>
 									Open
 								</Button>
@@ -354,13 +368,20 @@
 				{/if}
 				{#if (searchKind == 'all' || searchKind == 'apps') && filteredAppItems?.length > 0}
 					{#each filteredAppItems.slice(0, showNbApps) ?? [] as item}
-						<ContentSearchInnerItem title={`App: ${item.path}`} href={`/apps/get/${item.path}`}>
+						<ContentSearchInnerItem
+							title={`App: ${item.path}`}
+							href={`/apps/get/${item.path}`}
+							on:close
+						>
 							<svelte:fragment slot="actions">
 								<Button
 									href={`/apps/get/${item.path}`}
 									color="light"
 									size="xs"
 									startIcon={{ icon: ExternalLink }}
+									on:click={() => {
+										dispatch('close')
+									}}
 								>
 									Open
 								</Button>
