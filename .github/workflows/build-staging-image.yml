@@ -67,5 +67,5 @@ jobs:
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.source="https://github.com/windmill-labs/windmill-dev"
+            org.opencontainers.image.source=https://github.com/windmill-labs/windmill-dev
             org.opencontainers.image.licenses=Windmill-Enterprise-License
