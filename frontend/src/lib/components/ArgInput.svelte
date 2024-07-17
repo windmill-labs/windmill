@@ -30,6 +30,7 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
+	import DynSelect from './DynSelect.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -450,6 +451,8 @@
 						/>
 					</div>
 				</div>
+			{:else if inputCat == 'dynselect'}
+				<DynSelect />
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
