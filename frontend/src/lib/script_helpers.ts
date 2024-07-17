@@ -70,7 +70,7 @@ export async function main(
   //d: wmill.S3Object, // for large files backed by S3 (https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files)
   e = "inferred type string from default arg",
   f = { nested: "object" },
-	g: {
+  g: {
     label: "Variant 1",
     foo: string
   } | {
