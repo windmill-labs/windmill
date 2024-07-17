@@ -40,10 +40,11 @@
 	export let enum_: EnumType = undefined
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
 				multiselect?: string[]
+				resource?: string
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -329,6 +330,11 @@
 														<option>{e}</option>
 													{/each}
 												</select>
+											{:else if itemsType?.type == 'resource' && itemsType.resource}
+												<LightweightResourcePicker
+													bind:value={v}
+													resourceType={itemsType?.resource}
+												/>
 											{:else}
 												<input type="text" bind:value={v} />
 											{/if}
