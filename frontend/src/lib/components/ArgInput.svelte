@@ -54,6 +54,7 @@
 				resource?: string
 		  }
 		| undefined = undefined
+
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let nestedRequired: string[] | undefined = undefined
@@ -373,7 +374,7 @@
 															on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 															multiple={false}
 														/>
-													{:else if itemsType?.type == 'object'}
+													{:else if itemsType?.type == 'object' && itemsType.resource === undefined}
 														<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 													{:else if Array.isArray(itemsType?.enum)}
 														<ArgEnum
@@ -393,7 +394,7 @@
 															enum_={itemsType?.enum ?? []}
 															enumLabels={extra['enumLabels']}
 														/>
-													{:else if itemsType?.type === 'resource'}
+													{:else if itemsType?.type == 'object' && itemsType.resource}
 														<ResourcePicker bind:value={v} resourceType={itemsType?.resource} />
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />

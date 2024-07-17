@@ -15,7 +15,9 @@
 
 	let selected: 'string' | 'number' | 'object' | 'bytes' | 'enum' | 'resource' | undefined =
 		itemsType?.type != 'string'
-			? itemsType?.type
+			? itemsType?.resource
+				? 'resource'
+				: itemsType?.type
 			: Array.isArray(itemsType?.enum)
 			? 'enum'
 			: 'string'
@@ -36,19 +38,23 @@
 			} else if (selected == 'bytes') {
 				itemsType = { type: 'string', contentEncoding: 'base64' }
 			} else if (selected == 'resource') {
-				itemsType = { type: 'resource', resource: itemsType?.resource }
+				itemsType = { type: 'object', resource: itemsType?.resource }
 			} else {
 				itemsType = undefined
 			}
 		}}
 		id="array-type-narrowing"
 	>
-		<option value="string"> Items are strings</option>
-		<option value="enum">Items are strings from an enum</option>
-		<option value="object"> Items are objects (JSON)</option>
+		<option value="string" disabled={Boolean(itemsType?.resource)}> Items are strings</option>
+		<option value="enum" disabled={Boolean(itemsType?.resource)}
+			>Items are strings from an enum</option
+		>
+		<option value="object" disabled={Boolean(itemsType?.resource)}>
+			Items are objects (JSON)</option
+		>
 		<option value="resource"> Items are resources</option>
-		<option value="number">Items are numbers</option>
-		<option value="bytes">Items are bytes</option>
+		<option value="number" disabled={Boolean(itemsType?.resource)}>Items are numbers</option>
+		<option value="bytes" disabled={Boolean(itemsType?.resource)}>Items are bytes</option>
 	</select>
 </Label>
 {#if Array.isArray(itemsType?.enum)}
