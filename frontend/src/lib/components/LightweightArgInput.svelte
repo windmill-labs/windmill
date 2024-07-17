@@ -330,7 +330,7 @@
 														<option>{e}</option>
 													{/each}
 												</select>
-											{:else if itemsType?.type == 'resource' && itemsType.resourceType}
+											{:else if itemsType?.type == 'resource' && itemsType?.resourceType}
 												<LightweightResourcePicker
 													bind:value={v}
 													resourceType={itemsType?.resourceType}

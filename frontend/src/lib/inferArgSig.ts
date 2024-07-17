@@ -110,8 +110,6 @@ export function argSigToJsonSchemaType(
 		newS.type = 'object'
 	}
 
-	// 2. List of objects -> only once for properties
-
 	const preservedFields = [
 		'description',
 		'pattern',

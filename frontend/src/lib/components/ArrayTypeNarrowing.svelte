@@ -83,7 +83,7 @@
 
 {#if Array.isArray(itemsType?.enum)}
 	<label for="input" class="text-secondary text-xs">
-		Enum
+		Enums
 		<div class="flex flex-col gap-1">
 			{#each itemsType?.enum || [] as e}
 				<div class="flex flex-row max-w-md gap-1 items-center">
