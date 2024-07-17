@@ -37,7 +37,7 @@
 				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
-				ressources?: string[]
+				resource?: string
 				multiselect?: string[]
 		  }
 		| undefined = undefined
@@ -158,7 +158,7 @@
 		</Label>
 
 		{#if type == 'array'}
-			<ArrayTypeNarrowing bind:itemsType resourceType={'psql'} />
+			<ArrayTypeNarrowing bind:itemsType />
 		{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 			<div>
 				<Label label="Field settings">

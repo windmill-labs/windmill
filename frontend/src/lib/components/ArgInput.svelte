@@ -47,10 +47,11 @@
 	export let disabled = false
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
 				multiselect?: string[]
+				resource?: string
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -392,6 +393,8 @@
 															enum_={itemsType?.enum ?? []}
 															enumLabels={extra['enumLabels']}
 														/>
+													{:else if itemsType?.type === 'resource'}
+														<ResourcePicker bind:value={v} resourceType={itemsType?.resource} />
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
 													{/if}

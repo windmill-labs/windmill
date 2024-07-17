@@ -4,14 +4,12 @@
 	import { fade } from 'svelte/transition'
 	import Label from './Label.svelte'
 
-	export let resourceType: string | undefined = undefined
-
 	export let itemsType:
 		| {
 				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
-				resources?: string[]
+				resource?: string
 		  }
 		| undefined
 
@@ -38,7 +36,7 @@
 			} else if (selected == 'bytes') {
 				itemsType = { type: 'string', contentEncoding: 'base64' }
 			} else if (selected == 'resource') {
-				itemsType = { type: 'resource', resources: [] }
+				itemsType = { type: 'resource', resource: itemsType?.resource }
 			} else {
 				itemsType = undefined
 			}
@@ -97,54 +95,6 @@
 				size="sm"
 				btnClasses="ml-2"
 				on:click={() => itemsType?.enum && (itemsType.enum = undefined)}
-			>
-				Clear
-			</Button>
-		</div>
-	</label>
-{/if}
-{#if Array.isArray(itemsType?.resources)}
-	<label for="input" class="text-secondary text-xs">
-		Resources
-		<div class="flex flex-col gap-1">
-			{#each itemsType?.resources || [] as e}
-				<div class="flex flex-row max-w-md gap-1 items-center">
-					<input id="input" type="text" bind:value={e} />
-					<div>
-						<button
-							transition:fade|local={{ duration: 100 }}
-							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-							on:click={() => {
-								if (itemsType?.resources) {
-									itemsType.resources = (itemsType.resources || []).filter((el) => el !== e)
-								}
-							}}
-						>
-							<X size={14} />
-						</button>
-					</div>
-				</div>
-			{/each}
-		</div>
-		<div class="flex flex-row mb-1 mt-2">
-			<Button
-				color="light"
-				variant="border"
-				size="sm"
-				on:click={() => {
-					if (itemsType?.resources) {
-						itemsType.resources = [...itemsType.resources, '']
-					}
-				}}
-			>
-				<Plus size={14} />
-			</Button>
-			<Button
-				color="light"
-				variant="border"
-				size="sm"
-				btnClasses="ml-2"
-				on:click={() => itemsType?.resources && (itemsType.resources = undefined)}
 			>
 				Clear
 			</Button>
