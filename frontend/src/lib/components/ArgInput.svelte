@@ -1,6 +1,11 @@
 <script lang="ts">
-	import type { EnumType, Schema, SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, debounce, emptyString } from '$lib/utils'
+	import type { EnumType, SchemaProperty } from '$lib/common'
+	import {
+		setInputCat as computeInputCat,
+		debounce,
+		emptyString,
+		getSchemaFromProperties
+	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
@@ -250,18 +255,6 @@
 
 	let debounced = debounce(() => compareValues(value), 50)
 	$: shouldDispatchChanges && debounced(value)
-
-	function getSchemaFromProperties(properties: { [name: string]: SchemaProperty }): Schema {
-		console.log(properties)
-
-		return {
-			properties: Object.fromEntries(Object.entries(properties).filter(([k, v]) => k !== 'label')),
-			required: Object.keys(properties).filter((k) => properties[k].required),
-			$schema: '',
-			type: 'object',
-			order: Object.keys(properties).filter((k) => k !== 'label')
-		}
-	}
 </script>
 
 <S3FilePicker

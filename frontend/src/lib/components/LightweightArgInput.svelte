@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { setInputCat as computeInputCat, emptyString, getSchemaFromProperties } from '$lib/utils'
 	import { Button } from './common'
 	import { createEventDispatcher, tick } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -45,6 +45,7 @@
 				enum?: string[]
 				multiselect?: string[]
 				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -335,6 +336,13 @@
 													bind:value={v}
 													resourceType={itemsType?.resourceType}
 												/>
+											{:else if itemsType?.type === 'object' && itemsType?.properties}
+												<div class="p-8 border rounded-md w-full">
+													<LightweightSchemaForm
+														schema={getSchemaFromProperties(itemsType?.properties)}
+														bind:args={v}
+													/>
+												</div>
 											{:else}
 												<input type="text" bind:value={v} />
 											{/if}
