@@ -4038,7 +4038,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		name: 'Top Bar',
 		icon: PanelTop,
 		documentationLink: `${documentationBaseUrl}/top_bar`,
-		dims: '1:1-1:2' as AppComponentDimensions,
+		dims: '1:1-12:2' as AppComponentDimensions,
 		customCss: {
 			container: { style: '', class: '' }
 		},

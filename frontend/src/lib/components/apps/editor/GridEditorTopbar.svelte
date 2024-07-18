@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext } from '../types'
+	import type { AppViewerContext } from '../types'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import type { Policy } from '$lib/gen'
 	import { dfs } from './appUtils'
@@ -18,8 +18,6 @@
 	const { selectedComponent, app, connectingInput, summary, allIdsInPath, bgRuns } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { componentActive } = getContext<AppEditorContext>('AppEditorContext')
-
 	let previousSelectedIds: string[] | undefined = undefined
 	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
 		previousSelectedIds = $selectedComponent
@@ -30,9 +28,9 @@
 </script>
 
 <div
-	class="w-full sticky top-0 flex justify-between border-b {$componentActive
-		? 'invisible'
-		: ''} {$connectingInput?.opened ? '' : 'bg-surface'} px-4 py-1 items-center gap-4"
+	class="w-full sticky top-0 flex justify-between border-b {$connectingInput?.opened
+		? ''
+		: 'bg-surface'} px-4 py-1 items-center gap-4"
 >
 	{#if displayTitle}
 		<h3 class="truncate">{titleOverride ? titleOverride : $summary}</h3>

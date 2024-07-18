@@ -241,12 +241,13 @@ export function createNewGridItem(
 	grid: GridItem[],
 	id: string,
 	data: AppComponent,
-	columns?: Record<number, any>
+	columns?: Record<number, any>,
+	initialPosition: { x: number; y: number } = { x: 0, y: 0 }
 ): GridItem {
 	const newComponent = {
 		fixed: false,
-		x: 0,
-		y: 0,
+		x: initialPosition.x,
+		y: initialPosition.y,
 		fullHeight: false
 	}
 
@@ -271,6 +272,7 @@ export function createNewGridItem(
 			newItem[column] = columns[column]
 		}
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+
 		newItem[column] = { ...newItem[column], ...position }
 	})
 

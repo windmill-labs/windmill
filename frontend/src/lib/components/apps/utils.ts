@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
-import type { AppComponent } from './editor/component'
+import { type AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import type {
@@ -12,6 +12,7 @@ import type {
 	VerticalAlignment
 } from './types'
 import { gridColumns } from './gridUtils'
+import { appComponentFromType, insertNewGridItem } from './editor/appUtils'
 
 export const BG_PREFIX = 'bg_'
 
@@ -35,6 +36,37 @@ export function migrateApp(app: App) {
 			}
 		})
 	})
+
+	// If the app is configured to not have a top bar, we don't need to add a top bar
+	if (app?.norefreshbar === false) {
+		// We only need to process top level components
+		const items = allItems(app.grid, {})
+
+		const hasTopBar = items.some((x) => x.data.type === 'topbarcomponent')
+
+		if (hasTopBar) {
+			// If we already have a top bar, we don't need to add a new top bar
+			return
+		} else {
+			// Increase the y position of all top level components by 2
+			// For each breakpoints
+
+			const breakpoints = [3, 12]
+
+			items.forEach((item) => {
+				breakpoints.forEach((breakpoint) => {
+					item[breakpoint].y += 2
+				})
+			})
+
+			// By default, the position will be {x: 0, y: 0}, so It will be placed correctly
+			insertNewGridItem(
+				app,
+				appComponentFromType('topbarcomponent', undefined) as (id: string) => AppComponent,
+				undefined
+			)
+		}
+	}
 }
 
 export function allItems(

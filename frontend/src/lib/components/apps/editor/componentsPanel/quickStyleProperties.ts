@@ -796,5 +796,8 @@ export const quickStyleProperties: Record<
 	jobiddisplaycomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
+	},
+	topbarcomponent: {
+		container: containerDefaultProps
 	}
 }
