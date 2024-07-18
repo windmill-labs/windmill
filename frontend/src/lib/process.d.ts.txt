@@ -164,6 +164,7 @@ declare module 'process' {
 				WM_USERNAME: string
 				WM_BASE_URL: string
 				WM_JOB_ID: string
+				WM_SCHEDULED_FOR: string
 				WM_JOB_PATH: string
 				WM_FLOW_JOB_ID: string
 				WM_ROOT_FLOW_JOB_ID: string

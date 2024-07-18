@@ -314,6 +314,7 @@ pub async fn transform_json_value(
                 job.flow_step_id.clone(),
                 job.root_job.clone().map(|x| x.to_string()),
                 None,
+                Some(job.scheduled_for.clone()),
             )
             .await;
 
@@ -411,6 +412,7 @@ pub async fn get_reserved_variables(
         job.flow_step_id.clone(),
         job.root_job.clone().map(|x| x.to_string()),
         None,
+        Some(job.scheduled_for.clone()),
     )
     .await
     .to_vec();
