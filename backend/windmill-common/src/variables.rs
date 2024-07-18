@@ -6,7 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use magic_crypt::{MagicCrypt256, MagicCryptTrait};
+use chrono::Utc;
+use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
 
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
@@ -138,10 +139,16 @@ pub async fn decrypt_value_with_mc(
     value: String,
     mc: MagicCrypt256,
 ) -> Result<String, crate::error::Error> {
-    Ok(mc
-        .decrypt_base64_to_string(value)
-        .map_err(|e| crate::Error::InternalErr(e.to_string()))?)
+    Ok(mc.decrypt_base64_to_string(value).map_err(|e| match e {
+        MagicCryptError::DecryptError(_) => crate::error::Error::InternalErr(
+            "Could not decrypt value. The value may have been encrypted with a different key."
+                .to_string(),
+        ),
+        _ => crate::error::Error::InternalErr(e.to_string()),
+    })?)
 }
+
+pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
 pub async fn get_reserved_variables(
     db: &DB,
@@ -158,6 +165,7 @@ pub async fn get_reserved_variables(
     step_id: Option<String>,
     root_flow_id: Option<String>,
     jwt_token: Option<String>,
+    scheduled_for: Option<chrono::DateTime<Utc>>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -241,6 +249,14 @@ pub async fn get_reserved_variables(
             name: "WM_JOB_ID".to_string(),
             value: job_id.to_string(),
             description: "Job id of the current script".to_string(),
+            is_custom: false,
+        },
+        ContextualVariable {
+            name: WM_SCHEDULED_FOR.to_string(),
+            value: scheduled_for
+                .map(|ts| ts.to_string())
+                .unwrap_or_else(|| "".to_string()),
+            description: "date-time in UTC (e.g: 2014-11-28T12:45:59.324310806Z) of when the job was scheduled".to_string(),
             is_custom: false,
         },
         ContextualVariable {

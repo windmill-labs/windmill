@@ -32,7 +32,7 @@ use windmill_common::{
 };
 
 use lazy_static::lazy_static;
-use magic_crypt::{MagicCrypt256, MagicCryptTrait};
+use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -75,6 +75,7 @@ async fn list_contextual_variables(
             Some("c".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c".to_string()),
+            Some(chrono::offset::Utc::now())
         )
         .await
         .to_vec(),
@@ -656,6 +657,11 @@ pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
 }
 
 pub fn decrypt(mc: &MagicCrypt256, value: String) -> Result<String> {
-    mc.decrypt_base64_to_string(value)
-        .map_err(|e| Error::InternalErr(e.to_string()))
+    mc.decrypt_base64_to_string(value).map_err(|e| match e {
+        MagicCryptError::DecryptError(_) => Error::InternalErr(
+            "Could not decrypt value. The value may have been encrypted with a different key."
+                .to_string(),
+        ),
+        _ => Error::InternalErr(e.to_string()),
+    })
 }

@@ -24,7 +24,8 @@
 	export let configuration: RichConfigurations
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl, workspace } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let result: any = undefined
 
@@ -90,7 +91,12 @@
 				customCss?.container?.class
 			)}
 		>
-			<DisplayResult {result} {requireHtmlApproval} disableExpand={resolvedConfig?.hideDetails} />
+			<DisplayResult
+				workspaceId={workspace}
+				{result}
+				{requireHtmlApproval}
+				disableExpand={resolvedConfig?.hideDetails}
+			/>
 		</div>
 	</div>
 </RunnableWrapper>

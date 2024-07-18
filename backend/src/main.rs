@@ -150,6 +150,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
+    let mut enable_standalone_indexer: bool = false;
+
     let mode = std::env::var("MODE")
         .map(|x| x.to_lowercase())
         .map(|x| {
@@ -180,10 +182,14 @@ async fn windmill_main() -> anyhow::Result<()> {
                 {
                     panic!("Indexer mode requires the tantivy feature flag");
                 }
-
                 #[cfg(feature = "tantivy")]
                 Mode::Indexer
-            } else {
+            } else if &x == "standalone+search"{
+                    enable_standalone_indexer = true;
+                    tracing::info!("Binary is in 'standalone' mode with search enabled");
+                    Mode::Standalone
+            }
+            else {
                 if &x != "standalone" {
                     tracing::error!("mode not recognized, defaulting to standalone: {x}");
                 } else {
@@ -358,7 +364,8 @@ Windmill Community Edition {GIT_VERSION}
             .expect("could not create initial server dir");
 
         #[cfg(feature = "tantivy")]
-        let should_index_jobs = mode == Mode::Indexer || mode == Mode::Standalone;
+        let should_index_jobs =
+              mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
 
         #[cfg(not(feature = "tantivy"))]
         let should_index_jobs = false;

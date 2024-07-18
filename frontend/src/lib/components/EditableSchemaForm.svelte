@@ -180,6 +180,7 @@
 			opened = newName
 
 			schema = schema
+			dispatch('change', schema)
 			sendUserToast('Argument renamed successfully')
 		}
 	}

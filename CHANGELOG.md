@@ -1,5 +1,69 @@
 # Changelog
 
+## [1.365.0](https://github.com/windmill-labs/windmill/compare/v1.364.3...v1.365.0) (2024-07-17)
+
+
+### Features
+
+* **frontend:** array of resources ([#4095](https://github.com/windmill-labs/windmill/issues/4095)) ([5542b7d](https://github.com/windmill-labs/windmill/commit/5542b7d04d0aabff29636b6e0e2e7ff6b5098206))
+
+
+### Bug Fixes
+
+* **frontend:** close the content search modal when clicking on an item ([#4098](https://github.com/windmill-labs/windmill/issues/4098)) ([c8c5c27](https://github.com/windmill-labs/windmill/commit/c8c5c2785b2c88d35f5bfe8ed65935dd658afd98))
+* **frontend:** Display 'parallel'and 'skip failure' even when a summary is set ([#4099](https://github.com/windmill-labs/windmill/issues/4099)) ([319454e](https://github.com/windmill-labs/windmill/commit/319454ecf2143703dd7aca9147a9c7d95f83c6a6))
+* **frontend:** fix flow graph when anode has multiple steps to the flow inputs ([#4097](https://github.com/windmill-labs/windmill/issues/4097)) ([fc749c6](https://github.com/windmill-labs/windmill/commit/fc749c687c3919ad57f8bdd7e0b2313c57f0d737))
+* **frontend:** fix use inputs flow preview ([#4094](https://github.com/windmill-labs/windmill/issues/4094)) ([7aa2189](https://github.com/windmill-labs/windmill/commit/7aa2189feca1b502674c5c1957f207b3dd1e7264))
+* **frontend:** improve search modal ([#4088](https://github.com/windmill-labs/windmill/issues/4088)) ([cdc7190](https://github.com/windmill-labs/windmill/commit/cdc7190d8962ca98e78d04e3a7f4da7aa3391ec3))
+
+## [1.364.3](https://github.com/windmill-labs/windmill/compare/v1.364.2...v1.364.3) (2024-07-16)
+
+
+### Bug Fixes
+
+* fix erronous not connected error message ([9a5dc97](https://github.com/windmill-labs/windmill/commit/9a5dc97b184a6b4a027baaa244c117885fb86fbb))
+* fix missing workspaceId on display result of apps ([bfbbeab](https://github.com/windmill-labs/windmill/commit/bfbbeabe4f57ed65a0190715028ed6df9a201e06))
+
+## [1.364.2](https://github.com/windmill-labs/windmill/compare/v1.364.1...v1.364.2) (2024-07-16)
+
+
+### Bug Fixes
+
+* **frontend:** Handle three significant digits for jobs that ran in less than 1 min ([#4084](https://github.com/windmill-labs/windmill/issues/4084)) ([2859d78](https://github.com/windmill-labs/windmill/commit/2859d78f3fe8c261ce4ca1af6a4a5ee53b6aeb29))
+
+## [1.364.1](https://github.com/windmill-labs/windmill/compare/v1.364.0...v1.364.1) (2024-07-15)
+
+
+### Bug Fixes
+
+* fix cli build ([1deccc4](https://github.com/windmill-labs/windmill/commit/1deccc476d4db07e1530ac5b642e619b9d7b618f))
+
+## [1.364.0](https://github.com/windmill-labs/windmill/compare/v1.363.0...v1.364.0) (2024-07-15)
+
+
+### Features
+
+* rehydrate instance settings/configs/users from CLI ([#4035](https://github.com/windmill-labs/windmill/issues/4035)) ([0f7f7c3](https://github.com/windmill-labs/windmill/commit/0f7f7c37a97efda3fa41f1856aec658425349abd))
+
+
+### Bug Fixes
+
+* improve generate flow locks ([304b90f](https://github.com/windmill-labs/windmill/commit/304b90fa2751a024f294efe8bbe587d9524f3418))
+
+## [1.363.0](https://github.com/windmill-labs/windmill/compare/v1.362.0...v1.363.0) (2024-07-15)
+
+
+### Features
+
+* **frontend:** Rich result by id component ([#4069](https://github.com/windmill-labs/windmill/issues/4069)) ([546c343](https://github.com/windmill-labs/windmill/commit/546c343811a6eb66a49670c915e984cb68f5aab1))
+
+
+### Bug Fixes
+
+* **frontend:** flow editor improvements ([#4008](https://github.com/windmill-labs/windmill/issues/4008)) ([e6dfa39](https://github.com/windmill-labs/windmill/commit/e6dfa390bbf27ed8d4d13128c33b7fd5b2ef69ab))
+* improve schema editor ([2ec8ce5](https://github.com/windmill-labs/windmill/commit/2ec8ce5b7da76d7b5429120b749c66ffb833ff68))
+* make indexer opt-in when in standalone mode ([#4076](https://github.com/windmill-labs/windmill/issues/4076)) ([3e31977](https://github.com/windmill-labs/windmill/commit/3e31977ba1de984d256dbd888b769ddd9f566b04))
+
 ## [1.362.0](https://github.com/windmill-labs/windmill/compare/v1.361.1...v1.362.0) (2024-07-14)
 
 

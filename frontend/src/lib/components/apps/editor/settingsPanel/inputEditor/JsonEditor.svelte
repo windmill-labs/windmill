@@ -7,6 +7,7 @@
 	export let small = false
 
 	$: tooBig = code && code?.length > 1000000
+
 	function parseJson() {
 		try {
 			if (code == '') {

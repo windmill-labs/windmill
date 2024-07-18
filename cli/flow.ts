@@ -257,9 +257,7 @@ async function generateLocks(
       )
     ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
     let hasAny = false;
-    if (hasAny) {
-      log.info("Generating metadata for all stale flows:");
-    }
+
     for (const folder of elems) {
       const candidate = await generateFlowLockInternal(folder, true, workspace);
       if (candidate) {
@@ -267,6 +265,7 @@ async function generateLocks(
         log.info(colors.green(`+ ${candidate}`));
       }
     }
+
     if (hasAny) {
       if (
         !opts.yes &&

@@ -432,8 +432,15 @@
 											class="small-editor"
 											extraLib={`declare const flow_input = ${JSON.stringify(
 												schemaToObject(asSchema($flowStore.schema), $previewArgs)
-											)};`}
+											)};
+											declare const WM_SCHEDULED_FOR: string;`}
 										/>
+										<div class="text-xs text-tertiary mt-2">
+											You can use the variable `flow_input` to access the inputs of the flow. <br
+											/>The variable `WM_SCHEDULED_FOR` contains the time the flow was scheduled for
+											which you can use to stop early non fresh jobs:
+											<pre>new Date().getTime() - new Date(WM_SCHEDULED_FOR).getTime() {'>'} X</pre>
+										</div>
 									</div>
 								{:else}
 									<textarea disabled rows="3" class="min-h-[80px]" />
