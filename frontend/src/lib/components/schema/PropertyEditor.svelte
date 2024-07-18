@@ -34,9 +34,10 @@
 	export let order: string[] | undefined = undefined
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
+				resourceType?: string
 				multiselect?: string[]
 		  }
 		| undefined = undefined
@@ -157,7 +158,7 @@
 		</Label>
 
 		{#if type == 'array'}
-			<ArrayTypeNarrowing bind:itemsType />
+			<ArrayTypeNarrowing bind:itemsType canEditResourceType={isFlowInput || isAppInput} />
 		{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 			<div>
 				<Label label="Field settings">

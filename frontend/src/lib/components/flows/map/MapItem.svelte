@@ -146,10 +146,11 @@
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
-					label={mod.summary ||
-						`${mod.value.type == 'forloopflow' ? 'For' : 'While'} loop ${
-							mod.value.parallel ? '(parallel)' : ''
-						} ${mod.value.skip_failures ? '(skip failures)' : ''}`}
+					label={`${
+						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
+					}  ${mod.value.parallel ? '(parallel)' : ''} ${
+						mod.value.skip_failures ? '(skip failures)' : ''
+					}`}
 					id={mod.id}
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
