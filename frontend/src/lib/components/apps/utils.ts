@@ -51,14 +51,14 @@ export function migrateApp(app: App) {
 			app.norefreshbar = true
 			return
 		} else {
-			// Increase the y position of all top level components by 2
+			// Increase the y position of all top level components by 1 (the height of the top bar by default)
 			// For each breakpoints
 
 			const breakpoints = [3, 12]
 
 			items.forEach((item) => {
 				breakpoints.forEach((breakpoint) => {
-					item[breakpoint].y += 2
+					item[breakpoint].y += 1
 				})
 			})
 
