@@ -65,6 +65,8 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
 lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
 
+    pub static ref RE_MULTI_PGSQL: Regex = Regex::new(r#"(?m)(?:^--.*\n|^[^;\n]*\n)*^(?:[^-\n]*;|[^-\n][^\n-][^\n;]*;)\s*$"#).unwrap();
+
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
@@ -148,48 +150,72 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 }
 
 fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
-    let mut hm: HashMap<i32, String> = HashMap::new();
-    for cap in RE_CODE_PGSQL.captures_iter(code) {
-        hm.insert(
-            cap.get(1)
+    let matched_blocks = RE_MULTI_PGSQL
+        .captures_iter(code)
+        .map(|x| x.get(0).unwrap().as_str())
+        .collect::<Vec<_>>();
+    let blocks = if matched_blocks.len() > 1 {
+        matched_blocks
+    } else {
+        vec![code]
+    };
+    let mut final_args: Vec<Arg> = vec![];
+    for block in blocks {
+        let mut args = vec![];
+        let mut hm: HashMap<i32, String> = HashMap::new();
+        for cap in RE_CODE_PGSQL.captures_iter(block) {
+            hm.insert(
+                cap.get(1)
+                    .and_then(|x| x.as_str().parse::<i32>().ok())
+                    .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
+                cap.get(2)
+                    .map(|x| x.as_str().to_string())
+                    .unwrap_or_else(|| "text".to_string()),
+            );
+        }
+        for i in 1..50 {
+            if hm.contains_key(&i) {
+                let typ = hm.get(&i).unwrap().to_lowercase();
+                args.push(Arg {
+                    name: format!("${}", i),
+                    typ: parse_pg_typ(typ.as_str()),
+                    default: None,
+                    otyp: Some(typ),
+                    has_default: false,
+                });
+            } else {
+                break;
+            }
+        }
+        for cap in RE_ARG_PGSQL.captures_iter(block) {
+            let i = cap
+                .get(1)
                 .and_then(|x| x.as_str().parse::<i32>().ok())
-                .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
-            cap.get(2)
-                .map(|x| x.as_str().to_string())
-                .unwrap_or_else(|| "text".to_string()),
-        );
-    }
-    let mut args = vec![];
-    for i in 1..50 {
-        if hm.contains_key(&i) {
-            let typ = hm.get(&i).unwrap().to_lowercase();
-            args.push(Arg {
-                name: format!("${}", i),
-                typ: parse_pg_typ(typ.as_str()),
-                default: None,
-                otyp: Some(typ),
-                has_default: false,
-            });
+                .map(|x| x);
+            if i.is_none() || i.unwrap() as usize > args.len() {
+                continue;
+            }
+            let name = cap.get(2).map(|x| x.as_str().to_string()).unwrap();
+            let default = cap.get(3).map(|x| x.as_str().to_string());
+            let has_default = default.is_some();
+            let oarg = args[(i.unwrap() - 1) as usize].clone();
+            let parsed_default = default.and_then(|x| parsed_default(&oarg.typ, x));
+
+            args[(i.unwrap() - 1) as usize] =
+                Arg { name, typ: oarg.typ, default: parsed_default, otyp: oarg.otyp, has_default };
+        }
+        if final_args.len() > 0 {
+            for arg in args {
+                if final_args.iter().find(|x| x.name == arg.name).is_none() {
+                    final_args.push(arg);
+                }
+            }
         } else {
-            break;
+            final_args = args;
         }
     }
-    for cap in RE_ARG_PGSQL.captures_iter(code) {
-        let i = cap.get(1).and_then(|x| x.as_str().parse::<i32>().ok());
-        if i.is_none() || i.unwrap() as usize > args.len() {
-            continue;
-        }
-        let name = cap.get(2).map(|x| x.as_str().to_string()).unwrap();
-        let default = cap.get(3).map(|x| x.as_str().to_string());
-        let has_default = default.is_some();
-        let oarg = args[(i.unwrap() - 1) as usize].clone();
-        let parsed_default = default.and_then(|x| parsed_default(&oarg.typ, x));
 
-        args[(i.unwrap() - 1) as usize] =
-            Arg { name, typ: oarg.typ, default: parsed_default, otyp: oarg.otyp, has_default };
-    }
-
-    Ok(Some(args))
+    Ok(Some(final_args))
 }
 
 fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
