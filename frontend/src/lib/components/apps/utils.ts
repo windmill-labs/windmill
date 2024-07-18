@@ -46,6 +46,9 @@ export function migrateApp(app: App) {
 
 		if (hasTopBar) {
 			// If we already have a top bar, we don't need to add a new top bar
+
+			// We re-purpose the norefreshbar to be a flag to indicate that the app should add automatically a top bar
+			app.norefreshbar = true
 			return
 		} else {
 			// Increase the y position of all top level components by 2
