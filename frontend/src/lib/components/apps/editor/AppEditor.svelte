@@ -157,7 +157,8 @@
 		cssEditorOpen,
 		previewTheme,
 		debuggingComponents: writable({}),
-		replaceStateFn: (path) => replaceState(path, $page.state)
+		replaceStateFn: (path) => replaceState(path, $page.state),
+		policy: policy
 	})
 
 	let scale = writable(100)
@@ -649,7 +650,7 @@
 												on:pointerdown|stopPropagation
 												class={twMerge(width, 'mx-auto', 'z-10000')}
 											>
-												<GridEditor {policy} />
+												<GridEditor />
 											</div>
 										{/if}
 									</div>

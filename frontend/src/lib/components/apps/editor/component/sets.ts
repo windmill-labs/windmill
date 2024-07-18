@@ -20,7 +20,8 @@ const layout: ComponentSet = {
 		'steppercomponent',
 		'carousellistcomponent',
 		'decisiontreecomponent',
-		'navbarcomponent'
+		'navbarcomponent',
+		'topbarcomponent'
 	]
 } as const
 

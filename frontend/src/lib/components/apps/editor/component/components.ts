@@ -49,7 +49,8 @@ import {
 	AlertTriangle,
 	Clock,
 	CalendarClock,
-	AppWindow
+	AppWindow,
+	PanelTop
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -279,6 +280,8 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 
 export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
 
+export type TopBarComponent = BaseComponent<'topbarcomponent'>
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -356,6 +359,7 @@ export type TypedComponent =
 	| NavBarComponent
 	| DateSelectComponent
 	| JobIdDisplayComponent
+	| TopBarComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -4028,6 +4032,42 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
 				}
 			}
+		}
+	},
+	topbarcomponent: {
+		name: 'Top Bar',
+		icon: PanelTop,
+		documentationLink: `${documentationBaseUrl}/top_bar`,
+		dims: '1:1-1:2' as AppComponentDimensions,
+		customCss: {
+			container: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {
+				displayAuthor: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true
+				},
+				displayTitle: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true
+				},
+				displayRecompute: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: true
+				},
+				titleOverride: {
+					type: 'static',
+					fieldType: 'text',
+					value: ''
+				}
+			},
+			menuItems: true
 		}
 	}
 } as const

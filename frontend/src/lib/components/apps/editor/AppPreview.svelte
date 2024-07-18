@@ -9,11 +9,9 @@
 		EditorBreakpoint,
 		EditorMode
 	} from '../types'
-	import { classNames } from '$lib/utils'
 	import type { Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
-	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import GridViewer from './GridViewer.svelte'
 	import Component from './component/Component.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -36,7 +34,7 @@
 	export let context: Record<string, any>
 	export let noBackend: boolean = false
 	export let isLocked = false
-	export let hideRefreshBar = false
+
 	export let replaceStateFn: (path: string) => void = (path: string) =>
 		window.history.replaceState(null, '', path)
 	export let gotoFn: (path: string, opt?: Record<string, any> | undefined) => void = (
@@ -111,7 +109,8 @@
 		previewTheme: writable(undefined),
 		debuggingComponents: writable({}),
 		replaceStateFn,
-		gotoFn
+		gotoFn,
+		policy
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -193,25 +192,6 @@
 			: 'max-w-7xl'} mx-auto"
 		id="app-content"
 	>
-		{#if $appStore.grid}
-			<div
-				class={classNames(
-					'mx-auto',
-					hideRefreshBar || $appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
-				)}
-			>
-				<div
-					class="w-full sticky top-0 flex justify-between border-b bg-surface-secondary px-4 py-1 items-center gap-4"
-				>
-					<h2 class="truncate">{summary}</h2>
-					<RecomputeAllComponents />
-					<div class="text-2xs text-secondary">
-						{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
-					</div>
-				</div>
-			</div>
-		{/if}
-
 		<div
 			style={app.css?.['app']?.['grid']?.style}
 			class={twMerge(
