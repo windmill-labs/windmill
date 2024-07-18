@@ -55,6 +55,7 @@
 {/each}
 
 <InitializeComponent {id} />
+
 {#if render && policy}
 	<GridEditorTopbar
 		{policy}

@@ -65,6 +65,9 @@ export function migrateApp(app: App) {
 				appComponentFromType('topbarcomponent', undefined) as (id: string) => AppComponent,
 				undefined
 			)
+
+			// We re-purpose the norefreshbar to be a flag to indicate that the app should add automatically a top bar
+			app.norefreshbar = true
 		}
 	}
 }
