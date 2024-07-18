@@ -8,12 +8,15 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let policy: Policy
 	export let displayTitle: boolean = true
 	export let displayRecompute: boolean = true
 	export let displayAuthor: boolean = true
 	export let titleOverride: string | undefined = undefined
+	export let containerClass: string | undefined = undefined
+	export let containerStyle: string | undefined = undefined
 
 	const { selectedComponent, app, connectingInput, summary, allIdsInPath, bgRuns } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -28,9 +31,12 @@
 </script>
 
 <div
-	class="w-full sticky top-0 flex justify-between border-b {$connectingInput?.opened
-		? ''
-		: 'bg-surface'} px-4 py-1 items-center gap-4"
+	class={twMerge(
+		'w-full sticky top-0 flex justify-between border-b h-8 items-center gap-4',
+		$connectingInput?.opened ? '' : 'bg-surface',
+		containerClass
+	)}
+	style={containerStyle}
 >
 	{#if displayTitle}
 		<h3 class="truncate">{titleOverride ? titleOverride : $summary}</h3>

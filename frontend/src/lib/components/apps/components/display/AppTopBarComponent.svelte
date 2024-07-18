@@ -11,6 +11,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import GridEditorTopbar from '../../editor/GridEditorTopbar.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
 	export let id: string
 	export let initializing: boolean | undefined = false
@@ -43,15 +44,25 @@
 	/>
 {/each}
 
+{#each Object.keys(css ?? {}) as key (key)}
+	<ResolveStyle
+		{id}
+		{customCss}
+		{key}
+		bind:css={css[key]}
+		componentStyle={$app.css?.topbarcomponent}
+	/>
+{/each}
+
 <InitializeComponent {id} />
 {#if render && policy}
-	<div class={css?.container?.class} style={css?.container?.style}>
-		<GridEditorTopbar
-			{policy}
-			displayTitle={resolvedConfig?.displayTitle}
-			displayRecompute={resolvedConfig?.displayRecompute}
-			displayAuthor={resolvedConfig?.displayAuthor}
-			titleOverride={resolvedConfig?.titleOverride}
-		/>
-	</div>
+	<GridEditorTopbar
+		{policy}
+		displayTitle={resolvedConfig?.displayTitle}
+		displayRecompute={resolvedConfig?.displayRecompute}
+		displayAuthor={resolvedConfig?.displayAuthor}
+		titleOverride={resolvedConfig?.titleOverride}
+		containerClass={css?.container?.class}
+		containerStyle={css?.container?.style}
+	/>
 {/if}

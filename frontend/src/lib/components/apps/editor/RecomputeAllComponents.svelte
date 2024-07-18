@@ -138,7 +138,7 @@
 		on:click={() => onClick()}
 		color={timeout ? 'blue' : 'light'}
 		variant={timeout ? 'contained' : 'border'}
-		size="xs"
+		size="xs2"
 		btnClasses="!rounded-r-none text-tertiary !text-2xs {timeout ? '!border !border-blue-500' : ''}"
 		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
 			? `every ${interval / 1000} seconds`

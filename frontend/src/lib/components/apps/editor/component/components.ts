@@ -4038,7 +4038,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		name: 'Top Bar',
 		icon: PanelTop,
 		documentationLink: `${documentationBaseUrl}/top_bar`,
-		dims: '1:1-12:2' as AppComponentDimensions,
+		dims: '6:1-12:1' as AppComponentDimensions,
 		customCss: {
 			container: { style: '', class: '' }
 		},
@@ -4049,22 +4049,27 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				displayAuthor: {
 					type: 'static',
 					fieldType: 'boolean',
-					value: true
+					value: true,
+					tooltip: 'If enabled, the author of the app will be displayed'
 				},
 				displayTitle: {
 					type: 'static',
 					fieldType: 'boolean',
-					value: true
+					value: true,
+					tooltip: 'If enabled, the title of the app will be displayed'
 				},
 				displayRecompute: {
 					type: 'static',
 					fieldType: 'boolean',
-					value: true
+					value: true,
+					tooltip: 'If enabled, the user will be able to recompute all the runnables in the app'
 				},
 				titleOverride: {
 					type: 'static',
 					fieldType: 'text',
-					value: ''
+					value: '',
+					tooltip:
+						'If defined, it will override the summary of the app. You can use this to make dynamic titles using expressions: For example, `Welcome ${ctx.email}`'
 				}
 			},
 			menuItems: true
