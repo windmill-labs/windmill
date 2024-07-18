@@ -56,7 +56,7 @@
 			<option value="bytes">Items are bytes</option>
 		</select>
 	</Label>
-{:else}
+{:else if itemsType?.resourceType}
 	<Label label="Resource type">
 		<Badge color="blue">
 			{itemsType?.resourceType}

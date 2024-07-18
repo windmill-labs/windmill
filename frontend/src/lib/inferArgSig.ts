@@ -4,7 +4,13 @@ export function argSigToJsonSchemaType(
 	t:
 		| string
 		| { resource: string | null }
-		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
+		| {
+				list:
+					| (string | { object: { key: string; typ: any }[] })
+					| { str: any }
+					| { object: { key: string; typ: any }[] }
+					| null
+		  }
 		| { str: string[] | null }
 		| { object: { key: string; typ: any }[] }
 		| {
@@ -103,6 +109,21 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string', enum: t.list.str }
 		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
 			newS.items = { type: 'resource', resourceType: t.list.resource as string }
+		} else if (
+			t.list &&
+			typeof t.list == 'object' &&
+			'object' in t.list &&
+			t.list.object &&
+			t.list.object.length > 0
+		) {
+			const properties = {}
+			for (const prop of t.list.object) {
+				properties[prop.key] = { description: '', type: '' }
+
+				argSigToJsonSchemaType(prop.typ, properties[prop.key])
+			}
+
+			newS.items = { type: 'object', properties: properties }
 		} else {
 			newS.items = { type: 'object' }
 		}
