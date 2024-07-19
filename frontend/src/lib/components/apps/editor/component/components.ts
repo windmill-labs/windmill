@@ -1151,6 +1151,12 @@ export const components = {
 					fieldType: 'text',
 
 					tooltip: 'Tooltip text if not empty'
+				},
+				disableNoText: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Remove the "No text" placeholder'
 				}
 			}
 		}

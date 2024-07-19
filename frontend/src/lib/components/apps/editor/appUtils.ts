@@ -1042,26 +1042,37 @@ export function isTableAction(id: string, app: App): boolean {
 export function setUpTopBarComponentContent(id: string, app: App) {
 	insertNewGridItem(
 		app,
-		appComponentFromType('textcomponent', undefined, undefined, {
-			customCss: {
-				text: {
-					class: 'text-xs font-semibold' as any,
-					style: ''
+		appComponentFromType(
+			'textcomponent',
+			{
+				disableNoText: {
+					value: true,
+					type: 'static',
+					fieldType: 'boolean'
 				}
 			},
-			verticalAlignment: 'center',
-			componnetInput: {
-				type: 'templatev2',
-				fieldType: 'template',
-				eval: '${ctx.summary}',
-				connections: [
-					{
-						id: 'summary',
-						componentId: 'ctx'
+			undefined,
+			{
+				customCss: {
+					text: {
+						class: 'text-xs font-semibold' as any,
+						style: ''
 					}
-				] as InputConnectionEval[]
+				},
+				verticalAlignment: 'center',
+				componnetInput: {
+					type: 'templatev2',
+					fieldType: 'template',
+					eval: '${ctx.summary}',
+					connections: [
+						{
+							id: 'summary',
+							componentId: 'ctx'
+						}
+					] as InputConnectionEval[]
+				}
 			}
-		}) as (id: string) => AppComponent,
+		) as (id: string) => AppComponent,
 		{
 			parentComponentId: id,
 			subGridIndex: 0

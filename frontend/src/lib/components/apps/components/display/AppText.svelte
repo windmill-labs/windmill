@@ -204,7 +204,9 @@
 					<div
 						class="text-ternary bg-surface-primary flex justify-center items-center h-full w-full"
 					>
-						No text
+						{#if resolvedConfig?.disableNoText === false}
+							No text
+						{/if}
 					</div>
 				{:else}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
