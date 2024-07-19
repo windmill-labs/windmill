@@ -62,6 +62,36 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
     cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
 }
 
+pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
+    let mut blocks = vec![];
+    let mut is_comment = false;
+    let mut last_idx = 0;
+    let mut in_string = false;
+    let mut chars = code.char_indices().peekable();
+    while let Some((idx, char)) = chars.next() {
+        match char {
+            '-' if chars.peek().is_some_and(|&(_, next_char)| next_char == '-') => {
+                is_comment = true;
+            }
+            '"' | '\'' if !is_comment => {
+                in_string = !in_string;
+            }
+            '\n' => {
+                is_comment = false;
+            }
+            ';' if !is_comment && !in_string => {
+                blocks.push(&code[last_idx..=idx]);
+                last_idx = idx + 1;
+            }
+            _ => {}
+        }
+    }
+    if blocks.len() < 2 {
+        blocks = vec![code];
+    }
+    blocks
+}
+
 lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
 
@@ -150,15 +180,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 }
 
 fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
-    let matched_blocks = RE_MULTI_PGSQL
-        .captures_iter(code)
-        .map(|x| x.get(0).unwrap().as_str())
-        .collect::<Vec<_>>();
-    let blocks = if matched_blocks.len() > 1 {
-        matched_blocks
-    } else {
-        vec![code]
-    };
+    let blocks = parse_sql_blocks(code);
     let mut final_args: Vec<Arg> = vec![];
     for block in blocks {
         let mut args = vec![];

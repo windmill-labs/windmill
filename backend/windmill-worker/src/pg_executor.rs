@@ -32,7 +32,7 @@ use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
 use windmill_parser::Typ;
-use windmill_parser_sql::{parse_db_resource, parse_pgsql_sig, RE_MULTI_PGSQL};
+use windmill_parser_sql::{parse_db_resource, parse_pgsql_sig, parse_sql_blocks};
 use windmill_queue::CanceledBy;
 
 use crate::common::{build_args_values, run_future_with_polling_update_job_poller, sizeof_val};
@@ -266,10 +266,7 @@ pub async fn do_postgresql(
         Some((client, handle))
     };
 
-    let queries = RE_MULTI_PGSQL
-        .captures_iter(query)
-        .map(|x| x.get(0).unwrap().as_str().to_string())
-        .collect::<Vec<String>>();
+    let queries = parse_sql_blocks(query);
 
     let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
         (client, Some(handle))
