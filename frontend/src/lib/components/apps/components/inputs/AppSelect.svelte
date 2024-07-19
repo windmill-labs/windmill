@@ -130,7 +130,7 @@
 			})
 
 			if (!listItems.some((i) => i.value === e.detail.value)) {
-				const removedOuterDoubleQuotes = e.detail.value.replace(/^"(.*)"$/, '$1')
+				const removedOuterDoubleQuotes = e.detail.value.replace(/^"|"$/g, '')
 				listItems = [
 					...listItems,
 					{ value: e.detail.value, label: removedOuterDoubleQuotes, created: false }
