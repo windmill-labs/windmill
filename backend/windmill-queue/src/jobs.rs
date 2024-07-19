@@ -2274,7 +2274,7 @@ pub async fn get_result_by_id_from_running_flow(
 }
 
 #[async_recursion]
-async fn get_result_by_id_from_original_flow(
+pub async fn get_result_by_id_from_original_flow(
     db: &Pool<Postgres>,
     w_id: &str,
     completed_flow_id: &Uuid,
