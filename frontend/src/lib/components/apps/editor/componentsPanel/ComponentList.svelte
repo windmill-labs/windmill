@@ -151,17 +151,21 @@
 				}
 			}) as (id: string) => AppComponent,
 			$focusedGrid,
+			undefined,
+			undefined,
+			{ x: 0, y: 0 },
 			{
 				3: processDimension(preset.dims, 3),
 				12: processDimension(preset.dims, 12)
 			}
 		)
 
+		$selectedComponent = [id]
+
 		if (appComponentType === 'topbarcomponent') {
 			setUpTopBarComponentContent(id, $app)
 		}
 
-		$selectedComponent = [id]
 		$app = $app
 	}
 

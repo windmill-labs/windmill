@@ -77,8 +77,8 @@
 	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
 	import AppNavbar from '../../components/display/AppNavbar.svelte'
 	import AppDateSelect from '../../components/inputs/AppDateSelect.svelte'
-	import AppDisplayComponentByJobId from '../../components/display/AppTopBarComponent.svelte'
-	import AppTopBarComponent from '../../components/display/AppTopBarComponent.svelte'
+	import AppDisplayComponentByJobId from '../../components/display/AppRecomputeAll.svelte'
+	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -858,7 +858,7 @@
 				{render}
 			/>
 		{:else if component.type === 'recomputeallcomponent'}
-			<AppTopBarComponent
+			<AppRecomputeAll
 				id={component.id}
 				customCss={component.customCss}
 				bind:initializing

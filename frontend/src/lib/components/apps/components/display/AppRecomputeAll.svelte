@@ -9,9 +9,9 @@
 	import { initCss } from '../../utils'
 	import { components } from '../../editor/component'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
-	import GridEditorTopbar from '../../editor/GridEditorTopbar.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import RecomputeAllWrapper from '../../editor/RecomputeAllWrapper.svelte'
 
 	export let id: string
 	export let initializing: boolean | undefined = false
@@ -27,7 +27,7 @@
 	)
 
 	initOutput($worldStore, id, {
-		result: undefined
+		loading: undefined
 	})
 
 	initializing = false
@@ -57,5 +57,8 @@
 <InitializeComponent {id} />
 
 {#if render && policy}
-	<GridEditorTopbar containerClass={css?.container?.class} containerStyle={css?.container?.style} />
+	<RecomputeAllWrapper
+		containerClass={css?.container?.class}
+		containerStyle={css?.container?.style}
+	/>
 {/if}

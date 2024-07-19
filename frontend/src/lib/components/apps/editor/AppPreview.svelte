@@ -56,7 +56,13 @@
 
 	const allIdsInPath = writable<string[]>([])
 
-	let ncontext: any = { ...context, workspace, mode: 'viewer', summary: summary }
+	let ncontext: any = {
+		...context,
+		workspace,
+		mode: 'viewer',
+		summary: summary,
+		onBehalfOfEmail: policy.on_behalf_of_email
+	}
 
 	function hashchange(e: HashChangeEvent) {
 		ncontext.hash = e.newURL.split('#')[1]

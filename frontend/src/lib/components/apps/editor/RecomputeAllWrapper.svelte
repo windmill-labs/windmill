@@ -24,11 +24,7 @@
 </script>
 
 <div
-	class={twMerge(
-		'w-full flex justify-center h-8 items-center gap-4',
-		$connectingInput?.opened ? '' : 'bg-surface',
-		containerClass
-	)}
+	class={twMerge('w-full flex justify-center h-8 items-center gap-4', containerClass)}
 	style={containerStyle}
 >
 	<div class="flex gap-2 items-center">

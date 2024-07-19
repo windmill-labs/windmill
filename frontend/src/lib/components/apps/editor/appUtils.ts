@@ -1045,7 +1045,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		appComponentFromType('textcomponent', undefined, undefined, {
 			customCss: {
 				text: {
-					class: 'text-xs' as any,
+					class: 'text-xs font-semibold' as any,
 					style: ''
 				}
 			},
@@ -1102,7 +1102,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 				componnetInput: {
 					type: 'templatev2',
 					fieldType: 'template',
-					eval: 'Author ${ctx.email}',
+					eval: 'Author ${ctx.onBehalfOfEmail}',
 					connections: [
 						{
 							id: 'email',

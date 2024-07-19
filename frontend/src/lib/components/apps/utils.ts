@@ -43,8 +43,7 @@ export function migrateApp(app: App) {
 
 	// If the app is configured to not have a top bar, we don't need to add a top bar
 	if (app?.norefreshbar === false) {
-		// We only need to process top level components
-		const items = allItems(app.grid, {})
+		const items = allItems(app.grid, app.subgrids)
 
 		const hasTopBar = items.some((x) => x.data.type === 'recomputeallcomponent')
 
@@ -55,12 +54,12 @@ export function migrateApp(app: App) {
 			app.norefreshbar = true
 			return
 		} else {
-			// Increase the y position of all top level components by 1 (the height of the top bar by default)
+			// Increase the y position of all top level components by 2(the height of the top bar by default)
 			// For each breakpoints
 
 			items.forEach((item) => {
 				gridColumns.forEach((breakpoint) => {
-					item[breakpoint].y += 1
+					item[breakpoint].y += 2
 				})
 			})
 
@@ -72,6 +71,9 @@ export function migrateApp(app: App) {
 					id: string
 				) => AppComponent,
 				undefined,
+				undefined,
+				undefined,
+				{ x: 0, y: 0 },
 				{
 					3: processDimension(preset.dims, 3),
 					12: processDimension(preset.dims, 12)
