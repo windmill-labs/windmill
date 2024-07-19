@@ -797,7 +797,7 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
-	topbarcomponent: {
+	recomputeallcomponent: {
 		container: containerDefaultProps
 	}
 }

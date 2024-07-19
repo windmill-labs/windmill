@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
-import { type AppComponent } from './editor/component'
+import { presets, processDimension, type AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import type {
@@ -12,7 +12,11 @@ import type {
 	VerticalAlignment
 } from './types'
 import { gridColumns } from './gridUtils'
-import { appComponentFromType, insertNewGridItem } from './editor/appUtils'
+import {
+	appComponentFromType,
+	insertNewGridItem,
+	setUpTopBarComponentContent
+} from './editor/appUtils'
 
 export const BG_PREFIX = 'bg_'
 
@@ -42,7 +46,7 @@ export function migrateApp(app: App) {
 		// We only need to process top level components
 		const items = allItems(app.grid, {})
 
-		const hasTopBar = items.some((x) => x.data.type === 'topbarcomponent')
+		const hasTopBar = items.some((x) => x.data.type === 'recomputeallcomponent')
 
 		if (hasTopBar) {
 			// If we already have a top bar, we don't need to add a new top bar
@@ -54,22 +58,28 @@ export function migrateApp(app: App) {
 			// Increase the y position of all top level components by 1 (the height of the top bar by default)
 			// For each breakpoints
 
-			const breakpoints = [3, 12]
-
 			items.forEach((item) => {
-				breakpoints.forEach((breakpoint) => {
+				gridColumns.forEach((breakpoint) => {
 					item[breakpoint].y += 1
 				})
 			})
 
-			// By default, the position will be {x: 0, y: 0}, so It will be placed correctly
-			insertNewGridItem(
+			const preset = presets['topbarcomponent']
+
+			const id = insertNewGridItem(
 				app,
-				appComponentFromType('topbarcomponent', undefined) as (id: string) => AppComponent,
-				undefined
+				appComponentFromType(preset.targetComponent, preset.configuration) as (
+					id: string
+				) => AppComponent,
+				undefined,
+				{
+					3: processDimension(preset.dims, 3),
+					12: processDimension(preset.dims, 12)
+				}
 			)
 
-			// We re-purpose the norefreshbar to be a flag to indicate that the app should add automatically a top bar
+			setUpTopBarComponentContent(id, app)
+
 			app.norefreshbar = true
 		}
 	}

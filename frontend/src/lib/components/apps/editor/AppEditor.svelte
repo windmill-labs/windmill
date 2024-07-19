@@ -114,7 +114,8 @@
 		query: Object.fromEntries($page.url.searchParams.entries()),
 		hash: $page.url.hash,
 		workspace: $workspaceStore,
-		mode: 'editor'
+		mode: 'editor',
+		summary: $summaryStore
 	}
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 

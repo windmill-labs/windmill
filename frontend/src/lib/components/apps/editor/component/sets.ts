@@ -21,8 +21,9 @@ const layout: ComponentSet = {
 		'carousellistcomponent',
 		'decisiontreecomponent',
 		'navbarcomponent',
-		'topbarcomponent'
-	]
+		'recomputeallcomponent'
+	],
+	presets: ['topbarcomponent']
 } as const
 
 const buttons: ComponentSet = {

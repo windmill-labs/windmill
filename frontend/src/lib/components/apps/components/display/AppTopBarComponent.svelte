@@ -22,7 +22,7 @@
 	const { app, worldStore, policy } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
-		components['topbarcomponent'].initialData.configuration,
+		components['recomputeallcomponent'].initialData.configuration,
 		configuration
 	)
 
@@ -32,10 +32,10 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.topbarcomponent, customCss)
+	let css = initCss($app.css?.recomputeallcomponent, customCss)
 </script>
 
-{#each Object.keys(components['topbarcomponent'].initialData.configuration) as key (key)}
+{#each Object.keys(components['recomputeallcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
 		{id}
 		{key}
@@ -50,20 +50,12 @@
 		{customCss}
 		{key}
 		bind:css={css[key]}
-		componentStyle={$app.css?.topbarcomponent}
+		componentStyle={$app.css?.recomputeallcomponent}
 	/>
 {/each}
 
 <InitializeComponent {id} />
 
 {#if render && policy}
-	<GridEditorTopbar
-		{policy}
-		displayTitle={resolvedConfig?.displayTitle}
-		displayRecompute={resolvedConfig?.displayRecompute}
-		displayAuthor={resolvedConfig?.displayAuthor}
-		titleOverride={resolvedConfig?.titleOverride}
-		containerClass={css?.container?.class}
-		containerStyle={css?.container?.style}
-	/>
+	<GridEditorTopbar containerClass={css?.container?.class} containerStyle={css?.container?.style} />
 {/if}

@@ -230,11 +230,11 @@
 							style={css?.text?.style}
 						>
 							{String(result)}
+							{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
+								<Tooltip>{resolvedConfig.tooltip}</Tooltip>
+							{/if}
 						</svelte:element>
 
-						{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
-							<Tooltip>{resolvedConfig.tooltip}</Tooltip>
-						{/if}
 						{#if resolvedConfig.copyButton && result}
 							<div class="flex">
 								<Button

@@ -50,7 +50,8 @@ import {
 	Clock,
 	CalendarClock,
 	AppWindow,
-	PanelTop
+	PanelTop,
+	RefreshCw
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -280,7 +281,7 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 
 export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
 
-export type TopBarComponent = BaseComponent<'topbarcomponent'>
+export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 
 export type TypedComponent =
 	| DBExplorerComponent
@@ -359,7 +360,7 @@ export type TypedComponent =
 	| NavBarComponent
 	| DateSelectComponent
 	| JobIdDisplayComponent
-	| TopBarComponent
+	| RecomputeAllComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -372,7 +373,18 @@ export function getRecommendedDimensionsByComponent(
 	componentType: AppComponent['type'],
 	column: number
 ): Size {
-	const size = components[componentType].dims.split('-')[column === 3 ? 0 : 1].split(':')
+	return processDimension(components[componentType].dims, column)
+}
+
+export function processDimension(
+	dimension: AppComponentDimensions | undefined,
+	column: number
+): Size {
+	if (!dimension) {
+		return { w: 1, h: 1 }
+	}
+
+	const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 	return { w: +size[0], h: +size[1] }
 }
 
@@ -402,6 +414,7 @@ export type PresetComponentConfig = {
 	targetComponent: keyof typeof components
 	configuration: object
 	type: string
+	dims?: AppComponentDimensions
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -4034,44 +4047,18 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			}
 		}
 	},
-	topbarcomponent: {
-		name: 'Top Bar',
-		icon: PanelTop,
+	recomputeallcomponent: {
+		name: 'Recompute all',
+		icon: RefreshCw,
 		documentationLink: `${documentationBaseUrl}/top_bar`,
-		dims: '6:1-12:1' as AppComponentDimensions,
+		dims: '4:1-6:1' as AppComponentDimensions,
 		customCss: {
 			container: { style: '', class: '' }
 		},
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			configuration: {
-				displayAuthor: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: true,
-					tooltip: 'If enabled, the author of the app will be displayed'
-				},
-				displayTitle: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: true,
-					tooltip: 'If enabled, the title of the app will be displayed'
-				},
-				displayRecompute: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: true,
-					tooltip: 'If enabled, the user will be able to recompute all the runnables in the app'
-				},
-				titleOverride: {
-					type: 'static',
-					fieldType: 'text',
-					value: '',
-					tooltip:
-						'If defined, it will override the summary of the app. You can use this to make dynamic titles using expressions: For example, `Welcome ${ctx.email}`'
-				}
-			},
+			configuration: {},
 			menuItems: true
 		}
 	}
@@ -4099,6 +4086,14 @@ export const presetComponents = {
 			}
 		},
 		type: 'invisibletabscomponent'
+	},
+	topbarcomponent: {
+		name: 'Top Bar',
+		icon: PanelTop,
+		targetComponent: 'containercomponent' as const,
+		configuration: {},
+		type: 'topbarcomponent',
+		dims: '6:2-12:2' as AppComponentDimensions
 	}
 }
 

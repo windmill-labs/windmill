@@ -857,7 +857,7 @@
 				configuration={component.configuration}
 				{render}
 			/>
-		{:else if component.type === 'topbarcomponent'}
+		{:else if component.type === 'recomputeallcomponent'}
 			<AppTopBarComponent
 				id={component.id}
 				customCss={component.customCss}
