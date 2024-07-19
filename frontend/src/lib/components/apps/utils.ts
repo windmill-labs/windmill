@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
-import { presets, processDimension, type AppComponent } from './editor/component'
+import { type AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import type {
@@ -12,11 +12,6 @@ import type {
 	VerticalAlignment
 } from './types'
 import { gridColumns } from './gridUtils'
-import {
-	appComponentFromType,
-	insertNewGridItem,
-	setUpTopBarComponentContent
-} from './editor/appUtils'
 
 export const BG_PREFIX = 'bg_'
 
@@ -40,51 +35,6 @@ export function migrateApp(app: App) {
 			}
 		})
 	})
-
-	// If the app is configured to not have a top bar, we don't need to add a top bar
-	if (app?.norefreshbar === false) {
-		const items = allItems(app.grid, app.subgrids)
-
-		const hasTopBar = items.some((x) => x.data.type === 'recomputeallcomponent')
-
-		if (hasTopBar) {
-			// If we already have a top bar, we don't need to add a new top bar
-
-			// We re-purpose the norefreshbar to be a flag to indicate that the app should add automatically a top bar
-			app.norefreshbar = true
-			return
-		} else {
-			// Increase the y position of all top level components by 2(the height of the top bar by default)
-			// For each breakpoints
-
-			items.forEach((item) => {
-				gridColumns.forEach((breakpoint) => {
-					item[breakpoint].y += 2
-				})
-			})
-
-			const preset = presets['topbarcomponent']
-
-			const id = insertNewGridItem(
-				app,
-				appComponentFromType(preset.targetComponent, preset.configuration) as (
-					id: string
-				) => AppComponent,
-				undefined,
-				undefined,
-				undefined,
-				{ x: 0, y: 0 },
-				{
-					3: processDimension(preset.dims, 3),
-					12: processDimension(preset.dims, 12)
-				}
-			)
-
-			setUpTopBarComponentContent(id, app)
-
-			app.norefreshbar = true
-		}
-	}
 }
 
 export function allItems(

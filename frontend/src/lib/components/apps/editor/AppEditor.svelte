@@ -660,7 +660,7 @@
 												on:pointerdown|stopPropagation
 												class={twMerge(width, 'mx-auto', 'z-10000')}
 											>
-												<GridEditor />
+												<GridEditor {policy} />
 											</div>
 										{/if}
 									</div>

@@ -139,6 +139,8 @@
 
 			setUpTopBarComponentContent(id, value)
 
+			value.hideLegacyTopBar = true
+
 			value = value
 		}
 	}

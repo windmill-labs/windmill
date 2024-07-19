@@ -160,6 +160,7 @@ export type App = {
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 	theme: AppTheme | undefined
+	hideLegacyTopBar?: boolean | undefined
 }
 
 export type ConnectingInput = {

@@ -14,11 +14,29 @@
 	import { classNames } from '$lib/utils'
 	import { BG_PREFIX } from '../utils'
 	import GridEditorMenu from './GridEditorMenu.svelte'
+	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { Loader2 } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
+	import type { Policy } from '$lib/gen'
 
-	const { selectedComponent, app, mode, focusedGrid, parentWidth, breakpoint, allIdsInPath } =
-		getContext<AppViewerContext>('AppViewerContext')
+	export let policy: Policy
 
-	const { history, scale } = getContext<AppEditorContext>('AppEditorContext')
+	const {
+		selectedComponent,
+		app,
+		mode,
+		connectingInput,
+		summary,
+		focusedGrid,
+		parentWidth,
+		breakpoint,
+		allIdsInPath,
+		bgRuns
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history, scale, componentActive } = getContext<AppEditorContext>('AppEditorContext')
 
 	let previousSelectedIds: string[] | undefined = undefined
 	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
@@ -30,6 +48,53 @@
 </script>
 
 <div class="w-full z-[1000] overflow-visible h-full">
+	{#if $app.hideLegacyTopBar !== true}
+		<div
+			class="w-full sticky top-0 flex justify-between border-b {$componentActive
+				? 'invisible'
+				: 'z-50'} {$connectingInput?.opened ? '' : 'bg-surface'} px-4 py-1 items-center gap-4"
+		>
+			<h3 class="truncate">{$summary}</h3>
+			<div class="flex gap-2 items-center">
+				<div>
+					{#if !$connectingInput.opened}
+						<RecomputeAllComponents />
+					{/if}
+				</div>
+				{#if $bgRuns.length > 0}
+					<Popover notClickable>
+						<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+							><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
+						</span>
+						<span slot="text"
+							><div class="flex flex-col">
+								{#each $bgRuns as bgRun}
+									<div class="flex gap-2 items-center">
+										<div class="text-2xs text-tertiary">{bgRun}</div>
+									</div>
+								{/each}
+							</div></span
+						>
+					</Popover>
+				{:else}
+					<span class="w-9" />
+				{/if}
+			</div>
+			<div class="flex text-2xs gap-8 items-center">
+				<div class="py-2 pr-2 text-secondary flex gap-1 items-center">
+					Hide bar on view
+					<Toggle size="xs" bind:checked={$app.norefreshbar} />
+				</div>
+				<div>
+					{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}
+					<Tooltip>
+						The scripts will be run on behalf of the author and a tight policy ensure security about
+						the possible inputs of the runnables.
+					</Tooltip>
+				</div>
+			</div>
+		</div>
+	{/if}
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
