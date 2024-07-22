@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.366.0](https://github.com/windmill-labs/windmill/compare/v1.365.0...v1.366.0) (2024-07-22)
+
+
+### Features
+
+* dynamic select ([#4110](https://github.com/windmill-labs/windmill/issues/4110)) ([19d523d](https://github.com/windmill-labs/windmill/commit/19d523dd64327cc8c590737f6a14a5d10fe19aa6))
+* make components resizable directly on side ([26c30c4](https://github.com/windmill-labs/windmill/commit/26c30c4f8df6eac7c1d99770c99b8159bd3afe49))
+
+
+### Bug Fixes
+
+* add WM_SCHEDULED_FOR to contextual variables and early stop of flows ([e91a06f](https://github.com/windmill-labs/windmill/commit/e91a06fa41a1bdcc781126b936e20a83e540c9f9))
+* Allow deploying frontend in a sub directory ([#3867](https://github.com/windmill-labs/windmill/issues/3867)) ([dd75dd4](https://github.com/windmill-labs/windmill/commit/dd75dd446b5d155ac0c9a007e694732a81dc6b35))
+* improve cgroup readings ([#4030](https://github.com/windmill-labs/windmill/issues/4030)) ([ea53a12](https://github.com/windmill-labs/windmill/commit/ea53a129afc520ee804f473f63847df57e7287a2))
+* update parsers for CLI ([f65ccc0](https://github.com/windmill-labs/windmill/commit/f65ccc07de8e1367ce5acc45d4f3674593351b75))
+
 ## [1.365.0](https://github.com/windmill-labs/windmill/compare/v1.364.3...v1.365.0) (2024-07-17)
 
 
