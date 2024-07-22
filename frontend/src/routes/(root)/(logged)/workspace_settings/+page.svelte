@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, base } from '$lib/navigation'
+	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
@@ -53,6 +53,7 @@
 		convertFrontendToBackendSetting,
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
+	import { base } from '$lib/base'
 
 	type GitSyncTypeMap = {
 		scripts: boolean

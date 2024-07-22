@@ -1,6 +1,5 @@
 import { goto as svelteGoto } from '$app/navigation'
 import { base as svelteBase } from '$app/paths'
-export { base } from '$lib/base'
 
 export function goto(path, options = {}) {
 	if (svelteBase == '') {
