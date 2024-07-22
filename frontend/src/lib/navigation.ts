@@ -1,9 +1,8 @@
 import { goto as svelteGoto } from '$app/navigation'
-export { base } from '$lib/base'
-import { base } from '$lib/base'
+import { base } from '$app/paths'
 
 export function goto(path, options = {}) {
-	if (base == '/') {
+	if (base == '') {
 		return svelteGoto(path, options)
 	} else {
 		const fullPath = path.startsWith(base) ? path : `${base}${path}`
