@@ -37,18 +37,18 @@
 	import { type Changelog, changelogs } from './changelogs'
 
 	$: mainMenuLinks = [
-		{ label: 'Home', href: `${base}/`, icon: Home },
-		{ label: 'Runs', href: `${base}/runs`, icon: Play },
+		{ label: 'Home', href: `${base}`, icon: Home },
+		{ label: 'Runs', href: `${base}runs`, icon: Play },
 		{
 			label: 'Variables',
-			href: `${base}/variables`,
+			href: `${base}variables`,
 			icon: DollarSign,
 			disabled: $userStore?.operator
 		},
-		{ label: 'Resources', href: `${base}/resources`, icon: Boxes, disabled: $userStore?.operator },
+		{ label: 'Resources', href: `${base}resources`, icon: Boxes, disabled: $userStore?.operator },
 		{
 			label: 'Schedules',
-			href: `${base}/schedules`,
+			href: `${base}schedules`,
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator
 		}
@@ -82,7 +82,7 @@
 					? [
 							{
 								label: 'Workspace',
-								href: `${base}/workspace_settings`,
+								href: `${base}workspace_settings`,
 								icon: FolderCog,
 								faIcon: undefined
 							}
@@ -114,21 +114,21 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Workers', href: `${base}/workers`, icon: Bot, disabled: $userStore?.operator },
+		{ label: 'Workers', href: `${base}workers`, icon: Bot, disabled: $userStore?.operator },
 		{
 			label: 'Folders & Groups',
 			icon: FolderOpen,
 			subItems: [
 				{
 					label: 'Folders',
-					href: `${base}/folders`,
+					href: `${base}folders`,
 					icon: FolderOpen,
 					disabled: $userStore?.operator,
 					faIcon: undefined
 				},
 				{
 					label: 'Groups',
-					href: `${base}/groups`,
+					href: `${base}groups`,
 					icon: UserCog,
 					disabled: $userStore?.operator,
 					faIcon: undefined
@@ -136,7 +136,7 @@
 			],
 			disabled: $userStore?.operator
 		},
-		{ label: 'Audit Logs', href: `${base}/audit_logs`, icon: Eye, disabled: $userStore?.operator }
+		{ label: 'Audit Logs', href: `${base}audit_logs`, icon: Eye, disabled: $userStore?.operator }
 	]
 
 	let hasNewChangelogs = false

@@ -11,7 +11,7 @@
 		spacingSize="xl"
 		color="marine"
 		startIcon={{ icon: Plus }}
-		href="{base}/scripts/add"
+		href="{base}scripts/add"
 	>
 		Script <Code2 class="ml-1.5" size={18} />
 	</Button>

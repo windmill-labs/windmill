@@ -123,7 +123,7 @@
 			{/if}
 		</div>
 		<a
-			href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
+			href="{base}run/{job?.id}?workspace={job?.workspace_id}"
 			class="flex flex-row gap-1 items-center"
 			target={blankLink ? '_blank' : undefined}
 		>

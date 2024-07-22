@@ -37,9 +37,9 @@
 	}[]
 
 	const mainMenuLinks = [
-		{ label: 'Home', href: `${base}/`, icon: Home },
-		{ label: 'Runs', href: `${base}/runs`, icon: Play },
-		{ label: 'Schedules', href: `${base}/schedules`, icon: Calendar }
+		{ label: 'Home', href: `${base}`, icon: Home },
+		{ label: 'Runs', href: `${base}runs`, icon: Play },
+		{ label: 'Schedules', href: `${base}schedules`, icon: Calendar }
 	]
 </script>
 
@@ -113,7 +113,7 @@
 				Switch theme
 			</button>
 			<a
-				href="{base}/user/workspaces"
+				href="{base}user/workspaces"
 				on:click={() => {
 					localStorage.removeItem('workspace')
 				}}

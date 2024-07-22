@@ -155,7 +155,7 @@
 				startIcon={{ icon: Pen }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
-				href="{base}/flows/edit/{runnable.path}?nodraft=true">Edit</Button
+				href="{base}flows/edit/{runnable.path}?nodraft=true">Edit</Button
 			>
 			<Button
 				variant="border"
@@ -164,7 +164,7 @@
 				startIcon={{ icon: Eye }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
-				href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
+				href="{base}flows/get/{runnable.path}?workspace={$workspaceStore}"
 			>
 				Details
 			</Button>

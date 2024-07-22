@@ -29,7 +29,7 @@
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: BarsStaggered }}
-		href="{base}/flows/add?nodraft=true"
+		href="{base}flows/add?nodraft=true"
 		color="marine"
 		dropdownItems={[
 			{
