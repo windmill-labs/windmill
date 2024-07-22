@@ -98,7 +98,7 @@
 				</div>
 			</Button>
 			<Button
-				href="{base}scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				href="{base}/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
@@ -135,7 +135,7 @@
 			</Button>
 
 			<Button
-				href="{base}flows/add?hub={flowViewerFlow?.flow?.id}"
+				href="{base}/flows/add?hub={flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
@@ -173,7 +173,7 @@
 			</Button>
 
 			<Button
-				href="{base}apps/add?hub={appViewerApp?.app?.id}"
+				href="{base}/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				disabled={appViewerApp == undefined}

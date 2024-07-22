@@ -199,11 +199,11 @@
 												>
 											</li>
 											<li>
-												2. <a href="{base}apps/add?nodraft=true" target="_blank"> App Editor</a> for
+												2. <a href="{base}/apps/add?nodraft=true" target="_blank"> App Editor</a> for
 												customized-UIs
 											</li>
 											<li>
-												3. <a href="{base}schedules" target="_blank">Scheduling</a>
+												3. <a href="{base}/schedules" target="_blank">Scheduling</a>
 											</li>
 											<li>
 												4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
@@ -273,7 +273,7 @@
 												<img
 													class="shadow-lg border rounded"
 													alt="static button"
-													src="{base}trigger_button.png"
+													src="{base}/trigger_button.png"
 												/>
 											</li></ul
 										>

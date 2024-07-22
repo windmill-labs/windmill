@@ -147,7 +147,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `${base}flows/add?template=${flow.path}`,
+					href: `${base}/flows/add?template=${flow.path}`,
 					color: 'light',
 					size: 'xs',
 					startIcon: GitFork
@@ -162,7 +162,7 @@
 		buttons.push({
 			label: `View runs`,
 			buttonProps: {
-				href: `${base}runs/${flow.path}`,
+				href: `${base}/runs/${flow.path}`,
 				size: 'xs',
 				color: 'light',
 				startIcon: History
@@ -192,7 +192,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `${base}flows/edit/${path}?nodraft=true`,
+					href: `${base}/flows/edit/${path}?nodraft=true`,
 					variant: 'contained',
 					size: 'xs',
 					color: 'dark',

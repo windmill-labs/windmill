@@ -133,7 +133,7 @@
 					color="light"
 					size="xs"
 					variant="border"
-					href="{base}flows/edit/{scriptPath}">Edit</Button
+					href="{base}/flows/edit/{scriptPath}">Edit</Button
 				>
 				<Button
 					color="light"
@@ -153,7 +153,7 @@
 					target="_blank"
 					color="light"
 					size="xs"
-					href="{base}apps/edit/{scriptPath}"
+					href="{base}/apps/edit/{scriptPath}"
 					variant="border"
 				>
 					Edit
@@ -164,7 +164,7 @@
 					variant="border"
 					target="_blank"
 					startIcon={{ icon: Code }}
-					href="{base}apps/get/{scriptPath}"
+					href="{base}/apps/get/{scriptPath}"
 				>
 					View
 				</Button>
@@ -176,7 +176,7 @@
 					target="_blank"
 					color="light"
 					size="xs"
-					href="{base}scripts/edit/{scriptPath}"
+					href="{base}/scripts/edit/{scriptPath}"
 					variant="border"
 				>
 					Edit

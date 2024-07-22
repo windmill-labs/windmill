@@ -88,7 +88,7 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	if (path.startsWith('hub/')) {
 		return hubBaseUrl + '/from_version/' + path.substring(4)
 	} else {
-		return `${base}scripts/get/${path}?workspace=${get(workspaceStore)}`
+		return `${base}/scripts/get/${path}?workspace=${get(workspaceStore)}`
 	}
 }
 
