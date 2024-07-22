@@ -58,7 +58,7 @@
 {/if}
 
 <Row
-	href={`${base}/apps/get/${app.path}`}
+	href={`${base}apps/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={app.path}
@@ -92,7 +92,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps/edit/{app.path}?nodraft=true"
+							href="{base}apps/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -104,7 +104,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="{base}/apps/add?template={app.path}"
+							href="{base}apps/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -151,7 +151,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/apps/add?template=${path}`,
+						href: `${base}apps/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{

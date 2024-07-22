@@ -279,7 +279,7 @@
 		{/if}
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between">
-			<a target="_blank" rel="noreferrer" href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
+			<a target="_blank" rel="noreferrer" href="{base}run/{job?.id}?workspace={job?.workspace_id}"
 				>Flow run details (require auth)</a
 			>
 		</div>

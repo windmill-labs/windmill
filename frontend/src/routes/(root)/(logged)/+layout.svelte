@@ -12,7 +12,6 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { classNames, getModifierKey } from '$lib/utils'
-	import { base } from '$lib/base'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {
@@ -47,6 +46,7 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { setContext } from 'svelte'
+	import { base } from '$app/paths'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -160,22 +160,22 @@
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `${base}/scripts/get/${s.hash}`,
+				href: `${base}scripts/get/${s.hash}`,
 				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `${base}/flows/get/${f.path}`,
+				href: `${base}flows/get/${f.path}`,
 				kind: 'flow' as 'flow'
 			})),
 			...apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `${base}/apps/get/${f.path}`,
+				href: `${base}apps/get/${f.path}`,
 				kind: 'app' as 'app'
 			})),
 			...raw_apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `${base}/apps/get_raw/${f.version}/${f.path}`,
+				href: `${base}apps/get_raw/${f.version}/${f.path}`,
 				kind: 'raw_app' as 'raw_app'
 			}))
 		]

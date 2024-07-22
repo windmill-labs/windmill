@@ -145,7 +145,7 @@
 									<span class="w-30 justify-center">-</span>
 								{:else}
 									<a
-										href="{base}/run/{job.id}?workspace={job.workspace_id}"
+										href="{base}run/{job.id}?workspace={job.workspace_id}"
 										class="truncate w-30 dark:text-blue-400"
 									>
 										{job.script_path}
@@ -176,13 +176,13 @@
 								{/if}
 							</div>
 						{:else if 'job_kind' in job && job.job_kind == 'preview'}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
+							<a href="{base}run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
 						{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">
+							<a href="{base}run/{job.id}?workspace={job.workspace_id}">
 								lock deps of {truncateHash(job.script_hash ?? '')}
 							</a>
 						{:else if 'job_kind' in job && job.job_kind == 'identity'}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">no op</a>
+							<a href="{base}run/{job.id}?workspace={job.workspace_id}">no op</a>
 						{/if}
 					</div>
 				</div>
@@ -194,7 +194,7 @@
 				<div class="flex flex-row gap-1 items-center">
 					<BarsStaggered class="text-secondary" size={14} />
 					<span class="mx-1 text-xs">
-						Step of flow <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+						Step of flow <a href={`${base}run/${job.parent_job}?workspace=${job.workspace_id}`}>
 							{truncateRev(job.parent_job, 6)}
 						</a>
 					</span>
@@ -202,7 +202,7 @@
 			{:else}
 				<div class="flex flex-row gap-1 items-center">
 					<span class="text-2xs text-tertiary truncate">
-						parent <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+						parent <a href={`${base}run/${job.parent_job}?workspace=${job.workspace_id}`}>
 							{truncateRev(job.parent_job, 10)}
 						</a>
 					</span>

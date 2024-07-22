@@ -73,7 +73,7 @@
 			Add {#if !$superadmin} <span class="text-2xs text-tertiary">superadmin only</span> {/if}
 		</Button>
 		<span class="text-sm text-primary"
-			>Configure <a href="{base}/workers" target="_blank" class="inline-flex gap-1 items-baseline"
+			>Configure <a href="{base}workers" target="_blank" class="inline-flex gap-1 items-baseline"
 				>worker groups <ExternalLink size={12} /></a
 			> to listen to tags</span
 		>
