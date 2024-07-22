@@ -82,7 +82,7 @@
 	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {
-		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
+		const r = await fetch(base + 'api/workspaces/create_workspace_require_superadmin')
 		const t = await r.text()
 		createWorkspace = t != 'true'
 	}
