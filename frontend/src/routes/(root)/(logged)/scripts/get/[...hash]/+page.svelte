@@ -478,7 +478,7 @@
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
 				>
-					{#if script.codebase}/
+					{#if script.codebase}
 						<Badge
 							>bundle<Tooltip
 								>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
