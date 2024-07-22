@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
+	import { base } from '$lib/base'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
@@ -70,7 +71,7 @@
 						size="sm"
 						startIcon={{ icon: Pen }}
 						variant="border"
-						href="/apps/edit/{app.path}?nodraft=true">Edit</Button
+						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
 					>
 				</div>
 			{/if}
