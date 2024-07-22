@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import type { Script } from '$lib/gen'
+	import { deepEqual } from 'fast-equals'
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import ResultJobLoader from './ResultJobLoader.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 
 	export let value: any = undefined
 	export let helperScript:
@@ -12,9 +14,12 @@
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
 	export let entrypoint: string
+	export let args: Record<string, any> = {}
+	export let name: string
 
 	let darkMode: boolean = false
 
+	let rawCode = JSON.stringify(value, null, 2)
 	function validSelectObject(x): string | undefined {
 		if (typeof x != 'object') {
 			return JSON.stringify(x) + ' is not an object'
@@ -66,13 +71,14 @@
 						helperScript?.path ?? 'NO_PATH',
 						helperScript.code,
 						helperScript.lang,
-						{ text, _ENTRYPOINT_OVERRIDE: entrypoint },
+						{ ...args, text, _ENTRYPOINT_OVERRIDE: entrypoint },
 						undefined,
 						cb
 				  )
 				: resultJobLoader?.runScriptByHash(
 						helperScript?.hash ?? 'NO_HASH',
 						{
+							...args,
 							text,
 							_ENTRYPOINT_OVERRIDE: entrypoint
 						},
@@ -81,10 +87,23 @@
 		})
 	}
 
-	$: (entrypoint || helperScript) && changeHelper()
+	let lastArgs = structuredClone({ ...args, [name]: undefined })
+	$: (entrypoint || helperScript || args) && changeHelper()
+
+	let timeout: NodeJS.Timeout | undefined = undefined
 	function changeHelper() {
-		error = undefined
-		renderCount += 1
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(() => {
+			let argsWithoutSelf = { ...args, [name]: undefined }
+			if (deepEqual(argsWithoutSelf, lastArgs)) {
+				return
+			}
+
+			lastArgs = structuredClone(argsWithoutSelf)
+			error = undefined
+			renderCount += 1
+			timeout = undefined
+		}, 1000)
 	}
 	let error: string | undefined = undefined
 	let resultJobLoader: ResultJobLoader
@@ -122,8 +141,8 @@
 {:else}
 	<div class="flex flex-col gap-1 w-full">
 		<div class="text-xs text-tertiary"
-			>Dynamic Select is not available in this mode, write text directly</div
+			>Dynamic Select is not available in this mode, write value directly</div
 		>
-		<input type="text" bind:value />
+		<JsonEditor code={rawCode} bind:value />
 	</div>
 {/if}

@@ -255,6 +255,7 @@
 										title={schema.properties[argName].title}
 										placeholder={schema.properties[argName].placeholder}
 										orderEditable={dndConfig != undefined}
+										otherArgs={args}
 										{helperScript}
 									>
 										<svelte:fragment slot="actions">

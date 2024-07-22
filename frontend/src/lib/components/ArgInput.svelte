@@ -87,6 +87,7 @@
 		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
 		| { type: 'hash'; hash: string }
 		| undefined = undefined
+	export let otherArgs: Record<string, any> = {}
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -461,7 +462,13 @@
 					</div>
 				</div>
 			{:else if inputCat == 'dynselect'}
-				<DynSelect {helperScript} bind:value entrypoint={format.substring('dynselect_'.length)} />
+				<DynSelect
+					name={label}
+					args={otherArgs}
+					{helperScript}
+					bind:value
+					entrypoint={format.substring('dynselect_'.length)}
+				/>
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
