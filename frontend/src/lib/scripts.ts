@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { base } from '$lib/navigation'
+import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'

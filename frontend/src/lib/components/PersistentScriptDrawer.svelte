@@ -4,7 +4,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { displayDate, sleep, sendUserToast } from '$lib/utils'
 	import TableCustom from './TableCustom.svelte'
 	import { Hourglass, Loader2, Play, RefreshCw } from 'lucide-svelte'

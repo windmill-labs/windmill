@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { Button } from '../common'
 
 	import { SUPPORTED_LANGUAGES, copilot } from './lib'

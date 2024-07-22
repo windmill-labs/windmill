@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
@@ -124,7 +124,7 @@
 			try {
 				if (rd?.startsWith('http')) {
 					window.location.href = rd
-				}else {
+				} else {
 					await goto(rd ?? '/')
 				}
 				console.log('Workspace selected, going to', rd)

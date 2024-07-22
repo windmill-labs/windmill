@@ -4,7 +4,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
 	import { BROWSER } from 'esm-env'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
@@ -199,7 +199,8 @@
 												>
 											</li>
 											<li>
-												2. <a href="{base}/apps/add?nodraft=true" target="_blank"> App Editor</a> for customized-UIs
+												2. <a href="{base}/apps/add?nodraft=true" target="_blank"> App Editor</a> for
+												customized-UIs
 											</li>
 											<li>
 												3. <a href="{base}/schedules" target="_blank">Scheduling</a>

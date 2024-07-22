@@ -12,7 +12,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { classNames, getModifierKey } from '$lib/utils'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import {
@@ -184,11 +184,11 @@
 	function pathInAppMode(pathname: string | undefined): boolean {
 		if (!pathname) return false
 		return (
-			pathname.startsWith(base+'/apps') ||
-			pathname.startsWith(base+'/flows/add') ||
-			pathname.startsWith(base+'/flows/edit') ||
-			pathname.startsWith(base+'/scripts/add') ||
-			pathname.startsWith(base+'/scripts/edit')
+			pathname.startsWith(base + '/apps') ||
+			pathname.startsWith(base + '/flows/add') ||
+			pathname.startsWith(base + '/flows/edit') ||
+			pathname.startsWith(base + '/scripts/add') ||
+			pathname.startsWith(base + '/scripts/edit')
 		)
 	}
 	afterNavigate((n) => {
@@ -205,7 +205,7 @@
 		}
 	}
 
-	let devOnly = $page.url.pathname.startsWith(base+'/scripts/dev')
+	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
 		workspacedOpenai.init(workspace)
@@ -255,7 +255,7 @@
 		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
 
-	setContext("openSearchWithPrefilledText", openSearchModal)
+	setContext('openSearchWithPrefilledText', openSearchModal)
 </script>
 
 <svelte:window bind:innerWidth />

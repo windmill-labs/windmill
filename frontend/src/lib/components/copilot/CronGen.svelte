@@ -5,7 +5,7 @@
 	import Popup from '../common/popup/Popup.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copilotInfo } from '$lib/stores'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 
 	export let schedule: string
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -423,7 +423,9 @@
 											displayName: 'View runs',
 											icon: List,
 											href:
-												base + '/runs/?schedule_path=' + path +
+												base +
+												'/runs/?schedule_path=' +
+												path +
 												'&show_schedules=true&show_future_jobs=true'
 										},
 										{

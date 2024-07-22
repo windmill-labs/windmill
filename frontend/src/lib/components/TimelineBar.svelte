@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { msToSec } from '$lib/utils'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { ExternalLink } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 

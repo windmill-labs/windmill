@@ -12,7 +12,7 @@
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { HelpersService } from '$lib/gen'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { displayDate, displaySize, emptyString, sendUserToast } from '$lib/utils'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'

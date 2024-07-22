@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 
 	import { Button, FileInput } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'

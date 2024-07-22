@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { emptySchema } from '$lib/utils'

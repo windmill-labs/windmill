@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Select from './apps/svelte-select/lib/index'

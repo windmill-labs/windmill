@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { displayDate, truncateRev } from '$lib/utils'
 	import ScheduleEditor from './ScheduleEditor.svelte'
@@ -63,7 +63,9 @@
 					<Bot size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Triggered by parent
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}> {job.parent_job}</a>
+						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+							{job.parent_job}</a
+						>
 					</span>
 				</div>
 			{/if}

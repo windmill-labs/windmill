@@ -2,7 +2,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import JobLogs from './JobLogs.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
 

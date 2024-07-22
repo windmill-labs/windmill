@@ -2,7 +2,7 @@
 	import { ScriptService, FlowService, type Script, AppService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
 	import Select from './apps/svelte-select/lib/index'

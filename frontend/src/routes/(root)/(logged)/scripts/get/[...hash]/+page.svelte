@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { JobService, ScriptService, type Script } from '$lib/gen'
 	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'

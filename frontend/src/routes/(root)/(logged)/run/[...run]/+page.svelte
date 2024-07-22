@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import {
 		JobService,
 		type Job,

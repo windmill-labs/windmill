@@ -2,7 +2,6 @@
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
-	import { ini } from 'svelte-highlight/languages'
 
 	const dispatch = createEventDispatcher()
 

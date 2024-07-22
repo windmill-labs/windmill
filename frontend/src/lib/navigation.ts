@@ -1,11 +1,14 @@
 import { goto as svelteGoto } from '$app/navigation'
-import { base } from '$lib/navigation'
-
-export { base } from '$app/paths'
+export { base } from '$lib/base'
+import { base } from '$lib/base'
 
 export function goto(path, options = {}) {
-	const fullPath = path.startsWith(base) ? path : `${base}${path}`;
-	return svelteGoto(fullPath, options);
+	if (base == '') {
+		return svelteGoto(path, options)
+	} else {
+		const fullPath = path.startsWith(base) ? path : `${base}${path}`
+		return svelteGoto(fullPath, options)
+	}
 }
 
 export async function setQuery(

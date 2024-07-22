@@ -33,13 +33,18 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { type Changelog, changelogs } from './changelogs'
 
 	$: mainMenuLinks = [
 		{ label: 'Home', href: `${base}/`, icon: Home },
 		{ label: 'Runs', href: `${base}/runs`, icon: Play },
-		{ label: 'Variables', href: `${base}/variables`, icon: DollarSign, disabled: $userStore?.operator },
+		{
+			label: 'Variables',
+			href: `${base}/variables`,
+			icon: DollarSign,
+			disabled: $userStore?.operator
+		},
 		{ label: 'Resources', href: `${base}/resources`, icon: Boxes, disabled: $userStore?.operator },
 		{
 			label: 'Schedules',

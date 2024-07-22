@@ -6,7 +6,7 @@
 	import { superadmin } from '$lib/stores'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { CUSTOM_TAGS_SETTING } from '$lib/consts'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
 	let newTag: string = ''

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { UserService } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'

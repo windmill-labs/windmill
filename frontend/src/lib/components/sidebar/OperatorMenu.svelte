@@ -12,7 +12,7 @@
 		Building,
 		Calendar
 	} from 'lucide-svelte'
-	import { base } from '$lib/navigation'
+	import { base } from '$lib/base'
 
 	import Menu from '../common/menu/MenuV2.svelte'
 
