@@ -246,7 +246,7 @@
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-		<Button variant="border" size="sm" href="{base}user/workspaces"
+		<Button variant="border" size="sm" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button

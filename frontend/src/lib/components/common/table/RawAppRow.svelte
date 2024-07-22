@@ -53,7 +53,7 @@
 	</Drawer>
 {/if}
 <Row
-	href="{base}apps/get_raw/{app.version}/{app.path}"
+	href="{base}/apps/get_raw/{app.version}/{app.path}"
 	kind="raw_app"
 	{marked}
 	path={app.path}
