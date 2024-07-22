@@ -97,7 +97,7 @@
 					variant="border"
 					color="dark"
 					target="_blank"
-					href="{base}?workspace=admins"
+					href="{base}/?workspace=admins"
 					endIcon={{ icon: ExternalLink }}
 				>
 					Admins workspace

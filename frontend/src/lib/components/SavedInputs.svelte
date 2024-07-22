@@ -368,7 +368,7 @@
 									<div class="col-span-2">
 										<a
 											target="_blank"
-											href="{base}run/{i.id}?workspace={$workspaceStore}"
+											href="{base}/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>
@@ -429,7 +429,7 @@
 									<div class="col-span-1">
 										<a
 											target="_blank"
-											href="{base}run/{i.id}?workspace={$workspaceStore}"
+											href="{base}/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>

@@ -149,7 +149,7 @@
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button
-				href="{base}api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+				href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
 				download="windmill_logs_{jobId}.txt"
 				color="light"
 				size="xs"
@@ -198,7 +198,7 @@
 					<a
 						class="text-primary pb-0.5"
 						target="_blank"
-						href="{base}api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+						href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
 						download="windmill_logs_{jobId}.txt"
 						><Download size="14" />
 					</a>
