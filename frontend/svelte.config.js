@@ -22,7 +22,7 @@ const config = {
 				  }),
 		prerender: { entries: [] },
 		paths: {
-			base: process.env.BASE_URL ?? ''
+			base: process.env.VITE_BASE_URL ?? ''
 		}
 	}
 }

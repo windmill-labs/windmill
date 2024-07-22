@@ -41,7 +41,7 @@ COPY /typescript-client/docs/ /frontend/static/tsdocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
-ARG BASE_URL ""
+ARG VITE_BASE_URL ""
 RUN npm run build
 
 
