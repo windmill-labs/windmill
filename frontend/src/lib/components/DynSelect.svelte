@@ -88,23 +88,29 @@
 	}
 
 	let lastArgs = structuredClone({ ...args, [name]: undefined })
-	$: (entrypoint || helperScript || args) && changeHelper()
+	$: (entrypoint || helperScript) && refreshOptions()
+
+	$: args && changeArgs()
 
 	let timeout: NodeJS.Timeout | undefined = undefined
-	function changeHelper() {
+	function changeArgs() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
 			let argsWithoutSelf = { ...args, [name]: undefined }
 			if (deepEqual(argsWithoutSelf, lastArgs)) {
 				return
 			}
-
+			refreshOptions()
 			lastArgs = structuredClone(argsWithoutSelf)
-			error = undefined
-			renderCount += 1
 			timeout = undefined
 		}, 1000)
 	}
+
+	function refreshOptions() {
+		error = undefined
+		renderCount += 1
+	}
+
 	let error: string | undefined = undefined
 	let resultJobLoader: ResultJobLoader
 	let renderCount = 0
