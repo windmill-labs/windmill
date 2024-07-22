@@ -1,30 +1,129 @@
 <script lang="ts">
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import type { Script } from '$lib/gen'
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import ResultJobLoader from './ResultJobLoader.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let value: any = undefined
+	export let helperScript:
+		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+		| { type: 'hash'; hash: string }
+		| undefined = undefined
+	export let entrypoint: string
 
 	let darkMode: boolean = false
 
-	async function getItemsFromOptions(txt: string) {
-		console.log('FOO')
-		return [
-			{ value: '1', label: 'One' },
-			{ value: '2', label: 'Two' },
-			{ value: '3', label: 'Three' }
-		]
+	function validSelectObject(x): string | undefined {
+		if (typeof x != 'object') {
+			return JSON.stringify(x) + ' is not an object'
+		}
+		let keys = Object.keys(x)
+		if (!keys.includes('value') || !keys.includes('label')) {
+			return JSON.stringify(x) + ' does not contain value or label field'
+		}
+		if (typeof x['label'] != 'string') {
+			return JSON.stringify(x) + ' label is not a string'
+		}
+		return
 	}
+	async function getItemsFromOptions(text: string) {
+		return new Promise((resolve, reject) => {
+			let cb = {
+				done(res) {
+					if (!res || !Array.isArray(res)) {
+						reject('Result was not an array')
+						return
+					}
+					if (res.length == 0) {
+						resolve([])
+					}
+
+					if (res.every((x) => typeof x == 'string')) {
+						res = res.map((x) => ({
+							label: x,
+							value: x
+						}))
+					} else if (res.find((x) => validSelectObject(x) != undefined)) {
+						reject(validSelectObject(res.find((x) => validSelectObject(x) != undefined)))
+					} else {
+						if (text != undefined && text != '') {
+							res = res.filter((x) => x['label'].includes(text))
+						}
+						resolve(res)
+					}
+				},
+				cancel() {
+					reject()
+				},
+				error(err) {
+					reject(err)
+				}
+			}
+			helperScript?.type == 'inline'
+				? resultJobLoader?.runPreview(
+						helperScript?.path ?? 'NO_PATH',
+						helperScript.code,
+						helperScript.lang,
+						{ text, _ENTRYPOINT_OVERRIDE: entrypoint },
+						undefined,
+						cb
+				  )
+				: resultJobLoader?.runScriptByHash(
+						helperScript?.hash ?? 'NO_HASH',
+						{
+							text,
+							_ENTRYPOINT_OVERRIDE: entrypoint
+						},
+						cb
+				  )
+		})
+	}
+
+	$: (entrypoint || helperScript) && changeHelper()
+	function changeHelper() {
+		error = undefined
+		renderCount += 1
+	}
+	let error: string | undefined = undefined
+	let resultJobLoader: ResultJobLoader
+	let renderCount = 0
 </script>
 
-<DarkModeObserver bind:darkMode />
+{#if helperScript}
+	<DarkModeObserver bind:darkMode />
+	<ResultJobLoader bind:this={resultJobLoader} />
 
-<Select
-	bind:value
-	computeOnClick
-	loadOptions={getItemsFromOptions}
-	inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-	containerStyles={darkMode
-		? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-		: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-/>
+	<div class="w-full flex-col flex">
+		<div class="w-full">
+			{#key renderCount}
+				<Select
+					on:error={(e) => {
+						error = e.detail.details
+					}}
+					on:change={(e) => {
+						value = e.detail.value
+					}}
+					{value}
+					computeOnClick={value == undefined}
+					loadOptions={getItemsFromOptions}
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyles={darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+				/>
+			{/key}
+		</div>
+		{#if error}
+			<div class="text-red-400 text-2xs">error: <Tooltip>{JSON.stringify(error)}</Tooltip></div>
+		{/if}
+	</div>
+{:else}
+	<div class="flex flex-col gap-1 w-full">
+		<div class="text-xs text-tertiary"
+			>Dynamic Select is not available in this mode, write text directly</div
+		>
+		<input type="text" bind:value />
+	</div>
+{/if}

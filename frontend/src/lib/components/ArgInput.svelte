@@ -31,6 +31,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
 	import DynSelect from './DynSelect.svelte'
+	import type { Script } from '$lib/gen'
 
 	export let label: string = ''
 	export let value: any
@@ -82,6 +83,10 @@
 	export let editor: SimpleEditor | undefined = undefined
 	export let orderEditable = false
 	export let shouldDispatchChanges: boolean = false
+	export let helperScript:
+		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+		| { type: 'hash'; hash: string }
+		| undefined = undefined
 
 	let oneOfSelected: string | undefined = undefined
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
@@ -456,7 +461,7 @@
 					</div>
 				</div>
 			{:else if inputCat == 'dynselect'}
-				<DynSelect />
+				<DynSelect {helperScript} bind:value entrypoint={format.substring('dynselect_'.length)} />
 			{:else if inputCat == 'resource-object' && resourceTypes == undefined}
 				<span class="text-2xs text-tertiary">Loading resource types...</span>
 			{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
