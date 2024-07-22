@@ -5,7 +5,7 @@ export function goto(path, options = {}) {
 	if (svelteBase == '') {
 		return svelteGoto(path, options)
 	} else {
-		const fullPath = path.startsWith(svelteBase) ? path : `${sveltebase}/${path}`
+		const fullPath = path.startsWith(svelteBase) ? path : `${svelteBase}/${path}`
 		return svelteGoto(fullPath, options)
 	}
 }

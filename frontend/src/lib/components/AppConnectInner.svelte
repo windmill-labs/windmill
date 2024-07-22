@@ -450,7 +450,7 @@
 		</div>
 		{#if apiTokenApps[resourceType].img}
 			<div class="mt-4 w-full overflow-hidden">
-				<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
+				<img class="m-auto max-h-60" alt="connect" src={base + apiTokenApps[resourceType].img} />
 			</div>
 		{/if}
 	{:else if !emptyString(resourceTypeInfo?.description)}
