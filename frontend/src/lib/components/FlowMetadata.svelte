@@ -53,7 +53,7 @@
 					<BarsStaggered size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Step of flow
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a href={`${base}run/${job.parent_job}?workspace=${$workspaceStore}`}>
 							{job.parent_job}
 						</a>
 					</span>
@@ -63,7 +63,7 @@
 					<Bot size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Triggered by parent
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a href={`${base}run/${job.parent_job}?workspace=${$workspaceStore}`}>
 							{job.parent_job}</a
 						>
 					</span>
@@ -120,6 +120,6 @@
 	</div>
 	<div class="text-secondary text-2xs pt-2 whitespace-nowrap">
 		run id:
-		<a href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
+		<a href={`${base}run/${job.id}?workspace=${job.workspace_id}`}> {job.id} </a>
 	</div>
 </div>

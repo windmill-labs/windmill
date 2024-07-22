@@ -27,7 +27,7 @@
 		Token will be posted to your local machine to port {port}
 	</p>
 	<div class="flex flex-row justify-around pt-4 gap-x-1">
-		<Button variant="border" color="dark" size="sm" href="{base}/">Decline</Button>
+		<Button variant="border" color="dark" size="sm" href={base}>Decline</Button>
 		<Button variant="contained" color="blue" size="sm" on:click={authorizeToken}>Authorize</Button>
 	</div>
 </CenteredModal>

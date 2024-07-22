@@ -79,8 +79,8 @@
 
 <Row
 	href={flow.draft_only
-		? `${base}/flows/edit/${flow.path}?nodraft=true`
-		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
+		? `${base}flows/edit/${flow.path}?nodraft=true`
+		: `${base}flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
@@ -110,7 +110,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="{base}/flows/edit/{flow.path}?nodraft=true"
+							href="{base}flows/edit/{flow.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -122,7 +122,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="{base}/flows/add?template={flow.path}"
+							href="{base}flows/add?template={flow.path}"
 						>
 							Fork
 						</Button>
@@ -160,18 +160,18 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/flows/add?template=${path}`,
+						href: `${base}flows/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `${base}/runs/${path}`
+						href: `${base}runs/${path}`
 					},
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `${base}/audit_logs?resource=${path}`,
+						href: `${base}audit_logs?resource=${path}`,
 						hide: $userStore?.operator
 					},
 					{

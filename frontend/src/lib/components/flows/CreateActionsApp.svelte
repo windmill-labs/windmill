@@ -50,7 +50,7 @@
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
-		href="{base}/apps/add?nodraft=true"
+		href="{base}apps/add?nodraft=true"
 		color="marine"
 		dropdownItems={[
 			{

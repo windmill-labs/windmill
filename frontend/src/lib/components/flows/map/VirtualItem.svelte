@@ -184,7 +184,7 @@
 						<p class="text-sm w-80">
 							Enable Windmill AI in the
 							<a
-								href="{base}/workspace_settings?tab=openai"
+								href="{base}workspace_settings?tab=openai"
 								target="_blank"
 								class="inline-flex flex-row items-center gap-1"
 								on:click={() => {

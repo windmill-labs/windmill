@@ -537,7 +537,7 @@
 	>
 {:else}
 	<Alert type="info" title="Shareable page"
-		>Share this <a href="{base}/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
+		>Share this <a href="{base}deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
 		user do the deployment</Alert
 	>
 

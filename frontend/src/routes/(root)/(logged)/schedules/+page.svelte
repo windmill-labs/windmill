@@ -373,7 +373,7 @@
 							/>
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									href={`${base}/runs/?schedule_path=${path}`}
+									href={`${base}runs/?schedule_path=${path}`}
 									size="xs"
 									startIcon={{ icon: List }}
 									color="light"
@@ -431,7 +431,7 @@
 										{
 											displayName: 'Audit logs',
 											icon: Eye,
-											href: `${base}/audit_logs?resource=${path}`
+											href: `${base}audit_logs?resource=${path}`
 										},
 										{
 											displayName: 'Run now',
@@ -464,7 +464,7 @@
 									{/if}
 									{#each jobs ?? [] as job}
 										{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-										<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
+										<a href="{base}run/{job.id}?workspace={$workspaceStore}">
 											<JobPreview id={job.id}>
 												<div>
 													<div

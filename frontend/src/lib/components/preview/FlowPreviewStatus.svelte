@@ -15,7 +15,7 @@
 				<a
 					rel="noreferrer"
 					target="_blank"
-					href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
+					href="{base}run/{job?.id}?workspace={job?.workspace_id}"
 				>
 					{job?.id}
 				</a>

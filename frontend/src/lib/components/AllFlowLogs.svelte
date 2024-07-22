@@ -21,7 +21,7 @@
 							class="text-xs"
 							rel="noreferrer"
 							target="_blank"
-							href="{base}/run/{job}?workspace={$workspaceStore}"
+							href="{base}run/{job}?workspace={$workspaceStore}"
 						>
 							{job}
 						</a><JobLogs jobId={job} /></div

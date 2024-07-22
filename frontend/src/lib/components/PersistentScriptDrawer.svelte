@@ -139,14 +139,14 @@
 						<td class="text-xs">
 							<a
 								class="pr-3"
-								href="{base}/scripts/get/{scriptHash}?workspace={$workspaceStore}"
+								href="{base}scripts/get/{scriptHash}?workspace={$workspaceStore}"
 								target="_blank"
 							>
 								{scriptHash}
 							</a>
 						</td>
 						<td class="text-xs">
-							<a class="pr-3" href="{base}/run/{jobId}?workspace={$workspaceStore}" target="_blank"
+							<a class="pr-3" href="{base}run/{jobId}?workspace={$workspaceStore}" target="_blank"
 								>{jobId.substring(24)}</a
 							>
 						</td>

@@ -74,7 +74,7 @@
 		</div>
 		<div class="py-1" role="none">
 			<a
-				href="{base}/user/create_workspace"
+				href="{base}user/create_workspace"
 				class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
 				role="menuitem"
 				tabindex="-1"
@@ -85,7 +85,7 @@
 		</div>
 		<div class="py-1" role="none">
 			<a
-				href="{base}/user/workspaces"
+				href="{base}user/workspaces"
 				on:click={() => {
 					localStorage.removeItem('workspace')
 				}}
@@ -100,7 +100,7 @@
 			<div class="py-1" role="none">
 				<MenuItem>
 					<a
-						href="{base}/workspace_settings"
+						href="{base}workspace_settings"
 						class="text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
 						role="menuitem"
 						tabindex="-1"
