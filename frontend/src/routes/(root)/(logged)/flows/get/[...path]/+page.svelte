@@ -4,7 +4,8 @@
 	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { Alert, Button, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
@@ -146,7 +147,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `/flows/add?template=${flow.path}`,
+					href: `${base}/flows/add?template=${flow.path}`,
 					color: 'light',
 					size: 'xs',
 					startIcon: GitFork
@@ -161,7 +162,7 @@
 		buttons.push({
 			label: `View runs`,
 			buttonProps: {
-				href: `/runs/${flow.path}`,
+				href: `${base}/runs/${flow.path}`,
 				size: 'xs',
 				color: 'light',
 				startIcon: History
@@ -191,7 +192,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `/flows/edit/${path}?nodraft=true`,
+					href: `${base}/flows/edit/${path}?nodraft=true`,
 					variant: 'contained',
 					size: 'xs',
 					color: 'dark',

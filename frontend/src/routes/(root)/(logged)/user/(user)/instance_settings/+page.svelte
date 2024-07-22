@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import InstanceSettings from '$lib/components/InstanceSettings.svelte'
 	import { Button } from '$lib/components/common'
