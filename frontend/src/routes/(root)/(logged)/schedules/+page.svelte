@@ -424,7 +424,7 @@
 											icon: List,
 											href:
 												base +
-												'/runs/?schedule_path=' +
+												'runs/?schedule_path=' +
 												path +
 												'&show_schedules=true&show_future_jobs=true'
 										},
