@@ -160,22 +160,22 @@
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `${base}scripts/get/${s.hash}`,
+				href: `${base}/scripts/get/${s.hash}`,
 				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `${base}flows/get/${f.path}`,
+				href: `${base}/flows/get/${f.path}`,
 				kind: 'flow' as 'flow'
 			})),
 			...apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `${base}apps/get/${f.path}`,
+				href: `${base}/apps/get/${f.path}`,
 				kind: 'app' as 'app'
 			})),
 			...raw_apps.map((f) => ({
 				label: f.summary || f.path,
-				href: `${base}apps/get_raw/${f.version}/${f.path}`,
+				href: `${base}/apps/get_raw/${f.version}/${f.path}`,
 				kind: 'raw_app' as 'raw_app'
 			}))
 		]
@@ -184,11 +184,11 @@
 	function pathInAppMode(pathname: string | undefined): boolean {
 		if (!pathname) return false
 		return (
-			pathname.startsWith(base + 'apps') ||
-			pathname.startsWith(base + 'flows/add') ||
-			pathname.startsWith(base + 'flows/edit') ||
-			pathname.startsWith(base + 'scripts/add') ||
-			pathname.startsWith(base + 'scripts/edit')
+			pathname.startsWith(base + '/apps') ||
+			pathname.startsWith(base + '/flows/add') ||
+			pathname.startsWith(base + '/flows/edit') ||
+			pathname.startsWith(base + '/scripts/add') ||
+			pathname.startsWith(base + '/scripts/edit')
 		)
 	}
 	afterNavigate((n) => {
@@ -205,7 +205,7 @@
 		}
 	}
 
-	let devOnly = $page.url.pathname.startsWith(base + 'scripts/dev')
+	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
 
 	async function loadCopilot(workspace: string) {
 		workspacedOpenai.init(workspace)

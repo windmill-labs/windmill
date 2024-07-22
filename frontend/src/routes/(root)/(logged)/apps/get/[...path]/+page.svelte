@@ -71,7 +71,7 @@
 						size="sm"
 						startIcon={{ icon: Pen }}
 						variant="border"
-						href="{base}apps/edit/{app.path}?nodraft=true">Edit</Button
+						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
 					>
 				</div>
 			{/if}

@@ -81,7 +81,7 @@
 		<iframe
 			title="App connection"
 			class="w-full h-full"
-			src="{base}embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
+			src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
 				$workspaceStore}"
 		/>
 	</DrawerContent>
