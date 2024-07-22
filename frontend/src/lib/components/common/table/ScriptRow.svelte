@@ -124,7 +124,7 @@
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if script.use_codebase}/
+				{#if script.use_codebase}
 					<Badge
 						>bundle<Tooltip
 							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip

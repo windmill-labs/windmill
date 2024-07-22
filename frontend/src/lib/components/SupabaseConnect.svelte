@@ -120,7 +120,7 @@
 				<Loader2 class="animate-spin" />
 			{:else}
 				<div class=" flex flex-col gap-y-2" />
-				{#each databases as database}/
+				{#each databases as database}
 					<button
 						class="btn btn-outline-primary mt-2 border p-2 w-full border-secondary-inverse hover:border-secondary rounded"
 						on:click={() => {
