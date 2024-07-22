@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.366.4](https://github.com/windmill-labs/windmill/compare/v1.366.3...v1.366.4) (2024-07-22)
+
+
+### Bug Fixes
+
+* fix BASE_URL build conf ([6e33e4e](https://github.com/windmill-labs/windmill/commit/6e33e4e0b9fce86407cc7cfc9a4a57e03ec5199b))
+
 ## [1.366.3](https://github.com/windmill-labs/windmill/compare/v1.366.2...v1.366.3) (2024-07-22)
 
 
