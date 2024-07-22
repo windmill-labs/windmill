@@ -86,7 +86,7 @@
 {#if notExists}
 	<div class="px-4 mt-20"
 		><Alert type="error" title="Not found"
-			>There was an error loading the app, is the url correct? <a href={base}/>Go to Windmill</a>
+			>There was an error loading the app, is the url correct? <a href={base}>Go to Windmill</a>
 		</Alert></div
 	>
 {:else if noPermission}
