@@ -373,6 +373,7 @@ export type InputCat =
 	| 'yaml'
 	| 'currency'
 	| 'oneOf'
+	| 'dynselect'
 
 export function setInputCat(
 	type: string | undefined,
@@ -389,6 +390,8 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
+	} else if (type == 'object' && format?.startsWith('dynselect-')) {
+		return 'dynselect'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'
 	} else if (type == 'string' && enum_) {
