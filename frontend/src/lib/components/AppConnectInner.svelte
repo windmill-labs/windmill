@@ -370,11 +370,11 @@
 			add a schedule to do daily):
 			<p class="mt-4"
 				>1. Go to the "admins" workspaces:
-				<img src="{base}/sync_resource_types.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}sync_resource_types.png" alt="sync resource types" class="mt-2" />
 			</p>
 			<p class="mt-4">
 				2: Run the synchronization script:
-				<img src="{base}/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}sync_resource_types2.png" alt="sync resource types" class="mt-2" />
 			</p>
 		</div>
 	{/if}

@@ -130,7 +130,7 @@
 					}}
 					size="xs"
 				/>
-				<Button size="xs" variant="border" color="light" href={`${base}/runs/${path}`}>
+				<Button size="xs" variant="border" color="light" href={`${base}runs/${path}`}>
 					<div class="flex flex-row gap-2">
 						<ListOrdered size={14} />
 						Runs

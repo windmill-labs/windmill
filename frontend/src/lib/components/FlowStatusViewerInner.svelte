@@ -1029,7 +1029,7 @@
 														class="text-right text-xs"
 														rel="noreferrer"
 														target="_blank"
-														href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+														href="{base}run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
 													>
 														{truncateRev(node.job_id ?? '', 10)}
 													</a>
