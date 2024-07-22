@@ -681,7 +681,7 @@
 							><a
 								download="{filename ?? 'result'}.json"
 								href={workspaceId && jobId
-									? `${base}api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									? `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 							>
 								Download {filename ? '' : 'as JSON'}
@@ -745,7 +745,7 @@
 					<Button
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
-							? `${base}api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							? `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 						startIcon={{ icon: Download }}
 						color="light"

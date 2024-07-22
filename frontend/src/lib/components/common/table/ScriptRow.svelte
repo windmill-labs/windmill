@@ -89,8 +89,8 @@
 
 <Row
 	href={script.draft_only
-		? `${base}scripts/edit/${script.path}`
-		: `${base}scripts/get/${script.hash}?workspace=${$workspaceStore}`}
+		? `${base}/scripts/edit/${script.path}`
+		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
 	path={script.path}
@@ -124,7 +124,7 @@
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if script.use_codebase}
+				{#if script.use_codebase}/
 					<Badge
 						>bundle<Tooltip
 							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
@@ -137,7 +137,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="{base}scripts/edit/{script.path}"
+							href="{base}/scripts/edit/{script.path}"
 						>
 							Edit
 						</Button>
@@ -149,7 +149,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="{base}scripts/add?template={script.path}"
+							href="{base}/scripts/add?template={script.path}"
 						>
 							Fork
 						</Button>
@@ -199,7 +199,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}scripts/add?template=${script.path}`,
+						href: `${base}/scripts/add?template=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -223,7 +223,7 @@
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `${base}runs/${script.path}`
+						href: `${base}/runs/${script.path}`
 					},
 					{
 						displayName: 'Versions',
@@ -235,7 +235,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `${base}audit_logs?resource=${script.path}`,
+						href: `${base}/audit_logs?resource=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{

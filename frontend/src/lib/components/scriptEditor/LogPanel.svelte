@@ -178,7 +178,7 @@
 								<Cell first>
 									<a
 										class="pr-3"
-										href="{base}run/{id}?workspace={workspace ?? $workspaceStore}"
+										href="{base}/run/{id}?workspace={workspace ?? $workspaceStore}"
 										target="_blank">{id.substring(30)}</a
 									>
 								</Cell>

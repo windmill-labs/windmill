@@ -351,7 +351,7 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="{base}runs">Go to runs page</Button>
+					<Button href="{base}/runs">Go to runs page</Button>
 				</div>
 			</div>
 		</div>
@@ -627,7 +627,7 @@
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
 						{#if job.script_hash}
-							<a href="{base}scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+							<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
 								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 							>
 						{/if}
@@ -673,13 +673,13 @@
 									<svelte:fragment slot="text">
 										This job has concurrency limits enabled with the key
 										<a
-											href={`${base}runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+											href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 										>
 											{concurrencyKey}
 										</a>
 									</svelte:fragment>
 									<a
-										href={`${base}runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 									>
 										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
 									>

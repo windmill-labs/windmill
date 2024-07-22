@@ -70,7 +70,7 @@
 		{#each Object.entries(flow_status) as [k, v] (k)}
 			<div class="overflow-auto max-h-60 shadow-inner dark:shadow-gray-700 relative">
 				<div class="px-2 py-2 text-xs grid grid-cols-6 w-full gap-1">
-					<a target="_blank" class="inline-flex gap-2 items-baseline" href="{base}run/{k}"
+					<a target="_blank" class="inline-flex gap-2 items-baseline" href="{base}/run/{k}"
 						>{v.name ?? k} <ExternalLink size={12} /></a
 					>
 					<div class="col-span-5 flex min-h-6 w-full">

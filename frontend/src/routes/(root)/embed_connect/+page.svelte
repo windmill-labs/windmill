@@ -43,7 +43,7 @@
 				<button {disabled} on:click={appConnect?.next}>
 					<img
 						class="h-10 w-auto object-contain"
-						src={darkMode ? base + 'google_signin_dark.png' : base + 'google_signin_light.png'}
+						src={darkMode ? base + '/google_signin_dark.png' : base + '/google_signin_light.png'}
 						alt="Google sign-in"
 					/>
 				</button>

@@ -428,7 +428,7 @@
 						<p class="text-clip grow min-w-0">
 							The workspace needs to be connected to an S3 storage to use this feature. You can <a
 								target="_blank"
-								href="{base}workspace_settings?tab=windmill_lfs">configure it here</a
+								href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
 							>.
 						</p>
 						<Button
@@ -568,7 +568,7 @@
 											title="Download file from S3"
 											variant="border"
 											color="light"
-											href={`${base}api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${
+											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${
 												fileMetadata?.fileKey
 											}${storage ? `&storage=${storage}` : ''}`}
 											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}

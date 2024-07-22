@@ -86,7 +86,7 @@
 						<tr>
 							<td>
 								<a
-									href={`${base}runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrency_key}`}
+									href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrency_key}`}
 									>{concurrency_key}
 								</a>
 							</td>
