@@ -32,7 +32,6 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	base: process.env.BASE ?? '/',
 	plugins: [sveltekit(), circleDependency({ circleImportThrowErr: false })],
 	define: {
 		__pkg__: version
