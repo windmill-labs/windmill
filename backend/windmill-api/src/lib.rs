@@ -7,6 +7,8 @@
  */
 
 use crate::db::ApiAuthed;
+#[cfg(feature = "enterprise")]
+use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 use crate::oauth2_ee::AllClients;
@@ -164,9 +166,13 @@ pub async fn run_server(
     }
     let user_db = UserDB::new(db.clone());
 
+    #[cfg(feature = "enterprise")]
+    let ext_jwks = ExternalJwks::load().await;
     let auth_cache = Arc::new(users::AuthCache::new(
         db.clone(),
         std::env::var("SUPERADMIN_SECRET").ok(),
+        #[cfg(feature = "enterprise")]
+        ext_jwks,
     ));
     let argon2 = Arc::new(Argon2::default());
 
