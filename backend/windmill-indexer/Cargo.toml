@@ -11,6 +11,8 @@ path = "src/lib.rs"
 [features]
 default = []
 tantivy = ["dep:tantivy"]
+parquet = ["dep:object_store"]
+enterprise = []
 
 [dependencies]
 windmill-common.workspace = true
@@ -24,3 +26,7 @@ tracing.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 futures.workspace = true
+tempfile.workspace = true
+bytes.workspace = true
+object_store = { workspace = true, optional = true}
+tokio-tar.workspace = true

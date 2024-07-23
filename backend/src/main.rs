@@ -371,7 +371,7 @@ Windmill Community Edition {GIT_VERSION}
         let should_index_jobs = false;
 
         let (index_reader, index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::indexer_ee::init_index()?;
+            let (r, w) = windmill_indexer::indexer_ee::init_index().await?;
             (Some(r), Some(w))
         } else {
             (None, None)
