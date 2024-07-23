@@ -19,6 +19,7 @@
 	import OauthScopes from './OauthScopes.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
+	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen } from 'lucide-svelte'
@@ -369,11 +370,11 @@
 			add a schedule to do daily):
 			<p class="mt-4"
 				>1. Go to the "admins" workspaces:
-				<img src="/sync_resource_types.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}/sync_resource_types.png" alt="sync resource types" class="mt-2" />
 			</p>
 			<p class="mt-4">
 				2: Run the synchronization script:
-				<img src="/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
+				<img src="{base}/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
 			</p>
 		</div>
 	{/if}
@@ -449,7 +450,7 @@
 		</div>
 		{#if apiTokenApps[resourceType].img}
 			<div class="mt-4 w-full overflow-hidden">
-				<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
+				<img class="m-auto max-h-60" alt="connect" src={base + apiTokenApps[resourceType].img} />
 			</div>
 		{/if}
 	{:else if !emptyString(resourceTypeInfo?.description)}

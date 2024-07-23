@@ -462,6 +462,10 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
                 "Base64" => (Typ::Bytes, false),
                 "Email" => (Typ::Email, false),
                 "Sql" => (Typ::Sql, false),
+                x @ _ if x.starts_with("DynSelect_") => (
+                    Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string()),
+                    false,
+                ),
                 x @ _ => (Typ::Resource(to_snake_case(x)), false),
             }
         }

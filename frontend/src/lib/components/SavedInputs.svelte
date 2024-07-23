@@ -9,6 +9,7 @@
 		JobService
 	} from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
+	import { base } from '$lib/base'
 	import { classNames, displayDate, displayDateOnly, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -367,7 +368,7 @@
 									<div class="col-span-2">
 										<a
 											target="_blank"
-											href="/run/{i.id}?workspace={$workspaceStore}"
+											href="{base}/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>
@@ -428,7 +429,7 @@
 									<div class="col-span-1">
 										<a
 											target="_blank"
-											href="/run/{i.id}?workspace={$workspaceStore}"
+											href="{base}/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>

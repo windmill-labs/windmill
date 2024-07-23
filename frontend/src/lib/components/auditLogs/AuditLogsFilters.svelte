@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import type { ActionKind } from '$lib/common'
 
 	import Button from '$lib/components/common/button/Button.svelte'
