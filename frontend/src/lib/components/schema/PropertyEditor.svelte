@@ -34,9 +34,10 @@
 	export let order: string[] | undefined = undefined
 	export let itemsType:
 		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
+				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 				contentEncoding?: 'base64'
 				enum?: string[]
+				resourceType?: string
 				multiselect?: string[]
 		  }
 		| undefined = undefined
@@ -157,7 +158,7 @@
 		</Label>
 
 		{#if type == 'array'}
-			<ArrayTypeNarrowing bind:itemsType />
+			<ArrayTypeNarrowing bind:itemsType canEditResourceType={isFlowInput || isAppInput} />
 		{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
 			<div>
 				<Label label="Field settings">
@@ -203,6 +204,8 @@
 									/>
 								</div>
 							{/if}
+						{:else if type == 'object' && format?.startsWith('dynselect-')}
+							<div class="text-tertiary text-xs">No settings available for Dynamic Select</div>
 						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
 							<div class="border">
 								<EditableSchemaForm on:change noPreview bind:schema uiOnly jsonEnabled={false} />

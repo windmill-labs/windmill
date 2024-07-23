@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, fs, io, path::Path, process::Stdio};
 
 use base64::Engine;
 use itertools::Itertools;
@@ -447,15 +447,28 @@ pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()>
     ));
 }
 
-fn untar_file(file_path: &str, output_dir: &str) -> anyhow::Result<()> {
-    // Open the tar file
-    let file = std::fs::File::open(file_path)?;
-    let file = std::io::BufReader::new(file);
-
-    // For a plain tar file, use it directly
-    let mut archive = tar::Archive::new(file);
-    archive.unpack(output_dir)?;
-
+#[cfg(unix)]
+pub fn copy_recursively(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+    skip: Option<&Vec<String>>,
+) -> io::Result<()> {
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let filetype = entry.file_type()?;
+        let destination = destination.as_ref().join(entry.file_name());
+        if let Some(skip) = skip {
+            if skip.contains(&entry.file_name().to_string_lossy().to_string()) {
+                continue;
+            }
+        }
+        if filetype.is_dir() {
+            fs::create_dir_all(&destination)?;
+            copy_recursively(entry.path(), &destination, None)?;
+        } else {
+            fs::hard_link(entry.path(), &destination)?;
+        }
+    }
     Ok(())
 }
 
@@ -526,13 +539,15 @@ pub async fn handle_bun_job(
             sha_path.update(lockb.as_bytes());
 
             let buntar_name = base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
-            let buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}.tar");
+            let buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}");
 
             let mut skip_install = false;
             let mut create_buntar = false;
+
+            #[cfg(unix)]
             if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                if let Err(e) = untar_file(&buntar_path, job_dir) {
-                    tracing::error!("Could not untar buntar: {e}");
+                if let Err(e) = copy_recursively(&buntar_path, job_dir, None) {
+                    tracing::error!("Could not untar buntar: {e:#}");
                 } else {
                     gbuntar_name = Some(buntar_name.clone());
                     skip_install = true;
@@ -540,6 +555,7 @@ pub async fn handle_bun_job(
             } else {
                 create_buntar = true;
             }
+
             if !skip_install {
                 install_lockfile(
                     mem_peak,
@@ -554,13 +570,18 @@ pub async fn handle_bun_job(
                 )
                 .await?;
 
+                #[cfg(unix)]
                 if create_buntar {
-                    let f = std::fs::File::create(&buntar_path);
-                    if let Err(e) = f {
-                        tracing::error!("Could not create buntar file {buntar_path}: {e}");
-                    } else if let Err(e) =
-                        tar::Builder::new(f.unwrap()).append_dir_all(".", job_dir)
-                    {
+                    fs::create_dir_all(&buntar_path)?;
+                    if let Err(e) = copy_recursively(
+                        job_dir,
+                        &buntar_path,
+                        Some(&vec![
+                            "main.ts".to_string(),
+                            "package.json".to_string(),
+                            "bun.lockb".to_string(),
+                        ]),
+                    ) {
                         tracing::error!("Could not create buntar: {e}");
                     }
                 }
@@ -939,6 +960,7 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
         None,
         None,
         None,

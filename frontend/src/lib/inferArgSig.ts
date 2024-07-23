@@ -4,6 +4,7 @@ export function argSigToJsonSchemaType(
 	t:
 		| string
 		| { resource: string | null }
+		| { dynselect: string }
 		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
 		| { str: string[] | null }
 		| { object: { key: string; typ: any }[] }
@@ -91,6 +92,9 @@ export function argSigToJsonSchemaType(
 	} else if (typeof t !== 'string' && `resource` in t) {
 		newS.type = 'object'
 		newS.format = `resource-${t.resource}`
+	} else if (typeof t !== 'string' && `dynselect` in t) {
+		newS.type = 'object'
+		newS.format = `dynselect-${t.dynselect}`
 	} else if (typeof t !== 'string' && `list` in t) {
 		newS.type = 'array'
 		if (t.list === 'int' || t.list === 'float') {
@@ -101,6 +105,8 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string' }
 		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
 			newS.items = { type: 'string', enum: t.list.str }
+		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
+			newS.items = { type: 'resource', resourceType: t.list.resource as string }
 		} else {
 			newS.items = { type: 'object' }
 		}

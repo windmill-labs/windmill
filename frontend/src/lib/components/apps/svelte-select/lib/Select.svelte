@@ -53,6 +53,7 @@
 	export let filterSelectedItems = true
 	export let required = false
 	export let closeListOnChange = true
+	export let computeOnClick = false
 
 	export let createGroupHeaderItem = (groupValue, item) => {
 		return {
@@ -92,6 +93,7 @@
 	let activeValue
 	let prev_value
 	let prev_filterText
+	let hasClicked = false
 
 	function setValue() {
 		if (typeof value === 'string') {
@@ -210,6 +212,7 @@
 	}
 
 	function setupFilterText() {
+		if (computeOnClick && !hasClicked) return
 		if (!loadOptions && filterText.length === 0) return
 
 		if (loadOptions) {
@@ -402,6 +405,10 @@
 
 	function handleClick() {
 		if (disabled) return
+		if (computeOnClick && !hasClicked) {
+			hasClicked = true
+			setupFilterText()
+		}
 		listOpen = !listOpen
 	}
 

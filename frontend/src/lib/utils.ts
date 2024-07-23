@@ -1,5 +1,5 @@
 // /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-// import { goto } from '$app/navigation'
+// import { goto } from '$lib/navigation'
 // import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 // import { toast } from '@zerodevx/svelte-toast'
 // import type { Schema, SupportedLanguage } from './common'
@@ -373,6 +373,7 @@ export type InputCat =
 	| 'yaml'
 	| 'currency'
 	| 'oneOf'
+	| 'dynselect'
 
 export function setInputCat(
 	type: string | undefined,
@@ -389,6 +390,8 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
+	} else if (type == 'object' && format?.startsWith('dynselect-')) {
+		return 'dynselect'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'
 	} else if (type == 'string' && enum_) {

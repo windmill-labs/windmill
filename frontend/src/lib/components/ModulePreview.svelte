@@ -87,6 +87,8 @@
 			}
 		}
 	}
+
+	let forceJson = false
 </script>
 
 <TestJobLoader
@@ -144,6 +146,7 @@
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<div class="break-words relative h-full p-2">
 						<DisplayResult
+							bind:forceJson
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
 							result={testJob.result}

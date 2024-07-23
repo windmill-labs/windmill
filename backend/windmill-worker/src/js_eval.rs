@@ -141,6 +141,7 @@ pub async fn eval_timeout(
     flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
+    ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
     let expr = expr.trim().to_string();
 
@@ -305,6 +306,7 @@ pub async fn eval_timeout(
                 context_keys,
                 by_id,
                 has_client,
+                ctx,
             ))?;
 
             Ok(r) as anyhow::Result<Box<RawValue>>
@@ -367,8 +369,10 @@ async fn eval(
     transform_context: Vec<String>,
     by_id: Option<IdContext>,
     has_client: bool,
+    ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
     tracing::debug!("evaluating: {} {:#?}", expr, by_id);
+
     let (api_code, by_id_code) = if has_client {
         let by_id_code = if let Some(by_id) = by_id {
             format!(
@@ -440,11 +444,21 @@ async function resource(path) {{
     } else {
         format!("return {expr}")
     };
+
+    let ctx_str = ctx
+        .map(|x| {
+            x.into_iter()
+                .map(|(k, v)| format!("let {} = \"{}\";", k, v))
+                .join("\n")
+        })
+        .unwrap_or_default();
     let code = format!(
         r#"
 function get_from_env(name) {{
     return JSON.parse(Deno.core.ops.op_get_context(name));
 }}
+{ctx_str}
+
 {api_code}
 {}
 {}
@@ -868,6 +882,7 @@ mod tests {
             vec!["params".to_string(), "value".to_string()],
             None,
             false,
+            None,
         )
         .await?;
         assert_eq!(res.get(), "4");
@@ -882,7 +897,7 @@ return `my ${x}
 multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, false).await?;
+        let res = eval(&mut runtime, code, env, None, false, None).await?;
         assert_eq!(res.get(), "\"my 5\\nmultiline template\"");
         Ok(())
     }
@@ -908,7 +923,7 @@ multiline template`";
             op_state.put(TransformContext { flow_input: None, envs: env.clone() })
         }
 
-        let res = eval_timeout(code.to_string(), env, None, None, None).await?;
+        let res = eval_timeout(code.to_string(), env, None, None, None, None).await?;
         assert_eq!(res.get(), "2");
         Ok(())
     }

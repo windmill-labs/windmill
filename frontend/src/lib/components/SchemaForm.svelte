@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
+	import { VariableService, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, computeShow } from '$lib/utils'
 	import { Button } from './common'
@@ -42,6 +42,10 @@
 	export let lightweightMode: boolean = false
 	export let dndConfig: DndOptions | undefined = undefined
 	export let items: { id: string; value: string }[] | undefined = undefined
+	export let helperScript:
+		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
+		| { type: 'hash'; hash: string }
+		| undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -251,6 +255,8 @@
 										title={schema.properties[argName].title}
 										placeholder={schema.properties[argName].placeholder}
 										orderEditable={dndConfig != undefined}
+										otherArgs={args}
+										{helperScript}
 									>
 										<svelte:fragment slot="actions">
 											<slot name="actions" />

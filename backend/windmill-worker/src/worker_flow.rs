@@ -288,6 +288,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                         None,
                         Some(client),
                         None,
+                        None,
                     )
                     .await?
                 } else {
@@ -1174,6 +1175,7 @@ async fn compute_bool_from_expr(
     by_id: Option<IdContext>,
     client: Option<&AuthedClient>,
     resumes: Option<(Arc<Box<RawValue>>, Arc<Box<RawValue>>, Arc<Box<RawValue>>)>,
+    ctx: Option<Vec<(String, String)>>,
 ) -> error::Result<bool> {
     let mut context = HashMap::with_capacity(if resumes.is_some() { 7 } else { 3 });
     context.insert("result".to_string(), result.clone());
@@ -1191,6 +1193,7 @@ async fn compute_bool_from_expr(
         Some(flow_args),
         client,
         by_id,
+        ctx,
     )
     .await?
     .get()
@@ -1300,6 +1303,7 @@ async fn transform_input(
                     Some(flow_args.clone()),
                     Some(client),
                     Some(by_id.clone()),
+                    None,
                 )
                 .await
                 .map_err(|e| {
@@ -1552,6 +1556,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 None,
                 Some(client),
                 None,
+                Some(vec![(
+                    windmill_common::variables::WM_SCHEDULED_FOR.to_string(),
+                    flow_job.scheduled_for.to_string(),
+                )]),
             )
             .await?;
             if skip {
@@ -1667,6 +1675,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                     Some(arc_flow_job_args.clone()),
                                     None,
                                     None,
+                                    None
                                 )
                                 .await
                                 .map_err(|e| {
@@ -1853,6 +1862,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                                 expr.to_string(),
                                 context,
                                 Some(arc_flow_job_args.clone()),
+                                None,
                                 None,
                                 None,
                             )
@@ -2936,6 +2946,7 @@ async fn compute_next_flow_transform(
                             Some(idcontext.clone()),
                             Some(client),
                             Some((resumes.clone(), resume.clone(), approvers.clone())),
+                            None,
                         )
                         .await?;
 
@@ -3254,6 +3265,7 @@ async fn next_forloop_status(
                         Some(arc_flow_job_args),
                         Some(client),
                         Some(by_id),
+                        None,
                     )
                     .await?
                 }
@@ -3314,6 +3326,7 @@ async fn next_forloop_status(
                             Some(arc_flow_job_args),
                             Some(client),
                             Some(by_id),
+                            None,
                         )
                         .await?
                     }

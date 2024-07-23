@@ -4,6 +4,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
 	import { BROWSER } from 'esm-env'
+	import { base } from '$lib/base'
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
@@ -198,10 +199,11 @@
 												>
 											</li>
 											<li>
-												2. <a href="/apps/add?nodraft=true" target="_blank"> App Editor</a> for customized-UIs
+												2. <a href="{base}/apps/add?nodraft=true" target="_blank"> App Editor</a> for
+												customized-UIs
 											</li>
 											<li>
-												3. <a href="/schedules" target="_blank">Scheduling</a>
+												3. <a href="{base}/schedules" target="_blank">Scheduling</a>
 											</li>
 											<li>
 												4. <a href="https://www.windmill.dev/docs/advanced/cli" target="_blank"
@@ -271,7 +273,7 @@
 												<img
 													class="shadow-lg border rounded"
 													alt="static button"
-													src="/trigger_button.png"
+													src="{base}/trigger_button.png"
 												/>
 											</li></ul
 										>
@@ -431,8 +433,15 @@
 											class="small-editor"
 											extraLib={`declare const flow_input = ${JSON.stringify(
 												schemaToObject(asSchema($flowStore.schema), $previewArgs)
-											)};`}
+											)};
+											declare const WM_SCHEDULED_FOR: string;`}
 										/>
+										<div class="text-xs text-tertiary mt-2">
+											You can use the variable `flow_input` to access the inputs of the flow. <br
+											/>The variable `WM_SCHEDULED_FOR` contains the time the flow was scheduled for
+											which you can use to stop early non fresh jobs:
+											<pre>new Date().getTime() - new Date(WM_SCHEDULED_FOR).getTime() {'>'} X</pre>
+										</div>
 									</div>
 								{:else}
 									<textarea disabled rows="3" class="min-h-[80px]" />

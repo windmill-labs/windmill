@@ -66,6 +66,8 @@
 					JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
 				)
 			)
+		} else {
+			objects = [...objects]
 		}
 		if (activeSorting) {
 			objects = objects.sort((a, b) => {
@@ -155,7 +157,7 @@
 <DarkModeObserver bind:darkMode />
 
 <div class="w-full" bind:clientWidth={wrapperWidth}>
-	<div class="flex flex-col gap-2 py-2 my-2" style={`max-width: ${wrapperWidth}px;`}>
+	<div class="flex flex-col gap-2 py-1 my-1" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center gap-2">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
 				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs" />
