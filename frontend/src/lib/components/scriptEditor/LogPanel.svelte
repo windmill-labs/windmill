@@ -64,6 +64,8 @@
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
+
+	let forceJson = false
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
@@ -120,6 +122,7 @@
 							<div class="relative w-full h-full p-2">
 								<div class="relative">
 									<DisplayResult
+										bind:forceJson
 										workspaceId={previewJob?.workspace_id}
 										jobId={previewJob?.id}
 										result={previewJob.result}

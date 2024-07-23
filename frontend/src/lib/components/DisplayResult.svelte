@@ -716,7 +716,7 @@
 					{/if}
 				{:else}
 					<Highlight
-						class={forceJson ? '' : 'h-full w-full'}
+						class={forceJson ? 'pt-1' : 'h-full w-full'}
 						language={json}
 						code={toJsonStr(result).replace(/\\n/g, '\n')}
 					/>
