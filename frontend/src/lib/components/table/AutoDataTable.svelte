@@ -66,6 +66,8 @@
 					JSON.stringify(value).toLowerCase().includes(search.toLowerCase())
 				)
 			)
+		} else {
+			objects = [...objects]
 		}
 		if (activeSorting) {
 			objects = objects.sort((a, b) => {
