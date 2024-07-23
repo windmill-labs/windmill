@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.366.6](https://github.com/windmill-labs/windmill/compare/v1.366.5...v1.366.6) (2024-07-23)
+
+
+### Bug Fixes
+
+* fix copilot completion after base_url change ([ae4cbb0](https://github.com/windmill-labs/windmill/commit/ae4cbb0401b01e1e378b2a982d7a610648c96239))
+
 ## [1.366.5](https://github.com/windmill-labs/windmill/compare/v1.366.4...v1.366.5) (2024-07-22)
 
 
