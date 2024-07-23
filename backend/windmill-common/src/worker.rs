@@ -186,9 +186,9 @@ pub fn get_vcpus() -> Option<i64> {
 }
 
 pub fn get_memory() -> Option<i64> {
-    if Path::new("/sys/fs/cgroup/memory/memory.max").exists() {
+    if Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
         // cgroup v1
-        parse_file("/sys/fs/cgroup/memory/memory.max")
+        parse_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
     } else {
         // cgroup v2
         let cgroup_path = get_cgroupv2_path()?;
