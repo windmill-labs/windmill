@@ -5,9 +5,11 @@
 		type Input,
 		type RunnableType,
 		type CreateInput,
-		type Job
+		type Job,
+		JobService
 	} from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
+	import { base } from '$lib/base'
 	import { classNames, displayDate, displayDateOnly, sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -328,6 +330,26 @@
 									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
 									'border-orange-400'
 								)}
+								on:click={async () => {
+									if (!$workspaceStore) {
+										return
+									}
+
+									const args = await JobService.getJobArgs({
+										workspace: $workspaceStore,
+										id: i.id
+									})
+
+									selectedInput = {
+										id: i.id,
+										name: 'Running job: ' + i.id,
+										created_at: i.created_at ?? '',
+										created_by: i.created_by ?? '',
+										is_public: true
+									}
+
+									selectArgs(args)
+								}}
 							>
 								<div
 									class="w-full h-full items-center text-xs font-normal grid grid-cols-8 gap-4 min-w-0"
@@ -346,7 +368,7 @@
 									<div class="col-span-2">
 										<a
 											target="_blank"
-											href="/run/{i.id}?workspace={$workspaceStore}"
+											href="{base}/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>
@@ -407,7 +429,7 @@
 									<div class="col-span-1">
 										<a
 											target="_blank"
-											href="/run/{i.id}?workspace={$workspaceStore}"
+											href="{base}/run/{i.id}?workspace={$workspaceStore}"
 											class="text-right float-right text-secondary"
 											title="See run detail in a new tab"
 										>

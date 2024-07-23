@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -24,7 +25,7 @@
 		Trash,
 		Clipboard
 	} from 'lucide-svelte'
-	import { goto } from '$app/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE, copyToClipboard } from '$lib/utils'
@@ -57,7 +58,7 @@
 {/if}
 
 <Row
-	href={`/apps/get/${app.path}`}
+	href={`${base}/apps/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={app.path}
@@ -91,7 +92,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/apps/edit/{app.path}?nodraft=true"
+							href="{base}/apps/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -103,7 +104,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/apps/add?template={app.path}"
+							href="{base}/apps/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -150,7 +151,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/apps/add?template=${path}`,
+						href: `${base}/apps/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -212,7 +213,7 @@
 											$page.url.protocol +
 											'//' +
 											`${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
-										goto(url)
+										gotoUrl(url)
 									}
 								}
 						  ]

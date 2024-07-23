@@ -12,6 +12,7 @@
 		Building,
 		Calendar
 	} from 'lucide-svelte'
+	import { base } from '$lib/base'
 
 	import Menu from '../common/menu/MenuV2.svelte'
 
@@ -36,9 +37,9 @@
 	}[]
 
 	const mainMenuLinks = [
-		{ label: 'Home', href: '/', icon: Home },
-		{ label: 'Runs', href: '/runs', icon: Play },
-		{ label: 'Schedules', href: '/schedules', icon: Calendar }
+		{ label: 'Home', href: `${base}/`, icon: Home },
+		{ label: 'Runs', href: `${base}/runs`, icon: Play },
+		{ label: 'Schedules', href: `${base}/schedules`, icon: Calendar }
 	]
 </script>
 
@@ -112,7 +113,7 @@
 				Switch theme
 			</button>
 			<a
-				href="/user/workspaces"
+				href="{base}/user/workspaces"
 				on:click={() => {
 					localStorage.removeItem('workspace')
 				}}

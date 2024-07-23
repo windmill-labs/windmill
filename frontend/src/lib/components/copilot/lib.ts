@@ -28,7 +28,7 @@ class WorkspacedOpenai {
 	private client: OpenAI | undefined
 
 	init(workspace: string, token: string | undefined = undefined) {
-		const baseURL = `${location.origin}${OpenAPI.BASE}/w/${workspace}/openai/proxy`
+		const baseURL = `${location.origin}${OpenAPI.BASE}//w/${workspace}/openai/proxy`
 		this.client = new OpenAI({
 			baseURL,
 			apiKey: 'fakekey',

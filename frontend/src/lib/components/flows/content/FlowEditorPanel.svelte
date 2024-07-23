@@ -9,6 +9,7 @@
 	import FlowConstants from './FlowConstants.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { initFlowStepWarnings } from '../utils'
+	import { dfs } from '../dfs'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -41,7 +42,7 @@
 				flowStepWarnings: await initFlowStepWarnings(
 					module.value,
 					$flowStateStore?.[module?.id]?.schema ?? {},
-					$flowStore?.value?.modules?.map((m) => m.id) ?? []
+					dfs($flowStore.value.modules, (fm) => fm.id)
 				)
 			}
 		}

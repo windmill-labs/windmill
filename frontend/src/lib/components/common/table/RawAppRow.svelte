@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -11,7 +12,7 @@
 	import Drawer from '../drawer/Drawer.svelte'
 	import DrawerContent from '../drawer/DrawerContent.svelte'
 	import FileInput from '../fileInput/FileInput.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { FileUp, Globe, Pen, Share, Trash } from 'lucide-svelte'
 
@@ -52,7 +53,7 @@
 	</Drawer>
 {/if}
 <Row
-	href="/apps/get_raw/{app.version}/{app.path}"
+	href="{base}/apps/get_raw/{app.version}/{app.path}"
 	kind="raw_app"
 	{marked}
 	path={app.path}
