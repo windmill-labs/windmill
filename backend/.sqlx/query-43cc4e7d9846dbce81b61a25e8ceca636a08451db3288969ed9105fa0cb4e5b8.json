@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT worker, worker_instance, vcpus, ping_at, started_at FROM worker_ping WHERE ping_at > now() - interval '30 days'",
+  "query": "SELECT worker, worker_instance, vcpus, memory, ping_at, started_at FROM worker_ping WHERE ping_at > now() - interval '30 days'",
   "describe": {
     "columns": [
       {
@@ -20,11 +20,16 @@
       },
       {
         "ordinal": 3,
+        "name": "memory",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
         "name": "ping_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "started_at",
         "type_info": "Timestamptz"
       }
@@ -36,9 +41,10 @@
       false,
       false,
       true,
+      true,
       false,
       false
     ]
   },
-  "hash": "8480792eefdd0f31a49afec0f91262a6973c068da5413b154eff9b9da90db95f"
+  "hash": "43cc4e7d9846dbce81b61a25e8ceca636a08451db3288969ed9105fa0cb4e5b8"
 }
