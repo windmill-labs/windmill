@@ -17,7 +17,7 @@ pub async fn jwt_ext_auth(
 ) -> anyhow::Result<(crate::db::ApiAuthed, usize)> {
     // Implementation is not open source
 
-    Err(anyhow!("External JWT auth is not supported in Windmill CE"))
+    Err(anyhow!("External JWT auth is not open source"))
 }
 
 #[cfg(feature = "enterprise")]
