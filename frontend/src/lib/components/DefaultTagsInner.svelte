@@ -1,25 +1,39 @@
 <script lang="ts">
 	import { Button } from './common'
 	import { AlertTriangle, Loader2 } from 'lucide-svelte'
-	import { SettingService, WorkerService } from '$lib/gen'
+	import { SettingService, WorkerService, WorkspaceService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
-	import { DEFAULT_TAGS_PER_WORKSPACE_SETTING } from '$lib/consts'
+	import { DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import Toggle from './Toggle.svelte'
+	import MultiSelectWrapper from './multiselect/MultiSelectWrapper.svelte'
 
 	let defaultTags: string[] | undefined = undefined
 	export let defaultTagPerWorkspace: boolean | undefined = undefined
+	export let defaultTagWorkspaces: string[] | undefined = undefined
+	let limitToWorkspaces = false
+
+	let workspaces: string[] = []
+	async function loadWorkspaces() {
+		workspaces = (await WorkspaceService.listWorkspacesAsSuperAdmin()).map((m) => m.id)
+	}
 
 	async function loadDefaultTags() {
 		try {
 			defaultTags = (await WorkerService.geDefaultTags()) ?? []
+			defaultTagWorkspaces =
+				((await SettingService.getGlobal({
+					key: DEFAULT_TAGS_WORKSPACES_SETTING
+				})) as any) ?? []
+			limitToWorkspaces = defaultTagWorkspaces ? defaultTagWorkspaces.length > 0 : false
 		} catch (err) {
 			sendUserToast(`Could not load default tags: ${err}`, true)
 		}
 	}
 
 	loadDefaultTags()
+	loadWorkspaces()
 </script>
 
 <div class="flex flex-col w-80 p-2 gap-2">
@@ -48,11 +62,17 @@
 				</div>
 			{/each}
 		</div>
-		<div class="py-4">
+		<div class="py-4 flex flex-col gap-2">
 			<Toggle
 				bind:checked={defaultTagPerWorkspace}
 				options={{ right: 'workspace specific default tags' }}
 			/>
+			{#if defaultTagPerWorkspace}
+				<Toggle bind:checked={limitToWorkspaces} options={{ right: 'only for some workspaces' }} />
+				{#if limitToWorkspaces}
+					<MultiSelectWrapper items={workspaces} bind:value={defaultTagWorkspaces} />
+				{/if}
+			{/if}
 		</div>
 		<Button
 			variant="contained"
@@ -63,6 +83,15 @@
 					key: DEFAULT_TAGS_PER_WORKSPACE_SETTING,
 					requestBody: {
 						value: defaultTagPerWorkspace
+					}
+				})
+				await SettingService.setGlobal({
+					key: DEFAULT_TAGS_WORKSPACES_SETTING,
+					requestBody: {
+						value:
+							limitToWorkspaces && defaultTagWorkspaces && defaultTagWorkspaces.length > 0
+								? defaultTagWorkspaces
+								: undefined
 					}
 				})
 				loadDefaultTags()
