@@ -1272,6 +1272,7 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Bun => {
+            let annotation = crate::bun_executor::get_annotation(job_raw_code);
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
             }
@@ -1292,7 +1293,7 @@ async fn capture_dependency_job(
                 } else {
                     None
                 },
-                false,
+                annotation.npm_mode,
             )
             .await?;
             Ok(req.unwrap_or_else(String::new))
