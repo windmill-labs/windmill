@@ -627,11 +627,18 @@
 							{:else}
 								<div class="flex w-full justify-center items-center">
 									<div class="text-tertiary text-center">
-										<div class="text-2xl font-bold">No runs found</div>
-										<div class="text-sm">There were no completed runs that match your query</div>
-										<div class="text-sm"
-											>Note that new runs might take a while to become searchable (by default ~5min)</div
-										>
+										{#if searchTerm === RUNS_PREFIX}
+											<div class="text-2xl font-bold">Enter your search terms</div>
+											<div class="text-sm"
+												>Start typing to do full-text search across completed runs</div
+											>
+										{:else}
+											<div class="text-2xl font-bold">No runs found</div>
+											<div class="text-sm">There were no completed runs that match your query</div>
+										{/if}
+										<div class="text-sm">
+											Note that new runs might take a while to become searchable (by default ~5min)
+										</div>
 										{#if !$enterpriseLicense}
 											<div class="py-6" />
 
