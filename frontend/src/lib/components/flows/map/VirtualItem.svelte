@@ -25,6 +25,7 @@
 	export let disableAi: boolean = false
 	export let wrapperNode: FlowModule | undefined = undefined
 	export let borderColor: string | undefined = undefined
+	export let hideId: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -94,7 +95,7 @@
 		<div />
 		<div class="flex-1 truncate"><pre>{label}</pre></div>
 		<div class="flex items-center space-x-2">
-			{#if id}
+			{#if id && !hideId}
 				<Badge color="indigo">{id}</Badge>
 			{/if}
 		</div>

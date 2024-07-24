@@ -43,7 +43,7 @@
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/`
+		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs`
 		return {
 			async: {
 				hash: `${base}/run/h/${hash}`,
@@ -58,7 +58,7 @@
 	}
 
 	function computeFlowWebhooks(path: string) {
-		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/`
+		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs`
 
 		let urlAsync = `${base}/run/f/${path}`
 		let urlSync = `${base}/run_wait_result/f/${path}`
