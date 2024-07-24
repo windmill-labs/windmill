@@ -27,77 +27,88 @@ export function main(test1?: string, test2: string = \"burkina\",
                     name: "test1".to_string(),
                     typ: Typ::Str(None),
                     default: None,
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test2".to_string(),
                     typ: Typ::Str(None),
                     default: Some(json!("burkina")),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test3".to_string(),
                     typ: Typ::Resource("postgres".to_string()),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "b64".to_string(),
                     typ: Typ::Bytes,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "ls".to_string(),
                     typ: Typ::List(Box::new(Typ::Bytes)),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "email".to_string(),
                     typ: Typ::Email,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "literal".to_string(),
                     typ: Typ::Str(Some(vec!["test".to_string()])),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "literal_union".to_string(),
                     typ: Typ::Str(Some(vec!["test".to_string(), "test2".to_string()])),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "opt_type".to_string(),
                     typ: Typ::Str(None),
                     default: None,
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "opt_type_union".to_string(),
                     typ: Typ::Str(None),
                     default: None,
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "opt_type_union_union2".to_string(),
                     typ: Typ::Str(None),
                     default: None,
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
@@ -107,14 +118,16 @@ export function main(test1?: string, test2: string = \"burkina\",
                         ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Float) }
                     ]),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "literals_with_undefined".to_string(),
                     typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
                     default: None,
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 }
             ],
             no_main_func: Some(false)
@@ -146,35 +159,40 @@ export function main(test2 = \"burkina\",
                     name: "test2".to_string(),
                     typ: Typ::Str(None),
                     default: Some(json!("burkina")),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "bool".to_string(),
                     typ: Typ::Bool,
                     default: Some(json!(true)),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "float".to_string(),
                     typ: Typ::Float,
                     default: Some(json!(4.2)),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "int".to_string(),
                     typ: Typ::Int,
                     default: Some(json!(42)),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "ls".to_string(),
                     typ: Typ::List(Box::new(Typ::Str(None))),
                     default: Some(json!(["test"])),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
@@ -184,7 +202,8 @@ export function main(test2 = \"burkina\",
                         ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Int) }
                     ]),
                     default: Some(json!({"a": "test", "b": 42})),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 }
             ],
             no_main_func: Some(false)
@@ -216,21 +235,24 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
                     otyp: None,
                     typ: Typ::Resource("foo_bar".to_string()),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     name: "anon1".to_string(),
                     otyp: None,
                     typ: Typ::Resource("foo_bar".to_string()),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     name: "anon2".to_string(),
                     otyp: None,
                     typ: Typ::Resource("foo_bar".to_string()),
                     default: Some(json!({"a": "foo", "b": 42})),
-                    has_default: true
+                    has_default: true,
+                    oidx: None
                 }
             ],
             no_main_func: Some(false)
@@ -260,7 +282,8 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
                     "bar".to_string()
                 ])))),
                 default: None,
-                has_default: false
+                has_default: false,
+                oidx: None
             }],
             no_main_func: Some(false)
         }
@@ -341,56 +364,64 @@ Write-Output 'Testing...'
                     name: "test_none".to_string(),
                     typ: Typ::Str(None),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test_string".to_string(),
                     typ: Typ::Str(None),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test_int".to_string(),
                     typ: Typ::Int,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test_decimal".to_string(),
                     typ: Typ::Float,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test_double".to_string(),
                     typ: Typ::Float,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test_single".to_string(),
                     typ: Typ::Float,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test_datetime_lower".to_string(),
                     typ: Typ::Datetime,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 },
                 Arg {
                     otyp: None,
                     name: "test_datetime_upper".to_string(),
                     typ: Typ::Datetime,
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 }
             ],
             no_main_func: None,

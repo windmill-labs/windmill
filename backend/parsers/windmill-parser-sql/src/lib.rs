@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use regex::Regex;
 use serde_json::json;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 pub use windmill_parser::{Arg, MainArgSignature, Typ};
 
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
@@ -95,8 +95,6 @@ pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
 lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
 
-    pub static ref RE_MULTI_PGSQL: Regex = Regex::new(r#"(?m)(?:^--.*\n|^[^;\n]*\n)*^(?:[^-\n]*;|[^-\n][^\n-][^\n;]*;)\s*$"#).unwrap();
-
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
@@ -149,6 +147,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             default: parsed_default,
             otyp: Some(typ),
             has_default,
+            oidx: None,
         });
     }
 
@@ -172,6 +171,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 default: parsed_default,
                 otyp: Some(typ),
                 has_default,
+                oidx: None,
             });
         }
     }
@@ -179,65 +179,99 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     Ok(Some(args))
 }
 
+pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
+    let mut arg_indices = HashSet::new();
+    let mut is_comment = false;
+    let mut in_string = false;
+    let mut chars = code.char_indices().peekable();
+    while let Some((_, char)) = chars.next() {
+        match char {
+            '-' if chars.peek().is_some_and(|&(_, next_char)| next_char == '-') => {
+                is_comment = true;
+            }
+            '"' | '\'' if !is_comment => {
+                in_string = !in_string;
+            }
+            '\n' => {
+                is_comment = false;
+            }
+            '$' if !is_comment
+                && !in_string
+                && chars
+                    .peek()
+                    .is_some_and(|&(_, next_char)| next_char.is_digit(10)) =>
+            {
+                let mut arg_idx = String::new();
+                while let Some(&(_, char)) = chars.peek() {
+                    if char.is_digit(10) {
+                        arg_idx.push(char);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                if let Ok(arg_idx) = arg_idx.parse::<i32>() {
+                    arg_indices.insert(arg_idx);
+                }
+            }
+            _ => {}
+        }
+    }
+    arg_indices
+}
+
 fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
-    let blocks = parse_sql_blocks(code);
-    let mut final_args: Vec<Arg> = vec![];
-    for block in blocks {
-        let mut args = vec![];
-        let mut hm: HashMap<i32, String> = HashMap::new();
-        for cap in RE_CODE_PGSQL.captures_iter(block) {
-            hm.insert(
-                cap.get(1)
-                    .and_then(|x| x.as_str().parse::<i32>().ok())
-                    .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
-                cap.get(2)
-                    .map(|x| x.as_str().to_string())
-                    .unwrap_or_else(|| "text".to_string()),
-            );
-        }
-        for i in 1..50 {
-            if hm.contains_key(&i) {
-                let typ = hm.get(&i).unwrap().to_lowercase();
-                args.push(Arg {
-                    name: format!("${}", i),
-                    typ: parse_pg_typ(typ.as_str()),
-                    default: None,
-                    otyp: Some(typ),
-                    has_default: false,
-                });
-            } else {
-                break;
-            }
-        }
-        for cap in RE_ARG_PGSQL.captures_iter(block) {
-            let i = cap
-                .get(1)
+    let mut args = vec![];
+    let mut hm: HashMap<i32, String> = HashMap::new();
+    for cap in RE_CODE_PGSQL.captures_iter(code) {
+        hm.insert(
+            cap.get(1)
                 .and_then(|x| x.as_str().parse::<i32>().ok())
-                .map(|x| x);
-            if i.is_none() || i.unwrap() as usize > args.len() {
-                continue;
-            }
+                .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
+            cap.get(2)
+                .map(|x| x.as_str().to_string())
+                .unwrap_or_else(|| "text".to_string()),
+        );
+    }
+    for (i, v) in hm.iter() {
+        let typ = v.to_lowercase();
+        args.push(Arg {
+            name: format!("${}", i),
+            typ: parse_pg_typ(typ.as_str()),
+            default: None,
+            otyp: Some(typ),
+            has_default: false,
+            oidx: Some(*i),
+        });
+    }
+    for cap in RE_ARG_PGSQL.captures_iter(code) {
+        let i = cap
+            .get(1)
+            .and_then(|x| x.as_str().parse::<i32>().ok())
+            .map(|x| x);
+
+        if let Some(arg_pos) = args
+            .iter()
+            .position(|x| i.is_some_and(|i| x.oidx.unwrap() == i))
+        {
             let name = cap.get(2).map(|x| x.as_str().to_string()).unwrap();
             let default = cap.get(3).map(|x| x.as_str().to_string());
             let has_default = default.is_some();
-            let oarg = args[(i.unwrap() - 1) as usize].clone();
+            let oarg = args[arg_pos].clone();
             let parsed_default = default.and_then(|x| parsed_default(&oarg.typ, x));
 
-            args[(i.unwrap() - 1) as usize] =
-                Arg { name, typ: oarg.typ, default: parsed_default, otyp: oarg.otyp, has_default };
-        }
-        if final_args.len() > 0 {
-            for arg in args {
-                if final_args.iter().find(|x| x.name == arg.name).is_none() {
-                    final_args.push(arg);
-                }
-            }
-        } else {
-            final_args = args;
+            args[arg_pos] = Arg {
+                name,
+                typ: oarg.typ,
+                default: parsed_default,
+                otyp: oarg.otyp,
+                has_default,
+                oidx: oarg.oidx,
+            };
         }
     }
 
-    Ok(Some(final_args))
+    Ok(Some(args))
 }
 
 fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
@@ -261,6 +295,7 @@ fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             default: parsed_default,
             otyp: Some(typ),
             has_default,
+            oidx: None,
         });
     }
 
@@ -288,6 +323,7 @@ fn parse_snowflake_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             default: parsed_default,
             otyp: Some(typ),
             has_default,
+            oidx: None,
         });
     }
 
@@ -315,6 +351,7 @@ fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             default: parsed_default,
             otyp: Some(typ),
             has_default,
+            oidx: None,
         });
     }
 
@@ -436,14 +473,16 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         name: "$1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None,
                     },
                     Arg {
                         otyp: Some("bigint".to_string()),
                         name: "$2".to_string(),
                         typ: Typ::Int,
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None,
                     },
                 ],
                 no_main_func: None
@@ -472,14 +511,16 @@ SELECT * FROM table WHERE token=@token AND image=@image
                         name: "token".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None,
                     },
                     Arg {
                         otyp: Some("int64".to_string()),
                         name: "image".to_string(),
                         typ: Typ::Int,
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None,
                     },
                 ],
                 no_main_func: None

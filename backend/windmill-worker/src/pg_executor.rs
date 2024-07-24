@@ -31,8 +31,10 @@ use uuid::Uuid;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
-use windmill_parser::Typ;
-use windmill_parser_sql::{parse_db_resource, parse_pgsql_sig, parse_sql_blocks};
+use windmill_parser::{Arg, Typ};
+use windmill_parser_sql::{
+    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
+};
 use windmill_queue::CanceledBy;
 
 use crate::common::{build_args_values, run_future_with_polling_update_job_poller, sizeof_val};
@@ -60,45 +62,38 @@ lazy_static! {
 }
 
 fn do_postgresql_inner<'a>(
-    query: &'a str,
-    pg_args: &HashMap<String, serde_json::Value>,
+    mut query: String,
+    param_idx_to_arg_and_value: &HashMap<i32, (&Arg, Option<&Value>)>,
     client: &'a Client,
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
 ) -> error::Result<BoxFuture<'a, anyhow::Result<Vec<Value>>>> {
-    let mut statement_values: Vec<serde_json::Value> = vec![];
+    let mut query_params = vec![];
 
-    let sig = parse_pgsql_sig(&query)
-        .map_err(|x| Error::ExecutionErr(x.to_string()))?
-        .args;
+    let arg_indices = parse_pg_statement_arg_indices(&query);
 
-    for arg in &sig {
-        statement_values.push(
-            pg_args
-                .get(&arg.name)
-                .map(|x| x.to_owned())
-                .unwrap_or_else(|| serde_json::Value::Null),
-        );
-    }
-
-    let query_params = statement_values
-        .iter()
-        .enumerate()
-        .map(|(i, value)| {
-            let arg_t = &sig[i]
+    let mut i = 1;
+    for oidx in arg_indices {
+        if let Some((arg, value)) = param_idx_to_arg_and_value.get(&oidx) {
+            if oidx as usize != i {
+                query = query.replace(&format!("${}", oidx), &format!("${}", i));
+            }
+            let value = value.cloned().unwrap_or_else(|| serde_json::Value::Null);
+            let arg_t = arg
                 .otyp
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?
-                .to_owned();
-            let typ = &sig[i].typ;
-            convert_val(value, arg_t, typ)
-        })
-        .collect::<windmill_common::error::Result<Vec<_>>>()?;
+                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
+            let typ = &arg.typ;
+            let param = convert_val(&value, arg_t, typ)?;
+            query_params.push(param);
+            i += 1;
+        }
+    }
 
-    let result_f = async {
+    let result_f = async move {
         // Now we can execute a simple statement that just returns its parameter.
         let rows = client
-            .query_raw(query, query_params)
+            .query_raw(&query, query_params)
             .await
             .map_err(to_anyhow)?;
 
@@ -275,11 +270,26 @@ pub async fn do_postgresql(
         (client, None)
     };
 
+    let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
+    let param_idx_to_arg_and_value = sig
+        .args
+        .iter()
+        .filter_map(|x| x.oidx.map(|oidx| (oidx, (x, pg_args.get(&x.name)))))
+        .collect::<HashMap<_, _>>();
+
     let size = AtomicUsize::new(0);
     let result_f = if queries.len() > 1 {
         let futures = queries
             .iter()
-            .map(|x| do_postgresql_inner(x, &pg_args, client, None, &size))
+            .map(|x| {
+                do_postgresql_inner(
+                    x.to_string(),
+                    &param_idx_to_arg_and_value,
+                    client,
+                    None,
+                    &size,
+                )
+            })
             .collect::<error::Result<Vec<_>>>()?;
 
         let f = async {
@@ -293,7 +303,13 @@ pub async fn do_postgresql(
 
         f.boxed()
     } else {
-        do_postgresql_inner(query, &pg_args, client, Some(column_order), &size)?
+        do_postgresql_inner(
+            query.to_string(),
+            &param_idx_to_arg_and_value,
+            client,
+            Some(column_order),
+            &size,
+        )?
     };
 
     let result = run_future_with_polling_update_job_poller(
