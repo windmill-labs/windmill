@@ -135,22 +135,24 @@ pub async fn gen_lockfile(
     )
     .await?;
 
-    if export_pkg && !npm_mode {
+    if export_pkg {
         let mut content = "".to_string();
         {
             let mut file = File::open(format!("{job_dir}/package.json")).await?;
             file.read_to_string(&mut content).await?;
         }
-        content.push_str(BUN_LOCKB_SPLIT);
-        {
-            let file = format!("{job_dir}/bun.lockb");
-            if tokio::fs::metadata(&file).await.is_ok() {
-                let mut file = File::open(&file).await?;
-                let mut buf = vec![];
-                file.read_to_end(&mut buf).await?;
-                content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
-            } else {
-                content.push_str(&EMPTY_FILE);
+        if !npm_mode {
+            content.push_str(BUN_LOCKB_SPLIT);
+            {
+                let file = format!("{job_dir}/bun.lockb");
+                if tokio::fs::metadata(&file).await.is_ok() {
+                    let mut file = File::open(&file).await?;
+                    let mut buf = vec![];
+                    file.read_to_end(&mut buf).await?;
+                    content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
+                } else {
+                    content.push_str(&EMPTY_FILE);
+                }
             }
         }
         Ok(Some(content))
@@ -279,12 +281,12 @@ pub async fn install_lockfile(
     Ok(())
 }
 
-struct Annotations {
-    npm_mode: bool,
-    nodejs_mode: bool,
+pub struct Annotations {
+    pub npm_mode: bool,
+    pub nodejs_mode: bool,
 }
 
-fn get_annotation(inner_content: &str) -> Annotations {
+pub fn get_annotation(inner_content: &str) -> Annotations {
     let annotations = inner_content
         .lines()
         .take_while(|x| x.starts_with("//"))
@@ -516,44 +518,48 @@ pub async fn handle_bun_job(
         pull_codebase(&job.workspace_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-        if splitted.len() != 2 {
+        if splitted.len() != 2 && !annotation.npm_mode {
             return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
-        let lockb = splitted[1];
+        let lockb = if annotation.npm_mode { "" } else { splitted[1] };
         if lockb != EMPTY_FILE {
-            let _ = write_file_binary(
-                job_dir,
-                "bun.lockb",
-                &base64::engine::general_purpose::STANDARD
-                    .decode(&splitted[1])
-                    .map_err(|_| {
-                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                    })?,
-            )
-            .await?;
-
-            let mut sha_path = sha2::Sha256::new();
-            sha_path.update(lockb.as_bytes());
-
-            let buntar_name = base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
-            let buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}");
-
             let mut skip_install = false;
             let mut create_buntar = false;
+            let mut buntar_path = "".to_string();
 
-            #[cfg(unix)]
-            if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                if let Err(e) = copy_recursively(&buntar_path, job_dir, None) {
-                    tracing::error!("Could not untar buntar: {e:#}");
+            if !annotation.npm_mode {
+                let _ = write_file_binary(
+                    job_dir,
+                    "bun.lockb",
+                    &base64::engine::general_purpose::STANDARD
+                        .decode(&splitted[1])
+                        .map_err(|_| {
+                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                        })?,
+                )
+                .await?;
+
+                let mut sha_path = sha2::Sha256::new();
+                sha_path.update(lockb.as_bytes());
+
+                let buntar_name =
+                    base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
+                buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}");
+
+                #[cfg(unix)]
+                if tokio::fs::metadata(&buntar_path).await.is_ok() {
+                    if let Err(e) = copy_recursively(&buntar_path, job_dir, None) {
+                        tracing::error!("Could not extract buntar: {e:#}");
+                    } else {
+                        gbuntar_name = Some(buntar_name.clone());
+                        skip_install = true;
+                    }
                 } else {
-                    gbuntar_name = Some(buntar_name.clone());
-                    skip_install = true;
+                    create_buntar = true;
                 }
-            } else {
-                create_buntar = true;
             }
 
             if !skip_install {
