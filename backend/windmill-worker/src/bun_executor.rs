@@ -468,7 +468,18 @@ pub fn copy_recursively(
             fs::create_dir_all(&destination)?;
             copy_recursively(entry.path(), &destination, None)?;
         } else {
-            fs::hard_link(entry.path(), &destination)?;
+            let original = entry.path();
+            if let Err(e) = fs::hard_link(&original, &destination) {
+                tracing::error!(
+                    "Could not hard link {original:?} to {destination:?}, trying symlink: {e:#}"
+                );
+                if let Err(e) = std::os::unix::fs::symlink(&original, &destination) {
+                    tracing::error!(
+                        "Could not symlink {original:?} to {destination:?}, copying: {e:#}"
+                    );
+                    fs::copy(&original, &destination)?;
+                }
+            }
         }
     }
     Ok(())
@@ -587,6 +598,7 @@ pub async fn handle_bun_job(
                             "package.json".to_string(),
                             "bun.lockb".to_string(),
                             "shared".to_string(),
+                            "bunfig.toml".to_string(),
                         ]),
                     ) {
                         fs::remove_dir_all(&buntar_path)?;
