@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.367.2](https://github.com/windmill-labs/windmill/compare/v1.367.1...v1.367.2) (2024-07-24)
+
+
+### Bug Fixes
+
+* move bun cache to non mounted volume to benefit from cache optimization ([92dac02](https://github.com/windmill-labs/windmill/commit/92dac027f26dfa880e22b1896b48605ae2ef2794))
+* use symlink and straight copy as fallback methods for buntar ([80d4fb0](https://github.com/windmill-labs/windmill/commit/80d4fb0352606948b01f4918e11f80a0bef544f4))
+
 ## [1.367.1](https://github.com/windmill-labs/windmill/compare/v1.367.0...v1.367.1) (2024-07-24)
 
 
