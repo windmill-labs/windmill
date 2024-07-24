@@ -4,7 +4,11 @@ use anyhow::anyhow;
 use regex::Regex;
 use serde_json::json;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::Peekable,
+    str::CharIndices,
+};
 pub use windmill_parser::{Arg, MainArgSignature, Typ};
 
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
@@ -64,31 +68,16 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
 
 pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
     let mut blocks = vec![];
-    let mut is_comment = false;
     let mut last_idx = 0;
-    let mut in_string = false;
-    let mut chars = code.char_indices().peekable();
-    while let Some((idx, char)) = chars.next() {
-        match char {
-            '-' if chars.peek().is_some_and(|&(_, next_char)| next_char == '-') => {
-                is_comment = true;
-            }
-            '"' | '\'' if !is_comment => {
-                in_string = !in_string;
-            }
-            '\n' => {
-                is_comment = false;
-            }
-            ';' if !is_comment && !in_string => {
-                blocks.push(&code[last_idx..=idx]);
-                last_idx = idx + 1;
-            }
-            _ => {}
-        }
-    }
-    if blocks.len() < 2 {
-        blocks = vec![code];
-    }
+
+    run_on_sql_statement_matches(
+        code,
+        |char, _| char == ';',
+        |idx, _| {
+            blocks.push(&code[last_idx..=idx]);
+            last_idx = idx + 1;
+        },
+    );
     blocks
 }
 
@@ -179,44 +168,100 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     Ok(Some(args))
 }
 
-pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
-    let mut arg_indices = HashSet::new();
-    let mut is_comment = false;
-    let mut in_string = false;
+enum ParserState {
+    Normal,
+    InSingleQuote,
+    InDoubleQuote,
+    InSingleLineComment,
+    InMultiLineComment,
+}
+
+fn run_on_sql_statement_matches<
+    F1: FnMut(char, &mut Peekable<CharIndices>) -> bool,
+    F2: FnMut(usize, &mut Peekable<CharIndices>) -> (),
+>(
+    code: &str,
+    mut cond: F1,
+    mut case: F2,
+) {
     let mut chars = code.char_indices().peekable();
-    while let Some((_, char)) = chars.next() {
-        match char {
-            '-' if chars.peek().is_some_and(|&(_, next_char)| next_char == '-') => {
-                is_comment = true;
+    let mut state = ParserState::Normal;
+    while let Some((idx, char)) = chars.next() {
+        match (&state, char) {
+            (ParserState::Normal, '\'') => {
+                state = ParserState::InSingleQuote;
             }
-            '"' | '\'' if !is_comment => {
-                in_string = !in_string;
+            (ParserState::Normal, '"') => {
+                state = ParserState::InDoubleQuote;
             }
-            '\n' => {
-                is_comment = false;
-            }
-            '$' if !is_comment
-                && !in_string
-                && chars
-                    .peek()
-                    .is_some_and(|&(_, next_char)| next_char.is_digit(10)) =>
+            (ParserState::Normal, '-')
+                if chars.peek().is_some_and(|&(_, next_char)| next_char == '-') =>
             {
-                let mut arg_idx = String::new();
-                while let Some(&(_, char)) = chars.peek() {
-                    if char.is_digit(10) {
-                        arg_idx.push(char);
-                        chars.next();
-                    } else {
-                        break;
-                    }
+                state = ParserState::InSingleLineComment;
+            }
+            (ParserState::Normal, '/')
+                if chars.peek().is_some_and(|&(_, next_char)| next_char == '*') =>
+            {
+                state = ParserState::InMultiLineComment;
+            }
+            (ParserState::Normal, _) if cond(char, &mut chars) => {
+                case(idx, &mut chars);
+            }
+            (ParserState::InSingleQuote, '\'') => {
+                if chars
+                    .peek()
+                    .is_some_and(|&(_, next_char)| next_char == '\'')
+                {
+                    chars.next(); // skip the escaped single quote
+                } else {
+                    state = ParserState::Normal;
                 }
-                if let Ok(arg_idx) = arg_idx.parse::<i32>() {
-                    arg_indices.insert(arg_idx);
+            }
+            (ParserState::InDoubleQuote, '"') => {
+                if chars.peek().is_some_and(|&(_, next_char)| next_char == '"') {
+                    chars.next(); // skip the escaped single quote
+                } else {
+                    state = ParserState::Normal;
                 }
+            }
+            (ParserState::InSingleLineComment, '\n') => {
+                state = ParserState::Normal;
+            }
+            (ParserState::InMultiLineComment, '*')
+                if chars.peek().is_some_and(|&(_, next_char)| next_char == '/') =>
+            {
+                state = ParserState::Normal;
             }
             _ => {}
         }
     }
+}
+
+pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
+    let mut arg_indices = HashSet::new();
+    run_on_sql_statement_matches(
+        code,
+        |char, chars| {
+            char == '$'
+                && chars
+                    .peek()
+                    .is_some_and(|&(_, next_char)| next_char.is_ascii_digit())
+        },
+        |_, chars| {
+            let mut arg_idx = String::new();
+            while let Some(&(_, char)) = chars.peek() {
+                if char.is_ascii_digit() {
+                    arg_idx.push(char);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if let Ok(arg_idx) = arg_idx.parse::<i32>() {
+                arg_indices.insert(arg_idx);
+            }
+        },
+    );
     arg_indices
 }
 
@@ -244,6 +289,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             oidx: Some(*i),
         });
     }
+    args.sort_by(|a, b| a.oidx.unwrap().cmp(&b.oidx.unwrap()));
     for cap in RE_ARG_PGSQL.captures_iter(code) {
         let i = cap
             .get(1)
@@ -272,6 +318,32 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     }
 
     Ok(Some(args))
+}
+
+pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<String> {
+    let mut arg_names = HashSet::new();
+    run_on_sql_statement_matches(
+        code,
+        |char, chars| {
+            char == prefix
+                && chars
+                    .peek()
+                    .is_some_and(|&(_, next_char)| next_char.is_alphanumeric())
+        },
+        |_, chars| {
+            let mut arg_name = String::new();
+            while let Some(&(_, char)) = chars.peek() {
+                if char.is_alphanumeric() {
+                    arg_name.push(char);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            arg_names.insert(arg_name);
+        },
+    );
+    arg_names
 }
 
 fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {

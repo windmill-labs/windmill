@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt};
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::{parse_bigquery_sig, parse_db_resource, parse_sql_blocks};
+use windmill_parser_sql::{
+    parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
+};
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
@@ -60,12 +64,25 @@ struct BigqueryError {
 
 fn do_bigquery_inner<'a>(
     query: &'a str,
-    statement_values: &'a Vec<Value>,
+    all_statement_values: &'a HashMap<String, Value>,
     project_id: &'a str,
     token: &'a str,
     timeout_ms: i32,
     column_order: Option<&'a mut Option<Vec<String>>>,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+    let param_names = parse_sql_statement_named_params(query, '@');
+
+    let statement_values = all_statement_values
+        .iter()
+        .filter_map(|(name, val)| {
+            if param_names.contains(name) {
+                Some(val)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<&Value>>();
+
     let result_f = async move {
         let response = HTTP_CLIENT
             .post(
@@ -238,7 +255,7 @@ pub async fn do_bigquery(
 
     let queries = parse_sql_blocks(query);
 
-    let mut statement_values: Vec<Value> = vec![];
+    let mut statement_values: HashMap<String, Value> = HashMap::new();
 
     let sig = parse_bigquery_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
@@ -283,7 +300,7 @@ pub async fn do_bigquery(
             })
         };
 
-        statement_values.push(bigquery_v);
+        statement_values.insert(arg_n, bigquery_v);
     }
 
     let result_f = if queries.len() > 1 {

@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
 use futures::{future::BoxFuture, FutureExt};
+use itertools::Itertools;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
 };
@@ -14,7 +15,8 @@ use windmill_common::{
     jobs::QueuedJob,
 };
 use windmill_parser_sql::{
-    parse_db_resource, parse_mysql_sig, parse_sql_blocks, RE_ARG_MYSQL_NAMED,
+    parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
+    RE_ARG_MYSQL_NAMED,
 };
 use windmill_queue::CanceledBy;
 
@@ -35,27 +37,33 @@ struct MysqlDatabase {
 
 pub fn do_mysql_inner<'a>(
     query: &'a str,
-    statement_values: Params,
+    all_statement_values: &Params,
     conn: Arc<Mutex<mysql_async::Conn>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
 ) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Vec<Value>>>> {
+    let param_names = parse_sql_statement_named_params(query, ':')
+        .into_iter()
+        .map(|x| x.into_bytes())
+        .collect_vec();
+
+    let statement_values = if let Params::Named(m) = all_statement_values {
+        Params::Named(
+            m.into_iter()
+                .filter(|(k, _)| param_names.contains(&k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        )
+    } else {
+        all_statement_values.clone()
+    };
+
     let result_f = async move {
-        tracing::info!("Getting lock");
         let rows: Vec<Row> = conn
             .lock()
             .await
-            .exec(
-                query,
-                match statement_values {
-                    Params::Positional(v) => Params::Positional(v),
-                    Params::Named(m) => Params::Named(m),
-                    _ => Params::Empty,
-                },
-            )
+            .exec(query, statement_values)
             .await
             .map_err(to_anyhow)?;
-
-        tracing::info!("Got rows: {:?}", rows.len());
 
         if let Some(column_order) = column_order {
             *column_order = Some(
@@ -227,7 +235,7 @@ pub async fn do_mysql(
     let result_f = if queries.len() > 1 {
         let futures = queries
             .iter()
-            .map(|x| do_mysql_inner(x, statement_values.clone(), conn_a.clone(), None))
+            .map(|x| do_mysql_inner(x, &statement_values, conn_a.clone(), None))
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
 
         let f = async {
@@ -241,12 +249,7 @@ pub async fn do_mysql(
 
         f.boxed()
     } else {
-        do_mysql_inner(
-            query,
-            statement_values.clone(),
-            conn_a.clone(),
-            Some(column_order),
-        )?
+        do_mysql_inner(query, &statement_values, conn_a.clone(), Some(column_order))?
     };
 
     let result = run_future_with_polling_update_job_poller(
