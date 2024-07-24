@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.367.0](https://github.com/windmill-labs/windmill/compare/v1.366.6...v1.367.0) (2024-07-24)
+
+
+### Features
+
+* apply workspace specific tags only to some workspaces ([#4107](https://github.com/windmill-labs/windmill/issues/4107)) ([14a4f12](https://github.com/windmill-labs/windmill/commit/14a4f1282671d1c6a2481123cd5a4297fbd89607))
+* job search index backed up and loaded from s3 ([#4100](https://github.com/windmill-labs/windmill/issues/4100)) ([cac39a1](https://github.com/windmill-labs/windmill/commit/cac39a105187bd005dee442c4968ebbd9ba163d7))
+* use hardlinks instead of tar to improve bun cache performances ([48e9f08](https://github.com/windmill-labs/windmill/commit/48e9f089beff10828eef7a35fb341894eb50d25d))
+* use jwks for external jwt auth ([#4089](https://github.com/windmill-labs/windmill/issues/4089)) ([d096704](https://github.com/windmill-labs/windmill/commit/d096704b27f169672d8949f8570b2b5cba25e78c))
+
+
+### Bug Fixes
+
+* cgroupv1 mem limit + granular memory reporting ([#4119](https://github.com/windmill-labs/windmill/issues/4119)) ([13e9e8d](https://github.com/windmill-labs/windmill/commit/13e9e8de9e49f9513ad0cd8ac5a3b8b356de02a9))
+* filter audit logs end user by username + complete resource filter ([#4105](https://github.com/windmill-labs/windmill/issues/4105)) ([73decb2](https://github.com/windmill-labs/windmill/commit/73decb24b23e1a998957455cf4f4148be5990cce))
+* fix webhooks urls after BASE_URL change ([d49b2d0](https://github.com/windmill-labs/windmill/commit/d49b2d0f06842e70180f931ac7b4ac683c1c65b6))
+* make result_json path stable for python executors ([97f6b2e](https://github.com/windmill-labs/windmill/commit/97f6b2e7ad9962c99e566238bde40cdba0ffc3a8))
+* preserve force json across code preview ([9ab5b2e](https://github.com/windmill-labs/windmill/commit/9ab5b2e32d78056752f654769154b90872a9ab85))
+* respect sorting when downloading csv f rom auto table ([20390c5](https://github.com/windmill-labs/windmill/commit/20390c53e82686ac6a8b7a9bc1bf9fb8e014e3c5))
+* sqlx build ([#4120](https://github.com/windmill-labs/windmill/issues/4120)) ([c6dc06b](https://github.com/windmill-labs/windmill/commit/c6dc06bf702b501225a51813a2489ce9ea3c4636))
+
 ## [1.366.6](https://github.com/windmill-labs/windmill/compare/v1.366.5...v1.366.6) (2024-07-23)
 
 
