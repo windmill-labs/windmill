@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.367.1](https://github.com/windmill-labs/windmill/compare/v1.367.0...v1.367.1) (2024-07-24)
+
+
+### Bug Fixes
+
+* delete buntar if any issue while creating it ([204e2fa](https://github.com/windmill-labs/windmill/commit/204e2fafda681347813ab91f96cee4194db2e156))
+* generate lockfile with npm when npm mode is used ([7fbd002](https://github.com/windmill-labs/windmill/commit/7fbd0028c1f2dfbd6a5cde12e6a0e314ed31552a))
+
 ## [1.367.0](https://github.com/windmill-labs/windmill/compare/v1.366.6...v1.367.0) (2024-07-24)
 
 
