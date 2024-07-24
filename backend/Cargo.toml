@@ -181,7 +181,7 @@ swc_ecma_visit = "=0.99.1"
 base64 = "0.21.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-sqlx = { version = "0.7.3", features = [
+sqlx = { version = "0.8.0", features = [
     "macros",
     "migrate",
     "uuid",
