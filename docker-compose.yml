@@ -61,7 +61,7 @@ services:
     volumes:
       # mount the docker socket to allow to run docker containers from within the workers
       - /var/run/docker.sock:/var/run/docker.sock
-      - worker_dependency_cache:/tmp/windmill/cache
+      # - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
 
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
