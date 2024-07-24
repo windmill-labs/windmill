@@ -589,6 +589,7 @@ pub async fn handle_bun_job(
                             "shared".to_string(),
                         ]),
                     ) {
+                        fs::remove_dir_all(&buntar_path)?;
                         tracing::error!("Could not create buntar: {e}");
                     }
                 }
