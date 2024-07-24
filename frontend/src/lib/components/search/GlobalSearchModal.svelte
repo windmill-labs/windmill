@@ -461,26 +461,42 @@
 		open = false
 	}
 
-	let height: number | undefined = undefined
+	function maxModalWidth(tab: SearchMode) {
+		if (tab === 'runs') {
+			return 'max-w-7xl'
+		} else {
+			return 'max-w-4xl'
+		}
+	}
+
+	function maxModalHeight(tab: SearchMode) {
+		if (tab === 'runs') {
+			return ''
+		} else if (tab === 'content') {
+			return 'max-h-[70vh]'
+		} else {
+			return 'max-h-[60vh]'
+		}
+	}
 </script>
 
 {#if open}
 	<Portal>
 		<div
 			class={twMerge(
-				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 flex items-center justify-center`,
+				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 flex items-start justify-center`,
 				' bg-black bg-opacity-40',
 				'z-[1100]'
 			)}
 		>
 			<div
-				class={'max-w-4xl w-full h-[80vh] bg-surface rounded-lg relative'}
+				class="{maxModalWidth(tab)} w-full mt-36 bg-surface rounded-lg relative"
 				use:clickOutside={false}
 				on:click_outside={() => {
 					open = false
 				}}
 			>
-				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b" bind:clientHeight={height}>
+				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b">
 					<Search size="16" />
 					<div class="relative inline-block w-full">
 						<input
@@ -497,7 +513,7 @@
 						>
 					</div>
 				</div>
-				<div class="overflow-y-auto relative" style={`height: calc(100% - ${height + 1}px);`}>
+				<div class="overflow-y-auto relative {maxModalHeight(tab)}">
 					{#if tab === 'default' || tab === 'switch-mode'}
 						{@const items = (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e))}
 						{#if items.length > 0}
@@ -538,7 +554,7 @@
 							{/if}
 
 							{#if (itemMap[tab] ?? []).length === 0}
-								<div class="flex w-full justify-center items-center h-48">
+								<div class="flex w-full justify-center items-center">
 									<div class="text-tertiary text-center">
 										<div class="text-2xl font-bold">Nothing found</div>
 										<div class="text-sm">Tip: press `esc` to quickly clear the search bar</div>
@@ -561,7 +577,7 @@
 							</Alert>
 						</div>
 					{:else if tab === 'runs'}
-						<div class="flex h-full p-2">
+						<div class="flex h-full p-2 divide-x">
 							{#if loadingCompletedRuns}
 								<div class="flex w-full justify-center items-center h-48">
 									<div class="text-tertiary text-center">
@@ -569,7 +585,7 @@
 									</div>
 								</div>
 							{:else if itemMap['runs'] && itemMap['runs'].length > 0}
-								<div class="w-5/12 overflow-y-auto border rounded-md divide-y">
+								<div class="w-4/12 overflow-y-auto max-h-[70vh]">
 									{#each itemMap['runs'] ?? [] as r}
 										<QuickMenuItem
 											on:hover={() => {
@@ -583,12 +599,12 @@
 											id={r?.document.id[0]}
 											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
 											icon={r?.icon}
-											containerClass="!rounded-none"
+											containerClass="rounded-md px-2 py-1 my-2"
 										>
 											<svelte:fragment slot="itemReplacement">
 												<div
 													class={twMerge(
-														`w-full flex flex-row items-center gap-4 p-2 transition-all`,
+														`w-full flex flex-row items-center gap-4 transition-all`,
 														r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
 													)}
 												>
@@ -618,14 +634,14 @@
 									{/each}
 								</div>
 								{#if selectedItem === undefined}
-									select a result to preview
+									Select a result to preview
 								{:else}
-									<div class="w-7/12 overflow-y-scroll">
+									<div class="w-8/12 overflow-y-scroll max-h-[70vh]">
 										<JobPreview id={selectedItem?.document?.id[0]} workspace={selectedWorkspace} />
 									</div>
 								{/if}
 							{:else}
-								<div class="flex w-full justify-center items-center">
+								<div class="flex w-full justify-center items-center h-48">
 									<div class="text-tertiary text-center">
 										{#if searchTerm === RUNS_PREFIX}
 											<div class="text-2xl font-bold">Enter your search terms</div>
