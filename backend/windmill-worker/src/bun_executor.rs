@@ -460,21 +460,24 @@ pub fn copy_recursively(
     stack.push((
         source.as_ref().to_path_buf(),
         destination.as_ref().to_path_buf(),
+        0,
     ));
 
-    while let Some((current_source, current_destination)) = stack.pop() {
+    while let Some((current_source, current_destination, level)) = stack.pop() {
         for entry in fs::read_dir(&current_source)? {
             let entry = entry?;
             let filetype = entry.file_type()?;
             let destination = current_destination.join(entry.file_name());
-            if let Some(skip) = skip {
-                if skip.contains(&entry.file_name().to_string_lossy().to_string()) {
-                    continue;
+            if level == 0 {
+                if let Some(skip) = skip {
+                    if skip.contains(&entry.file_name().to_string_lossy().to_string()) {
+                        continue;
+                    }
                 }
             }
             if filetype.is_dir() {
                 fs::create_dir_all(&destination)?;
-                stack.push((entry.path(), destination));
+                stack.push((entry.path(), destination, level + 1));
             } else {
                 let original = entry.path();
                 if let Err(e) = fs::hard_link(&original, &destination) {
