@@ -462,7 +462,7 @@ pub fn copy_recursively(
         destination.as_ref().to_path_buf(),
         0,
     ));
-
+    let mut already_visited_symlinks = std::collections::HashSet::new();
     while let Some((current_source, current_destination, level)) = stack.pop() {
         for entry in fs::read_dir(&current_source)? {
             let entry = entry?;
@@ -475,11 +475,21 @@ pub fn copy_recursively(
                     }
                 }
             }
+            let original = entry.path();
+
             if filetype.is_dir() {
+                if filetype.is_symlink() {
+                    let link = fs::read_link(original)?;
+                    if already_visited_symlinks.contains(&link) {
+                        continue;
+                    }
+                    already_visited_symlinks.insert(link);
+                } else {
+                    already_visited_symlinks.insert(original);
+                }
                 fs::create_dir_all(&destination)?;
                 stack.push((entry.path(), destination, level + 1));
             } else {
-                let original = entry.path();
                 if let Err(e) = fs::hard_link(&original, &destination) {
                     tracing::error!(
                         "Could not hard link {original:?} to {destination:?}, trying symlink or copy (no_symlink={no_symlink}): {e:#}"
