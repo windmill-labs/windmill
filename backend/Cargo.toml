@@ -53,7 +53,7 @@ flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
-tantivy = ["windmill-indexer/tantivy"]
+tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
 
 [dependencies]
 anyhow.workspace = true
@@ -64,7 +64,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
-windmill-indexer.workspace = true
+windmill-indexer = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true

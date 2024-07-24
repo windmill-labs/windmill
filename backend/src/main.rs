@@ -367,9 +367,7 @@ Windmill Community Edition {GIT_VERSION}
         let should_index_jobs =
             mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
 
-        #[cfg(not(feature = "tantivy"))]
-        let should_index_jobs = false;
-
+        #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
             let (r, w) = windmill_indexer::indexer_ee::init_index().await?;
             (Some(r), Some(w))
@@ -377,15 +375,24 @@ Windmill Community Edition {GIT_VERSION}
             (None, None)
         };
 
-        let indexer_rx = killpill_rx.resubscribe();
-        let index_writer2 = index_writer.clone();
-        let indexer_f = async {
-            if let Some(index_writer) = index_writer2 {
-                windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
-                    .await;
+        #[cfg(feature = "tantivy")]
+        let indexer_f = {
+            let indexer_rx = killpill_rx.resubscribe();
+            let index_writer2 = index_writer.clone();
+            async {
+                if let Some(index_writer) = index_writer2 {
+                    windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
+                        .await;
+                }
+                Ok(())
             }
-            Ok(())
         };
+
+        #[cfg(not(feature = "tantivy"))]
+        let (index_reader, index_writer) = (None, None);
+
+        #[cfg(not(feature = "tantivy"))]
+        let indexer_f = async { Ok(()) as anyhow::Result<()> };
 
         let server_f = async {
             if !is_agent {
