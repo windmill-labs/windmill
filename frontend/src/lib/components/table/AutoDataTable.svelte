@@ -54,6 +54,33 @@
 
 	let activeSorting: ActiveSorting | undefined = undefined
 
+	function sortObjects(
+		activeSorting: ActiveSorting | undefined,
+		objects: Array<Record<string, any>>,
+		getRowData: boolean
+	) {
+		if (activeSorting) {
+			return objects.sort((a, b) => {
+				if (!activeSorting) return 0
+				const valA = (getRowData ? a.rowData : a)?.[activeSorting.column]
+				const valB = (getRowData ? b.rowData : b)?.[activeSorting.column]
+				const isAsc = activeSorting.direction === 'asc'
+				if (valA == undefined || valA == null) {
+					return isAsc ? -1 : 1
+				}
+				if (valB == undefined || valB == null) {
+					return isAsc ? 1 : -1
+				}
+				if (isAsc) {
+					return valA > valB ? 1 : -1
+				} else {
+					return valA > valB ? -1 : 1
+				}
+			})
+		} else {
+			return objects
+		}
+	}
 	function computeData(
 		structuredObjects: Array<Record<string, any>>,
 		activeSorting: ActiveSorting | undefined,
@@ -69,26 +96,7 @@
 		} else {
 			objects = [...objects]
 		}
-		if (activeSorting) {
-			objects = objects.sort((a, b) => {
-				if (!activeSorting) return 0
-				const valA = a.rowData[activeSorting.column]
-				const valB = b.rowData[activeSorting.column]
-				const isAsc = activeSorting.direction === 'asc'
-				if (valA == undefined || valA == null) {
-					return isAsc ? -1 : 1
-				}
-				if (valB == undefined || valB == null) {
-					return isAsc ? 1 : -1
-				}
-				if (isAsc) {
-					return valA > valB ? 1 : -1
-				} else {
-					return valA > valB ? -1 : 1
-				}
-			})
-		}
-		return objects
+		return sortObjects(activeSorting, objects, true)
 	}
 
 	$: slicedData = data.slice((currentPage - 1) * perPage, currentPage * perPage)
@@ -172,7 +180,7 @@
 					getContent={() => {
 						return convertJsonToCsv(
 							selection.length > 0
-								? structuredObjects
+								? sortObjects(activeSorting, structuredObjects, true)
 										.filter(({ _id }) => selection.includes(_id))
 										.map((obj) =>
 											colSelection.length == 0
@@ -184,8 +192,8 @@
 												  )
 										)
 								: colSelection.length == 0
-								? objects
-								: objects.map((obj) =>
+								? sortObjects(activeSorting, objects, false)
+								: sortObjects(activeSorting, objects, false).map((obj) =>
 										Object.fromEntries(
 											Object.entries(obj).filter(([key, _]) => colSelection.includes(key))
 										)
