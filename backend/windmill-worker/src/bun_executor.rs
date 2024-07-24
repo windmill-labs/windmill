@@ -586,6 +586,7 @@ pub async fn handle_bun_job(
                             "main.ts".to_string(),
                             "package.json".to_string(),
                             "bun.lockb".to_string(),
+                            "shared".to_string(),
                         ]),
                     ) {
                         tracing::error!("Could not create buntar: {e}");
