@@ -10,13 +10,12 @@ path = "src/lib.rs"
 
 [features]
 default = []
-tantivy = ["dep:tantivy"]
 parquet = ["dep:object_store"]
 enterprise = []
 
 [dependencies]
 windmill-common.workspace = true
-tantivy = {workspace = true, optional = true}
+tantivy.workspace = true
 tokio.workspace = true
 sqlx.workspace = true
 anyhow.workspace = true

@@ -143,11 +143,22 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
+#[cfg(not(feature = "tantivy"))]
+type IndexReader = ();
+
+#[cfg(not(feature = "tantivy"))]
+type IndexWriter = ();
+
+#[cfg(feature = "tantivy")]
+type IndexReader = windmill_indexer::indexer_ee::IndexReader;
+#[cfg(feature = "tantivy")]
+type IndexWriter = windmill_indexer::indexer_ee::IndexWriter;
+
 pub async fn run_server(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    index_reader: Option<windmill_indexer::indexer_ee::IndexReader>,
-    index_writer: Option<windmill_indexer::indexer_ee::IndexWriter>,
+    index_reader: Option<IndexReader>,
+    index_writer: Option<IndexWriter>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
