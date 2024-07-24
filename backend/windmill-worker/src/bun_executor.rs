@@ -454,7 +454,6 @@ pub fn copy_recursively(
     source: impl AsRef<Path>,
     destination: impl AsRef<Path>,
     skip: Option<&Vec<String>>,
-    no_symlink: bool,
 ) -> io::Result<()> {
     let mut stack = Vec::new();
     stack.push((
@@ -462,7 +461,6 @@ pub fn copy_recursively(
         destination.as_ref().to_path_buf(),
         0,
     ));
-    let mut already_visited_symlinks = std::collections::HashSet::new();
     while let Some((current_source, current_destination, level)) = stack.pop() {
         for entry in fs::read_dir(&current_source)? {
             let entry = entry?;
@@ -478,33 +476,10 @@ pub fn copy_recursively(
             let original = entry.path();
 
             if filetype.is_dir() {
-                if filetype.is_symlink() {
-                    let link = fs::read_link(original)?;
-                    if already_visited_symlinks.contains(&link) {
-                        continue;
-                    }
-                    already_visited_symlinks.insert(link);
-                } else {
-                    already_visited_symlinks.insert(original);
-                }
                 fs::create_dir_all(&destination)?;
                 stack.push((entry.path(), destination, level + 1));
             } else {
-                if let Err(e) = fs::hard_link(&original, &destination) {
-                    tracing::error!(
-                        "Could not hard link {original:?} to {destination:?}, trying symlink or copy (no_symlink={no_symlink}): {e:#}"
-                    );
-                    if no_symlink {
-                        fs::copy(&original, &destination)?;
-                    } else {
-                        if let Err(e) = std::os::unix::fs::symlink(&original, &destination) {
-                            tracing::error!(
-                                "Could not symlink {original:?} to {destination:?}, copying: {e:#}"
-                            );
-                            fs::copy(&original, &destination)?;
-                        }
-                    }
-                }
+                fs::hard_link(&original, &destination)?
             }
         }
     }
@@ -589,7 +564,7 @@ pub async fn handle_bun_job(
 
                 #[cfg(unix)]
                 if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                    if let Err(e) = copy_recursively(&buntar_path, job_dir, None, false) {
+                    if let Err(e) = copy_recursively(&buntar_path, job_dir, None) {
                         tracing::error!("Could not extract buntar: {e:#}");
                     } else {
                         gbuntar_name = Some(buntar_name.clone());
@@ -627,7 +602,6 @@ pub async fn handle_bun_job(
                             "shared".to_string(),
                             "bunfig.toml".to_string(),
                         ]),
-                        true,
                     ) {
                         fs::remove_dir_all(&buntar_path)?;
                         tracing::error!("Could not create buntar: {e}");
