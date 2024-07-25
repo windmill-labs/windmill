@@ -549,14 +549,15 @@
 					undefined,
 					loopDepth,
 					0,
-					false,
+					true,
 					removable ? { module, index: i } : undefined,
-					undefined,
+					module.id,
 					undefined,
 					undefined,
 					borderStatus,
 					false,
-					wrapper
+					wrapper,
+					true
 				)
 			)
 			if (modules.length) {
@@ -727,7 +728,8 @@
 		module_status: FlowStatusModule['type'] | undefined,
 		borderStatus: FlowStatusModule['type'] | undefined,
 		center: boolean = true,
-		wrapperNode: FlowModule | undefined = undefined
+		wrapperNode: FlowModule | undefined = undefined,
+		hideId: boolean = false
 	): Node {
 		const id = fixed_id ?? -idGenerator.next().value - 2 + (offset ?? 0)
 
@@ -765,7 +767,8 @@
 						moving,
 						center,
 						disableAi,
-						wrapperNode
+						wrapperNode,
+						hideId
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {

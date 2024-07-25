@@ -6,6 +6,26 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Dynamic Select',
+		href: 'https://www.windmill.dev/changelog/dynamic-select',
+		date: '2024-07-22'
+	},
+	{
+		label: 'Flow Status Viewer improvements',
+		href: 'https://www.windmill.dev/changelog/flow-status-viewer',
+		date: '2024-07-14'
+	},
+	{
+		label: 'Navbar Component',
+		href: 'https://www.windmill.dev/changelog/navbar',
+		date: '2024-07-05'
+	},
+	{
+		label: 'Flow Versioning',
+		href: 'https://www.windmill.dev/changelog/flow-versioning',
+		date: '2024-07-04'
+	},
+	{
 		label: 'OneOf Inputs',
 		href: 'https://www.windmill.dev/changelog/oneof-inputs',
 		date: '2024-06-17'

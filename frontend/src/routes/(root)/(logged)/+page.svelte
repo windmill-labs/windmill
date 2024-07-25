@@ -13,6 +13,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
+	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -97,7 +98,7 @@
 				</div>
 			</Button>
 			<Button
-				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				href="{base}/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
@@ -134,7 +135,7 @@
 			</Button>
 
 			<Button
-				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
+				href="{base}/flows/add?hub={flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
@@ -172,7 +173,7 @@
 			</Button>
 
 			<Button
-				href="/apps/add?hub={appViewerApp?.app?.id}"
+				href="{base}/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				disabled={appViewerApp == undefined}

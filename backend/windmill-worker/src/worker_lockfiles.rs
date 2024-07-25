@@ -232,6 +232,24 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 .is_some_and(|y| y.to_string().as_str() == "true")
         })
         .unwrap_or(false);
+    let npm_mode = if job
+        .language
+        .as_ref()
+        .map(|v| v == &ScriptLang::Bun)
+        .unwrap_or(false)
+    {
+        Some(
+            job.args
+                .as_ref()
+                .map(|x| {
+                    x.get("npm_mode")
+                        .is_some_and(|y| y.to_string().as_str() == "true")
+                })
+                .unwrap_or(false),
+        )
+    } else {
+        None
+    };
 
     let content = capture_dependency_job(
         &job.id,
@@ -252,6 +270,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         token,
         script_path,
         raw_deps,
+        npm_mode,
     )
     .await;
 
@@ -858,6 +877,7 @@ async fn lock_modules<'c>(
                 &path.clone().unwrap_or_else(|| job_path.to_string())
             ),
             false,
+            None,
         )
         .await;
         //
@@ -986,6 +1006,7 @@ async fn lock_modules_app(
                                 token,
                                 &format!("{}/app", job.script_path()),
                                 false,
+                                None,
                             )
                             .await;
                             match new_lock {
@@ -1177,6 +1198,7 @@ async fn capture_dependency_job(
     token: &str,
     script_path: &str,
     raw_deps: bool,
+    npm_mode: Option<bool>,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
@@ -1272,6 +1294,8 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Bun => {
+            let npm_mode = npm_mode
+                .unwrap_or_else(|| windmill_common::worker::get_annotation(job_raw_code).npm_mode);
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
             }
@@ -1292,7 +1316,7 @@ async fn capture_dependency_job(
                 } else {
                     None
                 },
-                false,
+                npm_mode,
             )
             .await?;
             Ok(req.unwrap_or_else(String::new))

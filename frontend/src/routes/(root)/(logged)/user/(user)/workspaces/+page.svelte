@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { logout, logoutWithRedirect } from '$lib/logout'
@@ -81,7 +82,7 @@
 	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {
-		const r = await fetch('/api/workspaces/create_workspace_require_superadmin')
+		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
 		const t = await r.text()
 		createWorkspace = t != 'true'
 	}
@@ -113,11 +114,19 @@
 			if (!emptyString(defaultApp.default_app_path)) {
 				await goto(`/apps/get/${defaultApp.default_app_path}`)
 			} else {
+				if (rd?.startsWith('http')) {
+					window.location.href = rd
+					return
+				}
 				await goto(rd ?? '/')
 			}
 		} else {
 			try {
-				await goto(rd ?? '/')
+				if (rd?.startsWith('http')) {
+					window.location.href = rd
+				} else {
+					await goto(rd ?? '/')
+				}
 				console.log('Workspace selected, going to', rd)
 			} catch (e) {
 				console.error('Error going to', rd, e)
@@ -154,6 +163,10 @@
 			on:click={async () => {
 				workspaceStore.set('admins')
 				loading = true
+				if (rd?.startsWith('http')) {
+					window.location.href = rd
+					return
+				}
 				await goto(rd ?? '/')
 				loading = false
 			}}
@@ -212,7 +225,7 @@
 				size="sm"
 				btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
 				color={noWorkspaces ? 'dark' : 'blue'}
-				href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+				href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
 				variant={noWorkspaces ? 'contained' : 'border'}
 				>+&nbsp;Create a new workspace
 			</Button>
@@ -239,7 +252,7 @@
 			<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
 				<a
 					class="font-bold p-1"
-					href="/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
+					href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
 						? `&rd=${encodeURIComponent(rd)}`
 						: ''}"
 				>

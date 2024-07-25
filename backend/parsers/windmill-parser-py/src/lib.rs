@@ -188,6 +188,9 @@ fn parse_typ(id: &str) -> Typ {
         "datetime" => Typ::Datetime,
         "datetime.datetime" => Typ::Datetime,
         "Sql" | "sql" => Typ::Sql,
+        x @ _ if x.starts_with("DynSelect_") => {
+            Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
+        }
         _ => Typ::Resource(id.to_string()),
     }
 }
@@ -487,6 +490,35 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         oidx: None
                     }
                 ],
+                no_main_func: Some(false),
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_5() -> anyhow::Result<()> {
+        let code = r#"
+
+import os
+
+def main(test1: DynSelect_foo): return
+
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code, None)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    otyp: None,
+                    name: "test1".to_string(),
+                    typ: Typ::DynSelect("foo".to_string()),
+                    default: None,
+                    has_default: false
+                }],
                 no_main_func: Some(false),
             }
         );

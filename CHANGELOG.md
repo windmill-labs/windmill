@@ -1,5 +1,100 @@
 # Changelog
 
+## [1.367.2](https://github.com/windmill-labs/windmill/compare/v1.367.1...v1.367.2) (2024-07-24)
+
+
+### Bug Fixes
+
+* move bun cache to non mounted volume to benefit from cache optimization ([92dac02](https://github.com/windmill-labs/windmill/commit/92dac027f26dfa880e22b1896b48605ae2ef2794))
+* use symlink and straight copy as fallback methods for buntar ([80d4fb0](https://github.com/windmill-labs/windmill/commit/80d4fb0352606948b01f4918e11f80a0bef544f4))
+
+## [1.367.1](https://github.com/windmill-labs/windmill/compare/v1.367.0...v1.367.1) (2024-07-24)
+
+
+### Bug Fixes
+
+* delete buntar if any issue while creating it ([204e2fa](https://github.com/windmill-labs/windmill/commit/204e2fafda681347813ab91f96cee4194db2e156))
+* generate lockfile with npm when npm mode is used ([7fbd002](https://github.com/windmill-labs/windmill/commit/7fbd0028c1f2dfbd6a5cde12e6a0e314ed31552a))
+
+## [1.367.0](https://github.com/windmill-labs/windmill/compare/v1.366.6...v1.367.0) (2024-07-24)
+
+
+### Features
+
+* apply workspace specific tags only to some workspaces ([#4107](https://github.com/windmill-labs/windmill/issues/4107)) ([14a4f12](https://github.com/windmill-labs/windmill/commit/14a4f1282671d1c6a2481123cd5a4297fbd89607))
+* job search index backed up and loaded from s3 ([#4100](https://github.com/windmill-labs/windmill/issues/4100)) ([cac39a1](https://github.com/windmill-labs/windmill/commit/cac39a105187bd005dee442c4968ebbd9ba163d7))
+* use hardlinks instead of tar to improve bun cache performances ([48e9f08](https://github.com/windmill-labs/windmill/commit/48e9f089beff10828eef7a35fb341894eb50d25d))
+* use jwks for external jwt auth ([#4089](https://github.com/windmill-labs/windmill/issues/4089)) ([d096704](https://github.com/windmill-labs/windmill/commit/d096704b27f169672d8949f8570b2b5cba25e78c))
+
+
+### Bug Fixes
+
+* cgroupv1 mem limit + granular memory reporting ([#4119](https://github.com/windmill-labs/windmill/issues/4119)) ([13e9e8d](https://github.com/windmill-labs/windmill/commit/13e9e8de9e49f9513ad0cd8ac5a3b8b356de02a9))
+* filter audit logs end user by username + complete resource filter ([#4105](https://github.com/windmill-labs/windmill/issues/4105)) ([73decb2](https://github.com/windmill-labs/windmill/commit/73decb24b23e1a998957455cf4f4148be5990cce))
+* fix webhooks urls after BASE_URL change ([d49b2d0](https://github.com/windmill-labs/windmill/commit/d49b2d0f06842e70180f931ac7b4ac683c1c65b6))
+* make result_json path stable for python executors ([97f6b2e](https://github.com/windmill-labs/windmill/commit/97f6b2e7ad9962c99e566238bde40cdba0ffc3a8))
+* preserve force json across code preview ([9ab5b2e](https://github.com/windmill-labs/windmill/commit/9ab5b2e32d78056752f654769154b90872a9ab85))
+* respect sorting when downloading csv f rom auto table ([20390c5](https://github.com/windmill-labs/windmill/commit/20390c53e82686ac6a8b7a9bc1bf9fb8e014e3c5))
+* sqlx build ([#4120](https://github.com/windmill-labs/windmill/issues/4120)) ([c6dc06b](https://github.com/windmill-labs/windmill/commit/c6dc06bf702b501225a51813a2489ce9ea3c4636))
+
+## [1.366.6](https://github.com/windmill-labs/windmill/compare/v1.366.5...v1.366.6) (2024-07-23)
+
+
+### Bug Fixes
+
+* fix copilot completion after base_url change ([ae4cbb0](https://github.com/windmill-labs/windmill/commit/ae4cbb0401b01e1e378b2a982d7a610648c96239))
+
+## [1.366.5](https://github.com/windmill-labs/windmill/compare/v1.366.4...v1.366.5) (2024-07-22)
+
+
+### Bug Fixes
+
+* fix BASE_URL build conf ([bb861cf](https://github.com/windmill-labs/windmill/commit/bb861cfedef1e5531f31b62dd73907b89ddd473a))
+
+## [1.366.4](https://github.com/windmill-labs/windmill/compare/v1.366.3...v1.366.4) (2024-07-22)
+
+
+### Bug Fixes
+
+* fix BASE_URL build conf ([6e33e4e](https://github.com/windmill-labs/windmill/commit/6e33e4e0b9fce86407cc7cfc9a4a57e03ec5199b))
+
+## [1.366.3](https://github.com/windmill-labs/windmill/compare/v1.366.2...v1.366.3) (2024-07-22)
+
+
+### Bug Fixes
+
+* fix BASE_URL build conf ([f6a948b](https://github.com/windmill-labs/windmill/commit/f6a948ba7705b5b59af87bff7d17252ec1c8e739))
+
+## [1.366.2](https://github.com/windmill-labs/windmill/compare/v1.366.1...v1.366.2) (2024-07-22)
+
+
+### Bug Fixes
+
+* fix BASE_URL build conf ([c26457c](https://github.com/windmill-labs/windmill/commit/c26457c967c07f05110ca31c987247869e267c51))
+
+## [1.366.1](https://github.com/windmill-labs/windmill/compare/v1.366.0...v1.366.1) (2024-07-22)
+
+
+### Bug Fixes
+
+* fix BASE_URL build conf ([9cb4586](https://github.com/windmill-labs/windmill/commit/9cb4586211af8159037e402dc03b85f37db8aa5f))
+
+## [1.366.0](https://github.com/windmill-labs/windmill/compare/v1.365.0...v1.366.0) (2024-07-22)
+
+
+### Features
+
+* dynamic select ([#4110](https://github.com/windmill-labs/windmill/issues/4110)) ([19d523d](https://github.com/windmill-labs/windmill/commit/19d523dd64327cc8c590737f6a14a5d10fe19aa6))
+* make components resizable directly on side ([26c30c4](https://github.com/windmill-labs/windmill/commit/26c30c4f8df6eac7c1d99770c99b8159bd3afe49))
+
+
+### Bug Fixes
+
+* add WM_SCHEDULED_FOR to contextual variables and early stop of flows ([e91a06f](https://github.com/windmill-labs/windmill/commit/e91a06fa41a1bdcc781126b936e20a83e540c9f9))
+* Allow deploying frontend in a sub directory ([#3867](https://github.com/windmill-labs/windmill/issues/3867)) ([dd75dd4](https://github.com/windmill-labs/windmill/commit/dd75dd446b5d155ac0c9a007e694732a81dc6b35))
+* improve cgroup readings ([#4030](https://github.com/windmill-labs/windmill/issues/4030)) ([ea53a12](https://github.com/windmill-labs/windmill/commit/ea53a129afc520ee804f473f63847df57e7287a2))
+* update parsers for CLI ([f65ccc0](https://github.com/windmill-labs/windmill/commit/f65ccc07de8e1367ce5acc45d4f3674593351b75))
+
 ## [1.365.0](https://github.com/windmill-labs/windmill/compare/v1.364.3...v1.365.0) (2024-07-17)
 
 

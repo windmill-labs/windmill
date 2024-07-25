@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { afterNavigate, goto, replaceState } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { afterNavigate, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'

@@ -44,6 +44,7 @@ pub enum Typ {
     Resource(String),
     Email,
     Sql,
+    DynSelect(String),
     Object(Vec<ObjectProperty>),
     OneOf(Vec<OneOfVariant>),
     Unknown,

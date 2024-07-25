@@ -12,7 +12,8 @@ export function main(test1?: string, test2: string = \"burkina\",
     email: Email, literal: \"test\", literal_union: \"test\" | \"test2\",
     opt_type?: string | null, opt_type_union: string | null, opt_type_union_union2: string | undefined,
     min_object: {a: string, b: number},
-    literals_with_undefined: \"foo\" | \"bar\" | undefined) {
+    literals_with_undefined: \"foo\" | \"bar\" | undefined,
+    dyn_select: DynSelect_foo) {
     console.log(42)
 }
 ";
@@ -127,6 +128,14 @@ export function main(test1?: string, test2: string = \"burkina\",
                     typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
                     default: None,
                     has_default: true,
+                    oidx: None
+                },
+                Arg {
+                    otyp: None,
+                    name: "dyn_select".to_string(),
+                    typ: Typ::DynSelect("foo".to_string()),
+                    default: None,
+                    has_default: false,
                     oidx: None
                 }
             ],
