@@ -529,7 +529,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_sql_sig() -> anyhow::Result<()> {
+    fn test_parse_pgsql_sig() -> anyhow::Result<()> {
         let code = r#"
 SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
 "#;
@@ -546,12 +546,159 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None,
+                        oidx: Some(1),
                     },
                     Arg {
                         otyp: Some("bigint".to_string()),
                         name: "$2".to_string(),
                         typ: Typ::Int,
+                        default: None,
+                        has_default: false,
+                        oidx: Some(2),
+                    },
+                ],
+                no_main_func: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_mutli_sig() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT $3::TEXT, $1::BIGINT;
+SELECT $2::TEXT;
+"#;
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_pgsql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("bigint".to_string()),
+                        name: "param1".to_string(),
+                        typ: Typ::Int,
+                        default: None,
+                        has_default: false,
+                        oidx: Some(1),
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "param2".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: Some(2),
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "param3".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: Some(3),
+                    },
+                ],
+                no_main_func: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_mutli_sql_blocks_sig() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT '--', ';' $3::TEXT, $1::BIGINT;
+-- ;
+SELECT $2::TEXT;
+"#;
+        assert_eq!(parse_sql_blocks(code).len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_mysql_positional_sig() -> anyhow::Result<()> {
+        let code = r#"
+-- ? param1 (int) = 3
+-- ? param2 (text)
+SELECT ?, ?;
+"#;
+        assert_eq!(
+            parse_mysql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("int".to_string()),
+                        name: "param1".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(3)),
+                        has_default: true,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "param2".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    },
+                ],
+                no_main_func: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_mysql_sig() -> anyhow::Result<()> {
+        let code = r#"
+-- :param1 (int) = 3
+-- :param2 (text)
+-- :param3 (text)
+SELECT :param3, :param1;
+SELECT :param2;
+"#;
+        assert_eq!(
+            parse_mysql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("int".to_string()),
+                        name: "param1".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(3)),
+                        has_default: true,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "param2".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("text".to_string()),
+                        name: "param3".to_string(),
+                        typ: Typ::Str(None),
                         default: None,
                         has_default: false,
                         oidx: None,
@@ -567,9 +714,10 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
     #[test]
     fn test_parse_bigquery_sig() -> anyhow::Result<()> {
         let code = r#"
--- @token (string)
+-- @token (string) = abc
 -- @image (int64)
-SELECT * FROM table WHERE token=@token AND image=@image
+SELECT * FROM table WHERE token=@token AND image=@image;
+SELECT @token;
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
@@ -582,14 +730,108 @@ SELECT * FROM table WHERE token=@token AND image=@image
                         otyp: Some("string".to_string()),
                         name: "token".to_string(),
                         typ: Typ::Str(None),
-                        default: None,
-                        has_default: false,
+                        default: Some(json!("abc")),
+                        has_default: true,
                         oidx: None,
                     },
                     Arg {
                         otyp: Some("int64".to_string()),
                         name: "image".to_string(),
                         typ: Typ::Int,
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    },
+                ],
+                no_main_func: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_snowflake_sig() -> anyhow::Result<()> {
+        let code = r#"
+-- ? param1 (int) = 3
+-- ? param2 (varchar)
+SELECT ?, ?;
+-- ? param3 (varchar)
+SELECT ?;
+"#;
+        assert_eq!(
+            parse_snowflake_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("int".to_string()),
+                        name: "param1".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(3)),
+                        has_default: true,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("varchar".to_string()),
+                        name: "param2".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("varchar".to_string()),
+                        name: "param3".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    }
+                ],
+                no_main_func: None
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_mssql_sig() -> anyhow::Result<()> {
+        let code = r#"
+-- @p1 param1 (int) = 3
+-- @p2 param2 (varchar)
+-- @p3 param3 (varchar)
+SELECT @p3, @p1;
+SELECT @p2;
+"#;
+        assert_eq!(
+            parse_mssql_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: Some("int".to_string()),
+                        name: "param1".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(3)),
+                        has_default: true,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("varchar".to_string()),
+                        name: "param2".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    },
+                    Arg {
+                        otyp: Some("varchar".to_string()),
+                        name: "param3".to_string(),
+                        typ: Typ::Str(None),
                         default: None,
                         has_default: false,
                         oidx: None,
