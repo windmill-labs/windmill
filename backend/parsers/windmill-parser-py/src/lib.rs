@@ -114,7 +114,6 @@ pub fn parse_python_signature(
                         typ,
                         has_default: default.is_some(),
                         default,
-                        oidx: None,
                     }
                 })
                 .collect(),
@@ -272,56 +271,49 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Unknown,
                         default: Some(json!("<function call>")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "f".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("wewe")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "g".to_string(),
                         typ: Typ::Int,
                         default: Some(json!(21)),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "h".to_string(),
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2])),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "i".to_string(),
                         typ: Typ::Bool,
                         default: Some(json!(true)),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                 ],
                 no_main_func: Some(false),
@@ -360,32 +352,28 @@ def main(test1: str,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Unknown,
                         default: Some(json!("<function call>")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "resource".to_string(),
                         typ: Typ::Resource("postgresql".to_string()),
                         default: Some(json!("$res:g/all/resource")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     }
                 ],
                 no_main_func: Some(false),
@@ -419,32 +407,28 @@ def main(test1: str,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: None,
                         name: "s3o".to_string(),
                         typ: Typ::Resource("S3Object".to_string()),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("test")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
-                        has_default: true,
-                        oidx: None
+                        has_default: true
                     }
                 ],
                 no_main_func: Some(false),
@@ -475,8 +459,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         name: "test1".to_string(),
                         typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: None,
@@ -486,8 +469,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                             "bar".to_string()
                         ])))),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     }
                 ],
                 no_main_func: Some(false),
@@ -517,8 +499,7 @@ def main(test1: DynSelect_foo): return
                     name: "test1".to_string(),
                     typ: Typ::DynSelect("foo".to_string()),
                     default: None,
-                    has_default: false,
-                    oidx: None
+                    has_default: false
                 }],
                 no_main_func: Some(false),
             }

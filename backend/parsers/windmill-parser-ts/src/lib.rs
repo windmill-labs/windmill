@@ -204,7 +204,6 @@ fn parse_param(
                 typ,
                 default: None,
                 has_default: ident.id.optional || nullable,
-                oidx: None,
             })
         }
         // Pat::Object(ObjectPat { ... }) = todo!()
@@ -251,13 +250,13 @@ fn parse_param(
             if typ == Typ::Unknown && dflt.is_some() {
                 typ = json_to_typ(dflt.as_ref().unwrap());
             }
-            Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true, oidx: None })
+            Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true })
         }
         Pat::Object(ObjectPat { type_ann, .. }) => {
             let (typ, nullable) = eval_type_ann(&type_ann);
             *counter += 1;
             let name = format!("anon{}", counter);
-            Ok(Arg { otyp: None, name, typ, default: None, has_default: nullable, oidx: None })
+            Ok(Arg { otyp: None, name, typ, default: None, has_default: nullable })
         }
         _ => Err(anyhow::anyhow!(
             "parameter syntax unsupported: `{}`: {:#?}",

@@ -160,43 +160,32 @@ export const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/you
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
--- $4 name4
-INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
-UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
+INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *
 `
 
 export const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- :name1 (text) = default arg
 -- :name2 (int)
--- :name3 (int)
-INSERT INTO demo VALUES (:name1, :name2);
-UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
+INSERT INTO demo VALUES (:name1, :name2)
 `
 
 export const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
--- @name4 (integer)
-INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
-UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
+INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3)
 `
 
 export const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
-INSERT INTO demo VALUES (?, ?);
--- ? name3 (int)
--- ? name2 (int)
-UPDATE demo SET col2 = ? WHERE col2 = ?;
+INSERT INTO demo VALUES (?, ?)
 `
 
 export const MSSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- @p1 name1 (varchar) = default arg
 -- @p2 name2 (int)
--- @p3 name3 (int)
-INSERT INTO demo VALUES (@p1, @p2);
-UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
+INSERT INTO demo VALUES (@p1, @p2)
 `
 
 export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {

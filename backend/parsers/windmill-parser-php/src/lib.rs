@@ -85,7 +85,6 @@ pub fn parse_php_signature(
                     typ,
                     has_default: default.is_some(),
                     default,
-                    oidx: None,
                 }
             })
             .collect();
@@ -136,40 +135,35 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         name: "input1".to_string(),
                         typ: Typ::Str(None),
                         has_default: true,
-                        default: Some(Value::String("hey".to_string())),
-                        oidx: None
+                        default: Some(Value::String("hey".to_string()))
                     },
                     Arg {
                         otyp: None,
                         name: "input2".to_string(),
                         typ: Typ::Bool,
                         has_default: true,
-                        default: Some(Value::Bool(false)),
-                        oidx: None
+                        default: Some(Value::Bool(false))
                     },
                     Arg {
                         otyp: None,
                         name: "input3".to_string(),
                         typ: Typ::Int,
                         has_default: true,
-                        default: Some(Value::Number(Number::from(3))),
-                        oidx: None
+                        default: Some(Value::Number(Number::from(3)))
                     },
                     Arg {
                         otyp: None,
                         name: "input4".to_string(),
                         typ: Typ::Float,
                         has_default: true,
-                        default: Some(Value::Number(Number::from_f64(f64::from(4.5)).unwrap())),
-                        oidx: None
+                        default: Some(Value::Number(Number::from_f64(f64::from(4.5)).unwrap()))
                     },
                     Arg {
                         otyp: None,
                         name: "resource".to_string(),
                         typ: Typ::Resource("stripe".to_string()),
                         has_default: false,
-                        default: None,
-                        oidx: None
+                        default: None
                     }
                 ],
                 no_main_func: Some(false)
