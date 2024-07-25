@@ -17,3 +17,4 @@ wasm-bindgen-test.workspace = true
 windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
 wasm-bindgen.workspace = true
+serde = { version = "1.0", features = ["derive"] }
