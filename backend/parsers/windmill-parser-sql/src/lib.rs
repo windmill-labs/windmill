@@ -78,11 +78,19 @@ pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
             last_idx = idx + 1;
         },
     );
+    if last_idx < code.len() {
+        let last_block = &code[last_idx..];
+        if RE_NONEMPTY_SQL_BLOCK.is_match(last_block) {
+            blocks.push(last_block);
+        }
+    }
     blocks
 }
 
 lazy_static::lazy_static! {
     static ref RE_CODE_PGSQL: Regex = Regex::new(r#"(?m)\$(\d+)(?:::(\w+(?:\[\])?))?"#).unwrap();
+
+    static ref RE_NONEMPTY_SQL_BLOCK: Regex = Regex::new(r#"(?m)^\s*[^\s](?:[^-]|$)"#).unwrap();
 
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
 
@@ -613,7 +621,7 @@ SELECT $2::TEXT;
     }
 
     #[test]
-    fn test_parse_mutli_sql_blocks_sig() -> anyhow::Result<()> {
+    fn test_parse_sql_blocks_multi_2semi() -> anyhow::Result<()> {
         let code = r#"
 -- $1 param1
 -- $2 param2
@@ -623,6 +631,80 @@ SELECT '--', ';' $3::TEXT, $1::BIGINT;
 SELECT $2::TEXT;
 "#;
         assert_eq!(parse_sql_blocks(code).len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_multi_1semi() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT '--', ';' $3::TEXT, $1::BIGINT;
+-- ;
+SELECT $2::TEXT
+"#;
+        assert_eq!(
+            parse_sql_blocks(code),
+            vec![
+                r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT '--', ';' $3::TEXT, $1::BIGINT;"#,
+                r#"
+-- ;
+SELECT $2::TEXT
+"#
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_single_1semi() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT '--', ';' $3::TEXT, $1::BIGINT;
+-- hey
+"#;
+        assert_eq!(
+            parse_sql_blocks(code),
+            vec![
+                r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT '--', ';' $3::TEXT, $1::BIGINT;"#,
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_single_nosemi() -> anyhow::Result<()> {
+        let code = r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT '--', ';' $3::TEXT, $1::BIGINT
+"#;
+        assert_eq!(
+            parse_sql_blocks(code),
+            vec![
+                r#"
+-- $1 param1
+-- $2 param2
+-- $3 param3
+SELECT '--', ';' $3::TEXT, $1::BIGINT
+"#
+            ]
+        );
 
         Ok(())
     }
