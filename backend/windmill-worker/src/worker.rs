@@ -2902,19 +2902,12 @@ async fn handle_code_execution_job(
             get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
         }
         JobKind::Script => {
-            let r;
-            if job.language == Some(ScriptLang::Bun) && job.script_hash.is_some() {
-                // r = load_bundle_cache(, hash, prefix)
-            }
-            r = Some(
-                get_script_content_by_hash(
-                    &job.script_hash.unwrap_or(ScriptHash(0)),
-                    &job.workspace_id,
-                    db,
-                )
-                .await?,
-            );
-            r.unwrap()
+            get_script_content_by_hash(
+                &job.script_hash.unwrap_or(ScriptHash(0)),
+                &job.workspace_id,
+                db,
+            )
+            .await?
         }
         JobKind::DeploymentCallback => {
             get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?
