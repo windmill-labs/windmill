@@ -517,7 +517,8 @@ def main(test1: DynSelect_foo): return
                     name: "test1".to_string(),
                     typ: Typ::DynSelect("foo".to_string()),
                     default: None,
-                    has_default: false
+                    has_default: false,
+                    oidx: None
                 }],
                 no_main_func: Some(false),
             }
