@@ -241,7 +241,10 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         Some(
             job.args
                 .as_ref()
-                .map(|x| x.get("npm_mode").is_some())
+                .map(|x| {
+                    x.get("npm_mode")
+                        .is_some_and(|y| y.to_string().as_str() == "true")
+                })
                 .unwrap_or(false),
         )
     } else {
