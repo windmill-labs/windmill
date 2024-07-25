@@ -237,7 +237,8 @@ pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
-pub const BUN_TAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
+pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
+pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
@@ -2901,12 +2902,19 @@ async fn handle_code_execution_job(
             get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
         }
         JobKind::Script => {
-            get_script_content_by_hash(
-                &job.script_hash.unwrap_or(ScriptHash(0)),
-                &job.workspace_id,
-                db,
-            )
-            .await?
+            let r;
+            if job.language == Some(ScriptLang::Bun) && job.script_hash.is_some() {
+                // r = load_bundle_cache(, hash, prefix)
+            }
+            r = Some(
+                get_script_content_by_hash(
+                    &job.script_hash.unwrap_or(ScriptHash(0)),
+                    &job.workspace_id,
+                    db,
+                )
+                .await?,
+            );
+            r.unwrap()
         }
         JobKind::DeploymentCallback => {
             get_script_content_by_path(job.script_path.clone(), &job.workspace_id, db).await?

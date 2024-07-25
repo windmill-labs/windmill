@@ -170,6 +170,93 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     Annotations { npm_mode, nodejs_mode }
 }
 
+pub async fn load_cache(bin_path: &str, _hash: &str, prefix: &str) -> (bool, String) {
+    if tokio::fs::metadata(&bin_path).await.is_ok() {
+        (true, format!("loaded bin from local cache: {}\n", bin_path))
+    } else {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .clone()
+        {
+            use crate::s3_helpers::attempt_fetch_bytes;
+
+            if let Ok(mut x) = attempt_fetch_bytes(os, &format!("{prefix}{_hash}")).await {
+                if let Err(e) = write_binary_file(bin_path, &mut x) {
+                    tracing::error!("could not write binary file: {e:?}");
+                    return (
+                        false,
+                        "error writing binary file from object store".to_string(),
+                    );
+                }
+                tracing::info!("loaded bin from object store {}", bin_path);
+                return (true, format!("loaded bin from object store {}", bin_path));
+            }
+        }
+        (false, "".to_string())
+    }
+}
+
+pub async fn save_cache(
+    local_cache_path: &str,
+    remote_cache_path: &str,
+    origin: &str,
+) -> crate::error::Result<String> {
+    let mut _cached_to_s3 = false;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        .read()
+        .await
+        .clone()
+    {
+        use object_store::path::Path;
+
+        if let Err(e) = os
+            .put(
+                &Path::from(remote_cache_path),
+                std::fs::read(origin)?.into(),
+            )
+            .await
+        {
+            tracing::error!(
+                "Failed to put go bin to object store: {remote_cache_path}. Error: {:?}",
+                e
+            );
+        } else {
+            _cached_to_s3 = true;
+        }
+    }
+
+    if !*CLOUD_HOSTED {
+        std::fs::copy(origin, local_cache_path)?;
+        Ok(format!(
+            "\nwrite cached binary: {} (backed by object store: {_cached_to_s3})\n",
+            local_cache_path
+        ))
+    } else if _cached_to_s3 {
+        Ok(format!(
+            "write cached binary to object store {}\n",
+            local_cache_path
+        ))
+    } else {
+        Ok("".to_string())
+    }
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
+    use std::fs::{File, Permissions};
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut file = File::create(main_path)?;
+    file.write_all(byts)?;
+    file.set_permissions(Permissions::from_mode(0o755))?;
+    file.flush()?;
+    Ok(())
+}
+
 fn get_cgroupv2_path() -> Option<String> {
     let cgroup_path: String = parse_file("/proc/self/cgroup")?;
 
