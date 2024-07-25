@@ -78,13 +78,13 @@ fn do_postgresql_inner<'a>(
             if oidx as usize != i {
                 query = query.replace(&format!("${}", oidx), &format!("${}", i));
             }
-            let value = value.cloned().unwrap_or_else(|| serde_json::Value::Null);
+            let value = value.unwrap_or_else(|| &serde_json::Value::Null);
             let arg_t = arg
                 .otyp
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
             let typ = &arg.typ;
-            let param = convert_val(&value, arg_t, typ)?;
+            let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
             i += 1;
         }
