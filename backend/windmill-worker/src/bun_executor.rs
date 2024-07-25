@@ -281,23 +281,6 @@ pub async fn install_lockfile(
     Ok(())
 }
 
-pub struct Annotations {
-    pub npm_mode: bool,
-    pub nodejs_mode: bool,
-}
-
-pub fn get_annotation(inner_content: &str) -> Annotations {
-    let annotations = inner_content
-        .lines()
-        .take_while(|x| x.starts_with("//"))
-        .map(|x| x.to_string().replace("//", "").trim().to_string())
-        .collect_vec();
-    let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
-    let npm_mode: bool = annotations.contains(&"npm".to_string());
-
-    Annotations { npm_mode, nodejs_mode }
-}
-
 pub async fn build_loader(
     job_dir: &str,
     base_internal_url: &str,
@@ -512,7 +495,7 @@ pub async fn handle_bun_job(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
-    let mut annotation = get_annotation(inner_content);
+    let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
     if codebase.is_some() {
         annotation.nodejs_mode = true
@@ -968,7 +951,7 @@ pub async fn start_worker(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
-    let mut annotation = get_annotation(inner_content);
+    let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
     //TODO: remove this when bun dedicated workers work without issues
     annotation.nodejs_mode = true;
