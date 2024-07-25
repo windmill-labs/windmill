@@ -10689,6 +10689,7 @@ dependencies = [
 name = "windmill-sql-datatype-parser-wasm"
 version = "1.367.2"
 dependencies = [
+ "serde",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "windmill-parser",

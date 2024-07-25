@@ -27,14 +27,7 @@ pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             .iter()
             .map(|param| {
                 let (otyp, typ) = parse_go_typ(&param.typ);
-                Arg {
-                    name: get_name(param),
-                    otyp,
-                    typ,
-                    default: None,
-                    has_default: false,
-                    oidx: None,
-                }
+                Arg { name: get_name(param), otyp, typ, default: None, has_default: false }
             })
             .collect_vec();
         Ok(MainArgSignature {
@@ -186,32 +179,28 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         name: "x".to_string(),
                         typ: Typ::Int,
                         has_default: false,
-                        default: None,
-                        oidx: None
+                        default: None
                     },
                     Arg {
                         otyp: Some("string".to_string()),
                         name: "y".to_string(),
                         typ: Typ::Str(None),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: Some("bool".to_string()),
                         name: "z".to_string(),
                         typ: Typ::Bool,
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: Some("[]string".to_string()),
                         name: "l".to_string(),
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: Some("struct { Name string `json:\"name\"` }".to_string()),
@@ -221,24 +210,21 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                             typ: Box::new(Typ::Str(None))
                         },]),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: Some("interface{}".to_string()),
                         name: "n".to_string(),
                         typ: Typ::Object(vec![]),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                     Arg {
                         otyp: Some("map[string]interface{}".to_string()),
                         name: "m".to_string(),
                         typ: Typ::Object(vec![]),
                         default: None,
-                        has_default: false,
-                        oidx: None
+                        has_default: false
                     },
                 ],
                 no_main_func: Some(false)

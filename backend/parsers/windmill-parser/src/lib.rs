@@ -57,7 +57,6 @@ pub struct Arg {
     pub typ: Typ,
     pub default: Option<serde_json::Value>,
     pub has_default: bool,
-    pub oidx: Option<i32>,
 }
 
 pub fn json_to_typ(js: &Value) -> Typ {

@@ -1,14 +1,9 @@
-use std::collections::HashMap;
-
-use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::{
-    parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
-};
+use windmill_parser_sql::{parse_bigquery_sig, parse_db_resource};
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::Deserialize;
@@ -62,35 +57,119 @@ struct BigqueryError {
     message: String,
 }
 
-fn do_bigquery_inner<'a>(
-    query: &'a str,
-    all_statement_values: &'a HashMap<String, Value>,
-    project_id: &'a str,
-    token: &'a str,
-    timeout_ms: i32,
-    column_order: Option<&'a mut Option<Vec<String>>>,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
-    let param_names = parse_sql_statement_named_params(query, '@');
+pub async fn do_bigquery(
+    job: &QueuedJob,
+    client: &AuthedClientBackgroundTask,
+    query: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
+) -> windmill_common::error::Result<Box<RawValue>> {
+    let bigquery_args = build_args_values(job, client, db).await?;
 
-    let statement_values = all_statement_values
-        .iter()
-        .filter_map(|(name, val)| {
-            if param_names.contains(name) {
-                Some(val)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<&Value>>();
+    let inline_db_res_path = parse_db_resource(&query);
 
-    let result_f = async move {
+    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
+        Some(
+            client
+                .get_authed()
+                .await
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
+    } else {
+        bigquery_args.get("database").cloned()
+    };
+
+    let database = if let Some(db) = db_arg {
+        db.to_string()
+    } else {
+        return Err(Error::BadRequest("Missing database argument".to_string()));
+    };
+
+    let service_account = CustomServiceAccount::from_json(&database)
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    let authentication_manager = AuthenticationManager::from(service_account);
+    let scopes = &["https://www.googleapis.com/auth/bigquery"];
+    let token = authentication_manager
+        .get_token(scopes)
+        .await
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    let mut statement_values: Vec<Value> = vec![];
+
+    let sig = parse_bigquery_sig(&query)
+        .map_err(|x| Error::ExecutionErr(x.to_string()))?
+        .args;
+
+    for arg in &sig {
+        let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
+        let arg_n = arg.clone().name;
+        let arg_v = bigquery_args.get(&arg.name).cloned().unwrap_or(json!(""));
+        let bigquery_v = if arg_t.ends_with("[]") {
+            let base_type = arg_t.strip_suffix("[]").unwrap_or(&arg_t);
+            json!({
+                "name": arg.name,
+                "parameterType": {
+                    "type": "ARRAY",
+                    "arrayType": {
+                        "type": base_type.to_uppercase()
+                    }
+                },
+                "parameterValue": {
+                    "arrayValues": bigquery_args
+                        .get(&arg.name)
+                        .unwrap_or(&json!([]))
+                        .as_array()
+                        .unwrap_or(&vec![])
+                        .iter()
+                        .map(|x| {
+                            convert_val(base_type.to_string(), x.clone())
+                        })
+                        .collect::<Vec<Value>>()
+                }
+            })
+        } else {
+            json!({
+                "name": arg_n,
+                "parameterType": {
+                    "type": arg_t.to_uppercase()
+                },
+                "parameterValue": {
+                    "value": convert_val(arg_t, arg_v),
+                }
+            })
+        };
+
+        statement_values.push(bigquery_v);
+    }
+
+    let timeout_ms = i32::try_from(
+        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
+            .await
+            .0
+            .as_millis(),
+    )
+    .unwrap_or(200000);
+
+    let result_f = async {
         let response = HTTP_CLIENT
             .post(
                 "https://bigquery.googleapis.com/bigquery/v2/projects/".to_string()
-                    + project_id
+                    + authentication_manager
+                        .project_id()
+                        .await
+                        .map_err(|e| Error::ExecutionErr(e.to_string()))?
+                        .as_str()
                     + "/queries",
             )
-            .bearer_auth(token)
+            .bearer_auth(token.as_str())
             .json(&json!({
                 "query": query,
                 "useLegacySql": false,
@@ -143,18 +222,16 @@ fn do_bigquery_inner<'a>(
                 ));
                 }
 
-                if let Some(column_order) = column_order {
-                    *column_order = Some(
-                        result
-                            .schema
-                            .as_ref()
-                            .unwrap()
-                            .fields
-                            .iter()
-                            .map(|x| x.name.clone())
-                            .collect::<Vec<String>>(),
-                    );
-                }
+                *column_order = Some(
+                    result
+                        .schema
+                        .as_ref()
+                        .unwrap()
+                        .fields
+                        .iter()
+                        .map(|x| x.name.clone())
+                        .collect::<Vec<String>>(),
+                );
 
                 let rows = result
                     .rows
@@ -191,154 +268,6 @@ fn do_bigquery_inner<'a>(
             },
         }
     };
-
-    Ok(result_f.boxed())
-}
-
-pub async fn do_bigquery(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
-    query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
-    worker_name: &str,
-    column_order: &mut Option<Vec<String>>,
-) -> windmill_common::error::Result<Box<RawValue>> {
-    let bigquery_args = build_args_values(job, client, db).await?;
-
-    let inline_db_res_path = parse_db_resource(&query);
-
-    let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
-        Some(
-            client
-                .get_authed()
-                .await
-                .get_resource_value_interpolated::<serde_json::Value>(
-                    &inline_db_res_path,
-                    Some(job.id.to_string()),
-                )
-                .await?,
-        )
-    } else {
-        bigquery_args.get("database").cloned()
-    };
-
-    let database = if let Some(db) = db_arg {
-        db.to_string()
-    } else {
-        return Err(Error::BadRequest("Missing database argument".to_string()));
-    };
-
-    let service_account = CustomServiceAccount::from_json(&database)
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    let authentication_manager = AuthenticationManager::from(service_account);
-    let scopes = &["https://www.googleapis.com/auth/bigquery"];
-    let token = authentication_manager
-        .get_token(scopes)
-        .await
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    let timeout_ms = i32::try_from(
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
-            .await
-            .0
-            .as_millis(),
-    )
-    .unwrap_or(200000);
-
-    let project_id = authentication_manager
-        .project_id()
-        .await
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-    let queries = parse_sql_blocks(query);
-
-    let mut statement_values: HashMap<String, Value> = HashMap::new();
-
-    let sig = parse_bigquery_sig(&query)
-        .map_err(|x| Error::ExecutionErr(x.to_string()))?
-        .args;
-
-    for arg in &sig {
-        let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
-        let arg_n = arg.clone().name;
-        let arg_v = bigquery_args.get(&arg.name).cloned().unwrap_or(json!(""));
-        let bigquery_v = if arg_t.ends_with("[]") {
-            let base_type = arg_t.strip_suffix("[]").unwrap_or(&arg_t);
-            json!({
-                "name": arg.name,
-                "parameterType": {
-                    "type": "ARRAY",
-                    "arrayType": {
-                        "type": base_type.to_uppercase()
-                    }
-                },
-                "parameterValue": {
-                    "arrayValues": bigquery_args
-                        .get(&arg.name)
-                        .unwrap_or(&json!([]))
-                        .as_array()
-                        .unwrap_or(&vec![])
-                        .iter()
-                        .map(|x| {
-                            convert_val(base_type.to_string(), x.clone())
-                        })
-                        .collect::<Vec<Value>>()
-                }
-            })
-        } else {
-            json!({
-                "name": arg_n,
-                "parameterType": {
-                    "type": arg_t.to_uppercase()
-                },
-                "parameterValue": {
-                    "value": convert_val(arg_t, arg_v),
-                }
-            })
-        };
-
-        statement_values.insert(arg_n, bigquery_v);
-    }
-
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .map(|x| {
-                do_bigquery_inner(
-                    x,
-                    &statement_values,
-                    &project_id,
-                    token.as_str(),
-                    timeout_ms,
-                    None,
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
-
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            Ok(to_raw_value(&res))
-        };
-
-        f.boxed()
-    } else {
-        do_bigquery_inner(
-            query,
-            &statement_values,
-            &project_id,
-            token.as_str(),
-            timeout_ms,
-            Some(column_order),
-        )?
-    };
-
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,

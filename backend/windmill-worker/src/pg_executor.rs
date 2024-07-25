@@ -1,14 +1,12 @@
-use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use base64::{engine, Engine as _};
 use chrono::Utc;
-use futures::future::BoxFuture;
-use futures::{FutureExt, TryStreamExt};
+use futures::TryStreamExt;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
@@ -18,7 +16,6 @@ use serde_json::Map;
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio_postgres::types::IsNull;
-use tokio_postgres::Client;
 use tokio_postgres::{
     types::{to_sql_checked, ToSql},
     NoTls, Row,
@@ -31,10 +28,8 @@ use uuid::Uuid;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::{error::to_anyhow, jobs::QueuedJob};
-use windmill_parser::{Arg, Typ};
-use windmill_parser_sql::{
-    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
-};
+use windmill_parser::Typ;
+use windmill_parser_sql::{parse_db_resource, parse_pgsql_sig};
 use windmill_queue::CanceledBy;
 
 use crate::common::{build_args_values, run_future_with_polling_update_job_poller, sizeof_val};
@@ -59,87 +54,6 @@ lazy_static! {
         Arc::new(Mutex::new(None));
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
     pub static ref RUNNING: AtomicBool = AtomicBool::new(false);
-}
-
-fn do_postgresql_inner<'a>(
-    mut query: String,
-    param_idx_to_arg_and_value: &HashMap<i32, (&Arg, Option<&Value>)>,
-    client: &'a Client,
-    column_order: Option<&'a mut Option<Vec<String>>>,
-    siz: &'a AtomicUsize,
-) -> error::Result<BoxFuture<'a, anyhow::Result<Vec<Value>>>> {
-    let mut query_params = vec![];
-
-    let arg_indices = parse_pg_statement_arg_indices(&query);
-
-    let mut i = 1;
-    for oidx in arg_indices {
-        if let Some((arg, value)) = param_idx_to_arg_and_value.get(&oidx) {
-            if oidx as usize != i {
-                query = query.replace(&format!("${}", oidx), &format!("${}", i));
-            }
-            let value = value.unwrap_or_else(|| &serde_json::Value::Null);
-            let arg_t = arg
-                .otyp
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
-            let typ = &arg.typ;
-            let param = convert_val(value, arg_t, typ)?;
-            query_params.push(param);
-            i += 1;
-        }
-    }
-
-    let result_f = async move {
-        // Now we can execute a simple statement that just returns its parameter.
-        let rows = client
-            .query_raw(&query, query_params)
-            .await
-            .map_err(to_anyhow)?;
-
-        let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
-
-        if let Some(column_order) = column_order {
-            *column_order = Some(
-                rows.first()
-                    .map(|x| {
-                        x.columns()
-                            .iter()
-                            .map(|x| x.name().to_string())
-                            .collect::<Vec<String>>()
-                    })
-                    .unwrap_or_default(),
-            );
-        }
-
-        let mut res: Vec<serde_json::Value> = vec![];
-        for row in rows.into_iter() {
-            let r = postgres_row_to_json_value(row);
-            if let Ok(v) = r.as_ref() {
-                let size = sizeof_val(v);
-                siz.fetch_add(size, Ordering::Relaxed);
-            }
-            if *CLOUD_HOSTED {
-                let siz = siz.load(Ordering::Relaxed);
-                if siz > MAX_RESULT_SIZE * 4 {
-                    return Err(anyhow::anyhow!(
-                        "Query result too large for cloud (size = {} > {})",
-                        siz,
-                        MAX_RESULT_SIZE & 4
-                    ));
-                }
-            }
-            if let Ok(v) = r {
-                res.push(v);
-            } else {
-                return Err(to_anyhow(r.err().unwrap()));
-            }
-        }
-
-        Ok(res)
-    };
-
-    Ok(result_f.boxed())
 }
 
 pub async fn do_postgresql(
@@ -261,7 +175,34 @@ pub async fn do_postgresql(
         Some((client, handle))
     };
 
-    let queries = parse_sql_blocks(query);
+    let mut statement_values: Vec<serde_json::Value> = vec![];
+
+    let sig = parse_pgsql_sig(&query)
+        .map_err(|x| Error::ExecutionErr(x.to_string()))?
+        .args;
+
+    for arg in &sig {
+        statement_values.push(
+            pg_args
+                .get(&arg.name)
+                .map(|x| x.to_owned())
+                .unwrap_or_else(|| serde_json::Value::Null),
+        );
+    }
+
+    let query_params = statement_values
+        .iter()
+        .enumerate()
+        .map(|(i, value)| {
+            let arg_t = &sig[i]
+                .otyp
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?
+                .to_owned();
+            let typ = &sig[i].typ;
+            convert_val(value, arg_t, typ)
+        })
+        .collect::<windmill_common::error::Result<Vec<_>>>()?;
 
     let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
         (client, Some(handle))
@@ -270,49 +211,52 @@ pub async fn do_postgresql(
         (client, None)
     };
 
-    let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
-    let param_idx_to_arg_and_value = sig
-        .args
-        .iter()
-        .filter_map(|x| x.oidx.map(|oidx| (oidx, (x, pg_args.get(&x.name)))))
-        .collect::<HashMap<_, _>>();
+    let result_f = async {
+        // Now we can execute a simple statement that just returns its parameter.
+        let rows = client
+            .query_raw(query, query_params)
+            .await
+            .map_err(to_anyhow)?;
 
-    let size = AtomicUsize::new(0);
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .map(|x| {
-                do_postgresql_inner(
-                    x.to_string(),
-                    &param_idx_to_arg_and_value,
-                    client,
-                    None,
-                    &size,
-                )
-            })
-            .collect::<error::Result<Vec<_>>>()?;
+        let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
 
-        let f = async {
-            let mut res: Vec<serde_json::Value> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(serde_json::to_value(r).map_err(to_anyhow)?);
+        *column_order = Some(
+            rows.first()
+                .map(|x| {
+                    x.columns()
+                        .iter()
+                        .map(|x| x.name().to_string())
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default(),
+        );
+
+        let mut siz = 0;
+        let mut res: Vec<serde_json::Value> = vec![];
+        for row in rows.into_iter() {
+            let r = postgres_row_to_json_value(row);
+            if let Ok(v) = r.as_ref() {
+                let size = sizeof_val(v);
+                siz += size;
             }
-            Ok(res)
-        };
+            if *CLOUD_HOSTED && siz > MAX_RESULT_SIZE * 4 {
+                return Err(anyhow::anyhow!(
+                    "Query result too large for cloud (size = {} > {})",
+                    siz,
+                    MAX_RESULT_SIZE & 4
+                ));
+            }
+            if let Ok(v) = r {
+                res.push(v);
+            } else {
+                return Err(to_anyhow(r.err().unwrap()));
+            }
+        }
 
-        f.boxed()
-    } else {
-        do_postgresql_inner(
-            query.to_string(),
-            &param_idx_to_arg_and_value,
-            client,
-            Some(column_order),
-            &size,
-        )?
+        Ok((res, siz))
     };
 
-    let result = run_future_with_polling_update_job_poller(
+    let (result, size) = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
         db,
@@ -324,7 +268,7 @@ pub async fn do_postgresql(
     )
     .await?;
 
-    *mem_peak = size.load(Ordering::Relaxed) as i32;
+    *mem_peak = size as i32;
 
     RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
 

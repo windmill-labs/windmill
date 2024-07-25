@@ -1,17 +1,15 @@
 use base64::{engine, Engine as _};
 use chrono::Datelike;
 use core::fmt::Write;
-use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
 
 use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
+use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig};
 use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
@@ -63,104 +61,6 @@ struct SnowflakeRowType {
 #[derive(Deserialize)]
 struct SnowflakeError {
     message: String,
-}
-
-fn do_snowflake_inner<'a>(
-    query: &'a str,
-    job_args: &HashMap<String, Value>,
-    mut body: serde_json::Map<String, Value>,
-    account_identifier: &'a str,
-    token: &'a str,
-    column_order: Option<&'a mut Option<Vec<String>>>,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
-    body.insert("statement".to_string(), json!(query));
-
-    let mut bindings = serde_json::Map::new();
-    let sig = parse_snowflake_sig(&query)
-        .map_err(|x| Error::ExecutionErr(x.to_string()))?
-        .args;
-
-    let mut i = 1;
-    for arg in &sig {
-        let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
-        let arg_v = job_args.get(&arg.name).cloned().unwrap_or(json!(""));
-        let snowflake_v = convert_typ_val(arg_t, arg_v);
-
-        bindings.insert(i.to_string(), snowflake_v);
-        i += 1;
-    }
-
-    if i > 1 {
-        body.insert("bindings".to_string(), json!(bindings));
-    }
-
-    let result_f = async move {
-        let response = HTTP_CLIENT
-            .post(format!(
-                "https://{}.snowflakecomputing.com/api/v2/statements/",
-                account_identifier.to_uppercase()
-            ))
-            .bearer_auth(token)
-            .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-        match response.error_for_status_ref() {
-            Ok(_) => {
-                let result = response
-                    .json::<SnowflakeResponse>()
-                    .await
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-                if result.resultSetMetaData.numRows > 10000 {
-                    return Err(Error::ExecutionErr(
-                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
-                ));
-                }
-                if let Some(column_order) = column_order {
-                    *column_order = Some(
-                        result
-                            .resultSetMetaData
-                            .rowType
-                            .iter()
-                            .map(|x| x.name.clone())
-                            .collect::<Vec<String>>(),
-                    );
-                }
-                let rows = to_raw_value(
-                    &result
-                        .data
-                        .iter()
-                        .map(|row| {
-                            let mut row_map = serde_json::Map::new();
-                            row.iter()
-                                .zip(result.resultSetMetaData.rowType.iter())
-                                .for_each(|(val, row_type)| {
-                                    row_map.insert(
-                                        row_type.name.clone(),
-                                        parse_val(&val, &row_type.r#type),
-                                    );
-                                });
-                            row_map
-                        })
-                        .collect::<Vec<_>>(),
-                );
-
-                Ok(rows)
-            }
-            Err(e) => {
-                let resp = response.text().await.unwrap_or("".to_string());
-                match serde_json::from_str::<SnowflakeError>(&resp) {
-                    Ok(sf_err) => Err(Error::ExecutionErr(sf_err.message)),
-                    Err(_) => Err(Error::ExecutionErr(e.to_string())),
-                }
-            }
-        }
-    };
-
-    Ok(result_f.boxed())
 }
 
 pub async fn do_snowflake(
@@ -232,6 +132,21 @@ pub async fn do_snowflake(
 
     tracing::debug!("Snowflake token: {}", token);
 
+    let mut bindings = serde_json::Map::new();
+    let sig = parse_snowflake_sig(&query)
+        .map_err(|x| Error::ExecutionErr(x.to_string()))?
+        .args;
+
+    let mut i = 1;
+    for arg in &sig {
+        let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
+        let arg_v = snowflake_args.get(&arg.name).cloned().unwrap_or(json!(""));
+        let snowflake_v = convert_typ_val(arg_t, arg_v);
+
+        bindings.insert(i.to_string(), snowflake_v);
+        i += 1;
+    }
+
     let mut body = serde_json::Map::new();
     if database.schema.is_some() {
         body.insert(
@@ -257,44 +172,79 @@ pub async fn do_snowflake(
             json!(database.database.unwrap().to_uppercase()),
         );
     }
+    body.insert("statement".to_string(), json!(query));
     body.insert("timeout".to_string(), json!(10)); // in seconds
 
-    let queries = parse_sql_blocks(query);
+    if i > 1 {
+        body.insert("bindings".to_string(), json!(bindings));
+    }
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .map(|x| {
-                do_snowflake_inner(
-                    x,
-                    &snowflake_args,
-                    body.clone(),
-                    &database.account_identifier,
-                    &token,
-                    None,
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let result_f = async {
+        let response = HTTP_CLIENT
+            .post(format!(
+                "https://{}.snowflakecomputing.com/api/v2/statements/",
+                database.account_identifier.to_uppercase()
+            ))
+            .bearer_auth(token)
+            .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
+        match response.error_for_status_ref() {
+            Ok(_) => {
+                let result = response
+                    .json::<SnowflakeResponse>()
+                    .await
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+                tracing::info!("Snowflake response: {:?}", result);
+
+                if result.resultSetMetaData.numRows > 10000 {
+                    return Err(Error::ExecutionErr(
+                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
+                ));
+                }
+
+                *column_order = Some(
+                    result
+                        .resultSetMetaData
+                        .rowType
+                        .iter()
+                        .map(|x| x.name.clone())
+                        .collect::<Vec<String>>(),
+                );
+
+                let rows = to_raw_value(
+                    &result
+                        .data
+                        .iter()
+                        .map(|row| {
+                            let mut row_map = serde_json::Map::new();
+                            row.iter()
+                                .zip(result.resultSetMetaData.rowType.iter())
+                                .for_each(|(val, row_type)| {
+                                    row_map.insert(
+                                        row_type.name.clone(),
+                                        parse_val(&val, &row_type.r#type),
+                                    );
+                                });
+                            row_map
+                        })
+                        .collect::<Vec<_>>(),
+                );
+
+                Ok(rows)
             }
-            Ok(to_raw_value(&res))
-        };
-
-        f.boxed()
-    } else {
-        do_snowflake_inner(
-            query,
-            &snowflake_args,
-            body.clone(),
-            &database.account_identifier,
-            &token,
-            Some(column_order),
-        )?
+            Err(e) => {
+                let resp = response.text().await.unwrap_or("".to_string());
+                match serde_json::from_str::<SnowflakeError>(&resp) {
+                    Ok(sf_err) => Err(Error::ExecutionErr(sf_err.message)),
+                    Err(_) => Err(Error::ExecutionErr(e.to_string())),
+                }
+            }
+        }
     };
     let r = run_future_with_polling_update_job_poller(
         job.id,
