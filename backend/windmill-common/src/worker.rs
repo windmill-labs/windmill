@@ -153,6 +153,23 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
+pub struct Annotations {
+    pub npm_mode: bool,
+    pub nodejs_mode: bool,
+}
+
+pub fn get_annotation(inner_content: &str) -> Annotations {
+    let annotations = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("//"))
+        .map(|x| x.to_string().replace("//", "").trim().to_string())
+        .collect_vec();
+    let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
+    let npm_mode: bool = annotations.contains(&"npm".to_string());
+
+    Annotations { npm_mode, nodejs_mode }
+}
+
 fn get_cgroupv2_path() -> Option<String> {
     let cgroup_path: String = parse_file("/proc/self/cgroup")?;
 
