@@ -4274,31 +4274,6 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/jobs/completed_flow_node_result/{flow_job_id}/{node_id}:
-    get:
-      summary: get completed flow node result
-      operationId: completedFlowNodeResult
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: flow_job_id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: node_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
-
   /w/{workspace}/flows/list_paths:
     get:
       summary: list all flow paths

@@ -237,10 +237,6 @@ pub fn workspaced_service() -> Router {
             "/result_by_id/:job_id/:node_id",
             get(get_result_by_id).layer(cors.clone()),
         )
-        .route(
-            "/completed_flow_node_result/:job_id/:node_id",
-            get(get_completed_flow_node_result).layer(cors.clone()),
-        )
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
 }
@@ -306,18 +302,6 @@ async fn get_result_by_id(
     Query(JsonPath { json_path, .. }): Query<JsonPath>,
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
     let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id, json_path).await?;
-    Ok(Json(res))
-}
-
-async fn get_completed_flow_node_result(
-    Extension(db): Extension<DB>,
-    Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
-    Query(JsonPath { json_path, .. }): Query<JsonPath>,
-) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    let res = windmill_queue::get_result_by_id_from_original_flow(
-        &db, &w_id, &flow_id, &node_id, json_path,
-    )
-    .await?;
     Ok(Json(res))
 }
 
