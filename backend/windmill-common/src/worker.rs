@@ -172,7 +172,7 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
 
 pub async fn load_cache(bin_path: &str, remote_path: &str) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
-        (true, format!("loaded bin from local cache: {}\n", bin_path))
+        (true, format!("loaded from local cache: {}\n", bin_path))
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
@@ -190,7 +190,7 @@ pub async fn load_cache(bin_path: &str, remote_path: &str) -> (bool, String) {
                         "error writing binary file from object store".to_string(),
                     );
                 }
-                tracing::info!("loaded bin from object store {}", bin_path);
+                tracing::info!("loaded from object store {}", bin_path);
                 return (true, format!("loaded bin from object store {}", bin_path));
             }
         }

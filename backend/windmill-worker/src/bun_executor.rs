@@ -550,12 +550,14 @@ pub fn copy_recursively(
 }
 
 pub async fn prebundle_script(
-    inner_content: &String,
+    inner_content: &str,
     lockfile: Option<String>,
+    script_path: &str,
+    job_id: &Uuid,
+    w_id: &str,
     db: &DB,
     job_dir: &str,
     base_internal_url: &str,
-    job: &QueuedJob,
     worker_name: &str,
     token: &str,
 ) -> Result<()> {
@@ -565,13 +567,13 @@ pub async fn prebundle_script(
     }
     let annotation = get_annotation(inner_content);
     let origin = format!("{job_dir}/main.ts");
-    write_file(job_dir, "main.ts", inner_content).await?;
+    write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
     build_loader(
         job_dir,
         base_internal_url,
         &token,
-        &job.workspace_id,
-        &job.script_path(),
+        w_id,
+        script_path,
         if annotation.nodejs_mode {
             LoaderMode::NodeBundle
         } else {
@@ -585,11 +587,11 @@ pub async fn prebundle_script(
 
     generate_bun_bundle(
         job_dir,
-        &job.workspace_id,
-        &job.id,
+        w_id,
+        job_id,
         worker_name,
         db,
-        job.timeout,
+        None,
         &mut 0,
         &mut None,
         &common_bun_proc_envs,
@@ -602,7 +604,7 @@ pub async fn prebundle_script(
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
 fn compute_bundle_local_and_remote_path(
-    inner_content: &String,
+    inner_content: &str,
     requirements_o: &Option<String>,
 ) -> (String, String) {
     let hash = windmill_common::utils::calculate_hash(&format!(
@@ -784,8 +786,6 @@ pub async fn handle_bun_job(
         // }
     }
 
-    let _ = write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
-
     let mut init_logs = if bundle_cache {
         if annotation.nodejs_mode {
             "\n\n--- NODE BUNDLE SNAPSHOT EXECUTION ---\n".to_string()
@@ -795,8 +795,10 @@ pub async fn handle_bun_job(
     } else if codebase.is_some() {
         "\n\n--- NODE CODEBASE SNAPSHOT EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
+        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
+        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
 

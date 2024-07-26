@@ -344,19 +344,6 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 }
             }
 
-            if job.language == Some(ScriptLang::Bun) {
-                crate::bun_executor::prebundle_script(
-                    &raw_code,
-                    Some(content.clone()),
-                    db,
-                    &job_dir,
-                    base_internal_url,
-                    &job,
-                    worker_name,
-                    &token,
-                )
-                .await?;
-            }
             Ok(to_raw_value_owned(
                 json!({ "status": "Successful lock file generation", "lock": content }),
             ))
@@ -1332,6 +1319,21 @@ async fn capture_dependency_job(
                 npm_mode,
             )
             .await?;
+            if req.is_some() {
+                crate::bun_executor::prebundle_script(
+                    job_raw_code,
+                    req.clone(),
+                    script_path,
+                    job_id,
+                    w_id,
+                    db,
+                    &job_dir,
+                    base_internal_url,
+                    worker_name,
+                    &token,
+                )
+                .await?;
+            }
             Ok(req.unwrap_or_else(String::new))
         }
         ScriptLang::Php => {
