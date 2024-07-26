@@ -869,6 +869,7 @@ async function run() {{
 try {{
     await run();
 }} catch(e) {{
+    console.error(e);
     let err = {{ message: e.message, name: e.name, stack: e.stack }};
     let step_id = process.env.WM_FLOW_STEP_ID;
     if (step_id) {{
@@ -1146,7 +1147,7 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
-        (String::from("DISABLE_COLORS"), "0".to_string()),
+        (String::from("FORCE_COLOR"), "1".to_string()),
         (String::from("DO_NOT_TRACK"), "1".to_string()),
         (
             String::from("BASE_URL"),
