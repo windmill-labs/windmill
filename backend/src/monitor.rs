@@ -675,6 +675,16 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     std_env_var: &str,
     lock: Arc<RwLock<Option<T>>>,
 ) -> error::Result<()> {
+    let force_value = std::env::var(format!("FORCE_{}", std_env_var))
+        .ok()
+        .and_then(|x| x.parse::<T>().ok());
+
+    if let Some(force_value) = force_value {
+        let mut l = lock.write().await;
+        *l = Some(force_value);
+        return Ok(());
+    }
+
     let q = load_value_from_global_settings(db, setting_name).await?;
 
     let mut value = std::env::var(std_env_var)
