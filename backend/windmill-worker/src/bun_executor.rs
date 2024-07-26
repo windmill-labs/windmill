@@ -373,7 +373,11 @@ const bo = await Bun.build({{
     target: "{}",
     plugins: [p],
     external: [],
-    minify: true,
+    minify: {{
+        identifiers: false,
+        syntax: true,
+        whitespace: false
+    }},
   }});
 
 if (!bo.success) {{

@@ -247,7 +247,8 @@ pub async fn save_cache(
         }
     }
 
-    if !*CLOUD_HOSTED {
+    // if !*CLOUD_HOSTED {
+    if true {
         std::fs::copy(origin, local_cache_path)?;
         Ok(format!(
             "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",
