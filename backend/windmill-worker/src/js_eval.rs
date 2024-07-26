@@ -189,22 +189,25 @@ pub async fn eval_timeout(
     }
 
     if by_id.is_some() && authed_client.is_some() {
-        if let Some(x) = RE_FULL
-            .captures(&expr)
-            .and_then(|x| x.get(1).map(|y| y.as_str()))
-        {
-            // tracing::error!("{:?}", x.split(".").collect::<Vec<_>>());
-            let arr = x.split(".").collect::<Vec<_>>();
-            let mut iter = arr.iter();
-            iter.next();
-            if let Some(id) = iter.next() {
-                let path = iter.join(".");
-                let query = if path.is_empty() { None } else { Some(path) };
-                return authed_client
-                    .unwrap()
-                    .get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query)
-                    .await;
-            }
+        if let Some((id, idx_o, rest)) = RE_FULL.captures(&expr).map(|x| {
+            (
+                x.get(1).unwrap().as_str(),
+                x.get(2).map(|y| y.as_str()),
+                x.get(3).map(|y| y.as_str()),
+            )
+        }) {
+            let query = if let Some(idx) = idx_o {
+                match rest {
+                    Some(rest) => Some(format!("{}{}", idx, rest)),
+                    None => Some(idx.to_string()),
+                }
+            } else {
+                rest.map(|x| x.trim_start_matches('.').to_string())
+            };
+            return authed_client
+                .unwrap()
+                .get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query)
+                .await;
         }
     }
 
@@ -334,10 +337,9 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>results(?:(?:\.(?:[a-z]|[A-Z]|_|[1-9])+)|(?:\[\".*?\"\])))"#)
-            .unwrap();
+        Regex::new(r#"(?m)(?P<r>results(?:(?:\.[a-zA-Z_1-9]+)|(?:\[\".*?\"\])))"#).unwrap();
     static ref RE_FULL: Regex =
-        Regex::new(r"(?m)^results((?:\.(?:(?:[a-z]|[A-Z]|_|[1-9])+))+)$").unwrap();
+        Regex::new(r"(?m)^results\.([a-zA-Z_1-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_1-9]+)+)?$").unwrap();
 }
 
 fn replace_with_await_result(expr: String) -> String {

@@ -2373,27 +2373,52 @@ async fn extract_result_from_job_result(
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     match job_result {
-        JobResult::ListJob(job_ids) => {
-            let rows = sqlx::query_as::<_, ResultWithId>(
-                "SELECT id, result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
-            )
-            .bind(job_ids.as_slice())
-            .bind(w_id)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .filter_map(|x| x.result.map(|y| (x.id, y)))
-            .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
-            let result = job_ids
+        JobResult::ListJob(job_ids) => match json_path {
+            Some(json_path) => {
+                let mut parts = json_path.split(".");
+
+                let Some(idx) = parts.next().map(|x| x.parse::<usize>().ok()).flatten() else {
+                    return Ok(to_raw_value(&serde_json::Value::Null));
+                };
+                let Some(job_id) = job_ids.get(idx).cloned() else {
+                    return Ok(to_raw_value(&serde_json::Value::Null));
+                };
+                Ok(sqlx::query_as::<_, ResultR>(
+                    "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                )
+                .bind(job_id)
+                .bind(w_id)
+                .bind(
+                    parts.map(|x| x.to_string()).collect::<Vec<_>>()
+                )
+                .fetch_optional(db)
+                .await?
+                .map(|r| r.result.map(|x| x.0))
+                .flatten()
+                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)))
+            }
+            None => {
+                let rows = sqlx::query_as::<_, ResultWithId>(
+                    "SELECT id, result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
+                )
+                .bind(job_ids.as_slice())
+                .bind(w_id)
+                .fetch_all(db)
+                .await?
                 .into_iter()
-                .map(|id| {
-                    rows.get(&id)
-                        .map(|x| x.0.clone())
-                        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
-                })
-                .collect::<Vec<_>>();
-            Ok(to_raw_value(&result))
-        }
+                .filter_map(|x| x.result.map(|y| (x.id, y)))
+                .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
+                let result = job_ids
+                    .into_iter()
+                    .map(|id| {
+                        rows.get(&id)
+                            .map(|x| x.0.clone())
+                            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
+                    })
+                    .collect::<Vec<_>>();
+                Ok(to_raw_value(&result))
+            }
+        },
         JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
             "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
