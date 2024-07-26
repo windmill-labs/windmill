@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, fs, io, path::Path, process::Stdio};
 
 use base64::Engine;
 use itertools::Itertools;
@@ -135,22 +135,24 @@ pub async fn gen_lockfile(
     )
     .await?;
 
-    if export_pkg && !npm_mode {
+    if export_pkg {
         let mut content = "".to_string();
         {
             let mut file = File::open(format!("{job_dir}/package.json")).await?;
             file.read_to_string(&mut content).await?;
         }
-        content.push_str(BUN_LOCKB_SPLIT);
-        {
-            let file = format!("{job_dir}/bun.lockb");
-            if tokio::fs::metadata(&file).await.is_ok() {
-                let mut file = File::open(&file).await?;
-                let mut buf = vec![];
-                file.read_to_end(&mut buf).await?;
-                content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
-            } else {
-                content.push_str(&EMPTY_FILE);
+        if !npm_mode {
+            content.push_str(BUN_LOCKB_SPLIT);
+            {
+                let file = format!("{job_dir}/bun.lockb");
+                if tokio::fs::metadata(&file).await.is_ok() {
+                    let mut file = File::open(&file).await?;
+                    let mut buf = vec![];
+                    file.read_to_end(&mut buf).await?;
+                    content.push_str(&base64::engine::general_purpose::STANDARD.encode(&buf));
+                } else {
+                    content.push_str(&EMPTY_FILE);
+                }
             }
         }
         Ok(Some(content))
@@ -277,23 +279,6 @@ pub async fn install_lockfile(
     }
 
     Ok(())
-}
-
-struct Annotations {
-    npm_mode: bool,
-    nodejs_mode: bool,
-}
-
-fn get_annotation(inner_content: &str) -> Annotations {
-    let annotations = inner_content
-        .lines()
-        .take_while(|x| x.starts_with("//"))
-        .map(|x| x.to_string().replace("//", "").trim().to_string())
-        .collect_vec();
-    let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
-    let npm_mode: bool = annotations.contains(&"npm".to_string());
-
-    Annotations { npm_mode, nodejs_mode }
 }
 
 pub async fn build_loader(
@@ -447,14 +432,40 @@ pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()>
     ));
 }
 
-fn untar_file(file_path: &str, output_dir: &str) -> anyhow::Result<()> {
-    // Open the tar file
-    let file = std::fs::File::open(file_path)?;
-    let file = std::io::BufReader::new(file);
+#[cfg(unix)]
+pub fn copy_recursively(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+    skip: Option<&Vec<String>>,
+) -> io::Result<()> {
+    let mut stack = Vec::new();
+    stack.push((
+        source.as_ref().to_path_buf(),
+        destination.as_ref().to_path_buf(),
+        0,
+    ));
+    while let Some((current_source, current_destination, level)) = stack.pop() {
+        for entry in fs::read_dir(&current_source)? {
+            let entry = entry?;
+            let filetype = entry.file_type()?;
+            let destination = current_destination.join(entry.file_name());
+            if level == 0 {
+                if let Some(skip) = skip {
+                    if skip.contains(&entry.file_name().to_string_lossy().to_string()) {
+                        continue;
+                    }
+                }
+            }
+            let original = entry.path();
 
-    // For a plain tar file, use it directly
-    let mut archive = tar::Archive::new(file);
-    archive.unpack(output_dir)?;
+            if filetype.is_dir() {
+                fs::create_dir_all(&destination)?;
+                stack.push((entry.path(), destination, level + 1));
+            } else {
+                fs::hard_link(&original, &destination)?
+            }
+        }
+    }
 
     Ok(())
 }
@@ -484,7 +495,7 @@ pub async fn handle_bun_job(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
-    let mut annotation = get_annotation(inner_content);
+    let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
     if codebase.is_some() {
         annotation.nodejs_mode = true
@@ -503,43 +514,50 @@ pub async fn handle_bun_job(
         pull_codebase(&job.workspace_id, codebase, job_dir).await?;
     } else if let Some(reqs) = requirements_o {
         let splitted = reqs.split(BUN_LOCKB_SPLIT).collect::<Vec<&str>>();
-        if splitted.len() != 2 {
+        if splitted.len() != 2 && !annotation.npm_mode {
             return Err(error::Error::ExecutionErr(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
         let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
-        let lockb = splitted[1];
+        let lockb = if annotation.npm_mode { "" } else { splitted[1] };
         if lockb != EMPTY_FILE {
-            let _ = write_file_binary(
-                job_dir,
-                "bun.lockb",
-                &base64::engine::general_purpose::STANDARD
-                    .decode(&splitted[1])
-                    .map_err(|_| {
-                        error::Error::InternalErr("Could not decode bun.lockb".to_string())
-                    })?,
-            )
-            .await?;
-
-            let mut sha_path = sha2::Sha256::new();
-            sha_path.update(lockb.as_bytes());
-
-            let buntar_name = base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
-            let buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}.tar");
-
             let mut skip_install = false;
             let mut create_buntar = false;
-            if tokio::fs::metadata(&buntar_path).await.is_ok() {
-                if let Err(e) = untar_file(&buntar_path, job_dir) {
-                    tracing::error!("Could not untar buntar: {e}");
+            let mut buntar_path = "".to_string();
+
+            if !annotation.npm_mode {
+                let _ = write_file_binary(
+                    job_dir,
+                    "bun.lockb",
+                    &base64::engine::general_purpose::STANDARD
+                        .decode(&splitted[1])
+                        .map_err(|_| {
+                            error::Error::InternalErr("Could not decode bun.lockb".to_string())
+                        })?,
+                )
+                .await?;
+
+                let mut sha_path = sha2::Sha256::new();
+                sha_path.update(lockb.as_bytes());
+
+                let buntar_name =
+                    base64::engine::general_purpose::URL_SAFE.encode(sha_path.finalize());
+                buntar_path = format!("{BUN_TAR_CACHE_DIR}/{buntar_name}");
+
+                #[cfg(unix)]
+                if tokio::fs::metadata(&buntar_path).await.is_ok() {
+                    if let Err(e) = copy_recursively(&buntar_path, job_dir, None) {
+                        tracing::error!("Could not extract buntar: {e:#}");
+                    } else {
+                        gbuntar_name = Some(buntar_name.clone());
+                        skip_install = true;
+                    }
                 } else {
-                    gbuntar_name = Some(buntar_name.clone());
-                    skip_install = true;
+                    create_buntar = true;
                 }
-            } else {
-                create_buntar = true;
             }
+
             if !skip_install {
                 install_lockfile(
                     mem_peak,
@@ -554,13 +572,21 @@ pub async fn handle_bun_job(
                 )
                 .await?;
 
+                #[cfg(unix)]
                 if create_buntar {
-                    let f = std::fs::File::create(&buntar_path);
-                    if let Err(e) = f {
-                        tracing::error!("Could not create buntar file {buntar_path}: {e}");
-                    } else if let Err(e) =
-                        tar::Builder::new(f.unwrap()).append_dir_all(".", job_dir)
-                    {
+                    fs::create_dir_all(&buntar_path)?;
+                    if let Err(e) = copy_recursively(
+                        job_dir,
+                        &buntar_path,
+                        Some(&vec![
+                            "main.ts".to_string(),
+                            "package.json".to_string(),
+                            "bun.lockb".to_string(),
+                            "shared".to_string(),
+                            "bunfig.toml".to_string(),
+                        ]),
+                    ) {
+                        fs::remove_dir_all(&buntar_path)?;
                         tracing::error!("Could not create buntar: {e}");
                     }
                 }
@@ -925,7 +951,7 @@ pub async fn start_worker(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
-    let mut annotation = get_annotation(inner_content);
+    let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
     //TODO: remove this when bun dedicated workers work without issues
     annotation.nodejs_mode = true;

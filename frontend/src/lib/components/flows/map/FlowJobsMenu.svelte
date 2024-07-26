@@ -35,7 +35,7 @@
 	let:close
 >
 	<button
-		title="Pick an interation"
+		title="Pick an iteration"
 		slot="trigger"
 		id={`flow-editor-iteration picker-${index}`}
 		type="button"

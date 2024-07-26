@@ -116,14 +116,17 @@ pub async fn test_s3_bucket(
     let client = build_object_store_from_settings(test_s3_bucket).await?;
 
     let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
-    let first_file = list
-        .next()
-        .await
-        .ok_or_else(|| {
-            error::Error::InternalErr("Failed to list files in blob storage".to_string())
-        })?
-        .map_err(|e| anyhow::anyhow!("error listing bucket: {e:#}"))?;
-    tracing::info!("Listed files: {:?}", first_file);
+    let first_file = list.next().await;
+    if first_file.is_some() {
+        if let Err(e) = first_file.as_ref().unwrap() {
+            tracing::error!("error listing bucket: {e:#}");
+            error::Error::InternalErr(format!("Failed to list files in blob storage: {e:#}"));
+        }
+        tracing::info!("Listed files: {:?}", first_file.unwrap());
+    } else {
+        tracing::info!("No files in blob storage");
+    }
+
     let path = object_store::path::Path::from(format!(
         "/test-s3-bucket-{uuid}",
         uuid = uuid::Uuid::new_v4()

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
+	import { base } from '$app/paths'
 
 	import AppConnectInner from '$lib/components/AppConnectInner.svelte'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
@@ -42,7 +43,7 @@
 				<button {disabled} on:click={appConnect?.next}>
 					<img
 						class="h-10 w-auto object-contain"
-						src={darkMode ? '/google_signin_dark.png' : '/google_signin_light.png'}
+						src={darkMode ? base + '/google_signin_dark.png' : base + '/google_signin_light.png'}
 						alt="Google sign-in"
 					/>
 				</button>

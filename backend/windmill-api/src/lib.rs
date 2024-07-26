@@ -7,6 +7,8 @@
  */
 
 use crate::db::ApiAuthed;
+#[cfg(feature = "enterprise")]
+use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 use crate::oauth2_ee::AllClients;
@@ -141,11 +143,22 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
+#[cfg(not(feature = "tantivy"))]
+type IndexReader = ();
+
+#[cfg(not(feature = "tantivy"))]
+type IndexWriter = ();
+
+#[cfg(feature = "tantivy")]
+type IndexReader = windmill_indexer::indexer_ee::IndexReader;
+#[cfg(feature = "tantivy")]
+type IndexWriter = windmill_indexer::indexer_ee::IndexWriter;
+
 pub async fn run_server(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
-    index_reader: Option<windmill_indexer::indexer_ee::IndexReader>,
-    index_writer: Option<windmill_indexer::indexer_ee::IndexWriter>,
+    index_reader: Option<IndexReader>,
+    index_writer: Option<IndexWriter>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
@@ -164,9 +177,13 @@ pub async fn run_server(
     }
     let user_db = UserDB::new(db.clone());
 
+    #[cfg(feature = "enterprise")]
+    let ext_jwks = ExternalJwks::load().await;
     let auth_cache = Arc::new(users::AuthCache::new(
         db.clone(),
         std::env::var("SUPERADMIN_SECRET").ok(),
+        #[cfg(feature = "enterprise")]
+        ext_jwks,
     ));
     let argon2 = Arc::new(Argon2::default());
 

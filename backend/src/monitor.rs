@@ -28,10 +28,11 @@ use windmill_common::{
     flow_status::FlowStatusModule,
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
@@ -41,10 +42,10 @@ use windmill_common::{
     users::truncate_token,
     utils::{now_from_db, rd_string},
     worker::{
-        load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
-        WORKER_CONFIG,
+        load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE,
+        DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
     },
-    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
     METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
@@ -104,8 +105,6 @@ lazy_static::lazy_static! {
         "Number of jobs in the queue",
         &["tag"]
     ).unwrap();
-
-    static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 }
 
 pub async fn initial_load(
@@ -125,6 +124,10 @@ pub async fn initial_load(
 
     if let Err(e) = load_tag_per_workspace_enabled(db).await {
         tracing::error!("Error loading default tag per workpsace: {e:#}");
+    }
+
+    if let Err(e) = load_tag_per_workspace_workspaces(db).await {
+        tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
     }
 
     if server_mode {
@@ -198,6 +201,28 @@ pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => {
             DEFAULT_TAGS_PER_WORKSPACE.store(t, Ordering::Relaxed)
+        }
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
+    let workspaces = load_value_from_global_settings(db, DEFAULT_TAGS_WORKSPACES_SETTING).await;
+
+    match workspaces {
+        Ok(Some(serde_json::Value::Array(t))) => {
+            let workspaces = t
+                .iter()
+                .filter_map(|x| x.as_str())
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>();
+            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
+            *w = Some(workspaces);
+        }
+        Ok(None) => {
+            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
+            *w = None;
         }
         _ => (),
     };

@@ -3875,21 +3875,26 @@ async fn run_dependencies_job(
     let raw_script = req.raw_scripts[0].clone();
     let script_path = raw_script.script_path;
     let ehm = HashMap::new();
+    let raw_code = raw_script.raw_code.unwrap_or_else(|| "".to_string());
+    let language = raw_script.language;
+
     let (args, raw_code) = if let Some(deps) = req.raw_deps {
         let mut hm = HashMap::new();
         hm.insert(
             "raw_deps".to_string(),
             JsonRawValue::from_string("true".to_string()).unwrap(),
         );
+        if language == ScriptLang::Bun {
+            let annotation = windmill_common::worker::get_annotation(&raw_code);
+            hm.insert(
+                "npm_mode".to_string(),
+                JsonRawValue::from_string(annotation.npm_mode.to_string()).unwrap(),
+            );
+        }
         (PushArgs { extra: Some(hm), args: &ehm }, deps)
     } else {
-        (
-            PushArgs::from(&ehm),
-            raw_script.raw_code.unwrap_or_else(|| "".to_string()),
-        )
+        (PushArgs::from(&ehm), raw_code)
     };
-
-    let language = raw_script.language;
 
     let (uuid, tx) = push(
         &db,
