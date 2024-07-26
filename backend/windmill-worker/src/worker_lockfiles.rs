@@ -1319,6 +1319,21 @@ async fn capture_dependency_job(
                 npm_mode,
             )
             .await?;
+            if req.is_some() {
+                crate::bun_executor::prebundle_script(
+                    job_raw_code,
+                    req.clone(),
+                    script_path,
+                    job_id,
+                    w_id,
+                    db,
+                    &job_dir,
+                    base_internal_url,
+                    worker_name,
+                    &token,
+                )
+                .await?;
+            }
             Ok(req.unwrap_or_else(String::new))
         }
         ScriptLang::Php => {
