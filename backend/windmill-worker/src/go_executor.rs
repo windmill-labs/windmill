@@ -12,7 +12,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
-    worker::CLOUD_HOSTED,
+    worker::{save_cache, CLOUD_HOSTED},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy};
@@ -33,111 +33,7 @@ lazy_static::lazy_static! {
     static ref GO_PATH: String = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
 }
 
-pub async fn save_cache(
-    bin_path: &str,
-    job_dir: &str,
-    _hash: &str,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-) -> windmill_common::error::Result<()> {
-    let job_main_path = format!("{job_dir}/main");
-    let mut _cached_to_s3 = false;
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-        .read()
-        .await
-        .clone()
-    {
-        use object_store::path::Path;
-
-        let hash_path = hash_to_os_path(_hash);
-        if let Err(e) = os
-            .put(
-                &Path::from(hash_path.clone()),
-                std::fs::read(&job_main_path)?.into(),
-            )
-            .await
-        {
-            tracing::error!(
-                "Failed to put go bin to object store: {hash_path}. Error: {:?}",
-                e
-            );
-        } else {
-            _cached_to_s3 = true;
-        }
-    }
-
-    if !*CLOUD_HOSTED {
-        tokio::fs::copy(&job_main_path, bin_path).await?;
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!(
-                "\nwrite cached binary: {} (backed by object store: {_cached_to_s3})\n",
-                bin_path
-            ),
-            db,
-        )
-        .await;
-    } else if _cached_to_s3 {
-        append_logs(
-            &job.id,
-            &job.workspace_id,
-            format!("write cached binary to object store {}\n", bin_path),
-            db,
-        )
-        .await;
-    }
-
-    Ok(())
-}
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-async fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
-    use std::fs::Permissions;
-    use std::os::unix::fs::PermissionsExt;
-    use tokio::io::AsyncWriteExt;
-
-    let mut file = File::create(main_path).await?;
-    file.write_all_buf(byts).await?;
-    file.set_permissions(Permissions::from_mode(0o755)).await?;
-    file.flush().await?;
-    Ok(())
-}
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-fn hash_to_os_path(hash: &str) -> String {
-    format!("gobin/{hash}")
-}
-
-async fn load_cache(bin_path: &str, _hash: &str) -> (bool, String) {
-    if tokio::fs::metadata(&bin_path).await.is_ok() {
-        (true, format!("loaded bin from local cache: {}\n", bin_path))
-    } else {
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-            .read()
-            .await
-            .clone()
-        {
-            use windmill_common::s3_helpers::attempt_fetch_bytes;
-
-            if let Ok(mut x) = attempt_fetch_bytes(os, &hash_to_os_path(_hash)).await {
-                if let Err(e) = write_binary_file(bin_path, &mut x).await {
-                    tracing::error!("could not write binary file: {e:?}");
-                    return (
-                        false,
-                        "error writing binary file from object store".to_string(),
-                    );
-                }
-                tracing::info!("loaded bin from object store {}", bin_path);
-                return (true, format!("loaded bin from object store {}", bin_path));
-            }
-        }
-        (false, "".to_string())
-    }
-}
-
+pub const GO_OBJECT_STORE_PREFIX: &str = "gobin/";
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
@@ -163,9 +59,9 @@ pub async fn handle_go_job(
             .map(|x| x.to_string())
             .unwrap_or_default()
     ));
-    let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR,);
-
-    let (cache, cache_logs) = load_cache(&bin_path, &hash).await;
+    let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
+    let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
+    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
 
     let (skip_go_mod, skip_tidy) = if cache {
         create_dir(job_dir).await?;
@@ -309,13 +205,23 @@ func Run(req Req) (interface{{}}, error){{
         )
         .await?;
 
-        if let Err(e) = save_cache(&bin_path, &job_dir, &hash, &job, db).await {
-            tracing::error!("could not save {bin_path} to go cache: {e:?}");
+        match save_cache(
+            &bin_path,
+            &format!("{GO_OBJECT_STORE_PREFIX}{hash}"),
+            &format!("{job_dir}/main"),
+        )
+        .await
+        {
+            Err(e) => {
+                let em = format!("could not save {bin_path} to go cache: {e:?}");
+                tracing::error!(em);
+                em
+            }
+            Ok(logs) => logs,
         }
-        "".to_string()
     } else {
         let target = format!("{job_dir}/main");
-        tokio::fs::symlink(&bin_path, &target).await.map_err(|e| {
+        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
             Error::ExecutionErr(format!(
                 "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))
