@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.368.0](https://github.com/windmill-labs/windmill/compare/v1.367.2...v1.368.0) (2024-07-26)
+
+
+### Features
+
+* add FORCE_&lt;env&gt; to allow to override db settings ([f1d5be8](https://github.com/windmill-labs/windmill/commit/f1d5be8a2a76d5c0d37c55ba762f2cd7a6f6982f))
+* job view audit logging based on env variable ([#4131](https://github.com/windmill-labs/windmill/issues/4131)) ([12f9e56](https://github.com/windmill-labs/windmill/commit/12f9e56154b32d839f49dd967ada4952ca4c395d))
+* multi sql statement with pg fix ([#4134](https://github.com/windmill-labs/windmill/issues/4134)) ([6df9eca](https://github.com/windmill-labs/windmill/commit/6df9eca2cffef754ee27b3219f18d0ad69615c83))
+* multi statement sql ([#4104](https://github.com/windmill-labs/windmill/issues/4104)) ([23108b4](https://github.com/windmill-labs/windmill/commit/23108b4688ec9c9683371ee70a50658f6baae42f))
+* pre-bundle bun scripts ([#4132](https://github.com/windmill-labs/windmill/issues/4132)) ([78fd99c](https://github.com/windmill-labs/windmill/commit/78fd99cb6843c7f8045acd6a6a8df851ec6b35d1))
+
+
+### Bug Fixes
+
+* allow colors for bun and log error directly ([545a57f](https://github.com/windmill-labs/windmill/commit/545a57fd2c425f02d867f4183aac37131e17210f))
+* search modal improvements ([#4128](https://github.com/windmill-labs/windmill/issues/4128)) ([c270ab1](https://github.com/windmill-labs/windmill/commit/c270ab11718f8d41fe764d5d2116bb3b9aa20cb2))
+* support npmjs mode for raw deps of package.json from CLI ([8e615c9](https://github.com/windmill-labs/windmill/commit/8e615c900de46632c52d78a1ec4b6ccc2cec79ff))
+
 ## [1.367.2](https://github.com/windmill-labs/windmill/compare/v1.367.1...v1.367.2) (2024-07-24)
 
 
