@@ -60,9 +60,8 @@ pub async fn handle_go_job(
             .unwrap_or_default()
     ));
     let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
-
-    let (cache, cache_logs) =
-        windmill_common::worker::load_cache(&bin_path, &hash, GO_OBJECT_STORE_PREFIX).await;
+    let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
+    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
 
     let (skip_go_mod, skip_tidy) = if cache {
         create_dir(job_dir).await?;

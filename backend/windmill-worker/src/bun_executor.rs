@@ -35,7 +35,8 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     jobs::QueuedJob,
-    worker::save_cache,
+    worker::{exists_in_cache, get_annotation, save_cache},
+    DB,
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -330,6 +331,7 @@ const bo = await Bun.build({{
     target: "node",
     plugins: [p],
     external: fileNames,
+    minify: true,
   }});
 
 if (!bo.success) {{
@@ -371,6 +373,7 @@ const bo = await Bun.build({{
     target: "{}",
     plugins: [p],
     external: [],
+    minify: true,
   }});
 
 if (!bo.success) {{
@@ -546,7 +549,74 @@ pub fn copy_recursively(
     Ok(())
 }
 
+pub async fn prebundle_script(
+    inner_content: &String,
+    lockfile: Option<String>,
+    db: &DB,
+    job_dir: &str,
+    base_internal_url: &str,
+    job: &QueuedJob,
+    worker_name: &str,
+    token: &str,
+) -> Result<()> {
+    let (local_path, remote_path) = compute_bundle_local_and_remote_path(inner_content, &lockfile);
+    if exists_in_cache(&local_path, &remote_path).await {
+        return Ok(());
+    }
+    let annotation = get_annotation(inner_content);
+    let origin = format!("{job_dir}/main.ts");
+    write_file(job_dir, "main.ts", inner_content).await?;
+    build_loader(
+        job_dir,
+        base_internal_url,
+        &token,
+        &job.workspace_id,
+        &job.script_path(),
+        if annotation.nodejs_mode {
+            LoaderMode::NodeBundle
+        } else {
+            LoaderMode::BunBundle
+        },
+    )
+    .await?;
+
+    let common_bun_proc_envs: HashMap<String, String> =
+        get_common_bun_proc_envs(&base_internal_url).await;
+
+    generate_bun_bundle(
+        job_dir,
+        &job.workspace_id,
+        &job.id,
+        worker_name,
+        db,
+        job.timeout,
+        &mut 0,
+        &mut None,
+        &common_bun_proc_envs,
+    )
+    .await?;
+    save_cache(&local_path, &remote_path, &origin).await?;
+    Ok(())
+}
+
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
+
+fn compute_bundle_local_and_remote_path(
+    inner_content: &String,
+    requirements_o: &Option<String>,
+) -> (String, String) {
+    let hash = windmill_common::utils::calculate_hash(&format!(
+        "{}{}",
+        inner_content,
+        requirements_o
+            .as_ref()
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    ));
+    let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
+    let remote_path = format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}");
+    (local_path, remote_path)
+}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bun_job(
@@ -564,23 +634,13 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<Box<RawValue>> {
-    let (mut bundle_cache, cache_logs, bin_path, hash) = if requirements_o.is_some()
+    let (mut bundle_cache, cache_logs, local_path, remote_path) = if requirements_o.is_some()
         && codebase.is_none()
     {
-        let hash = windmill_common::utils::calculate_hash(&format!(
-            "{}{}",
-            inner_content,
-            requirements_o
-                .as_ref()
-                .map(|x| x.to_string())
-                .unwrap_or_default()
-        ));
-        let bin_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
-
-        let (cache, logs) =
-            windmill_common::worker::load_cache(&bin_path, &hash, BUN_BUNDLE_OBJECT_STORE_PREFIX)
-                .await;
-        (cache, logs, bin_path, hash)
+        let (local_path, remote_path) =
+            compute_bundle_local_and_remote_path(inner_content, &requirements_o);
+        let (cache, logs) = windmill_common::worker::load_cache(&local_path, &remote_path).await;
+        (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
     };
@@ -611,9 +671,9 @@ pub async fn handle_bun_job(
     let mut gbuntar_name = None;
     if bundle_cache {
         let target = format!("{job_dir}/main.js");
-        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
+        std::os::unix::fs::symlink(&local_path, &target).map_err(|e| {
             error::Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
+                "could not copy cached binary from {local_path} to {job_dir}/main: {e:?}"
             ))
         })?;
     } else if let Some(codebase) = codebase.as_ref() {
@@ -748,10 +808,8 @@ pub async fn handle_bun_job(
     }
 
     if bundle_cache {
-        init_logs.push_str(cache_logs.as_str());
+        init_logs = format!("\n{}{}", cache_logs, init_logs);
     }
-
-    append_logs(&job.id, &job.workspace_id, init_logs, db).await;
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
@@ -890,18 +948,17 @@ try {{
                 &common_bun_proc_envs,
             )
             .await?;
-            match save_cache(
-                &bin_path,
-                &format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}"),
-                &format!("{job_dir}/main.js"),
-            )
-            .await
-            {
+            match save_cache(&local_path, &remote_path, &format!("{job_dir}/main.js")).await {
                 Err(e) => {
-                    let em = format!("could not save {bin_path} to go cache: {e:?}");
+                    let em = format!("could not save {local_path} to go cache: {e:?}");
                     tracing::error!(em)
                 }
-                Ok(logs) => tracing::info!("saved bun bundle cache: {logs}"),
+                Ok(logs) => {
+                    init_logs.push_str(&"\n");
+                    init_logs.push_str(&logs);
+                    init_logs.push_str(&"\n");
+                    tracing::info!("saved bun bundle cache: {logs}")
+                }
             }
             let ex_wrapper = read_file_content(&format!("{job_dir}/wrapper.mjs")).await?;
             write_file(
@@ -931,6 +988,7 @@ try {{
             .await?;
         }
     }
+    append_logs(&job.id, &job.workspace_id, init_logs, db).await;
 
     //do not cache local dependencies
     let child = if !*DISABLE_NSJAIL {

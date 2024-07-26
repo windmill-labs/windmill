@@ -170,7 +170,7 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     Annotations { npm_mode, nodejs_mode }
 }
 
-pub async fn load_cache(bin_path: &str, _hash: &str, prefix: &str) -> (bool, String) {
+pub async fn load_cache(bin_path: &str, remote_path: &str) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded bin from local cache: {}\n", bin_path))
     } else {
@@ -182,7 +182,7 @@ pub async fn load_cache(bin_path: &str, _hash: &str, prefix: &str) -> (bool, Str
         {
             use crate::s3_helpers::attempt_fetch_bytes;
 
-            if let Ok(mut x) = attempt_fetch_bytes(os, &format!("{prefix}{_hash}")).await {
+            if let Ok(mut x) = attempt_fetch_bytes(os, remote_path).await {
                 if let Err(e) = write_binary_file(bin_path, &mut x) {
                     tracing::error!("could not write binary file: {e:?}");
                     return (
@@ -195,6 +195,25 @@ pub async fn load_cache(bin_path: &str, _hash: &str, prefix: &str) -> (bool, Str
             }
         }
         (false, "".to_string())
+    }
+}
+
+pub async fn exists_in_cache(bin_path: &str, remote_path: &str) -> bool {
+    if tokio::fs::metadata(&bin_path).await.is_ok() {
+        return true;
+    } else {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .clone()
+        {
+            return os
+                .get(&object_store::path::Path::from(remote_path))
+                .await
+                .is_ok();
+        }
+        return false;
     }
 }
 
@@ -231,12 +250,12 @@ pub async fn save_cache(
     if !*CLOUD_HOSTED {
         std::fs::copy(origin, local_cache_path)?;
         Ok(format!(
-            "\nwrite cached binary: {} (backed by object store: {_cached_to_s3})\n",
+            "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",
             local_cache_path
         ))
     } else if _cached_to_s3 {
         Ok(format!(
-            "write cached binary to object store {}\n",
+            "wrote cached binary to object store {}\n",
             local_cache_path
         ))
     } else {

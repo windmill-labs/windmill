@@ -344,6 +344,19 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 }
             }
 
+            if job.language == Some(ScriptLang::Bun) {
+                crate::bun_executor::prebundle_script(
+                    &raw_code,
+                    Some(content.clone()),
+                    db,
+                    &job_dir,
+                    base_internal_url,
+                    &job,
+                    worker_name,
+                    &token,
+                )
+                .await?;
+            }
             Ok(to_raw_value_owned(
                 json!({ "status": "Successful lock file generation", "lock": content }),
             ))
