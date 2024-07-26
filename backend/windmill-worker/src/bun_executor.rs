@@ -566,7 +566,7 @@ pub async fn prebundle_script(
         return Ok(());
     }
     let annotation = get_annotation(inner_content);
-    let origin = format!("{job_dir}/main.ts");
+    let origin = format!("{job_dir}/main.js");
     write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
     build_loader(
         job_dir,
