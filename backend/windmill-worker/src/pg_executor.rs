@@ -9,6 +9,7 @@ use base64::{engine, Engine as _};
 use chrono::Utc;
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryStreamExt};
+use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
@@ -73,9 +74,9 @@ fn do_postgresql_inner<'a>(
     let arg_indices = parse_pg_statement_arg_indices(&query);
 
     let mut i = 1;
-    for oidx in arg_indices {
+    for oidx in arg_indices.iter().sorted() {
         if let Some((arg, value)) = param_idx_to_arg_and_value.get(&oidx) {
-            if oidx as usize != i {
+            if *oidx as usize != i {
                 query = query.replace(&format!("${}", oidx), &format!("${}", i));
             }
             let value = value.unwrap_or_else(|| &serde_json::Value::Null);
