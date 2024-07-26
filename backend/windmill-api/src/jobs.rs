@@ -3289,7 +3289,7 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
-    static ref JOB_VIEW_CACHE: JobViewCache = JobViewCache::new(500);
+    static ref JOB_VIEW_CACHE: JobViewCache = JobViewCache::new(50000);
 }
 
 struct JobViewCache {
