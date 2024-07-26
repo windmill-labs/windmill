@@ -337,9 +337,9 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>results(?:(?:\.[a-zA-Z_1-9]+)|(?:\[\".*?\"\])))"#).unwrap();
+        Regex::new(r#"(?m)(?P<r>results(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
     static ref RE_FULL: Regex =
-        Regex::new(r"(?m)^results\.([a-zA-Z_1-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_1-9]+)+)?$").unwrap();
+        Regex::new(r"(?m)^results\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_1-9]+)+)?$").unwrap();
 }
 
 fn replace_with_await_result(expr: String) -> String {
