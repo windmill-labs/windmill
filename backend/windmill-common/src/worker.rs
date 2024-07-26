@@ -170,7 +170,7 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     Annotations { npm_mode, nodejs_mode }
 }
 
-pub async fn load_cache(bin_path: &str, remote_path: &str) -> (bool, String) {
+pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded from local cache: {}\n", bin_path))
     } else {
@@ -182,7 +182,7 @@ pub async fn load_cache(bin_path: &str, remote_path: &str) -> (bool, String) {
         {
             use crate::s3_helpers::attempt_fetch_bytes;
 
-            if let Ok(mut x) = attempt_fetch_bytes(os, remote_path).await {
+            if let Ok(mut x) = attempt_fetch_bytes(os, _remote_path).await {
                 if let Err(e) = write_binary_file(bin_path, &mut x) {
                     tracing::error!("could not write binary file: {e:?}");
                     return (
@@ -198,7 +198,7 @@ pub async fn load_cache(bin_path: &str, remote_path: &str) -> (bool, String) {
     }
 }
 
-pub async fn exists_in_cache(bin_path: &str, remote_path: &str) -> bool {
+pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         return true;
     } else {
@@ -209,7 +209,7 @@ pub async fn exists_in_cache(bin_path: &str, remote_path: &str) -> bool {
             .clone()
         {
             return os
-                .get(&object_store::path::Path::from(remote_path))
+                .get(&object_store::path::Path::from(_remote_path))
                 .await
                 .is_ok();
         }
@@ -219,7 +219,7 @@ pub async fn exists_in_cache(bin_path: &str, remote_path: &str) -> bool {
 
 pub async fn save_cache(
     local_cache_path: &str,
-    remote_cache_path: &str,
+    _remote_cache_path: &str,
     origin: &str,
 ) -> crate::error::Result<String> {
     let mut _cached_to_s3 = false;
@@ -233,13 +233,13 @@ pub async fn save_cache(
 
         if let Err(e) = os
             .put(
-                &Path::from(remote_cache_path),
+                &Path::from(_remote_cache_path),
                 std::fs::read(origin)?.into(),
             )
             .await
         {
             tracing::error!(
-                "Failed to put go bin to object store: {remote_cache_path}. Error: {:?}",
+                "Failed to put go bin to object store: {_remote_cache_path}. Error: {:?}",
                 e
             );
         } else {
