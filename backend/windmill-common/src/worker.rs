@@ -180,18 +180,26 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
             .await
             .clone()
         {
+            let started = std::time::Instant::now();
             use crate::s3_helpers::attempt_fetch_bytes;
 
             if let Ok(mut x) = attempt_fetch_bytes(os, _remote_path).await {
                 if let Err(e) = write_binary_file(bin_path, &mut x) {
-                    tracing::error!("could not write binary file: {e:?}");
+                    tracing::error!("could not write bundle/bin file locally: {e:?}");
                     return (
                         false,
-                        "error writing binary file from object store".to_string(),
+                        "error writing bundle/bin file from object store".to_string(),
                     );
                 }
                 tracing::info!("loaded from object store {}", bin_path);
-                return (true, format!("loaded bin from object store {}", bin_path));
+                return (
+                    true,
+                    format!(
+                        "loaded bin/bundle from object store {} in {}ms",
+                        bin_path,
+                        started.elapsed().as_millis()
+                    ),
+                );
             }
         }
         (false, "".to_string())
