@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COALESCE((SELECT MIN(started_at) as min_started_at\n            FROM queue\n            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false\n            GROUP BY script_path), $3) as min_started_at, now() AS now",
+  "query": "SELECT COALESCE((SELECT MIN(started_at) as min_started_at\n            FROM queue\n            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false), $3) as min_started_at, now() AS now",
   "describe": {
     "columns": [
       {
@@ -26,5 +26,5 @@
       null
     ]
   },
-  "hash": "3901cce744c9b246b661c817e068bdb3b1ab504ff8070fcccf6c909ad75f1f6d"
+  "hash": "b2fe5a4185750d67eb8fa48a4d82dc3f80a667550721c6d3cced2062a18d76da"
 }
