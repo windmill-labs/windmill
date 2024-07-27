@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS queue_concurrency_started_at ON queue (workspace_id, script_path, started_at) WHERE concurrent_limit > 0 AND running = true AND job_kind != 'dependencies' AND canceled = false;-- Add up migration script here
