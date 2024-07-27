@@ -551,14 +551,12 @@ Windmill Community Edition {GIT_VERSION}
                                                     load_require_preexisting_user(&db).await;
                                                 },
                                                 EXPOSE_METRICS_SETTING  => {
-                                                    if worker_mode {
-                                                        tracing::info!("Metrics setting changed, restarting");
-                                                        // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
-                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
-                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                        if let Err(e) = tx.send(()) {
-                                                            tracing::error!(error = %e, "Could not send killpill to server");
-                                                        }
+                                                    tracing::info!("Metrics setting changed, restarting");
+                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
+                                                    let rd_delay = rand::thread_rng().gen_range(0..40);
+                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                    if let Err(e) = tx.send(()) {
+                                                        tracing::error!(error = %e, "Could not send killpill to server");
                                                     }
                                                 },
                                                 EXPOSE_DEBUG_METRICS_SETTING => {
