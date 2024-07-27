@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.368.1](https://github.com/windmill-labs/windmill/compare/v1.368.0...v1.368.1) (2024-07-27)
+
+
+### Bug Fixes
+
+* improve runs page performance through pg indices ([99623f3](https://github.com/windmill-labs/windmill/commit/99623f31af109463b065688058d0cab8ea9910de))
+
 ## [1.368.0](https://github.com/windmill-labs/windmill/compare/v1.367.2...v1.368.0) (2024-07-26)
 
 
