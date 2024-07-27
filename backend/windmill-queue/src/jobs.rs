@@ -1761,8 +1761,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         let min_started_at = sqlx::query!(
             "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
             FROM queue
-            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false
-            GROUP BY script_path), $3) as min_started_at, now() AS now",
+            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false), $3) as min_started_at, now() AS now",
             job_script_path,
             &pulled_job.workspace_id,
             completed_count.max_ended_at
