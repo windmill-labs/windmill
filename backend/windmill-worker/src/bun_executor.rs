@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, io, path::Path, process::Stdio};
+use std::{collections::HashMap, fs, io, path::Path, process::Stdio, time::Instant};
 
 use base64::Engine;
 use itertools::Itertools;
@@ -71,6 +71,8 @@ pub async fn gen_lockfile(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
 
+    let mut empty_deps = false;
+
     if let Some(raw_deps) = raw_deps {
         gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", raw_deps.as_str()).await?;
@@ -123,20 +125,30 @@ pub async fn gen_lockfile(
             false,
         )
         .await?;
+
+        let new_package_json = read_file_content(&format!("{job_dir}/package.json")).await?;
+        empty_deps = new_package_json
+            == r#"{
+  "dependencies": {}
+}"#;
     }
 
-    install_lockfile(
-        mem_peak,
-        canceled_by,
-        job_id,
-        w_id,
-        db,
-        job_dir,
-        worker_name,
-        common_bun_proc_envs,
-        npm_mode,
-    )
-    .await?;
+    if !empty_deps {
+        install_lockfile(
+            mem_peak,
+            canceled_by,
+            job_id,
+            w_id,
+            db,
+            job_dir,
+            worker_name,
+            common_bun_proc_envs,
+            npm_mode,
+        )
+        .await?;
+    } else {
+        append_logs(job_id, w_id, "\nempty dependencies, skipping install", db).await;
+    }
 
     if export_pkg {
         let mut content = "".to_string();
@@ -148,7 +160,7 @@ pub async fn gen_lockfile(
             content.push_str(BUN_LOCKB_SPLIT);
             {
                 let file = format!("{job_dir}/bun.lockb");
-                if tokio::fs::metadata(&file).await.is_ok() {
+                if !empty_deps && tokio::fs::metadata(&file).await.is_ok() {
                     let mut file = File::open(&file).await?;
                     let mut buf = vec![];
                     file.read_to_end(&mut buf).await?;
@@ -790,7 +802,9 @@ pub async fn handle_bun_job(
         // }
     }
 
-    let mut init_logs = if bundle_cache {
+    let mut init_logs = if annotation.native_mode {
+        "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
+    } else if bundle_cache {
         if annotation.nodejs_mode {
             "\n\n--- NODE BUNDLE SNAPSHOT EXECUTION ---\n".to_string()
         } else {
@@ -798,6 +812,8 @@ pub async fn handle_bun_job(
         }
     } else if codebase.is_some() {
         "\n\n--- NODE CODEBASE SNAPSHOT EXECUTION ---\n".to_string()
+    } else if annotation.native_mode {
+        "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
         write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
@@ -898,7 +914,9 @@ try {{
         Ok(reserved_variables) as error::Result<HashMap<String, String>>
     };
 
-    let build_cache = !bundle_cache && !codebase.is_some() && requirements_o.is_some();
+    let build_cache = !bundle_cache
+        && !codebase.is_some()
+        && (requirements_o.is_some() || annotation.native_mode);
 
     let write_loader_f = async {
         if build_cache {
@@ -955,16 +973,19 @@ try {{
                 &common_bun_proc_envs,
             )
             .await?;
-            match save_cache(&local_path, &remote_path, &format!("{job_dir}/main.js")).await {
-                Err(e) => {
-                    let em = format!("could not save {local_path} to go cache: {e:?}");
-                    tracing::error!(em)
-                }
-                Ok(logs) => {
-                    init_logs.push_str(&"\n");
-                    init_logs.push_str(&logs);
-                    init_logs.push_str(&"\n");
-                    tracing::info!("saved bun bundle cache: {logs}")
+
+            if !local_path.is_empty() {
+                match save_cache(&local_path, &remote_path, &format!("{job_dir}/main.js")).await {
+                    Err(e) => {
+                        let em = format!("could not save {local_path} to bundle cache: {e:?}");
+                        tracing::error!(em)
+                    }
+                    Ok(logs) => {
+                        init_logs.push_str(&"\n");
+                        init_logs.push_str(&logs);
+                        init_logs.push_str(&"\n");
+                        tracing::info!("saved bun bundle cache: {logs}")
+                    }
                 }
             }
             let ex_wrapper = read_file_content(&format!("{job_dir}/wrapper.mjs")).await?;
@@ -994,6 +1015,44 @@ try {{
             )
             .await?;
         }
+    }
+    if annotation.native_mode {
+        let env_code = format!(
+            "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
+            reserved_variables
+                .iter()
+                .map(|(k, v)| format!("process.env['{}'] = '{}';\n", k, v))
+                .collect::<Vec<String>>()
+                .join("\n"));
+        let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
+        let started_at = Instant::now();
+        let result = crate::js_eval::eval_fetch_timeout(
+            env_code,
+            inner_content.clone(),
+            js_code,
+            job.args.as_ref(),
+            job.id,
+            job.timeout,
+            db,
+            mem_peak,
+            canceled_by,
+            worker_name,
+            &job.workspace_id,
+            false,
+        )
+        .await?;
+        tracing::info!(
+            "Executed native code in {}ms",
+            started_at.elapsed().as_millis()
+        );
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!("{}\n{}", init_logs, result.1),
+            db,
+        )
+        .await;
+        return Ok(result.0);
     }
     append_logs(&job.id, &job.workspace_id, init_logs, db).await;
 
