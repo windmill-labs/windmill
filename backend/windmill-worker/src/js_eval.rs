@@ -638,6 +638,7 @@ pub async fn eval_fetch_timeout(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     w_id: &str,
+    load_client: bool,
 ) -> anyhow::Result<(Box<RawValue>, String)> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
@@ -732,7 +733,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code)) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             }
         };
@@ -779,14 +780,17 @@ async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
     env_code: Option<String>,
+    load_client: bool,
 ) -> anyhow::Result<Box<RawValue>> {
-    if let Some(env_code) = env_code.as_ref() {
-        let _ = js_runtime
-            .load_side_es_module_from_code(
-                &deno_core::resolve_url("file:///windmill.ts")?,
-                format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
-            )
-            .await?;
+    if load_client {
+        if let Some(env_code) = env_code.as_ref() {
+            let _ = js_runtime
+                .load_side_es_module_from_code(
+                    &deno_core::resolve_url("file:///windmill.ts")?,
+                    format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
+                )
+                .await?;
+        }
     }
 
     let _ = js_runtime

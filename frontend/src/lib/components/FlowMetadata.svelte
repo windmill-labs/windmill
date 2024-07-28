@@ -87,7 +87,7 @@
 		{/if}
 
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
-			{@const stem = `/${job?.job_kind}s`}
+			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			<div class="flex flex-row gap-2 items-center">
