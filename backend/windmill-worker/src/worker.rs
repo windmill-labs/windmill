@@ -573,10 +573,10 @@ async fn handle_receive_completed_job<
     R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
 >(
     jc: JobCompleted,
-    base_internal_url: String,
+    base_internal_url: &str,
     db: &Pool<Postgres>,
-    worker_dir: String,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    worker_dir: &str,
+    same_worker_tx: &Sender<SameWorkerPayload>,
     rsmq: Option<R>,
     worker_name: &str,
     worker_save_completed_job_duration: Option<Histo>,
@@ -1189,11 +1189,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
                         wj.dec();
                     }
-                    let base_internal_url2 = base_internal_url2.clone();
-                    let worker_dir2 = worker_dir2.clone();
-                    let same_worker_tx2 = same_worker_tx2.clone();
                     let rsmq2 = rsmq2.clone();
-                    let worker_name = worker_name2.clone();
 
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
@@ -1202,12 +1198,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         JobKind::Dependencies | JobKind::FlowDependencies);
                     handle_receive_completed_job(
                         jc,
-                        base_internal_url2,
+                        &base_internal_url2,
                         &db2,
-                        worker_dir2,
-                        same_worker_tx2,
+                        &worker_dir2,
+                        &same_worker_tx2,
                         rsmq2,
-                        &worker_name,
+                        &worker_name2,
                         worker_save_completed_job_duration2.clone(),
                         worker_flow_transition_duration2.clone(),
                         job_completed_sender.clone(),
