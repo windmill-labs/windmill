@@ -169,7 +169,9 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
     let npm_mode: bool = annotations.contains(&"npm".to_string());
     let native_mode: bool = annotations.contains(&"native".to_string());
-    let nobundling: bool = annotations.contains(&"nobundling".to_string());
+
+    //TODO: remove || npm_mode when bun build is more powerful
+    let nobundling: bool = annotations.contains(&"nobundling".to_string()) || nodejs_mode;
 
     Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
 }
