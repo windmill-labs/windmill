@@ -582,6 +582,9 @@ pub async fn prebundle_script(
         return Ok(());
     }
     let annotation = get_annotation(inner_content);
+    if annotation.nobundling {
+        return Ok(());
+    }
     let origin = format!("{job_dir}/main.js");
     write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
     build_loader(
@@ -652,16 +655,18 @@ pub async fn handle_bun_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<Box<RawValue>> {
-    let (mut bundle_cache, cache_logs, local_path, remote_path) = if requirements_o.is_some()
-        && codebase.is_none()
-    {
-        let (local_path, remote_path) =
-            compute_bundle_local_and_remote_path(inner_content, &requirements_o);
-        let (cache, logs) = windmill_common::worker::load_cache(&local_path, &remote_path).await;
-        (cache, logs, local_path, remote_path)
-    } else {
-        (false, "".to_string(), "".to_string(), "".to_string())
-    };
+    let mut annotation = windmill_common::worker::get_annotation(inner_content);
+
+    let (mut bundle_cache, cache_logs, local_path, remote_path) =
+        if requirements_o.is_some() && !annotation.nobundling && codebase.is_none() {
+            let (local_path, remote_path) =
+                compute_bundle_local_and_remote_path(inner_content, &requirements_o);
+            let (cache, logs) =
+                windmill_common::worker::load_cache(&local_path, &remote_path).await;
+            (cache, logs, local_path, remote_path)
+        } else {
+            (false, "".to_string(), "".to_string(), "".to_string())
+        };
 
     if !codebase.is_some() && !bundle_cache {
         let _ = write_file(job_dir, "main.ts", inner_content).await?;
@@ -671,8 +676,6 @@ pub async fn handle_bun_job(
 
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(&base_internal_url).await;
-
-    let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
     if codebase.is_some() {
         annotation.nodejs_mode = true
@@ -915,6 +918,7 @@ try {{
     };
 
     let build_cache = !bundle_cache
+        && !annotation.nobundling
         && !codebase.is_some()
         && (requirements_o.is_some() || annotation.native_mode);
 
