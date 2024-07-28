@@ -157,6 +157,7 @@ pub struct Annotations {
     pub npm_mode: bool,
     pub nodejs_mode: bool,
     pub native_mode: bool,
+    pub nobundling: bool,
 }
 
 pub fn get_annotation(inner_content: &str) -> Annotations {
@@ -168,8 +169,9 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
     let npm_mode: bool = annotations.contains(&"npm".to_string());
     let native_mode: bool = annotations.contains(&"native".to_string());
+    let nobundling: bool = annotations.contains(&"nobundling".to_string());
 
-    Annotations { npm_mode, nodejs_mode, native_mode }
+    Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
 }
 
 pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
