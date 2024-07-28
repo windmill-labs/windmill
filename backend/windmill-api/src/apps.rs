@@ -1383,7 +1383,29 @@ async fn build_args(
 
         let arg_str = v.get();
 
-        if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
+        if arg_str.starts_with("\"$ctx:") {
+            let prop = arg_str.trim_start_matches("\"$ctx:").trim_end_matches("\"");
+            let value = match prop {
+                "username" => authed.as_ref().map(|a| {
+                    serde_json::to_value(a.username_override.as_ref().unwrap_or(&a.username))
+                }),
+                "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
+                "workspace" => Some(serde_json::to_value(&w_id)),
+                "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),
+                _ => {
+                    return Err(Error::BadRequest(format!(
+                        "context variable {} not allowed",
+                        prop
+                    )))
+                }
+            };
+            safe_args.insert(
+                k.to_string(),
+                to_raw_value(&value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
+                    Error::InternalErr(format!("failed to serialize ctx variable for {}: {}", k, e))
+                })?),
+            );
+        } else if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
             safe_args.insert(k.to_string(), v);
         } else {
             safe_args.insert(
