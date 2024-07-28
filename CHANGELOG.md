@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.368.2](https://github.com/windmill-labs/windmill/compare/v1.368.1...v1.368.2) (2024-07-28)
+
+
+### Bug Fixes
+
+* add the nobundling option for bun ([c3848e2](https://github.com/windmill-labs/windmill/commit/c3848e2e3011c7e74d5ae6eb85605476ef2998f4))
+* disable prebundling for nodejs mode scripts ([1e2e907](https://github.com/windmill-labs/windmill/commit/1e2e907982eab2ea7e713d9cfbec046527616fa2))
+
 ## [1.368.1](https://github.com/windmill-labs/windmill/compare/v1.368.0...v1.368.1) (2024-07-27)
 
 
