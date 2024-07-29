@@ -1,5 +1,10 @@
+<script lang="ts" context="module">
+	let loading: Writable<boolean> = writable(false)
+	let progress: Writable<number> = writable(100)
+</script>
+
 <script lang="ts">
-	import { RefreshCw } from 'lucide-svelte'
+	import { Loader2, RefreshCw, TimerReset } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
 	import Button from '../../common/button/Button.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
@@ -7,15 +12,18 @@
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
+	import { writable, type Writable } from 'svelte/store'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	const { runnableComponents, app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 	const appEditorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let loading: boolean = false
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let interval: number | undefined = undefined
 	let shouldRefresh = false
 	let firstLoad = false
+	let progressTimer: NodeJS.Timeout | undefined = undefined
 
 	$: !firstLoad &&
 		$initialized.initializedComponents?.length ==
@@ -32,21 +40,41 @@
 		return () => {
 			document.removeEventListener('visibilitychange', visChange)
 			if (timeout) clearInterval(timeout)
+			if (progressTimer) clearInterval(progressTimer)
 		}
 	})
 
-	function onClick(stopAfterClear = true) {
+	function onClick(stopAfterClear = false) {
 		if (timeout) {
 			clearInterval(timeout)
 			timeout = undefined
 			shouldRefresh = false
+			if (progressTimer) {
+				clearInterval(progressTimer)
+				progressTimer = undefined
+			}
 			if (stopAfterClear) return
 		}
 		refresh()
 		if (interval) {
 			shouldRefresh = true
 			timeout = setInterval(refresh, interval)
+			startProgress()
 		}
+	}
+
+	function startProgress() {
+		progress.set(100)
+		if (progressTimer) clearInterval(progressTimer)
+		progressTimer = setInterval(() => {
+			progress.update((n) => {
+				const newProgress = n - 100 / ((interval ?? 1000) / 100)
+				if (newProgress <= 0) {
+					return 0
+				}
+				return newProgress
+			})
+		}, 100)
 	}
 
 	function setInter(inter: number | undefined) {
@@ -62,7 +90,8 @@
 			firstLoad = true
 			isFirstLoad = true
 		}
-		loading = true
+		$loading = true
+		$progress = 100
 
 		console.log('refresh all')
 		refreshing = []
@@ -95,7 +124,7 @@
 			.filter(Boolean)
 
 		Promise.all(promises).finally(() => {
-			loading = false
+			$loading = false
 		})
 	}
 
@@ -104,9 +133,11 @@
 			if (timeout) {
 				clearInterval(timeout)
 				timeout = undefined
+				if (progressTimer) clearInterval(progressTimer)
 			}
 		} else if (shouldRefresh) {
 			timeout = setInterval(refresh, interval)
+			startProgress()
 		}
 	}
 
@@ -132,53 +163,86 @@
 	.join(', ')} -->
 <!-- {allItems($app.grid, $app.subgrids).map((x) => x.id)} -->
 
-<div class="flex items-center">
-	<Button
-		disabled={componentNumber == 0}
-		on:click={() => onClick()}
-		color={timeout ? 'blue' : 'light'}
-		variant={timeout ? 'contained' : 'border'}
-		size="xs"
-		btnClasses="!rounded-r-none text-tertiary !text-2xs {timeout ? '!border !border-blue-500' : ''}"
-		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
-			? `every ${interval / 1000} seconds`
-			: 'once'} {refreshing.length > 0 ? `(live: ${refreshing.join(', ')}))` : ''}"
-	>
-		<RefreshCw class={loading ? 'animate-spin' : ''} size={14} /> &nbsp;{componentNumber}
-	</Button>
+<div class=" border rounded-md overflow-hidden">
+	<div class={twMerge('flex items-center')}>
+		<Button
+			disabled={componentNumber == 0}
+			on:click={() => onClick()}
+			color="light"
+			size="xs"
+			variant="border"
+			btnClasses={twMerge(
+				'!rounded-none text-tertiary !text-2xs !border-r border-y-0 border-l-0 group'
+			)}
+			title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
+				? `every ${interval / 1000} seconds`
+				: 'Once'} {refreshing.length > 0 ? `(live: ${refreshing.join(', ')}))` : ''}"
+		>
+			<div class="z-10 flex flex-row items-center gap-2">
+				{#if !$loading}
+					<RefreshCw size={14} />
+				{:else}
+					<Loader2 class="animate-spin text-blue-500" size={14} />
+				{/if}
 
-	<ButtonDropdown hasPadding={true}>
-		<svelte:fragment slot="label">
-			<span
-				class={classNames('text-xs min-w-[2rem]', interval ? 'text-blue-500' : 'text-tertiary')}
-			>
-				{interval ? `${interval / 1000}s` : 'once'}
-			</span>
-		</svelte:fragment>
-		<svelte:fragment slot="items">
-			{#each items ?? [] as { }, index}
-				<MenuItem
-					on:click={() => {
-						if (index === 0) {
-							setInter(undefined)
-						} else {
-							setInter(index * 5000)
-						}
-					}}
-				>
-					<div
-						class={classNames(
-							'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-						)}
-					>
-						{#if index === 0}
-							Once
-						{:else}
-							{`Every ${index * 5} seconds`}
-						{/if}
+				({componentNumber})
+			</div>
+		</Button>
+
+		<ButtonDropdown hasPadding={false}>
+			<slot:fragment slot="buttonReplacement">
+				<div class="flex flex-row gap-2 text-xs hover:bg-surface-hover px-2 items-center h-7">
+					{#if interval}
+						<Badge color="blue" small>
+							{interval ? `Every ${interval / 1000}s` : 'Once'}
+						</Badge>
+					{/if}
+
+					<div class="flex justify-center items-center">
+						<TimerReset size={14} />
 					</div>
-				</MenuItem>
-			{/each}
-		</svelte:fragment>
-	</ButtonDropdown>
+				</div>
+			</slot:fragment>
+			<svelte:fragment slot="label">
+				<span
+					class={twMerge('text-xs min-w-[2rem] ', interval ? 'text-blue-500' : 'text-tertiary')}
+				>
+					{interval ? `${interval / 1000}s` : 'Once'}
+				</span>
+			</svelte:fragment>
+			<svelte:fragment slot="items">
+				{#each items ?? [] as { }, index}
+					<MenuItem
+						on:click={() => {
+							if (index === 0) {
+								setInter(undefined)
+							} else {
+								setInter(index * 5000)
+							}
+						}}
+					>
+						<div
+							class={classNames(
+								'!text-tertiary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+							)}
+						>
+							{#if index === 0}
+								Once
+							{:else}
+								{`Every ${index * 5} seconds`}
+							{/if}
+						</div>
+					</MenuItem>
+				{/each}
+			</svelte:fragment>
+		</ButtonDropdown>
+	</div>
+	{#if interval}
+		<div class="w-full bg-gray-200 rounded-full h-0.5 dark:bg-gray-700">
+			<div
+				class="bg-blue-300 h-0.5 rounded-full dark:bg-blue-500 transition-all"
+				style="width: {$progress}%"
+			/>
+		</div>
+	{/if}
 </div>

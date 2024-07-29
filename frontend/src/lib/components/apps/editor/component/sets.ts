@@ -20,8 +20,10 @@ const layout: ComponentSet = {
 		'steppercomponent',
 		'carousellistcomponent',
 		'decisiontreecomponent',
-		'navbarcomponent'
-	]
+		'navbarcomponent',
+		'recomputeallcomponent'
+	],
+	presets: ['topbarcomponent']
 } as const
 
 const buttons: ComponentSet = {

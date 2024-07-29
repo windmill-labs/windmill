@@ -7,10 +7,16 @@
 		COMPONENT_SETS,
 		type AppComponent,
 		type TypedComponent,
-		DEPRECATED_COMPONENTS
+		DEPRECATED_COMPONENTS,
+		processDimension
 	} from '../component'
 	import ListItem from './ListItem.svelte'
-	import { appComponentFromType, copyComponent, insertNewGridItem } from '../appUtils'
+	import {
+		appComponentFromType,
+		copyComponent,
+		insertNewGridItem,
+		setUpTopBarComponentContent
+	} from '../appUtils'
 	import { push } from '$lib/history'
 	import { ClearableInput, Drawer, DrawerContent } from '../../../common'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
@@ -136,13 +142,30 @@
 
 		const id = insertNewGridItem(
 			$app,
-			appComponentFromType(preset.targetComponent, preset.configuration) as (
-				id: string
-			) => AppComponent,
-			$focusedGrid
+			appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
+				customCss: {
+					container: {
+						class: '!p-0' as any,
+						style: ''
+					}
+				}
+			}) as (id: string) => AppComponent,
+			$focusedGrid,
+			undefined,
+			undefined,
+			{ x: 0, y: 0 },
+			{
+				3: processDimension(preset.dims, 3),
+				12: processDimension(preset.dims, 12)
+			}
 		)
 
 		$selectedComponent = [id]
+
+		if (appComponentType === 'topbarcomponent') {
+			setUpTopBarComponentContent(id, $app)
+		}
+
 		$app = $app
 	}
 
@@ -150,7 +173,7 @@
 
 	$: componentsFiltered = COMPONENT_SETS.map((set) => ({
 		...set,
-		components: set.components.filter((component) => {
+		components: set.components?.filter((component) => {
 			const name = componentsRecord[component].name.toLowerCase()
 			return name.includes(search.toLowerCase().trim())
 		}),
