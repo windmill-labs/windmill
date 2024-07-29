@@ -70,16 +70,18 @@ services:
     image: ${WM_IMAGE}
     pull_policy: always
     deploy:
-      replicas: 2
+      replicas: 1
       resources:
         limits:
-          cpus: "0.1"
-          memory: 128M
+          cpus: "1"
+          memory: 2048M
     restart: unless-stopped
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=native
+      - NUM_WORKERS=8
+      - SLEEP_QUEUE=200
     depends_on:
       db:
         condition: service_healthy
