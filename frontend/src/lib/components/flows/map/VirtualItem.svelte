@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
@@ -24,6 +25,7 @@
 	export let disableAi: boolean = false
 	export let wrapperNode: FlowModule | undefined = undefined
 	export let borderColor: string | undefined = undefined
+	export let hideId: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -93,7 +95,7 @@
 		<div />
 		<div class="flex-1 truncate"><pre>{label}</pre></div>
 		<div class="flex items-center space-x-2">
-			{#if id}
+			{#if id && !hideId}
 				<Badge color="indigo">{id}</Badge>
 			{/if}
 		</div>
@@ -183,7 +185,7 @@
 						<p class="text-sm w-80">
 							Enable Windmill AI in the
 							<a
-								href="/workspace_settings?tab=openai"
+								href="{base}/workspace_settings?tab=openai"
 								target="_blank"
 								class="inline-flex flex-row items-center gap-1"
 								on:click={() => {

@@ -10,6 +10,22 @@
 		@apply dark:border-gray-600;
 	}
 
+	/* Chrome, Edge, and Safari */
+	*::-webkit-scrollbar {
+		width: 3px;
+		height: 3px;
+	}
+	/* 
+	*::-webkit-scrollbar-track {
+		@apply bg-tertiary; 
+	}
+	*/
+
+	*::-webkit-scrollbar-thumb {
+		@apply bg-tertiary-inverse dark:bg-tertiary;
+		border-radius: 10px;
+	}
+
 	@font-face {
 		font-family: 'Inter';
 		src: url('/Inter-Variable.ttf');

@@ -108,37 +108,49 @@
 		}
 	}
 
+	let loadingFetch = false
 	async function fetchJobs(
 		startedBefore: string | undefined,
 		startedAfter: string | undefined,
 		startedAfterCompletedJobs: string | undefined
 	): Promise<Job[]> {
-		return JobService.listJobs({
-			workspace: $workspaceStore!,
-			createdOrStartedBefore: startedBefore,
-			createdOrStartedAfter: startedAfter,
-			createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
-			schedulePath,
-			scriptPathExact: path === null || path === '' ? undefined : path,
-			createdBy: user === null || user === '' ? undefined : user,
-			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
-			jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
-			running: success == 'running' ? true : undefined,
-			isSkipped: isSkipped ? undefined : false,
-			isFlowStep: jobKindsCat != 'all' ? false : undefined,
-			label: label === null || label === '' ? undefined : label,
-			isNotSchedule: showSchedules == false ? true : undefined,
-			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
-			args:
-				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
-			result:
-				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
-					? resultFilter
-					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined,
-			perPage
-		})
+		loadingFetch = true
+		try {
+			return JobService.listJobs({
+				workspace: $workspaceStore!,
+				createdOrStartedBefore: startedBefore,
+				createdOrStartedAfter: startedAfter,
+				createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
+				schedulePath,
+				scriptPathExact: path === null || path === '' ? undefined : path,
+				createdBy: user === null || user === '' ? undefined : user,
+				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+				jobKinds,
+				success: success == 'success' ? true : success == 'failure' ? false : undefined,
+				running: success == 'running' ? true : undefined,
+				isSkipped: isSkipped ? undefined : false,
+				isFlowStep: jobKindsCat != 'all' ? false : undefined,
+				label: label === null || label === '' ? undefined : label,
+				isNotSchedule: showSchedules == false ? true : undefined,
+				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+				args:
+					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
+						? argFilter
+						: undefined,
+				result:
+					resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+						? resultFilter
+						: undefined,
+				allWorkspaces: allWorkspaces ? true : undefined,
+				perPage
+			})
+		} catch (e) {
+			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
+			console.error(e)
+			return []
+		} finally {
+			loadingFetch = false
+		}
 	}
 
 	async function fetchExtendedJobs(
@@ -147,34 +159,48 @@
 		startedAfter: string | undefined,
 		startedAfterCompletedJobs: string | undefined
 	): Promise<ExtendedJobs> {
-		return ConcurrencyGroupsService.listExtendedJobs({
-			rowLimit: 1000,
-			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
-			workspace: $workspaceStore!,
-			createdOrStartedBefore: startedBefore,
-			createdOrStartedAfter: startedAfter,
-			createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
-			schedulePath,
-			scriptPathExact: path === null || path === '' ? undefined : path,
-			createdBy: user === null || user === '' ? undefined : user,
-			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
-			jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
-			running: success == 'running' ? true : undefined,
-			isSkipped: isSkipped ? undefined : false,
-			isFlowStep: jobKindsCat != 'all' ? false : undefined,
-			label: label === null || label === '' ? undefined : label,
-			isNotSchedule: showSchedules == false ? true : undefined,
-			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
-			args:
-				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
-			result:
-				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
-					? resultFilter
-					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined,
-			perPage
-		})
+		loadingFetch = true
+		try {
+			return ConcurrencyGroupsService.listExtendedJobs({
+				rowLimit: 1000,
+				concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
+				workspace: $workspaceStore!,
+				createdOrStartedBefore: startedBefore,
+				createdOrStartedAfter: startedAfter,
+				createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
+				schedulePath,
+				scriptPathExact: path === null || path === '' ? undefined : path,
+				createdBy: user === null || user === '' ? undefined : user,
+				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+				jobKinds,
+				success: success == 'success' ? true : success == 'failure' ? false : undefined,
+				running: success == 'running' ? true : undefined,
+				isSkipped: isSkipped ? undefined : false,
+				isFlowStep: jobKindsCat != 'all' ? false : undefined,
+				label: label === null || label === '' ? undefined : label,
+				isNotSchedule: showSchedules == false ? true : undefined,
+				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+				args:
+					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
+						? argFilter
+						: undefined,
+				result:
+					resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+						? resultFilter
+						: undefined,
+				allWorkspaces: allWorkspaces ? true : undefined,
+				perPage
+			})
+		} catch (e) {
+			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
+			console.error(e)
+			return {
+				jobs: [],
+				obscured_jobs: []
+			}
+		} finally {
+			loadingFetch = false
+		}
 	}
 
 	export async function loadJobs(
@@ -256,6 +282,9 @@
 	}
 
 	async function syncer() {
+		if (loadingFetch) {
+			return
+		}
 		if (sync) {
 			if (syncQueuedRunsCount) {
 				getCount()

@@ -166,7 +166,7 @@
 	}
 
 	let dragClosure: (() => void) | undefined = undefined
-	const pointerdown = ({ clientX, clientY }) => {
+	const pointerdown = ({ clientX, clientY, pageX, pageY }) => {
 		dragClosure = () => {
 			dragClosure = undefined
 			ctx.componentActive.set(true)
@@ -289,8 +289,10 @@
 	let resizeInitPos = { x: 0, y: 0 }
 	let initSize = { width: 0, height: 0 }
 
-	const resizePointerDown = (e) => {
+	let orientation: 'both' | 'horizontal' | 'vertical' = 'both'
+	const resizePointerDown = (e, o: 'both' | 'horizontal' | 'vertical') => {
 		e.stopPropagation()
+		orientation = o
 		const { pageX, pageY } = e
 
 		resizeInitPos = { x: pageX, y: pageY }
@@ -315,8 +317,14 @@
 
 	const resizePointerMove = ({ pageX, pageY }) => {
 		if (shadow) {
-			newSize.width = initSize.width + ((pageX - resizeInitPos.x) / $scale) * 100
-			newSize.height = initSize.height + ((pageY - resizeInitPos.y) / $scale) * 100
+			newSize.width =
+				orientation == 'both' || orientation == 'horizontal'
+					? initSize.width + ((pageX - resizeInitPos.x) / $scale) * 100
+					: initSize.width
+			newSize.height =
+				orientation == 'both' || orientation == 'vertical'
+					? initSize.height + ((pageY - resizeInitPos.y) / $scale) * 100
+					: initSize.height
 
 			// Get max col number
 			let maxWidth = cols - shadow.x
@@ -344,7 +352,6 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-
 <div
 	draggable="false"
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}
@@ -368,7 +375,9 @@
 		  } transform: translate(${left}px, ${top}px); `} "
 >
 	<slot />
-	<div class="svlt-grid-resizer" on:pointerdown={resizePointerDown} />
+	<div class="svlt-grid-resizer-bottom" on:pointerdown={(e) => resizePointerDown(e, 'vertical')} />
+	<div class="svlt-grid-resizer-side" on:pointerdown={(e) => resizePointerDown(e, 'horizontal')} />
+	<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
 </div>
 
 {#if xPerPx > 0 && (active || trans) && shadow}
@@ -388,6 +397,25 @@
 		will-change: auto;
 		backface-visibility: hidden;
 		-webkit-backface-visibility: hidden;
+	}
+
+	.svlt-grid-resizer-bottom {
+		user-select: none;
+		width: 100%;
+		height: 4px;
+		position: absolute;
+		bottom: 0;
+		cursor: s-resize;
+	}
+
+	.svlt-grid-resizer-side {
+		user-select: none;
+		width: 4px;
+		height: 100%;
+		position: absolute;
+		top: 0;
+		right: 0;
+		cursor: e-resize;
 	}
 
 	.svlt-grid-resizer {

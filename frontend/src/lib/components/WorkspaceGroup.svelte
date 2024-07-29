@@ -327,17 +327,17 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags.concat(nativeTags)
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags.concat(nativeTags)
 
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to all tags <Tooltip
-									>{(defaultTagPerWorkspace
+									>{(defaultTagPerWorkspace && workspaceTag
 										? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
 										: defaultTags.concat(nativeTags)
 									).join(', ')}</Tooltip
@@ -349,13 +349,13 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to all tags minus native ones <Tooltip
 									>{(defaultTagPerWorkspace
@@ -370,16 +370,16 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-											: nativeTags
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+												: nativeTags
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to native tags <Tooltip
-									>{(defaultTagPerWorkspace
+									>{(defaultTagPerWorkspace && workspaceTag
 										? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
 										: nativeTags
 									).join(', ')}</Tooltip
@@ -392,8 +392,7 @@
 									noInputStyles
 									hideArrow={true}
 									items={workspaces.map((w) => w.id)}
-									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary ' +
-										(!workspaceTag ? '!border-red-600/60 !dark:border-red-400/70' : '')}
+									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
 									dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
 									className="!font-gray-600 !font-primary !bg-surface-primary"
 									create

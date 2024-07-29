@@ -286,13 +286,14 @@ pub async fn handle_python_job(
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
     let os_main_override = if let Some(main_override) = main_name.as_ref() {
-        format!("import os\nos.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
+        format!("os.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
     } else {
         String::new()
     };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let wrapper_content: String = format!(
         r#"
+import os
 import json
 {import_loader}
 {import_base64}
@@ -318,6 +319,9 @@ def to_b_64(v: bytes):
     return b64.decode('ascii')
 
 replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
+
+result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
+
 try:
     res = inner_script.{main_override}(**args)
     typ = type(res)
@@ -333,14 +337,13 @@ try:
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
     res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
-    with open("result.json", 'w') as f:
+    with open(result_json, 'w') as f:
         f.write(res_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open("result.json", 'w') as f:
+    with open(result_json, 'w') as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}
-        import os
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
