@@ -585,8 +585,6 @@
 										</div>
 									{/if}
 									<div class=" grid grid-cols-3 gap-2">
-										{script.language}
-										{template}
 										{#each langs as [label, lang] (lang)}
 											{@const isPicked =
 												(lang == script.language && template == 'script') ||
