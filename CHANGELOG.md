@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.369.0](https://github.com/windmill-labs/windmill/compare/v1.368.3...v1.369.0) (2024-07-29)
+
+
+### Features
+
+* add support for text/plain webhook ([#4146](https://github.com/windmill-labs/windmill/issues/4146)) ([eb6557a](https://github.com/windmill-labs/windmill/commit/eb6557a6beb5d3b2324b30f2abc117b1a122c3f7))
+* **frontend:** App bar as components ([#4103](https://github.com/windmill-labs/windmill/issues/4103)) ([fb89eed](https://github.com/windmill-labs/windmill/commit/fb89eed8fa43568ffe3a22c5a6dd0b9f38890a37))
+* remove nativets in favor of bun with native pragma ([18f22be](https://github.com/windmill-labs/windmill/commit/18f22be2bae3136f1d9ff06c74f3751504bef60b))
+* remove nativets in favor of bun with native pragma ([b02baa2](https://github.com/windmill-labs/windmill/commit/b02baa2cfb242f7f6ed64e9861a8562272fb2974))
+
 ## [1.368.3](https://github.com/windmill-labs/windmill/compare/v1.368.2...v1.368.3) (2024-07-28)
 
 
