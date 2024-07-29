@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.369.1](https://github.com/windmill-labs/windmill/compare/v1.369.0...v1.369.1) (2024-07-29)
+
+
+### Bug Fixes
+
+* fix lang picker artefact for script editor ([bc94acb](https://github.com/windmill-labs/windmill/commit/bc94acb378b1310271dd3dda80614e0e38b5285f))
+
 ## [1.369.0](https://github.com/windmill-labs/windmill/compare/v1.368.3...v1.369.0) (2024-07-29)
 
 
