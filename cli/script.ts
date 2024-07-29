@@ -160,6 +160,7 @@ export async function handleFile(
         format: "esm",
         bundle: true,
         write: false,
+        platform: 'node',
       });
       bundleContent = out.outputFiles[0].text;
       log.info(`Finished building the bundle for ${path}`);
