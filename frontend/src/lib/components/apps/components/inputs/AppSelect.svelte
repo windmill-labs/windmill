@@ -179,10 +179,14 @@
 			if (filterText.length > 0) {
 				const prev = listItems.filter((i) => !i.created)
 
-				listItems = [
-					...prev,
-					{ value: JSON.stringify(filterText), label: filterText, created: true }
-				]
+				// if the filter text is not in the list, add it
+
+				if (!prev.some((i) => i.label?.toLocaleLowerCase() === filterText?.toLocaleLowerCase())) {
+					listItems = [
+						...prev,
+						{ value: JSON.stringify(filterText), label: filterText, created: true }
+					]
+				}
 			}
 
 			if (filterText.length === 0) {
