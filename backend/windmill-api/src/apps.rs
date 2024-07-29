@@ -1392,6 +1392,7 @@ async fn build_args(
                 "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
                 "workspace" => Some(serde_json::to_value(&w_id)),
                 "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),
+                "onBehalfOfEmail" => Some(serde_json::to_value(&policy.on_behalf_of_email)),
                 _ => {
                     return Err(Error::BadRequest(format!(
                         "context variable {} not allowed",
