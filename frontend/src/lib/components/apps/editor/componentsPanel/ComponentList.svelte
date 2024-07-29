@@ -145,7 +145,7 @@
 			appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
 				customCss: {
 					container: {
-						class: 'border-b' as any,
+						class: '' as any,
 						style: ''
 					}
 				}

@@ -1055,7 +1055,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 			{
 				customCss: {
 					text: {
-						class: 'text-xs font-semibold' as any,
+						class: 'text-sm font-semibold truncate' as any,
 						style: ''
 					}
 				},
@@ -1076,6 +1076,19 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		{
 			parentComponentId: id,
 			subGridIndex: 0
+		},
+		undefined,
+		undefined,
+		undefined,
+		{
+			3: {
+				w: 5,
+				h: 1
+			},
+			12: {
+				w: 6,
+				h: 1
+			}
 		}
 	)
 
@@ -1085,6 +1098,19 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		{
 			parentComponentId: id,
 			subGridIndex: 0
+		},
+		undefined,
+		undefined,
+		undefined,
+		{
+			3: {
+				w: 1,
+				h: 1
+			},
+			12: {
+				w: 2,
+				h: 1
+			}
 		}
 	)
 
@@ -1104,7 +1130,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 			{
 				customCss: {
 					text: {
-						class: 'text-xs' as any,
+						class: 'text-xs text-secondary' as any,
 						style: ''
 					}
 				},
@@ -1126,6 +1152,19 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		{
 			parentComponentId: id,
 			subGridIndex: 0
+		},
+		undefined,
+		undefined,
+		undefined,
+		{
+			3: {
+				w: 1,
+				h: 1
+			},
+			12: {
+				w: 4,
+				h: 1
+			}
 		}
 	)
 }

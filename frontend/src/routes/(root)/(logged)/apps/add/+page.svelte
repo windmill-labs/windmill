@@ -8,8 +8,8 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
 	import { afterNavigate, replaceState } from '$app/navigation'
-    import { goto } from '$lib/navigation'
-    import { sendUserToast } from '$lib/toast'
+	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 	import {
 		presets,
@@ -123,7 +123,7 @@
 				appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
 					customCss: {
 						container: {
-							class: 'border-b' as any,
+							class: '' as any,
 							style: ''
 						}
 					}
