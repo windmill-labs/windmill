@@ -1082,7 +1082,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		undefined,
 		{
 			3: {
-				w: 5,
+				w: 6,
 				h: 1
 			},
 			12: {
@@ -1104,11 +1104,11 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		undefined,
 		{
 			3: {
-				w: 1,
+				w: 3,
 				h: 1
 			},
 			12: {
-				w: 2,
+				w: 3,
 				h: 1
 			}
 		}
@@ -1130,7 +1130,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 			{
 				customCss: {
 					text: {
-						class: 'text-xs text-secondary' as any,
+						class: 'text-xs text-gray-500' as any,
 						style: ''
 					}
 				},
@@ -1158,11 +1158,11 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		undefined,
 		{
 			3: {
-				w: 1,
+				w: 3,
 				h: 1
 			},
 			12: {
-				w: 4,
+				w: 3,
 				h: 1
 			}
 		}

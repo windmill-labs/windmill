@@ -1,5 +1,9 @@
+<script lang="ts" context="module">
+	let loading: Writable<boolean> = writable(false)
+</script>
+
 <script lang="ts">
-	import { RefreshCw } from 'lucide-svelte'
+	import { Loader2, RefreshCw } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
 	import Button from '../../common/button/Button.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
@@ -7,11 +11,12 @@
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
+	import { writable, type Writable } from 'svelte/store'
 
 	const { runnableComponents, app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 	const appEditorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let loading: boolean = false
 	let timeout: NodeJS.Timeout | undefined = undefined
 	let interval: number | undefined = undefined
 	let shouldRefresh = false
@@ -62,7 +67,7 @@
 			firstLoad = true
 			isFirstLoad = true
 		}
-		loading = true
+		$loading = true
 
 		console.log('refresh all')
 		refreshing = []
@@ -95,7 +100,7 @@
 			.filter(Boolean)
 
 		Promise.all(promises).finally(() => {
-			loading = false
+			$loading = false
 		})
 	}
 
@@ -132,27 +137,35 @@
 	.join(', ')} -->
 <!-- {allItems($app.grid, $app.subgrids).map((x) => x.id)} -->
 
-<div class="flex items-center">
+<div class={twMerge('flex items-center border rounded-md')}>
 	<Button
 		disabled={componentNumber == 0}
 		on:click={() => onClick()}
-		color={timeout ? 'blue' : 'light'}
-		variant={timeout ? 'contained' : 'border'}
+		color="light"
 		size="xs"
-		btnClasses="!rounded-r-none text-tertiary !text-2xs {timeout ? '!border !border-blue-500' : ''}"
+		variant="border"
+		btnClasses={twMerge(
+			'!rounded-r-none text-tertiary !text-2xs !border-r border-y-0 border-l-0 group'
+		)}
 		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
 			? `every ${interval / 1000} seconds`
-			: 'once'} {refreshing.length > 0 ? `(live: ${refreshing.join(', ')}))` : ''}"
+			: 'Once'} {refreshing.length > 0 ? `(live: ${refreshing.join(', ')}))` : ''}"
 	>
-		<RefreshCw class={loading ? 'animate-spin' : ''} size={14} /> &nbsp;{componentNumber}
+		<div class="z-10 flex flex-row items-center gap-2">
+			{#if !$loading}
+				<RefreshCw size={14} />
+			{:else}
+				<Loader2 class="animate-spin text-blue-500" size={14} />
+			{/if}
+
+			&nbsp;Reload ({componentNumber})
+		</div>
 	</Button>
 
 	<ButtonDropdown hasPadding={true}>
 		<svelte:fragment slot="label">
-			<span
-				class={classNames('text-xs min-w-[2rem]', interval ? 'text-blue-500' : 'text-tertiary')}
-			>
-				{interval ? `${interval / 1000}s` : 'once'}
+			<span class={twMerge('text-xs min-w-[2rem] ', interval ? 'text-blue-500' : 'text-tertiary')}>
+				{interval ? `${interval / 1000}s` : 'Once'}
 			</span>
 		</svelte:fragment>
 		<svelte:fragment slot="items">
