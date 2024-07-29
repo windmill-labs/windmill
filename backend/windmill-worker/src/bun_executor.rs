@@ -34,7 +34,9 @@ use windmill_common::variables;
 
 use windmill_common::{
     error::{self, Result},
+    get_latest_hash_for_path,
     jobs::QueuedJob,
+    scripts::ScriptLang,
     worker::{exists_in_cache, get_annotation, save_cache},
     DB,
 };
@@ -577,7 +579,8 @@ pub async fn prebundle_script(
     worker_name: &str,
     token: &str,
 ) -> Result<()> {
-    let (local_path, remote_path) = compute_bundle_local_and_remote_path(inner_content, &lockfile);
+    let (local_path, remote_path) =
+        compute_bundle_local_and_remote_path(inner_content, &lockfile, script_path, db, w_id).await;
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
@@ -622,18 +625,48 @@ pub async fn prebundle_script(
 
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
-fn compute_bundle_local_and_remote_path(
+async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) -> Result<String> {
+    let script_hash = get_latest_hash_for_path(&mut db.begin().await?, w_id, script_path).await?;
+    let last_updated_at = sqlx::query_scalar!(
+        "SELECT created_at FROM script WHERE workspace_id = $1 AND hash = $2",
+        w_id,
+        script_hash.0 .0
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(last_updated_at.to_string())
+}
+
+async fn compute_bundle_local_and_remote_path(
     inner_content: &str,
     requirements_o: &Option<String>,
+    script_path: &str,
+    db: &DB,
+    w_id: &str,
 ) -> (String, String) {
-    let hash = windmill_common::utils::calculate_hash(&format!(
+    let mut input_src = format!(
         "{}{}",
         inner_content,
         requirements_o
             .as_ref()
             .map(|x| x.to_string())
             .unwrap_or_default()
-    ));
+    );
+
+    let relative_imports = crate::worker_lockfiles::extract_relative_imports(
+        &inner_content,
+        script_path,
+        &Some(ScriptLang::Bun),
+    );
+
+    for path in relative_imports.unwrap_or_default() {
+        if let Ok(updated_at) = get_script_import_updated_at(db, w_id, &path).await {
+            input_src.push_str(&path);
+            input_src.push_str(&updated_at.to_string());
+        }
+    }
+
+    let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{BUN_BUNDLE_CACHE_DIR}/{hash}");
     let remote_path = format!("{BUN_BUNDLE_OBJECT_STORE_PREFIX}{hash}");
     (local_path, remote_path)
@@ -657,10 +690,17 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::get_annotation(inner_content);
 
-    let (mut bundle_cache, cache_logs, local_path, remote_path) =
+    let (mut has_bundle_cache, cache_logs, local_path, remote_path) =
         if requirements_o.is_some() && !annotation.nobundling && codebase.is_none() {
-            let (local_path, remote_path) =
-                compute_bundle_local_and_remote_path(inner_content, &requirements_o);
+            let (local_path, remote_path) = compute_bundle_local_and_remote_path(
+                inner_content,
+                &requirements_o,
+                job.script_path(),
+                db,
+                &job.workspace_id,
+            )
+            .await;
+
             let (cache, logs) =
                 windmill_common::worker::load_cache(&local_path, &remote_path).await;
             (cache, logs, local_path, remote_path)
@@ -668,9 +708,9 @@ pub async fn handle_bun_job(
             (false, "".to_string(), "".to_string(), "".to_string())
         };
 
-    if !codebase.is_some() && !bundle_cache {
+    if !codebase.is_some() && !has_bundle_cache {
         let _ = write_file(job_dir, "main.ts", inner_content).await?;
-    } else {
+    } else if !annotation.native_mode {
         let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
     };
 
@@ -690,7 +730,7 @@ pub async fn handle_bun_job(
     }
 
     let mut gbuntar_name = None;
-    if bundle_cache {
+    if has_bundle_cache {
         let target = format!("{job_dir}/main.js");
         std::os::unix::fs::symlink(&local_path, &target).map_err(|e| {
             error::Error::ExecutionErr(format!(
@@ -807,7 +847,7 @@ pub async fn handle_bun_job(
 
     let mut init_logs = if annotation.native_mode {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
-    } else if bundle_cache {
+    } else if has_bundle_cache {
         if annotation.nodejs_mode {
             "\n\n--- NODE BUNDLE SNAPSHOT EXECUTION ---\n".to_string()
         } else {
@@ -832,11 +872,14 @@ pub async fn handle_bun_job(
         );
     }
 
-    if bundle_cache {
+    if has_bundle_cache {
         init_logs = format!("\n{}{}", cache_logs, init_logs);
     }
 
     let write_wrapper_f = async {
+        if !has_bundle_cache && annotation.native_mode {
+            return Ok(()) as error::Result<()>;
+        }
         // let mut start = Instant::now();
         let args =
             windmill_parser_ts::parse_deno_signature(inner_content, true, main_override.clone())?
@@ -859,7 +902,7 @@ pub async fn handle_bun_job(
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
         let main_name = main_override.unwrap_or("main".to_string());
 
-        let main_import = if codebase.is_some() || bundle_cache {
+        let main_import = if codebase.is_some() || has_bundle_cache {
             "./main.js"
         } else {
             "./main.ts"
@@ -904,6 +947,9 @@ try {{
     };
 
     let reserved_variables_args_out_f = async {
+        if annotation.native_mode {
+            return Ok(HashMap::new()) as error::Result<HashMap<String, String>>;
+        }
         let args_and_out_f = async {
             create_args_and_out_file(&client, job, job_dir, db).await?;
             Ok(()) as Result<()>
@@ -917,7 +963,7 @@ try {{
         Ok(reserved_variables) as error::Result<HashMap<String, String>>
     };
 
-    let build_cache = !bundle_cache
+    let build_cache = !has_bundle_cache
         && !annotation.nobundling
         && !codebase.is_some()
         && (requirements_o.is_some() || annotation.native_mode);
@@ -939,7 +985,7 @@ try {{
             .await?;
 
             Ok(())
-        } else if !codebase.is_some() && !bundle_cache {
+        } else if !codebase.is_some() && !has_bundle_cache {
             build_loader(
                 job_dir,
                 base_internal_url,
@@ -963,7 +1009,7 @@ try {{
         write_wrapper_f,
         write_loader_f
     )?;
-    if !codebase.is_some() && !bundle_cache {
+    if !codebase.is_some() && !has_bundle_cache {
         if build_cache {
             generate_bun_bundle(
                 job_dir,
@@ -977,7 +1023,6 @@ try {{
                 &common_bun_proc_envs,
             )
             .await?;
-
             if !local_path.is_empty() {
                 match save_cache(&local_path, &remote_path, &format!("{job_dir}/main.js")).await {
                     Err(e) => {
@@ -992,19 +1037,21 @@ try {{
                     }
                 }
             }
-            let ex_wrapper = read_file_content(&format!("{job_dir}/wrapper.mjs")).await?;
-            write_file(
-                job_dir,
-                "wrapper.mjs",
-                &ex_wrapper.replace(
-                    "import * as Main from \"./main.ts\"",
-                    "import * as Main from \"./main.js\"",
-                ),
-            )
-            .await?;
-            write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+            if !annotation.native_mode {
+                let ex_wrapper = read_file_content(&format!("{job_dir}/wrapper.mjs")).await?;
+                write_file(
+                    job_dir,
+                    "wrapper.mjs",
+                    &ex_wrapper.replace(
+                        "import * as Main from \"./main.ts\"",
+                        "import * as Main from \"./main.js\"",
+                    ),
+                )
+                .await?;
+                write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+            }
             fs::remove_file(format!("{job_dir}/main.ts"))?;
-            bundle_cache = true;
+            has_bundle_cache = true;
         } else if annotation.nodejs_mode {
             generate_wrapper_mjs(
                 job_dir,
@@ -1100,7 +1147,7 @@ try {{
                 &NODE_PATH,
                 "/tmp/nodejs/wrapper.mjs",
             ]
-        } else if codebase.is_some() || bundle_cache {
+        } else if codebase.is_some() || has_bundle_cache {
             vec![
                 "--config",
                 "run.config.proto",
@@ -1154,7 +1201,7 @@ try {{
             let script_path = format!("{job_dir}/wrapper.mjs");
 
             let mut bun_cmd = Command::new(&*BUN_PATH);
-            let args = if codebase.is_some() || bundle_cache {
+            let args = if codebase.is_some() || has_bundle_cache {
                 vec!["run", &script_path]
             } else {
                 vec![

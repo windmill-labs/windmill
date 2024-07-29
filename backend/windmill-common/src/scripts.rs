@@ -34,6 +34,7 @@ pub enum ScriptLang {
     Powershell,
     Postgresql,
     Bun,
+    Bunnative,
     Mysql,
     Bigquery,
     Snowflake,
@@ -46,6 +47,7 @@ impl ScriptLang {
     pub fn as_str(&self) -> &'static str {
         match self {
             ScriptLang::Bun => "bun",
+            ScriptLang::Bunnative => "bunnative",
             ScriptLang::Nativets => "nativets",
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",

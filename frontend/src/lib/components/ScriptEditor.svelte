@@ -30,7 +30,8 @@
 	export let path: string | undefined
 	export let lang: Preview['language']
 	export let kind: string | undefined = undefined
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
+		'script'
 	export let tag: string | undefined
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true

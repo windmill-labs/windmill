@@ -314,10 +314,12 @@
 							if (inlineScript) {
 								inlineScript.content = editor?.getCode() ?? ''
 							}
-							runLoading = true
-							await Promise.all(
-								$runnableComponents[id]?.cb?.map((f) => f?.(inlineScript, true)) ?? []
-							)
+							try {
+								runLoading = true
+								await Promise.all(
+									$runnableComponents[id]?.cb?.map((f) => f?.(inlineScript, true)) ?? []
+								)
+							} catch {}
 							runLoading = false
 						}}
 						on:change={async (e) => {

@@ -3702,10 +3702,15 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             language
                 .as_ref()
                 .map(|x| {
-                    if per_workspace {
-                        format!("{}-{}", x.as_str(), workspace_id)
+                    let tag_lang = if x == &ScriptLang::Bunnative {
+                        ScriptLang::Nativets.as_str()
                     } else {
-                        x.as_str().to_string()
+                        x.as_str()
+                    };
+                    if per_workspace {
+                        format!("{}-{}", tag_lang, workspace_id)
+                    } else {
+                        tag_lang.to_string()
                     }
                 })
                 .unwrap_or_else(default)
