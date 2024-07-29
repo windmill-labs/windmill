@@ -2862,6 +2862,14 @@ where
                 Error::BadRequest(format!("Cloud events batching is not supported yet"))
                     .into_response(),
             )
+        } else if content_type.unwrap().starts_with("text/plain") {
+            let bytes = Bytes::from_request(req, _state)
+                .await
+                .map_err(IntoResponse::into_response)?;
+            let str = String::from_utf8(bytes.to_vec())
+                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
+            extra.insert("raw_string".to_string(), to_raw_value(&str));
+            Ok(PushArgsOwned { extra: Some(extra), args: HashMap::new() })
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
