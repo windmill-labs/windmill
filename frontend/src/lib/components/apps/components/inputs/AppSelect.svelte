@@ -128,14 +128,6 @@
 				delete i.created
 				return i
 			})
-
-			if (!listItems.some((i) => i.value === e.detail.value)) {
-				const removedOuterDoubleQuotes = e.detail.value.replace(/^"|"$/g, '')
-				listItems = [
-					...listItems,
-					{ value: e.detail.value, label: removedOuterDoubleQuotes, created: false }
-				]
-			}
 		}
 		preclickAction?.()
 		setValue(e.detail?.['value'])
@@ -173,24 +165,22 @@
 	let css = initCss($app.css?.selectcomponent, customCss)
 
 	let previsousFilter = ''
+
 	function handleFilter(e) {
 		if (resolvedConfig.create && filterText !== previsousFilter) {
 			previsousFilter = filterText
 			if (filterText.length > 0) {
-				const prev = listItems.filter((i) => !i.created)
+				const prev = listItems?.filter((i) => !i.created)
 
-				// if the filter text is not in the list, add it
-
-				if (!prev.some((i) => i.label?.toLocaleLowerCase() === filterText?.toLocaleLowerCase())) {
+				const exists = listItems?.some(
+					(item) => item.label.toLowerCase() === filterText.toLowerCase()
+				)
+				if (!exists) {
 					listItems = [
 						...prev,
 						{ value: JSON.stringify(filterText), label: filterText, created: true }
 					]
 				}
-			}
-
-			if (filterText.length === 0) {
-				listItems = listItems.filter((i) => !i.created)
 			}
 		}
 	}
