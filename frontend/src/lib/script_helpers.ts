@@ -574,7 +574,7 @@ export function initialCode(
 }
 
 export function getResetCode(
-	language: SupportedLanguage | undefined,
+	language: SupportedLanguage | 'bunnative' | undefined,
 	kind: Script['kind'] | undefined,
 	subkind:
 		| 'pgsql'
@@ -595,6 +595,8 @@ export function getResetCode(
 		return NATIVETS_INIT_CODE_CLEAR
 	} else if (language === 'bun') {
 		return BUN_INIT_CODE_CLEAR
+	} else if (language === 'bunnative') {
+		return BUNNATIVE_INIT_CODE
 	} else {
 		return initialCode(language, kind, subkind)
 	}

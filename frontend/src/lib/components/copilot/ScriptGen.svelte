@@ -37,12 +37,16 @@
 
 	// props
 	export let iconOnly: boolean = false
-	export let lang: SupportedLanguage | 'frontend' | undefined
+	export let lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
 	export let editor: Editor | SimpleEditor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let inlineScript = false
 	export let args: Record<string, any>
 	export let transformer = false
+
+	$: if (lang == 'bunnative') {
+		lang = 'bun'
+	}
 
 	// state
 	let funcDesc = ''
@@ -71,6 +75,7 @@
 			if (mode === 'edit') {
 				await copilot(
 					{
+						// @ts-ignore
 						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						code: editor?.getCode() || '',
@@ -84,6 +89,7 @@
 			} else {
 				await copilot(
 					{
+						// @ts-ignore
 						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
 						description: trimmedDesc,
 						dbSchema: dbSchema,

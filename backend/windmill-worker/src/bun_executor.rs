@@ -304,6 +304,7 @@ enum LoaderMode {
     Bun,
     BunBundle,
     NodeBundle,
+    BrowserBundle,
 }
 async fn build_loader(
     job_dir: &str,
@@ -373,7 +374,10 @@ plugin(p)
             ),
         )
         .await?;
-    } else if mode == LoaderMode::BunBundle || mode == LoaderMode::NodeBundle {
+    } else if mode == LoaderMode::BunBundle
+        || mode == LoaderMode::NodeBundle
+        || mode == LoaderMode::BrowserBundle
+    {
         write_file(
             &job_dir,
             "node_builder.ts",
@@ -402,8 +406,10 @@ if (!bo.success) {{
                 loader,
                 if mode == LoaderMode::BunBundle {
                     "bun"
-                } else {
+                } else if mode == LoaderMode::NodeBundle {
                     "node"
+                } else {
+                    "browser"
                 }
             ),
         )
@@ -598,6 +604,8 @@ pub async fn prebundle_script(
         script_path,
         if annotation.nodejs_mode {
             LoaderMode::NodeBundle
+        } else if annotation.native_mode {
+            LoaderMode::BrowserBundle
         } else {
             LoaderMode::BunBundle
         },
@@ -978,6 +986,8 @@ try {{
                 &job.script_path(),
                 if annotation.nodejs_mode {
                     LoaderMode::NodeBundle
+                } else if annotation.native_mode {
+                    LoaderMode::BrowserBundle
                 } else {
                     LoaderMode::BunBundle
                 },
