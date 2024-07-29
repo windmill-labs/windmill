@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.370.0](https://github.com/windmill-labs/windmill/compare/v1.369.1...v1.370.0) (2024-07-29)
+
+
+### Features
+
+* get completed flow node result by api/download + eval list result json path optim ([#4108](https://github.com/windmill-labs/windmill/issues/4108)) ([5031a8c](https://github.com/windmill-labs/windmill/commit/5031a8cb015e3ba8d668f5de769b8d67da82c116))
+
+
+### Bug Fixes
+
+* improve native runtime with axios support ([6e91005](https://github.com/windmill-labs/windmill/commit/6e91005daa4bbe2f0bd1f8b1c2cce1f68485f9ef))
+
 ## [1.369.1](https://github.com/windmill-labs/windmill/compare/v1.369.0...v1.369.1) (2024-07-29)
 
 
