@@ -121,7 +121,7 @@
 					inferDepsFromCode(e.detail.code)
 				}}
 			/>
-			{#if securedContext && componentInput.expr.match(ctxRegex)}
+			{#if securedContext && componentInput?.expr?.match(ctxRegex)}
 				<div class="border bg-surface absolute top-0.5 right-8 p-0.5">
 					<Popover notClickable>
 						<Shield size={12} />
