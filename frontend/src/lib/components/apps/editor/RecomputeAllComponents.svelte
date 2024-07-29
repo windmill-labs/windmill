@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-	import { Loader2, MenuIcon, RefreshCw } from 'lucide-svelte'
+	import { Loader2, RefreshCw, TimerReset } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
 	import Button from '../../common/button/Button.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
@@ -198,7 +198,7 @@
 							{interval ? `Every ${interval / 1000}s` : 'Once'}
 						</Badge>
 					{/if}
-					<MenuIcon size={14} />
+					<TimerReset size={14} />
 				</div>
 			</slot:fragment>
 			<svelte:fragment slot="label">
