@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
@@ -88,8 +89,8 @@
 
 <Row
 	href={script.draft_only
-		? `/scripts/edit/${script.path}`
-		: `/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
+		? `${base}/scripts/edit/${script.path}`
+		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
 	path={script.path}
@@ -136,7 +137,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/scripts/edit/{script.path}"
+							href="{base}/scripts/edit/{script.path}"
 						>
 							Edit
 						</Button>
@@ -148,7 +149,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/scripts/add?template={script.path}"
+							href="{base}/scripts/add?template={script.path}"
 						>
 							Fork
 						</Button>
@@ -198,7 +199,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/scripts/add?template=${script.path}`,
+						href: `${base}/scripts/add?template=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -222,7 +223,7 @@
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `/runs/${script.path}`
+						href: `${base}/runs/${script.path}`
 					},
 					{
 						displayName: 'Versions',
@@ -234,7 +235,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `/audit_logs?resource=${script.path}`,
+						href: `${base}/audit_logs?resource=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{

@@ -150,6 +150,12 @@
 		{:else}
 			{#key reloadArgs}
 				<SchemaForm
+					helperScript={runnable.hash
+						? {
+								type: 'hash',
+								hash: runnable.hash
+						  }
+						: undefined}
 					prettifyHeader
 					{noVariablePicker}
 					{autofocus}

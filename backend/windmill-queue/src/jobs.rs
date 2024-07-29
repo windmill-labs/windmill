@@ -63,7 +63,9 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath},
-    worker::{to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, NO_LOGS, WORKER_CONFIG},
+    worker::{
+        to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, NO_LOGS, WORKER_CONFIG,
+    },
     BASE_URL, DB, METRICS_ENABLED,
 };
 
@@ -1759,8 +1761,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Send + Clone>(
         let min_started_at = sqlx::query!(
             "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
             FROM queue
-            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false
-            GROUP BY script_path), $3) as min_started_at, now() AS now",
+            WHERE script_path = $1 AND job_kind != 'dependencies'  AND running = true AND workspace_id = $2 AND canceled = false AND concurrent_limit > 0), $3) as min_started_at, now() AS now",
             job_script_path,
             &pulled_job.workspace_id,
             completed_count.max_ended_at
@@ -3640,7 +3641,13 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         .map(|e| (Some(e.0), e.1))
         .unwrap_or_else(|| (None, None));
 
-    let per_workspace: bool = DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed);
+    let per_workspace_workspaces = DEFAULT_TAGS_WORKSPACES.read().await;
+    let per_workspace = DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed)
+        && (per_workspace_workspaces.is_none()
+            || per_workspace_workspaces
+                .as_ref()
+                .unwrap()
+                .contains(&workspace_id.to_string()));
 
     let tag = if dedicated_worker.is_some_and(|x| x) {
         format!(

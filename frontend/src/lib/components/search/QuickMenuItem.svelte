@@ -51,7 +51,7 @@
 	on:click|stopPropagation={runAction}
 	on:mouseenter={() => dispatch('hover')}
 	class={twMerge(
-		`rounded-md w-full transition-all cursor-pointer hover:bg-surface-hover ${
+		`rounded-md w-full transition-all cursor-pointer ${
 			hovered ? 'bg-surface-hover' : ''
 		}`,
 		containerClass

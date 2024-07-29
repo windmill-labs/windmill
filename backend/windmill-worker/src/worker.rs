@@ -226,6 +226,8 @@ pub async fn create_token_for_owner(
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 
 pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
+pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
+
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 pub const TAR_PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/pip");
@@ -234,8 +236,9 @@ pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
-pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
-pub const BUN_TAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "buntar");
+pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
+pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
+pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
@@ -570,10 +573,10 @@ async fn handle_receive_completed_job<
     R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static,
 >(
     jc: JobCompleted,
-    base_internal_url: String,
-    db: Pool<Postgres>,
-    worker_dir: String,
-    same_worker_tx: Sender<SameWorkerPayload>,
+    base_internal_url: &str,
+    db: &Pool<Postgres>,
+    worker_dir: &str,
+    same_worker_tx: &Sender<SameWorkerPayload>,
     rsmq: Option<R>,
     worker_name: &str,
     worker_save_completed_job_duration: Option<Histo>,
@@ -594,7 +597,7 @@ async fn handle_receive_completed_job<
     if let Err(err) = process_completed_job(
         jc,
         &client,
-        &db,
+        db,
         &worker_dir,
         same_worker_tx.clone(),
         rsmq.clone(),
@@ -606,7 +609,7 @@ async fn handle_receive_completed_job<
     .await
     {
         handle_job_error(
-            &db,
+            db,
             &client,
             job.as_ref(),
             mem_peak,
@@ -1186,140 +1189,40 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     if let Some(wj) = worker_job_completed_channel_queue2.as_ref() {
                         wj.dec();
                     }
-                    let base_internal_url2 = base_internal_url2.clone();
-                    let worker_dir2 = worker_dir2.clone();
-                    let db2 = db2.clone();
-                    let same_worker_tx2 = same_worker_tx2.clone();
                     let rsmq2 = rsmq2.clone();
-                    let worker_name = worker_name2.clone();
-                    if matches!(jc.job.job_kind, JobKind::Noop) {
-                        thread_count.fetch_add(1, Ordering::SeqCst);
-                        let thread_count = thread_count.clone();
 
-                        loop {
-                            if thread_count.load(Ordering::Relaxed) < 4 {
-                                break;
-                            }
-                            tokio::time::sleep(Duration::from_millis(3)).await;
-                        }
-
-                        #[cfg(feature = "benchmark")]
-                        let send_duration = send_duration2.clone();
-                        #[cfg(feature = "benchmark")]
-                        let process_duration = process_duration.clone();
-                        #[cfg(feature = "benchmark")]
-                        let completed_jobs = completed_jobs.clone();
-                        #[cfg(feature = "benchmark")]
-                        let main_duration = main_duration2.clone();
-
-                        #[cfg(feature = "prometheus")]
-                        let worker_save_completed_job_duration2 =
-                            worker_save_completed_job_duration.clone();
-                        #[cfg(feature = "prometheus")]
-                        let worker_flow_transition_duration2 =
-                            worker_flow_transition_duration.clone();
-                        let killpill_tx = killpill_tx2.clone();
-                        let job_completed_sender = job_completed_sender.clone();
-                        tokio::spawn(async move {
-                            #[cfg(feature = "benchmark")]
-                            let process_start = Instant::now();
-
-                            let is_dependency_job = matches!(
-                                jc.job.job_kind,
-                                JobKind::Dependencies | JobKind::FlowDependencies
-                            );
-                            handle_receive_completed_job(
-                                jc,
-                                base_internal_url2,
-                                db2.clone(),
-                                worker_dir2,
-                                same_worker_tx2,
-                                rsmq2,
-                                &worker_name,
-                                worker_save_completed_job_duration2.clone(),
-                                worker_flow_transition_duration2.clone(),
-                                job_completed_sender.clone(),
-                            )
-                            .await;
-                            #[cfg(feature = "benchmark")]
-                            {
-                                let n = completed_jobs.fetch_add(1, Ordering::SeqCst);
-                                if (n + 1) % 1000 == 0 || n == (jobs - 1) as usize {
-                                    let duration_s = start.elapsed().as_secs_f64();
-                                    let jobs_per_sec = n as f64 / duration_s;
-                                    tracing::info!(
-                                        "completed {} jobs in {}s, {} jobs/s",
-                                        n + 1,
-                                        duration_s,
-                                        jobs_per_sec
-                                    );
-
-                                    tracing::info!(
-                                        "main loop without send {}s",
-                                        main_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                                    );
-
-                                    tracing::info!(
-                                        "send job completed / send dedicated job duration {}s",
-                                        send_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                                    );
-
-                                    tracing::info!(
-                                        "job completed process duration {}s",
-                                        process_duration.load(Ordering::SeqCst) as f64 / 1000.0
-                                    );
-                                }
-
-                                process_duration.fetch_add(
-                                    process_start.elapsed().as_millis() as usize,
-                                    Ordering::SeqCst,
-                                );
-                            }
-
-                            thread_count.fetch_sub(1, Ordering::SeqCst);
-                            if is_dependency_job && is_dedicated_worker {
-                                tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
-                                sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
-                            .execute(&db2)
-                            .await
-                            .expect("update config to trigger restart of all dedicated workers at that config");
-                                killpill_tx.send(()).unwrap_or_default();
-
-                            }
-                        });
-                    } else {
-                        let is_init_script_and_failure =
-                            !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
-                        let is_dependency_job = matches!(
-                            jc.job.job_kind,
-                            JobKind::Dependencies | JobKind::FlowDependencies);
-                        handle_receive_completed_job(
-                            jc,
-                            base_internal_url2,
-                            db2.clone(),
-                            worker_dir2,
-                            same_worker_tx2,
-                            rsmq2,
-                            &worker_name,
-                            worker_save_completed_job_duration2.clone(),
-                            worker_flow_transition_duration2.clone(),
-                            job_completed_sender.clone(),
-                        )
-                        .await;
-                        if is_init_script_and_failure {
-                            tracing::error!("init script errored, exiting");
-                            killpill_tx2.send(()).unwrap_or_default();
-                        }
-                        if is_dependency_job && is_dedicated_worker {
-                            tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
-                            sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
-                        .execute(&db2)
-                        .await
-                        .expect("update config to trigger restart of all dedicated workers at that config");
-                            killpill_tx2.send(()).unwrap_or_default();
-
-                        }
+                    let is_init_script_and_failure =
+                        !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                    let is_dependency_job = matches!(
+                        jc.job.job_kind,
+                        JobKind::Dependencies | JobKind::FlowDependencies);
+                    handle_receive_completed_job(
+                        jc,
+                        &base_internal_url2,
+                        &db2,
+                        &worker_dir2,
+                        &same_worker_tx2,
+                        rsmq2,
+                        &worker_name2,
+                        worker_save_completed_job_duration2.clone(),
+                        worker_flow_transition_duration2.clone(),
+                        job_completed_sender.clone(),
+                    )
+                    .await;
+                    if is_init_script_and_failure {
+                        tracing::error!("init script errored, exiting");
+                        killpill_tx2.send(()).unwrap_or_default();
                     }
+                    if is_dependency_job && is_dedicated_worker {
+                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                        sqlx::query!("UPDATE config SET config = config WHERE name = $1", format!("worker__{}", *WORKER_GROUP))
+                    .execute(&db2)
+                    .await
+                    .expect("update config to trigger restart of all dedicated workers at that config");
+                        killpill_tx2.send(()).unwrap_or_default();
+
+                    }
+                    
                 }
                 SendResult::UpdateFlow {
                     flow,
@@ -2336,6 +2239,7 @@ async fn do_nativets(
         canceled_by,
         worker_name,
         &job.workspace_id,
+        true,
     )
     .await?;
     Ok((result.0, result.1))

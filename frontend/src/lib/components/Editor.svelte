@@ -26,10 +26,10 @@
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 
-	import libStdContent from '$lib/es6.d.ts.txt?raw'
-	import domContent from '$lib/dom.d.ts.txt?raw'
+	// import libStdContent from '$lib/es6.d.ts.txt?raw'
+	// import domContent from '$lib/dom.d.ts.txt?raw'
 
-	import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
+	// import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
 	import processStdContent from '$lib/process.d.ts.txt?raw'
 	import windmillFetchContent from '$lib/windmill_fetch.d.ts.txt?raw'
 
@@ -983,6 +983,8 @@
 			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
 		})
 
+		languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
+
 		languages.typescript.javascriptDefaults.setModeConfiguration({
 			completionItems: true,
 			hovers: true,
@@ -1144,14 +1146,14 @@
 		if (lang === 'typescript' && scriptLang != 'deno') {
 			const hostname = getHostname()
 
-			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+			// const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
 			if (scriptLang == 'bun') {
-				const processLib = { content: processStdContent, filePath: 'process.d.ts' }
-				const domLib = { content: domContent, filePath: 'dom.d.ts' }
-				languages.typescript.typescriptDefaults.setExtraLibs([stdLib, domLib, processLib])
+				// const processLib = { content: processStdContent, filePath: 'process.d.ts' }
+				// const domLib = { content: domContent, filePath: 'dom.d.ts' }
+				// languages.typescript.typescriptDefaults.setExtraLibs([stdLib, domLib, processLib])
 			} else {
-				const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
-				languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
+				// const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
+				// languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
 				let localContent = windmillFetchContent
 				let p = '/tmp/monaco/windmill.d.ts'
 				let nuri = mUri.parse(p)

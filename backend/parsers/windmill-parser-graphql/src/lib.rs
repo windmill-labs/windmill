@@ -51,6 +51,7 @@ fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             default: parsed_default,
             otyp: Some(typ.unwrap()),
             has_default,
+            oidx: None,
         });
     }
 
@@ -93,21 +94,24 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         name: "i".to_string(),
                         typ: Typ::Int,
                         default: None,
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("[String]".to_string()),
                         name: "arr".to_string(),
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
-                        has_default: false
+                        has_default: false,
+                        oidx: None
                     },
                     Arg {
                         otyp: Some("String".to_string()),
                         name: "wahoo".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("wahoo")),
-                        has_default: true
+                        has_default: true,
+                        oidx: None
                     }
                 ],
                 no_main_func: None

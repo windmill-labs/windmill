@@ -23,11 +23,11 @@ use windmill_common::ee::schedule_key_renewal;
 use windmill_common::{
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
@@ -54,18 +54,18 @@ use windmill_common::METRICS_ADDR;
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    BUN_CACHE_DIR, BUN_TAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR,
+    DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR,
+    LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, monitor_db, monitor_pool, reload_base_url_setting,
-    reload_bunfig_install_scopes_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
-    reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_pip_index_url_setting,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db, monitor_pool,
+    reload_base_url_setting, reload_bunfig_install_scopes_setting,
+    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
+    reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_server_config,
     reload_worker_config,
 };
@@ -365,27 +365,34 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(feature = "tantivy")]
         let should_index_jobs =
-              mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
+            mode == Mode::Indexer || (enable_standalone_indexer && mode == Mode::Standalone);
 
-        #[cfg(not(feature = "tantivy"))]
-        let should_index_jobs = false;
-
+        #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
-            let (r, w) = windmill_indexer::indexer_ee::init_index()?;
+            let (r, w) = windmill_indexer::indexer_ee::init_index().await?;
             (Some(r), Some(w))
         } else {
             (None, None)
         };
 
-        let indexer_rx = killpill_rx.resubscribe();
-        let index_writer2 = index_writer.clone();
-        let indexer_f = async {
-            if let Some(index_writer) = index_writer2 {
-                windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
-                    .await;
+        #[cfg(feature = "tantivy")]
+        let indexer_f = {
+            let indexer_rx = killpill_rx.resubscribe();
+            let index_writer2 = index_writer.clone();
+            async {
+                if let Some(index_writer) = index_writer2 {
+                    windmill_indexer::indexer_ee::run_indexer(db.clone(), index_writer, indexer_rx)
+                        .await;
+                }
+                Ok(())
             }
-            Ok(())
         };
+
+        #[cfg(not(feature = "tantivy"))]
+        let (index_reader, index_writer) = (None, None);
+
+        #[cfg(not(feature = "tantivy"))]
+        let indexer_f = async { Ok(()) as anyhow::Result<()> };
 
         let server_f = async {
             if !is_agent {
@@ -504,9 +511,14 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
                                                     if let Err(e) = load_tag_per_workspace_enabled(&db).await {
-                                                        tracing::error!("Error loading default tag per workpsace: {e:#}");
+                                                        tracing::error!("Error loading default tag per workspace: {e:#}");
                                                     }
                                                 },
+                                                DEFAULT_TAGS_WORKSPACES_SETTING => {
+                                                    if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
+                                                        tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
+                                                    }
+                                                }
                                                 RETENTION_PERIOD_SECS_SETTING => {
                                                     reload_retention_period_setting(&db).await
                                                 },
@@ -539,14 +551,12 @@ Windmill Community Edition {GIT_VERSION}
                                                     load_require_preexisting_user(&db).await;
                                                 },
                                                 EXPOSE_METRICS_SETTING  => {
-                                                    if worker_mode {
-                                                        tracing::info!("Metrics setting changed, restarting");
-                                                        // we wait a bit randomly to avoid having all serverss and workers shutdown at same time
-                                                        let rd_delay = rand::thread_rng().gen_range(0..4);
-                                                        tokio::time::sleep(Duration::from_secs(rd_delay)).await;
-                                                        if let Err(e) = tx.send(()) {
-                                                            tracing::error!(error = %e, "Could not send killpill to server");
-                                                        }
+                                                    tracing::info!("Metrics setting changed, restarting");
+                                                    // we wait a bit randomly to avoid having all servers and workers shutdown at same time
+                                                    let rd_delay = rand::thread_rng().gen_range(0..40);
+                                                    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+                                                    if let Err(e) = tx.send(()) {
+                                                        tracing::error!(error = %e, "Could not send killpill to server");
                                                     }
                                                 },
                                                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -766,7 +776,8 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         DENO_CACHE_DIR_DEPS,
         DENO_CACHE_DIR_NPM,
         BUN_CACHE_DIR,
-        BUN_TAR_CACHE_DIR,
+        BUN_DEPSTAR_CACHE_DIR,
+        BUN_BUNDLE_CACHE_DIR,
         GO_CACHE_DIR,
         GO_BIN_CACHE_DIR,
         HUB_CACHE_DIR,

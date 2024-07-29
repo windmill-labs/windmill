@@ -8,6 +8,7 @@
 		type FlowModule
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -1028,7 +1029,7 @@
 														class="text-right text-xs"
 														rel="noreferrer"
 														target="_blank"
-														href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+														href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
 													>
 														{truncateRev(node.job_id ?? '', 10)}
 													</a>
