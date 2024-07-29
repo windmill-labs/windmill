@@ -70,7 +70,6 @@
 			progress.update((n) => {
 				const newProgress = n - 100 / ((interval ?? 1000) / 100)
 				if (newProgress <= 0) {
-					clearInterval(progressTimer)
 					return 0
 				}
 				return newProgress
