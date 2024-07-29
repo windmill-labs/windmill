@@ -1055,7 +1055,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 			{
 				customCss: {
 					text: {
-						class: 'text-sm font-semibold truncate' as any,
+						class: 'text-sm font-semibold whitespace-nowrap truncate' as any,
 						style: ''
 					}
 				},

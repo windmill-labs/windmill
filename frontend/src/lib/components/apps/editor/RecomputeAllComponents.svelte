@@ -162,7 +162,7 @@
 		</div>
 	</Button>
 
-	<ButtonDropdown hasPadding={true}>
+	<ButtonDropdown hasPadding={true} disabled={componentNumber == 0}>
 		<svelte:fragment slot="label">
 			<span class={twMerge('text-xs min-w-[2rem] ', interval ? 'text-blue-500' : 'text-tertiary')}>
 				{interval ? `${interval / 1000}s` : 'Once'}
