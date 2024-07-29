@@ -164,14 +164,23 @@
 
 	let css = initCss($app.css?.selectcomponent, customCss)
 
+	let previsousFilter = ''
+
 	function handleFilter(e) {
-		if (resolvedConfig.create) {
-			if (e.detail.length === 0 && filterText.length > 0) {
-				const prev = listItems.filter((i) => !i.created)
-				listItems = [
-					...prev,
-					{ value: JSON.stringify(filterText), label: filterText, created: true }
-				]
+		if (resolvedConfig.create && filterText !== previsousFilter) {
+			previsousFilter = filterText
+			if (filterText.length > 0) {
+				const prev = listItems?.filter((i) => !i.created)
+
+				const exists = listItems?.some(
+					(item) => item.label.toLowerCase() === filterText.toLowerCase()
+				)
+				if (!exists) {
+					listItems = [
+						...prev,
+						{ value: JSON.stringify(filterText), label: filterText, created: true }
+					]
+				}
 			}
 		}
 	}
