@@ -189,15 +189,18 @@
 			</div>
 		</Button>
 
-		<ButtonDropdown hasPadding={true} disabled={componentNumber == 0}>
+		<ButtonDropdown hasPadding={false}>
 			<slot:fragment slot="buttonReplacement">
-				<div class="flex flex-row gap-2 items-center text-xs">
+				<div class="flex flex-row gap-2 text-xs hover:bg-surface-hover px-2 items-center h-7">
 					{#if interval}
 						<Badge color="blue" small>
 							{interval ? `Every ${interval / 1000}s` : 'Once'}
 						</Badge>
 					{/if}
-					<TimerReset size={14} />
+
+					<div class="flex justify-center items-center">
+						<TimerReset size={14} />
+					</div>
 				</div>
 			</slot:fragment>
 			<svelte:fragment slot="label">
