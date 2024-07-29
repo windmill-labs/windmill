@@ -1,6 +1,6 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.78-slim-bookworm
-ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
+ARG PYTHON_IMAGE=python:3.12.4-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
