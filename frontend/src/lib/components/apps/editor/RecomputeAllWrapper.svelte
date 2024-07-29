@@ -24,32 +24,30 @@
 </script>
 
 <div
-	class={twMerge('w-full flex justify-center h-8 items-center gap-4', containerClass)}
+	class={twMerge('flex justify-center h-8 items-center gap-2', containerClass)}
 	style={containerStyle}
 >
-	<div class="flex gap-2 items-center">
-		<div>
-			{#if !$connectingInput.opened}
-				<RecomputeAllComponents />
-			{/if}
-		</div>
-		<div class="w-9">
-			{#if $bgRuns.length > 0}
-				<Popover notClickable>
-					<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
-						><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
-					</span>
-					<span slot="text"
-						><div class="flex flex-col">
-							{#each $bgRuns as bgRun}
-								<div class="flex gap-2 items-center">
-									<div class="text-2xs">{bgRun}</div>
-								</div>
-							{/each}
-						</div></span
-					>
-				</Popover>
-			{/if}
-		</div>
+	<div class="w-9">
+		{#if $bgRuns.length > 0}
+			<Popover notClickable>
+				<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+					><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
+				</span>
+				<span slot="text"
+					><div class="flex flex-col">
+						{#each $bgRuns as bgRun}
+							<div class="flex gap-2 items-center">
+								<div class="text-2xs">{bgRun}</div>
+							</div>
+						{/each}
+					</div></span
+				>
+			</Popover>
+		{/if}
+	</div>
+	<div>
+		{#if !$connectingInput.opened}
+			<RecomputeAllComponents />
+		{/if}
 	</div>
 </div>

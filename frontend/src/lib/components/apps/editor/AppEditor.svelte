@@ -124,7 +124,7 @@
 		workspace: $workspaceStore,
 		mode: 'editor',
 		summary: $summaryStore,
-		onBehalfOfEmail: policy.on_behalf_of_email
+		author: policy.on_behalf_of_email
 	}
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 

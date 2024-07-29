@@ -63,7 +63,7 @@
 		workspace,
 		mode: 'viewer',
 		summary: summary,
-		onBehalfOfEmail: policy.on_behalf_of_email
+		author: policy.on_behalf_of_email
 	}
 
 	function hashchange(e: HashChangeEvent) {

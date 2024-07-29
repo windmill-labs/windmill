@@ -863,6 +863,7 @@
 				customCss={component.customCss}
 				bind:initializing
 				configuration={component.configuration}
+				horizontalAlignment={component.horizontalAlignment}
 				{render}
 			/>
 		{/if}

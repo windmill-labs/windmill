@@ -12,12 +12,14 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import RecomputeAllWrapper from '../../editor/RecomputeAllWrapper.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let id: string
 	export let initializing: boolean | undefined = false
 	export let customCss: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined = undefined
 	export let configuration: RichConfigurations
 	export let render: boolean
+	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 
 	const { app, worldStore, policy } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -56,9 +58,11 @@
 
 <InitializeComponent {id} />
 
-{#if render && policy}
-	<RecomputeAllWrapper
-		containerClass={css?.container?.class}
-		containerStyle={css?.container?.style}
-	/>
-{/if}
+<AlignWrapper {horizontalAlignment}>
+	{#if render && policy}
+		<RecomputeAllWrapper
+			containerClass={css?.container?.class}
+			containerStyle={css?.container?.style}
+		/>
+	{/if}
+</AlignWrapper>

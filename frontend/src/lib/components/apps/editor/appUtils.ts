@@ -1044,18 +1044,31 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 		app,
 		appComponentFromType(
 			'textcomponent',
+
 			{
 				disableNoText: {
 					value: true,
 					type: 'static',
 					fieldType: 'boolean'
+				},
+				tooltip: {
+					type: 'evalv2',
+
+					fieldType: 'text',
+					expr: '`Author: ${ctx.author}`',
+					connections: [
+						{
+							componentId: 'ctx',
+							id: 'author'
+						}
+					]
 				}
 			},
 			undefined,
 			{
 				customCss: {
 					text: {
-						class: 'text-sm font-semibold whitespace-nowrap truncate' as any,
+						class: 'text-md font-semibold whitespace-nowrap truncate' as any,
 						style: ''
 					}
 				},
@@ -1094,7 +1107,9 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 
 	insertNewGridItem(
 		app,
-		appComponentFromType('recomputeallcomponent') as (id: string) => AppComponent,
+		appComponentFromType('recomputeallcomponent', undefined, undefined, {
+			horizontalAlignment: 'right'
+		}) as (id: string) => AppComponent,
 		{
 			parentComponentId: id,
 			subGridIndex: 0
@@ -1108,61 +1123,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 				h: 1
 			},
 			12: {
-				w: 3,
-				h: 1
-			}
-		}
-	)
-
-	insertNewGridItem(
-		app,
-		appComponentFromType(
-			'textcomponent',
-			{
-				tooltip: {
-					value:
-						'The scripts will be run on behalf of the author and a tight policy ensure security about the possible inputs of the runnables. ',
-					type: 'static',
-					fieldType: 'text'
-				}
-			},
-			undefined,
-			{
-				customCss: {
-					text: {
-						class: 'text-xs text-gray-500' as any,
-						style: ''
-					}
-				},
-				verticalAlignment: 'center',
-				horizontalAlignment: 'right',
-				componnetInput: {
-					type: 'templatev2',
-					fieldType: 'template',
-					eval: 'Author ${ctx.onBehalfOfEmail}',
-					connections: [
-						{
-							id: 'email',
-							componentId: 'ctx'
-						}
-					] as InputConnectionEval[]
-				}
-			}
-		) as (id: string) => AppComponent,
-		{
-			parentComponentId: id,
-			subGridIndex: 0
-		},
-		undefined,
-		undefined,
-		undefined,
-		{
-			3: {
-				w: 3,
-				h: 1
-			},
-			12: {
-				w: 3,
+				w: 6,
 				h: 1
 			}
 		}

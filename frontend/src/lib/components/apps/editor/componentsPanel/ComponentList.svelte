@@ -145,7 +145,7 @@
 			appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
 				customCss: {
 					container: {
-						class: '' as any,
+						class: '!p-0' as any,
 						style: ''
 					}
 				}
