@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Preview } from '$lib/gen'
+import type { Policy, Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
@@ -154,11 +154,13 @@ export type App = {
 		name: string
 		inlineScript: InlineScript
 	}>
+
 	//TODO: should be called hidden runnables but migration tbd
 	hiddenInlineScripts: Array<HiddenRunnable>
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 	theme: AppTheme | undefined
+	hideLegacyTopBar?: boolean | undefined
 }
 
 export type ConnectingInput = {
@@ -271,6 +273,7 @@ export type AppViewerContext = {
 	debuggingComponents: Writable<Record<string, number>>
 	replaceStateFn?: ((url: string) => void) | undefined
 	gotoFn?: ((url: string, opt?: Record<string, any> | undefined) => void) | undefined
+	policy: Policy
 }
 
 export type AppEditorContext = {

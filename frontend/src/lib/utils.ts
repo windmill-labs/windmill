@@ -556,7 +556,6 @@ export function deepMergeWithPriority<T>(target: T, source: T): T {
 
 	for (const key in source) {
 		if (source.hasOwnProperty(key) && merged?.hasOwnProperty(key)) {
-			console.log(target)
 			if (target?.hasOwnProperty(key)) {
 				merged[key] = deepMergeWithPriority(target[key], source[key])
 			} else {

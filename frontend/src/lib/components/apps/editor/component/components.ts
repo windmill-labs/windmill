@@ -49,7 +49,9 @@ import {
 	AlertTriangle,
 	Clock,
 	CalendarClock,
-	AppWindow
+	AppWindow,
+	PanelTop,
+	RefreshCw
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -279,6 +281,8 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 
 export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
 
+export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -356,6 +360,7 @@ export type TypedComponent =
 	| NavBarComponent
 	| DateSelectComponent
 	| JobIdDisplayComponent
+	| RecomputeAllComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -368,7 +373,18 @@ export function getRecommendedDimensionsByComponent(
 	componentType: AppComponent['type'],
 	column: number
 ): Size {
-	const size = components[componentType].dims.split('-')[column === 3 ? 0 : 1].split(':')
+	return processDimension(components[componentType].dims, column)
+}
+
+export function processDimension(
+	dimension: AppComponentDimensions | undefined,
+	column: number
+): Size {
+	if (!dimension) {
+		return { w: 1, h: 1 }
+	}
+
+	const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 	return { w: +size[0], h: +size[1] }
 }
 
@@ -398,6 +414,7 @@ export type PresetComponentConfig = {
 	targetComponent: keyof typeof components
 	configuration: object
 	type: string
+	dims?: AppComponentDimensions
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -1134,6 +1151,12 @@ export const components = {
 					fieldType: 'text',
 
 					tooltip: 'Tooltip text if not empty'
+				},
+				disableNoText: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Remove the "No text" placeholder'
 				}
 			}
 		}
@@ -4029,6 +4052,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				}
 			}
 		}
+	},
+	recomputeallcomponent: {
+		name: 'Recompute all',
+		icon: RefreshCw,
+		documentationLink: `${documentationBaseUrl}/top_bar`,
+		dims: '4:1-6:1' as AppComponentDimensions,
+		customCss: {
+			container: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {},
+			menuItems: true
+		}
 	}
 } as const
 
@@ -4054,6 +4092,14 @@ export const presetComponents = {
 			}
 		},
 		type: 'invisibletabscomponent'
+	},
+	topbarcomponent: {
+		name: 'Top Bar',
+		icon: PanelTop,
+		targetComponent: 'containercomponent' as const,
+		configuration: {},
+		type: 'topbarcomponent',
+		dims: '6:2-12:2' as AppComponentDimensions
 	}
 }
 
