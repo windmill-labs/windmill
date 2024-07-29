@@ -43,7 +43,7 @@ export function parseDeps(code: string): string[] {
 }
 
 export async function inferArgs(
-	language: SupportedLanguage | undefined,
+	language: SupportedLanguage | 'bunnative' | undefined,
 	code: string,
 	schema: Schema
 ): Promise<boolean | null> {
@@ -67,7 +67,7 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'nativets') {
 			inferedSchema = JSON.parse(parse_deno(code))
-		} else if (language == 'bun') {
+		} else if (language == 'bun' || language == 'bunnative') {
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'postgresql') {
 			inferedSchema = JSON.parse(parse_sql(code))

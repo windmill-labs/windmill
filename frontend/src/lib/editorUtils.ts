@@ -42,6 +42,8 @@ export function langToExt(lang: string): string {
 	switch (lang) {
 		case 'javascript':
 			return 'ts'
+		case 'bunnative':
+			return 'ts'
 		case 'json':
 			return 'json'
 		case 'sql':

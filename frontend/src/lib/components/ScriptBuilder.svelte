@@ -57,7 +57,12 @@
 	import MetadataGen from './copilot/MetadataGen.svelte'
 	import ScriptSchedules from './ScriptSchedules.svelte'
 	import { writable } from 'svelte/store'
-	import { type ScriptSchedule, loadScriptSchedule, defaultScriptLanguages } from '$lib/scripts'
+	import {
+		type ScriptSchedule,
+		loadScriptSchedule,
+		defaultScriptLanguages,
+		processLangs
+	} from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
@@ -65,7 +70,7 @@
 
 	export let script: NewScript
 	export let initialPath: string = ''
-	export let template: 'docker' | 'script' = 'script'
+	export let template: 'docker' | 'bunnative' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
@@ -114,11 +119,14 @@
 		editor?.setCode(code)
 	}
 
-	$: langs = ($defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+	$: langs = processLangs(
+		script.language,
+		$defaultScripts?.order ?? Object.keys(defaultScriptLanguages)
+	)
 		.map((l) => [defaultScriptLanguages[l], l])
 		.filter(
 			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker'][]
+		) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
 
 	const scriptKindOptions: {
 		value: Script['kind']
@@ -176,7 +184,7 @@
 	function initContent(
 		language: SupportedLanguage,
 		kind: Script['kind'] | undefined,
-		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
+		template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
 	) {
 		scriptEditor?.disableCollaboration()
 		script.content = initialCode(language, kind, template)
@@ -462,6 +470,16 @@
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
+
+	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
+		if (lang == 'docker') {
+			return 'bash'
+		}
+		if (lang == 'bunnative') {
+			return 'bun'
+		}
+		return lang
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -567,9 +585,12 @@
 										</div>
 									{/if}
 									<div class=" grid grid-cols-3 gap-2">
+										{script.language}
+										{template}
 										{#each langs as [label, lang] (lang)}
 											{@const isPicked =
 												(lang == script.language && template == 'script') ||
+												(template == 'bunnative' && lang == 'bunnative') ||
 												(template == 'docker' && lang == 'docker')}
 											<Popover
 												disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
@@ -602,10 +623,12 @@
 																return
 															}
 															template = 'docker'
+														} else if (lang == 'bunnative') {
+															template = 'bunnative'
 														} else {
 															template = 'script'
 														}
-														let language = lang == 'docker' ? 'bash' : lang
+														let language = langToLanguage(lang)
 														//
 														initContent(language, script.kind, template)
 														script.language = language

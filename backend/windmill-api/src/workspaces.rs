@@ -2498,7 +2498,7 @@ async fn tarball_workspace(
                 ScriptLang::Mssql => "ms.sql",
                 ScriptLang::Graphql => "gql",
                 ScriptLang::Nativets => "fetch.ts",
-                ScriptLang::Bun => {
+                ScriptLang::Bun | ScriptLang::Bunnative => {
                     if default_ts.as_ref().is_some_and(|x| x == "bun") {
                         "ts"
                     } else {
