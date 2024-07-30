@@ -96,6 +96,10 @@
 		runnableComponent?.setArgs(value)
 	}
 
+	export function getArgs() {
+		return runnableComponent?.getArgs()
+	}
+
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 

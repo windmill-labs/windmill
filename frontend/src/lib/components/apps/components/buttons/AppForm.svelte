@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
@@ -66,7 +66,26 @@
 
 	let css = initCss($app.css?.formcomponent, customCss)
 
-	let wrapper: RunnableWrapper
+	let wrapper: RunnableWrapper | undefined = undefined
+
+	let args: Record<string, any> = {}
+
+	function getArgs() {
+		args = wrapper?.getArgs() ?? {}
+	}
+
+	$: render === false && getArgs()
+
+	function setArgs() {
+		// This is a hack to make the binding work
+		wrapper?.setArgs({})
+
+		tick().then(() => {
+			wrapper?.setArgs(args)
+		})
+	}
+
+	$: render === true && Object.keys(args).length > 0 && setArgs()
 </script>
 
 {#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}
