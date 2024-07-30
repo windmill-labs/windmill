@@ -292,7 +292,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
   const seen_names = new Set<string>();
   function assignPath(
     summary: string | undefined,
-    language: RawScript["language"]
+    language: RawScript["language"] | "frontend" | "bunnative"
   ): [string, string] {
     let name;
 
@@ -313,7 +313,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
 
     let ext;
     if (language == "python3") ext = "py";
-    else if (language == defaultTs) ext = "ts";
+    else if (language == defaultTs || language == "bunnative") ext = "ts";
     else if (language == "bun") ext = "bun.ts";
     else if (language == "deno") ext = "deno.ts";
     else if (language == "go") ext = "go";
