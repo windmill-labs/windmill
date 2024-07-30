@@ -25,7 +25,7 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::{not_found_if_none, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
@@ -92,7 +92,10 @@ async fn list_variables(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(lq): Query<ListVariableQuery>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<ListableVariable>> {
+    let (per_page, offset) = paginate(pagination);
+
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
@@ -106,11 +109,15 @@ async fn list_variables(
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
          WHERE variable.workspace_id = $1 AND variable.path NOT LIKE 'u/' || $2 || '/secret_arg/%' 
             AND variable.path LIKE $3 || '%'
-         ORDER BY path",
+         ORDER BY path
+         LIMIT $4 OFFSET $5
+",
     )
     .bind(&w_id)
     .bind(&authed.username)
     .bind(&lq.path_start.unwrap_or_default())
+    .bind(per_page as i32)
+    .bind(offset as i32)
     .fetch_all(&mut *tx)
     .await?;
 
