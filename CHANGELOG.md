@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.371.0](https://github.com/windmill-labs/windmill/compare/v1.370.0...v1.371.0) (2024-07-30)
+
+
+### Features
+
+* **frontend:** support array of objects in schema ([#4106](https://github.com/windmill-labs/windmill/issues/4106)) ([5992b82](https://github.com/windmill-labs/windmill/commit/5992b821803d9cdc45fa0dee100f159dd3ed557f))
+
+
+### Bug Fixes
+
+* always consider electron as external for bundles ([06433a6](https://github.com/windmill-labs/windmill/commit/06433a6ec65534e1a11085cefd6a67699e4eb0a0))
+* fix bunnative lock creation ([6a33624](https://github.com/windmill-labs/windmill/commit/6a33624416cc48e2a1ab21afbd2ac4ab48be2559))
+* submit and form persistence on app on render change ([28277da](https://github.com/windmill-labs/windmill/commit/28277da35bae1c18f16e85d093989e0d419b3601))
+* support bunnative in the CLI ([e02e644](https://github.com/windmill-labs/windmill/commit/e02e644d4ca16773bae3cc2a6b52ac08417d3905))
+
 ## [1.370.0](https://github.com/windmill-labs/windmill/compare/v1.369.1...v1.370.0) (2024-07-29)
 
 
