@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 use crate::db::ApiAuthed;
 
+#[cfg(feature = "enterprise")]
+use crate::ee::ExternalJwks;
 use crate::oauth2_ee::{check_nb_of_user, InstanceEvent};
 use crate::utils::{
     generate_instance_wide_unique_username, get_and_delete_pending_username_or_generate,
@@ -39,6 +41,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use time::OffsetDateTime;
+#[cfg(feature = "enterprise")]
+use tokio::sync::RwLock;
 use tower_cookies::{Cookie, Cookies};
 use tracing::{Instrument, Span};
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
@@ -145,11 +149,23 @@ pub struct AuthCache {
     cache: Cache<(String, String), ExpiringAuthCache>,
     db: DB,
     superadmin_secret: Option<String>,
+    #[cfg(feature = "enterprise")]
+    ext_jwks: Option<Arc<RwLock<ExternalJwks>>>,
 }
 
 impl AuthCache {
-    pub fn new(db: DB, superadmin_secret: Option<String>) -> Self {
-        AuthCache { cache: Cache::new(300), db, superadmin_secret }
+    pub fn new(
+        db: DB,
+        superadmin_secret: Option<String>,
+        #[cfg(feature = "enterprise")] ext_jwks: Option<Arc<RwLock<ExternalJwks>>>,
+    ) -> Self {
+        AuthCache {
+            cache: Cache::new(300),
+            db,
+            superadmin_secret,
+            #[cfg(feature = "enterprise")]
+            ext_jwks,
+        }
     }
 
     pub async fn invalidate(&self, w_id: &str, token: String) {
@@ -168,9 +184,19 @@ impl AuthCache {
             }
             #[cfg(feature = "enterprise")]
             _ if token.starts_with("jwt_ext_") => {
-                let authed_and_exp =
-                    crate::ee::jwt_ext_auth(w_id.as_ref(), token.trim_start_matches("jwt_ext_"))
-                        .await;
+                let authed_and_exp = match crate::ee::jwt_ext_auth(
+                    w_id.as_ref(),
+                    token.trim_start_matches("jwt_ext_"),
+                    self.ext_jwks.clone(),
+                )
+                .await
+                {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        tracing::error!("JWT_EXT auth error: {:?}", e);
+                        None
+                    }
+                };
 
                 if let Some((authed, exp)) = authed_and_exp.clone() {
                     self.cache.insert(

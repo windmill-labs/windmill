@@ -43,6 +43,7 @@ lazy_static::lazy_static! {
     ];
 
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
+    pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
 
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
@@ -152,6 +153,144 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
+pub struct Annotations {
+    pub npm_mode: bool,
+    pub nodejs_mode: bool,
+    pub native_mode: bool,
+    pub nobundling: bool,
+}
+
+pub fn get_annotation(inner_content: &str) -> Annotations {
+    let annotations = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("//"))
+        .map(|x| x.to_string().replace("//", "").trim().to_string())
+        .collect_vec();
+    let nodejs_mode: bool = annotations.contains(&"nodejs".to_string());
+    let npm_mode: bool = annotations.contains(&"npm".to_string());
+    let native_mode: bool = annotations.contains(&"native".to_string());
+
+    //TODO: remove || npm_mode when bun build is more powerful
+    let nobundling: bool = annotations.contains(&"nobundling".to_string()) || nodejs_mode;
+
+    Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
+}
+
+pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
+    if tokio::fs::metadata(&bin_path).await.is_ok() {
+        (true, format!("loaded from local cache: {}\n", bin_path))
+    } else {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .clone()
+        {
+            let started = std::time::Instant::now();
+            use crate::s3_helpers::attempt_fetch_bytes;
+
+            if let Ok(mut x) = attempt_fetch_bytes(os, _remote_path).await {
+                if let Err(e) = write_binary_file(bin_path, &mut x) {
+                    tracing::error!("could not write bundle/bin file locally: {e:?}");
+                    return (
+                        false,
+                        "error writing bundle/bin file from object store".to_string(),
+                    );
+                }
+                tracing::info!("loaded from object store {}", bin_path);
+                return (
+                    true,
+                    format!(
+                        "loaded bin/bundle from object store {} in {}ms",
+                        bin_path,
+                        started.elapsed().as_millis()
+                    ),
+                );
+            }
+        }
+        (false, "".to_string())
+    }
+}
+
+pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
+    if tokio::fs::metadata(&bin_path).await.is_ok() {
+        return true;
+    } else {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .clone()
+        {
+            return os
+                .get(&object_store::path::Path::from(_remote_path))
+                .await
+                .is_ok();
+        }
+        return false;
+    }
+}
+
+pub async fn save_cache(
+    local_cache_path: &str,
+    _remote_cache_path: &str,
+    origin: &str,
+) -> crate::error::Result<String> {
+    let mut _cached_to_s3 = false;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        .read()
+        .await
+        .clone()
+    {
+        use object_store::path::Path;
+
+        if let Err(e) = os
+            .put(
+                &Path::from(_remote_cache_path),
+                std::fs::read(origin)?.into(),
+            )
+            .await
+        {
+            tracing::error!(
+                "Failed to put go bin to object store: {_remote_cache_path}. Error: {:?}",
+                e
+            );
+        } else {
+            _cached_to_s3 = true;
+        }
+    }
+
+    // if !*CLOUD_HOSTED {
+    if true {
+        std::fs::copy(origin, local_cache_path)?;
+        Ok(format!(
+            "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",
+            local_cache_path
+        ))
+    } else if _cached_to_s3 {
+        Ok(format!(
+            "wrote cached binary to object store {}\n",
+            local_cache_path
+        ))
+    } else {
+        Ok("".to_string())
+    }
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
+    use std::fs::{File, Permissions};
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut file = File::create(main_path)?;
+    file.write_all(byts)?;
+    file.set_permissions(Permissions::from_mode(0o755))?;
+    file.flush()?;
+    Ok(())
+}
+
 fn get_cgroupv2_path() -> Option<String> {
     let cgroup_path: String = parse_file("/proc/self/cgroup")?;
 
@@ -186,9 +325,9 @@ pub fn get_vcpus() -> Option<i64> {
 }
 
 pub fn get_memory() -> Option<i64> {
-    if Path::new("/sys/fs/cgroup/memory/memory.max").exists() {
+    if Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
         // cgroup v1
-        parse_file("/sys/fs/cgroup/memory/memory.max")
+        parse_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
     } else {
         // cgroup v2
         let cgroup_path = get_cgroupv2_path()?;

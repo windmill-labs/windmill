@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
+	import { base } from '$lib/base'
 	import {
 		JobService,
 		type Job,
@@ -70,7 +71,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
@@ -350,7 +351,7 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="/runs">Go to runs page</Button>
+					<Button href="{base}/runs">Go to runs page</Button>
 				</div>
 			</div>
 		</div>
@@ -626,7 +627,7 @@
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
 						{#if job.script_hash}
-							<a href="/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+							<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
 								><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 							>
 						{/if}
@@ -672,13 +673,13 @@
 									<svelte:fragment slot="text">
 										This job has concurrency limits enabled with the key
 										<a
-											href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+											href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 										>
 											{concurrencyKey}
 										</a>
 									</svelte:fragment>
 									<a
-										href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 									>
 										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
 									>

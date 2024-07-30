@@ -9,11 +9,9 @@
 		EditorBreakpoint,
 		EditorMode
 	} from '../types'
-	import { classNames } from '$lib/utils'
 	import type { Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
-	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import GridViewer from './GridViewer.svelte'
 	import Component from './component/Component.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -25,6 +23,7 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
+	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 
 	export let app: App
 	export let appPath: string = ''
@@ -37,6 +36,7 @@
 	export let noBackend: boolean = false
 	export let isLocked = false
 	export let hideRefreshBar = false
+
 	export let replaceStateFn: (path: string) => void = (path: string) =>
 		window.history.replaceState(null, '', path)
 	export let gotoFn: (path: string, opt?: Record<string, any> | undefined) => void = (
@@ -58,7 +58,13 @@
 
 	const allIdsInPath = writable<string[]>([])
 
-	let ncontext: any = { ...context, workspace, mode: 'viewer' }
+	let ncontext: any = {
+		...context,
+		workspace,
+		mode: 'viewer',
+		summary: summary,
+		author: policy.on_behalf_of_email
+	}
 
 	function hashchange(e: HashChangeEvent) {
 		ncontext.hash = e.newURL.split('#')[1]
@@ -111,7 +117,8 @@
 		previewTheme: writable(undefined),
 		debuggingComponents: writable({}),
 		replaceStateFn,
-		gotoFn
+		gotoFn,
+		policy
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -183,7 +190,7 @@
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative min-h-screen h-full" bind:clientHeight={appHeight}>
+<div class="relative h-full" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 
@@ -193,9 +200,9 @@
 			: 'max-w-7xl'} mx-auto"
 		id="app-content"
 	>
-		{#if $appStore.grid}
+		{#if $appStore.grid && $appStore.hideLegacyTopBar !== true}
 			<div
-				class={classNames(
+				class={twMerge(
 					'mx-auto',
 					hideRefreshBar || $appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
 				)}

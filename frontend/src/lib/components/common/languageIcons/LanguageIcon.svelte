@@ -26,17 +26,19 @@
 		| 'fetch'
 		| 'docker'
 		| 'powershell'
+		| 'bunnative'
 	export let width = 30
 	export let height = 30
 	export let scale = 1
 
-	const languageLabel: Record<Script['language'], String> = {
+	const languageLabel: Record<Script['language'] | 'bunnative', String> = {
 		python3: 'Python',
 		deno: 'TypeScript',
 		go: 'Go',
 		bash: 'Bash',
 		powershell: 'PowerShell',
 		nativets: 'HTTP',
+		bunnative: 'HTTP',
 		graphql: 'GraphQL',
 		postgresql: 'Postgresql',
 		bigquery: 'BigQuery',
@@ -48,7 +50,7 @@
 	}
 
 	const langToComponent: Record<
-		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell',
+		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell' | 'bunnative',
 		any
 	> = {
 		go: GoIcon,
@@ -56,6 +58,7 @@
 		deno: TypeScriptIcon,
 		// graphql: TypeScriptIcon,
 		bun: TypeScriptIcon,
+		bunnative: RestIcon,
 		bash: BashIcon,
 		pgsql: PostgresIcon,
 		mysql: MySQLIcon,

@@ -8,6 +8,7 @@
 		type FlowModule
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -712,7 +713,6 @@
 					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
 				<div class="overflow-auto max-h-1/2">
-					{forloop_selected}
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
 						{#if render}
 							<Button
@@ -1004,13 +1004,13 @@
 											<span class="pl-1 text-tertiary"
 												>Result of step as collection of all subflows</span
 											>
-											<div class="p-2">
-												<div class="overflow-auto max-h-[200px]">
-													<DisplayResult
-														workspaceId={job?.workspace_id}
-														result={node.flow_jobs_results}
-													/>
-												</div>
+											<div class="overflow-auto max-h-[200px] p-2">
+												<DisplayResult
+													workspaceId={job?.workspace_id}
+													result={node.flow_jobs_results}
+													nodeId={selectedNode}
+													jobId={job?.id}
+												/>
 											</div>
 											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
 										{/if}
@@ -1028,7 +1028,7 @@
 														class="text-right text-xs"
 														rel="noreferrer"
 														target="_blank"
-														href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+														href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
 													>
 														{truncateRev(node.job_id ?? '', 10)}
 													</a>

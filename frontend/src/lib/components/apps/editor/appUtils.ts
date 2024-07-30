@@ -1,6 +1,7 @@
 import type {
 	App,
 	BaseAppComponent,
+	ComponentCustomCSS,
 	ConnectingInput,
 	EditorBreakpoint,
 	FocusedGrid,
@@ -20,7 +21,7 @@ import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
-import type { FilledItem } from '../svelte-grid/types'
+import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
 	StaticAppInput,
 	EvalAppInput,
@@ -241,12 +242,14 @@ export function createNewGridItem(
 	grid: GridItem[],
 	id: string,
 	data: AppComponent,
-	columns?: Record<number, any>
+	columns?: Record<number, any>,
+	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
+	recOverride?: Record<number, Size>
 ): GridItem {
 	const newComponent = {
 		fixed: false,
-		x: 0,
-		y: 0,
+		x: initialPosition.x,
+		y: initialPosition.y,
 		fullHeight: false
 	}
 
@@ -260,7 +263,7 @@ export function createNewGridItem(
 
 	gridColumns.forEach((column) => {
 		if (!columns) {
-			const rec = getRecommendedDimensionsByComponent(newData.type, column)
+			const rec = recOverride?.[column] ?? getRecommendedDimensionsByComponent(newData.type, column)
 
 			newItem[column] = {
 				...newComponent,
@@ -271,6 +274,7 @@ export function createNewGridItem(
 			newItem[column] = columns[column]
 		}
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+
 		newItem[column] = { ...newItem[column], ...position }
 	})
 
@@ -325,7 +329,13 @@ export function cleanseOneOfConfiguration(
 export function appComponentFromType<T extends keyof typeof components>(
 	type: T,
 	overrideConfiguration?: Partial<InitialAppComponent['configuration']>,
-	extra?: any
+	extra?: any,
+	override?: {
+		customCss?: ComponentCustomCSS<T>
+		verticalAlignment?: 'top' | 'center' | 'bottom'
+		horizontalAlignment?: 'left' | 'center' | 'right'
+		componnetInput?: Partial<InitialAppComponent['componentInput']>
+	}
 ): (id: string) => BaseAppComponent & BaseComponent<T> {
 	return (id: string) => {
 		const init = JSON.parse(JSON.stringify(ccomponents[type].initialData)) as InitialAppComponent
@@ -351,19 +361,19 @@ export function appComponentFromType<T extends keyof typeof components>(
 			type,
 			//TODO remove tooltip from there
 			configuration: deepMergeWithPriority(configuration, overrideConfiguration ?? {}),
-			componentInput: init.componentInput,
+			componentInput: override?.componnetInput ?? init.componentInput,
 			panes: init.panes,
 			tabs: init.tabs,
 			conditions: init.conditions,
 			nodes: init.nodes,
-			customCss: ccomponents[type].customCss as any,
+			customCss: deepMergeWithPriority(ccomponents[type].customCss as any, override?.customCss),
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
 			actions: [],
 			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
-			horizontalAlignment: init.horizontalAlignment,
-			verticalAlignment: init.verticalAlignment,
+			horizontalAlignment: override?.horizontalAlignment ?? init.horizontalAlignment,
+			verticalAlignment: override?.verticalAlignment ?? init.verticalAlignment,
 			id,
 			...(extra ?? {})
 		}
@@ -374,7 +384,9 @@ export function insertNewGridItem(
 	builddata: (id: string) => AppComponent,
 	focusedGrid: FocusedGrid | undefined,
 	columns?: Record<string, any>,
-	keepId?: string
+	keepId?: string,
+	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
+	recOverride?: Record<number, Size>
 ): string {
 	const id = keepId ?? getNextGridItemId(app)
 
@@ -421,7 +433,7 @@ export function insertNewGridItem(
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	const newItem = createNewGridItem(grid, id, data, columns)
+	const newItem = createNewGridItem(grid, id, data, columns, initialPosition, recOverride)
 	grid.push(newItem)
 	return id
 }
@@ -1025,4 +1037,95 @@ export function isTableAction(id: string, app: App): boolean {
 		return false
 	}
 	return true
+}
+
+export function setUpTopBarComponentContent(id: string, app: App) {
+	insertNewGridItem(
+		app,
+		appComponentFromType(
+			'textcomponent',
+
+			{
+				disableNoText: {
+					value: true,
+					type: 'static',
+					fieldType: 'boolean'
+				},
+				tooltip: {
+					type: 'evalv2',
+
+					fieldType: 'text',
+					expr: '`Author: ${ctx.author}`',
+					connections: [
+						{
+							componentId: 'ctx',
+							id: 'author'
+						}
+					]
+				}
+			},
+			undefined,
+			{
+				customCss: {
+					text: {
+						class: 'text-xl font-semibold whitespace-nowrap truncate' as any,
+						style: ''
+					}
+				},
+				verticalAlignment: 'center',
+				componnetInput: {
+					type: 'templatev2',
+					fieldType: 'template',
+					eval: '${ctx.summary}',
+					connections: [
+						{
+							id: 'summary',
+							componentId: 'ctx'
+						}
+					] as InputConnectionEval[]
+				}
+			}
+		) as (id: string) => AppComponent,
+		{
+			parentComponentId: id,
+			subGridIndex: 0
+		},
+		undefined,
+		undefined,
+		undefined,
+		{
+			3: {
+				w: 6,
+				h: 1
+			},
+			12: {
+				w: 6,
+				h: 1
+			}
+		}
+	)
+
+	insertNewGridItem(
+		app,
+		appComponentFromType('recomputeallcomponent', undefined, undefined, {
+			horizontalAlignment: 'right'
+		}) as (id: string) => AppComponent,
+		{
+			parentComponentId: id,
+			subGridIndex: 0
+		},
+		undefined,
+		undefined,
+		undefined,
+		{
+			3: {
+				w: 3,
+				h: 1
+			},
+			12: {
+				w: 6,
+				h: 1
+			}
+		}
+	)
 }

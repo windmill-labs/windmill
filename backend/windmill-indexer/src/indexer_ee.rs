@@ -8,7 +8,7 @@ pub struct IndexReader;
 #[derive(Clone)]
 pub struct IndexWriter;
 
-pub fn init_index() -> Result<(IndexReader, IndexWriter), Error> {
+pub async fn init_index() -> Result<(IndexReader, IndexWriter), Error> {
     Err(anyhow!("Cannot initialize index: not in EE").into())
 }
 

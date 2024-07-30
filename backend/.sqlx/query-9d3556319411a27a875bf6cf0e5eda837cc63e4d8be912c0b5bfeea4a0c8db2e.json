@@ -49,7 +49,8 @@
                 "graphql",
                 "powershell",
                 "mssql",
-                "php"
+                "php",
+                "bunnative"
               ]
             }
           }

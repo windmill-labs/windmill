@@ -11,7 +11,9 @@
 	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined) {
 		const allLangs = Object.keys(defaultScriptLanguages)
 		if (!defaultScripts || defaultScripts.order == undefined) return allLangs
-		return defaultScripts.order?.concat(allLangs.filter((l) => !defaultScripts.order?.includes(l)))
+		return defaultScripts.order
+			?.concat(allLangs.filter((l) => !defaultScripts.order?.includes(l)))
+			.filter((x) => x != 'nativets')
 	}
 
 	async function changePosition(i: number, up: boolean) {

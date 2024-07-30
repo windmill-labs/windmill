@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned};
+use windmill_common::worker::{get_annotation, to_raw_value, to_raw_value_owned};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -187,14 +187,16 @@ fn parse_bun_relative_imports(raw_code: &str, script_path: &str) -> error::Resul
     Ok(relative_imports)
 }
 
-fn extract_relative_imports(
+pub fn extract_relative_imports(
     raw_code: &str,
     script_path: &str,
     language: &Option<ScriptLang>,
 ) -> Option<Vec<String>> {
     match language {
         Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
-        Some(ScriptLang::Bun) => parse_bun_relative_imports(&raw_code, script_path).ok(),
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
+            parse_bun_relative_imports(&raw_code, script_path).ok()
+        }
         _ => None,
     }
 }
@@ -232,6 +234,24 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 .is_some_and(|y| y.to_string().as_str() == "true")
         })
         .unwrap_or(false);
+    let npm_mode = if job
+        .language
+        .as_ref()
+        .map(|v| v == &ScriptLang::Bun)
+        .unwrap_or(false)
+    {
+        Some(
+            job.args
+                .as_ref()
+                .map(|x| {
+                    x.get("npm_mode")
+                        .is_some_and(|y| y.to_string().as_str() == "true")
+                })
+                .unwrap_or(false),
+        )
+    } else {
+        None
+    };
 
     let content = capture_dependency_job(
         &job.id,
@@ -252,6 +272,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         token,
         script_path,
         raw_deps,
+        npm_mode,
     )
     .await;
 
@@ -267,7 +288,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             let hash = job.script_hash.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
             sqlx::query!(
-                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                "UPDATE script SET lock = $1, created_at = now() WHERE hash = $2 AND workspace_id = $3",
                 &content,
                 &hash.0,
                 w_id
@@ -681,7 +702,7 @@ async fn lock_modules<'c>(
             lock,
             path,
             content,
-            language,
+            mut language,
             input_transforms,
             tag,
             custom_concurrency_key,
@@ -833,8 +854,11 @@ async fn lock_modules<'c>(
             }
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
-                new_flow_modules.push(e);
-                continue;
+                let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
+                if skip_creating_new_lock {
+                    new_flow_modules.push(e);
+                    continue;
+                }
             }
         }
 
@@ -858,6 +882,7 @@ async fn lock_modules<'c>(
                 &path.clone().unwrap_or_else(|| job_path.to_string())
             ),
             false,
+            None,
         )
         .await;
         //
@@ -891,6 +916,14 @@ async fn lock_modules<'c>(
                     append_logs(&job.id, &job.workspace_id, logs, db).await;
                 }
 
+                if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
+                    let anns = get_annotation(&content);
+                    if anns.native_mode && language == ScriptLang::Bun {
+                        language = ScriptLang::Bunnative;
+                    } else if !anns.native_mode && language == ScriptLang::Bunnative {
+                        language = ScriptLang::Bun;
+                    };
+                }
                 e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
                     lock: Some(new_lock),
                     path,
@@ -932,6 +965,18 @@ async fn lock_modules<'c>(
     Ok((new_flow_modules, tx, modified_ids))
 }
 
+fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
+    if language == &ScriptLang::Bun || language == &ScriptLang::Bunnative {
+        let anns = get_annotation(&content);
+        if anns.native_mode && language == &ScriptLang::Bun {
+            return false;
+        } else if !anns.native_mode && language == &ScriptLang::Bunnative {
+            return false;
+        };
+    }
+    true
+}
+
 #[async_recursion]
 async fn lock_modules_app(
     value: Value,
@@ -965,10 +1010,12 @@ async fn lock_modules_app(
                             if v.get("lock")
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
-                                logs.push_str(
-                                    "Found already locked inline script. Skipping lock...\n",
-                                );
-                                return Ok(Value::Object(m.clone()));
+                                if skip_creating_new_lock(&language, &content) {
+                                    logs.push_str(
+                                        "Found already locked inline script. Skipping lock...\n",
+                                    );
+                                    return Ok(Value::Object(m.clone()));
+                                }
                             }
                             logs.push_str("Found lockable inline script. Generating lock...\n");
                             let new_lock = capture_dependency_job(
@@ -986,11 +1033,27 @@ async fn lock_modules_app(
                                 token,
                                 &format!("{}/app", job.script_path()),
                                 false,
+                                None,
                             )
                             .await;
                             match new_lock {
                                 Ok(new_lock) => {
                                     append_logs(&job.id, &job.workspace_id, logs, db).await;
+                                    let anns = get_annotation(&content);
+                                    let nlang = if anns.native_mode && language == ScriptLang::Bun {
+                                        Some(ScriptLang::Bunnative)
+                                    } else if !anns.native_mode && language == ScriptLang::Bunnative
+                                    {
+                                        Some(ScriptLang::Bun)
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(nlang) = nlang {
+                                        v.insert(
+                                            "language".to_string(),
+                                            serde_json::Value::String(nlang.as_str().to_string()),
+                                        );
+                                    }
                                     v.insert(
                                         "lock".to_string(),
                                         serde_json::Value::String(new_lock),
@@ -1177,6 +1240,7 @@ async fn capture_dependency_job(
     token: &str,
     script_path: &str,
     raw_deps: bool,
+    npm_mode: Option<bool>,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
@@ -1271,7 +1335,9 @@ async fn capture_dependency_job(
             )
             .await
         }
-        ScriptLang::Bun => {
+        ScriptLang::Bun | ScriptLang::Bunnative => {
+            let npm_mode = npm_mode
+                .unwrap_or_else(|| windmill_common::worker::get_annotation(job_raw_code).npm_mode);
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
             }
@@ -1292,9 +1358,24 @@ async fn capture_dependency_job(
                 } else {
                     None
                 },
-                false,
+                npm_mode,
             )
             .await?;
+            if req.is_some() {
+                crate::bun_executor::prebundle_script(
+                    job_raw_code,
+                    req.clone(),
+                    script_path,
+                    job_id,
+                    w_id,
+                    db,
+                    &job_dir,
+                    base_internal_url,
+                    worker_name,
+                    &token,
+                )
+                .await?;
+            }
             Ok(req.unwrap_or_else(String::new))
         }
         ScriptLang::Php => {

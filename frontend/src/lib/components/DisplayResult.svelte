@@ -2,6 +2,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
+	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -42,6 +43,7 @@
 	export let hideAsJson: boolean = false
 	export let noControls: boolean = false
 	export let drawerOpen = false
+	export let nodeId: string | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -368,6 +370,7 @@
 				{filename}
 				{disableExpand}
 				{jobId}
+				{nodeId}
 				{workspaceId}
 				forceJson={globalForceJson}
 				hideAsJson={true}
@@ -403,6 +406,17 @@
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					<slot name="copilot-fix" />
 					{#if !disableExpand && !noControls}
+						<a
+							download="{filename ?? 'result'}.json"
+							class="-mt-1 text-current"
+							href={workspaceId && jobId
+								? nodeId
+									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+						>
+							<Download size={14} />
+						</a>
 						<Popover
 							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
 						>
@@ -680,7 +694,9 @@
 							><a
 								download="{filename ?? 'result'}.json"
 								href={workspaceId && jobId
-									? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+									? nodeId
+										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 							>
 								Download {filename ? '' : 'as JSON'}
@@ -715,7 +731,7 @@
 					{/if}
 				{:else}
 					<Highlight
-						class={forceJson ? '' : 'h-full w-full'}
+						class={forceJson ? 'pt-1' : 'h-full w-full'}
 						language={json}
 						code={toJsonStr(result).replace(/\\n/g, '\n')}
 					/>
@@ -744,7 +760,9 @@
 					<Button
 						download="{filename ?? 'result'}.json"
 						href={workspaceId && jobId
-							? `/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+							? nodeId
+								? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+								: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 						startIcon={{ icon: Download }}
 						color="light"
@@ -769,6 +787,7 @@
 					{requireHtmlApproval}
 					{filename}
 					{jobId}
+					{nodeId}
 					{workspaceId}
 					{hideAsJson}
 					{forceJson}

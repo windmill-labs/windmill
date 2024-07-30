@@ -79,6 +79,10 @@
 
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)
+
+	$: selectedComponent.subscribe((s) => {
+		console.log('selectedComponent', s)
+	})
 	const mode = writable<EditorMode>('dnd')
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
@@ -86,6 +90,10 @@
 		opened: false,
 		input: undefined,
 		hoveredComponent: undefined
+	})
+
+	summaryStore.subscribe((s) => {
+		$worldStore?.outputsById['ctx'].summary.set(s)
 	})
 
 	const cssEditorOpen = writable<boolean>(false)
@@ -114,7 +122,9 @@
 		query: Object.fromEntries($page.url.searchParams.entries()),
 		hash: $page.url.hash,
 		workspace: $workspaceStore,
-		mode: 'editor'
+		mode: 'editor',
+		summary: $summaryStore,
+		author: policy.on_behalf_of_email
 	}
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
@@ -157,7 +167,8 @@
 		cssEditorOpen,
 		previewTheme,
 		debuggingComponents: writable({}),
-		replaceStateFn: (path) => replaceState(path, $page.state)
+		replaceStateFn: (path) => replaceState(path, $page.state),
+		policy: policy
 	})
 
 	let scale = writable(100)

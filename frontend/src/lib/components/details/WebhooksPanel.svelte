@@ -43,25 +43,25 @@
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/`
+		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs`
 		return {
 			async: {
-				hash: `${base}run/h/${hash}`,
-				path: `${base}run/p/${path}`
+				hash: `${base}/run/h/${hash}`,
+				path: `${base}/run/p/${path}`
 			},
 			sync: {
-				hash: `${base}run_wait_result/h/${hash}`,
-				path: `${base}run_wait_result/p/${path}`,
-				get_path: `${base}run_wait_result/p/${path}`
+				hash: `${base}/run_wait_result/h/${hash}`,
+				path: `${base}/run_wait_result/p/${path}`,
+				get_path: `${base}/run_wait_result/p/${path}`
 			}
 		}
 	}
 
 	function computeFlowWebhooks(path: string) {
-		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/`
+		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs`
 
-		let urlAsync = `${base}run/f/${path}`
-		let urlSync = `${base}run_wait_result/f/${path}`
+		let urlAsync = `${base}/run/f/${path}`
+		let urlSync = `${base}/run_wait_result/f/${path}`
 		return {
 			async: {
 				path: urlAsync

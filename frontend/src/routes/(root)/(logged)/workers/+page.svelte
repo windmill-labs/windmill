@@ -14,7 +14,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkspaceGroup.svelte'
-	import { WorkerService, type WorkerPing, ConfigService } from '$lib/gen'
+	import { WorkerService, type WorkerPing, ConfigService, SettingService } from '$lib/gen'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
@@ -23,6 +23,7 @@
 	import AutoComplete from 'simple-svelte-autocomplete'
 
 	import YAML from 'yaml'
+	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -90,9 +91,13 @@
 	}
 
 	let defaultTagPerWorkspace: boolean | undefined = undefined
+	let defaultTagWorkspaces: string[] | undefined = undefined
 	async function loadDefaultTagsPerWorkspace() {
 		try {
 			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
+			defaultTagWorkspaces = (await SettingService.getGlobal({
+				key: DEFAULT_TAGS_WORKSPACES_SETTING
+			})) as any
 		} catch (err) {
 			sendUserToast(`Could not load default tag per workspace setting: ${err}`, true)
 		}
@@ -271,7 +276,7 @@
 					/>
 				</div>
 				<div>
-					<DefaultTags bind:defaultTagPerWorkspace />
+					<DefaultTags bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
 				</div>
 				<div>
 					<Button

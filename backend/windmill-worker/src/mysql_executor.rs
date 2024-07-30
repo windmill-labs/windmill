@@ -1,17 +1,23 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
+use futures::{future::BoxFuture, FutureExt};
+use itertools::Itertools;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use sqlx::types::Json;
+use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
     jobs::QueuedJob,
 };
-use windmill_parser_sql::{parse_db_resource, parse_mysql_sig, RE_ARG_MYSQL_NAMED};
+use windmill_parser_sql::{
+    parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
+    RE_ARG_MYSQL_NAMED,
+};
 use windmill_queue::CanceledBy;
 
 use crate::{
@@ -27,6 +33,59 @@ struct MysqlDatabase {
     port: Option<u16>,
     database: String,
     ssl: Option<bool>,
+}
+
+pub fn do_mysql_inner<'a>(
+    query: &'a str,
+    all_statement_values: &Params,
+    conn: Arc<Mutex<mysql_async::Conn>>,
+    column_order: Option<&'a mut Option<Vec<String>>>,
+) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Vec<Value>>>> {
+    let param_names = parse_sql_statement_named_params(query, ':')
+        .into_iter()
+        .map(|x| x.into_bytes())
+        .collect_vec();
+
+    let statement_values = if let Params::Named(m) = all_statement_values {
+        Params::Named(
+            m.into_iter()
+                .filter(|(k, _)| param_names.contains(&k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        )
+    } else {
+        all_statement_values.clone()
+    };
+
+    let result_f = async move {
+        let rows: Vec<Row> = conn
+            .lock()
+            .await
+            .exec(query, statement_values)
+            .await
+            .map_err(to_anyhow)?;
+
+        if let Some(column_order) = column_order {
+            *column_order = Some(
+                rows.first()
+                    .map(|x| {
+                        x.columns()
+                            .iter()
+                            .map(|x| x.name_str().to_string())
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default(),
+            );
+        }
+
+        Ok(rows
+            .into_iter()
+            .map(|x| convert_row_to_value(x))
+            .collect::<Vec<serde_json::Value>>())
+            as Result<Vec<serde_json::Value>, anyhow::Error>
+    };
+
+    Ok(result_f.boxed())
 }
 
 pub async fn do_mysql(
@@ -91,14 +150,11 @@ pub async fn do_mysql(
         opts
     };
 
-    let pool = mysql_async::Pool::new(opts);
-    let mut conn = pool.get_conn().await.map_err(to_anyhow)?;
-
-    let sig = parse_mysql_sig(&query)
+    let sig = parse_mysql_sig(query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(&query).count() > 0;
+    let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
 
     let mut statement_values: Params = match using_named_params {
         true => Params::Named(HashMap::new()),
@@ -106,10 +162,8 @@ pub async fn do_mysql(
     };
     for arg in &sig {
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
-        let arg_n = arg.clone().name;
-        let mysql_v = match job
-            .args
-            .as_ref()
+        let arg_n = arg.name.clone();
+        let mysql_v = match job_args
             .and_then(|x| {
                 x.get(arg.name.as_str())
                     .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
@@ -172,35 +226,30 @@ pub async fn do_mysql(
         }
     }
 
-    let result_f = async {
-        let rows: Vec<Row> = conn
-            .exec(
-                query,
-                match statement_values {
-                    Params::Positional(v) => Params::Positional(v),
-                    Params::Named(m) => Params::Named(m),
-                    _ => Params::Empty,
-                },
-            )
-            .await
-            .map_err(to_anyhow)?;
+    let pool = mysql_async::Pool::new(opts);
+    let conn = pool.get_conn().await.map_err(to_anyhow)?;
+    let conn_a = Arc::new(Mutex::new(conn));
 
-        *column_order = Some(
-            rows.first()
-                .map(|x| {
-                    x.columns()
-                        .iter()
-                        .map(|x| x.name_str().to_string())
-                        .collect::<Vec<String>>()
-                })
-                .unwrap_or_default(),
-        );
+    let queries = parse_sql_blocks(query);
 
-        Ok(rows
-            .into_iter()
-            .map(|x| convert_row_to_value(x))
-            .collect::<Vec<serde_json::Value>>())
-            as Result<Vec<serde_json::Value>, anyhow::Error>
+    let result_f = if queries.len() > 1 {
+        let futures = queries
+            .iter()
+            .map(|x| do_mysql_inner(x, &statement_values, conn_a.clone(), None))
+            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+
+        let f = async {
+            let mut res: Vec<serde_json::Value> = vec![];
+            for fut in futures {
+                let r = fut.await?;
+                res.push(serde_json::to_value(r).map_err(to_anyhow)?);
+            }
+            Ok(res)
+        };
+
+        f.boxed()
+    } else {
+        do_mysql_inner(query, &statement_values, conn_a.clone(), Some(column_order))?
     };
 
     let result = run_future_with_polling_update_job_poller(
@@ -215,7 +264,7 @@ pub async fn do_mysql(
     )
     .await?;
 
-    drop(conn);
+    drop(conn_a);
 
     pool.disconnect().await.map_err(to_anyhow)?;
 

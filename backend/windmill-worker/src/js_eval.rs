@@ -65,9 +65,9 @@ impl ContainerRootCertStoreProvider {
     fn add_certificate(&mut self, cert_path: String) -> io::Result<()> {
         let cert_file = std::fs::File::open(cert_path)?;
         let mut reader = BufReader::new(cert_file);
-        let pem_file = rustls_pemfile::certs(&mut reader)?;
+        let pem_file = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
 
-        self.root_cert_store.add_parsable_certificates(&pem_file);
+        self.root_cert_store.add_parsable_certificates(pem_file);
         Ok(())
     }
 }
@@ -189,22 +189,25 @@ pub async fn eval_timeout(
     }
 
     if by_id.is_some() && authed_client.is_some() {
-        if let Some(x) = RE_FULL
-            .captures(&expr)
-            .and_then(|x| x.get(1).map(|y| y.as_str()))
-        {
-            // tracing::error!("{:?}", x.split(".").collect::<Vec<_>>());
-            let arr = x.split(".").collect::<Vec<_>>();
-            let mut iter = arr.iter();
-            iter.next();
-            if let Some(id) = iter.next() {
-                let path = iter.join(".");
-                let query = if path.is_empty() { None } else { Some(path) };
-                return authed_client
-                    .unwrap()
-                    .get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query)
-                    .await;
-            }
+        if let Some((id, idx_o, rest)) = RE_FULL.captures(&expr).map(|x| {
+            (
+                x.get(1).unwrap().as_str(),
+                x.get(2).map(|y| y.as_str()),
+                x.get(3).map(|y| y.as_str()),
+            )
+        }) {
+            let query = if let Some(idx) = idx_o {
+                match rest {
+                    Some(rest) => Some(format!("{}{}", idx, rest)),
+                    None => Some(idx.to_string()),
+                }
+            } else {
+                rest.map(|x| x.trim_start_matches('.').to_string())
+            };
+            return authed_client
+                .unwrap()
+                .get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query)
+                .await;
         }
     }
 
@@ -334,10 +337,9 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>results(?:(?:\.(?:[a-z]|[A-Z]|_|[1-9])+)|(?:\[\".*?\"\])))"#)
-            .unwrap();
+        Regex::new(r#"(?m)(?P<r>results(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
     static ref RE_FULL: Regex =
-        Regex::new(r"(?m)^results((?:\.(?:(?:[a-z]|[A-Z]|_|[1-9])+))+)$").unwrap();
+        Regex::new(r"(?m)^results\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$").unwrap();
 }
 
 fn replace_with_await_result(expr: String) -> String {
@@ -638,6 +640,7 @@ pub async fn eval_fetch_timeout(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     w_id: &str,
+    load_client: bool,
 ) -> anyhow::Result<(Box<RawValue>, String)> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
@@ -732,7 +735,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code)) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             }
         };
@@ -779,14 +782,17 @@ async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
     env_code: Option<String>,
+    load_client: bool,
 ) -> anyhow::Result<Box<RawValue>> {
-    if let Some(env_code) = env_code.as_ref() {
-        let _ = js_runtime
-            .load_side_es_module_from_code(
-                &deno_core::resolve_url("file:///windmill.ts")?,
-                format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
-            )
-            .await?;
+    if load_client {
+        if let Some(env_code) = env_code.as_ref() {
+            let _ = js_runtime
+                .load_side_es_module_from_code(
+                    &deno_core::resolve_url("file:///windmill.ts")?,
+                    format!("{env_code}\n{}", WINDMILL_CLIENT.to_string()),
+                )
+                .await?;
+        }
     }
 
     let _ = js_runtime
