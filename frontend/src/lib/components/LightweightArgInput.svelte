@@ -116,9 +116,14 @@
 		}
 	}
 
+	// Only used for object inputCat
 	export function evalValueToRaw() {
 		if (value) {
 			rawValue = JSON.stringify(value, null, 4)
+		} else {
+			// If value is undefined, set rawValue to empty object
+			// This is to prevent the textarea from being empty
+			rawValue = '{}'
 		}
 	}
 
@@ -202,6 +207,18 @@
 		value = undefined
 		valid = true
 		error = ''
+	}
+
+	function addItemByItemsType() {
+		if (value == undefined || !Array.isArray(value)) {
+			value = []
+		}
+
+		if (itemsType?.type === 'object') {
+			value = value.concat({})
+		} else {
+			value = value.concat('')
+		}
 	}
 </script>
 
@@ -348,7 +365,7 @@
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2 flex items-center h-6"
 												aria-label="Clear"
 												on:click={() => {
 													value = value.filter((el) => el != v)
@@ -372,10 +389,7 @@
 									size="sm"
 									btnClasses="mt-1"
 									on:click={() => {
-										if (value == undefined || !Array.isArray(value)) {
-											value = []
-										}
-										value = value.concat('')
+										addItemByItemsType()
 									}}
 									startIcon={{ icon: Plus }}
 								>
