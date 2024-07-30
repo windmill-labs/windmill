@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.371.1](https://github.com/windmill-labs/windmill/compare/v1.371.0...v1.371.1) (2024-07-30)
+
+
+### Bug Fixes
+
+* database connections now scale linearly with number of subworkers ([f59046a](https://github.com/windmill-labs/windmill/commit/f59046a9249962ba7e1739de579cd8d885ec63a8))
+
 ## [1.371.0](https://github.com/windmill-labs/windmill/compare/v1.370.0...v1.371.0) (2024-07-30)
 
 
