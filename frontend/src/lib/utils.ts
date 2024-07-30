@@ -12,7 +12,7 @@ import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Script } from './gen'
-import type { EnumType } from './common'
+import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 
@@ -926,4 +926,14 @@ export function shouldDisplayPlaceholder(
 	}
 
 	return type === undefined
+}
+
+export function getSchemaFromProperties(properties: { [name: string]: SchemaProperty }): Schema {
+	return {
+		properties: Object.fromEntries(Object.entries(properties).filter(([k, v]) => k !== 'label')),
+		required: Object.keys(properties).filter((k) => properties[k].required),
+		$schema: '',
+		type: 'object',
+		order: Object.keys(properties).filter((k) => k !== 'label')
+	}
 }
