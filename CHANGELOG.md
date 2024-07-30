@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.371.3](https://github.com/windmill-labs/windmill/compare/v1.371.2...v1.371.3) (2024-07-30)
+
+
+### Bug Fixes
+
+* for codebase bundle, use cjs exports instead ([be8cedf](https://github.com/windmill-labs/windmill/commit/be8cedfe7fe42105a375c92536ec7f5e5a1343bf))
+
 ## [1.371.2](https://github.com/windmill-labs/windmill/compare/v1.371.1...v1.371.2) (2024-07-30)
 
 
