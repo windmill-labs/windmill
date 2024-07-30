@@ -182,8 +182,12 @@
 		}
 	}
 
+	let prevDefaultValue: any = undefined
 	async function changeDefaultValue(inputCat, defaultValue) {
-		value = defaultValue
+		if (value == null || value == undefined || value == prevDefaultValue) {
+			value = defaultValue
+		}
+		prevDefaultValue = defaultValue
 		if (value == null || value == undefined) {
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {

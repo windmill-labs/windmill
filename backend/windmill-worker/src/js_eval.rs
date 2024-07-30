@@ -638,14 +638,12 @@ pub struct NativeAnnotation {
 pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
     let mut res = NativeAnnotation { useragent: None, proxy: None };
 
-    #[cfg(feature = "enterprise")]
     let anns = inner_content
         .lines()
         .take_while(|x| x.starts_with("//"))
         .map(|x| x.to_string().trim_start_matches("//").trim().to_string())
         .collect_vec();
 
-    #[cfg(feature = "enterprise")]
     for ann in anns.iter() {
         if ann.starts_with("useragent") {
             res.useragent = Some(ann.trim_start_matches("useragent").trim().to_string());
@@ -703,6 +701,11 @@ pub async fn eval_fetch_timeout(
         .collect::<Vec<_>>();
 
     let ann = get_annotation(&ts_expr);
+
+    #[cfg(not(feature = "enterprise"))]
+    if ann.proxy.is_some() {
+        return Err(Error::ExecutionErr("Proxy is an EE feature".to_string()).into());
+    }
 
     let mut extra_logs = String::new();
     if ann.useragent.is_some() {
