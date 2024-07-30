@@ -65,9 +65,9 @@ impl ContainerRootCertStoreProvider {
     fn add_certificate(&mut self, cert_path: String) -> io::Result<()> {
         let cert_file = std::fs::File::open(cert_path)?;
         let mut reader = BufReader::new(cert_file);
-        let pem_file = rustls_pemfile::certs(&mut reader)?;
+        let pem_file = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
 
-        self.root_cert_store.add_parsable_certificates(&pem_file);
+        self.root_cert_store.add_parsable_certificates(pem_file);
         Ok(())
     }
 }
