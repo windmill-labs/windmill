@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.371.2](https://github.com/windmill-labs/windmill/compare/v1.371.1...v1.371.2) (2024-07-30)
+
+
+### Bug Fixes
+
+* improve codebase handling by ignoring creating lock and bundle ([716bb71](https://github.com/windmill-labs/windmill/commit/716bb7118b0d5b8dd86799d5514f37b068613256))
+
 ## [1.371.1](https://github.com/windmill-labs/windmill/compare/v1.371.0...v1.371.1) (2024-07-30)
 
 
