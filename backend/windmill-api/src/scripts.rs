@@ -570,6 +570,7 @@ async fn create_script_internal<'c>(
     let lock = if !(ns.language == ScriptLang::Python3
         || ns.language == ScriptLang::Go
         || ns.language == ScriptLang::Bun
+        || ns.language == ScriptLang::Bunnative
         || ns.language == ScriptLang::Deno
         || ns.language == ScriptLang::Php)
     {
