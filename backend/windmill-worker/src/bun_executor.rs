@@ -718,7 +718,7 @@ pub async fn handle_bun_job(
 
     if !codebase.is_some() && !has_bundle_cache {
         let _ = write_file(job_dir, "main.ts", inner_content).await?;
-    } else if !annotation.native_mode {
+    } else if !annotation.native_mode && codebase.is_none() {
         let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
     };
 
