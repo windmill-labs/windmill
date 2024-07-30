@@ -155,7 +155,7 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
-COPY --from=denoland/deno:1.44.4 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:1.45.4 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 COPY --from=oven/bun:1.1.21 /usr/local/bin/bun /usr/bin/bun
 
