@@ -2444,6 +2444,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: variable list
