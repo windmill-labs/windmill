@@ -663,6 +663,8 @@ pub async fn eval_fetch_timeout(
 
             deno_fetch::Options {
                 root_cert_store_provider: Some(Arc::new(cert_store_provider)),
+                user_agent: "windmill/beta".to_string(),
+                proxy: None,
                 ..Default::default()
             }
         } else {
