@@ -222,11 +222,12 @@ pub async fn connect_db(
                     DEFAULT_MAX_CONNECTIONS_INDEXER
                 } else {
                     DEFAULT_MAX_CONNECTIONS_WORKER
-                        * std::env::var("NUM_WORKERS")
+                        + std::env::var("NUM_WORKERS")
                             .ok()
                             .map(|x| x.parse().ok())
                             .flatten()
                             .unwrap_or(1)
+                        - 1
                 }
             }
         }
