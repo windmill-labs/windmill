@@ -573,13 +573,14 @@ async fn create_script_internal<'c>(
         || ns.language == ScriptLang::Bunnative
         || ns.language == ScriptLang::Deno
         || ns.language == ScriptLang::Php)
+        || ns.codebase.is_some()
     {
         Some(String::new())
     } else {
         ns.lock
             .and_then(|e| if e.is_empty() { None } else { Some(e) })
     };
-    let needs_lock_gen = lock.is_none();
+    let needs_lock_gen = lock.is_none() && codebase.is_none();
     let envs = ns.envs.as_ref().map(|x| x.as_slice());
     let envs = if ns.envs.is_none() || ns.envs.as_ref().unwrap().is_empty() {
         None

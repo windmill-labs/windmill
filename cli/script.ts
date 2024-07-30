@@ -160,7 +160,7 @@ export async function handleFile(
         format: "esm",
         bundle: true,
         write: false,
-        platform: 'node',
+        platform: "node",
       });
       bundleContent = out.outputFiles[0].text;
       log.info(`Finished building the bundle for ${path}`);
@@ -430,6 +430,7 @@ export const exts = [
   ".sql",
   ".gql",
   ".ps1",
+  ".php",
 ];
 
 export function removeExtensionToPath(path: string): string {
