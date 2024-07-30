@@ -161,6 +161,18 @@ export async function handleFile(
         bundle: true,
         write: false,
         platform: "node",
+        packages: "bundle",
+        target: "node20.15.1",
+        banner: {
+          js: `
+  import { createRequire } from 'module';           
+  import { dirname } from 'path';
+  import { fileURLToPath } from 'url';
+  
+  const require = createRequire(import.meta.url); 
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);`,
+        },
       });
       bundleContent = out.outputFiles[0].text;
       log.info(`Finished building the bundle for ${path}`);
