@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 use tokio::fs::DirBuilder;
-use windmill_api::HTTP_CLIENT;
+use windmill_api::{smtp_server::SmtpServer, HTTP_CLIENT};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::schedule_key_renewal;
@@ -417,6 +417,19 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
+        let smtp_server_f = async {
+            let mut smtp_server = SmtpServer {};
+
+            if let Err(err) = smtp_server
+                .start_listener_thread(base_internal_url.clone())
+                .await
+            {
+                tracing::error!("Error starting SMTP server: {err:#}");
+            }
+
+            Ok(()) as anyhow::Result<()>
+        };
+
         let workers_f = async {
             let mut rx = killpill_rx.resubscribe();
 
@@ -656,7 +669,8 @@ Windmill Community Edition {GIT_VERSION}
             monitor_f,
             server_f,
             metrics_f,
-            indexer_f
+            indexer_f,
+            smtp_server_f
         )?;
     } else {
         tracing::info!("Nothing to do, exiting.");

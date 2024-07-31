@@ -108,6 +108,12 @@
 		return headers
 	}
 
+	function emailAddress() {
+		return `${$workspaceStore}+${
+			requestType === 'hash' ? 'hash.' + hash : (isFlow ? 'flow.' : '') + path.replaceAll('/', '.')
+		}+${token}@${$page.url.hostname}`
+	}
+
 	function fetchCode() {
 		if (webhookType === 'sync') {
 			return `
@@ -307,6 +313,7 @@ done`
 			<Tab value="curl" size="xs">Curl</Tab>
 		{/if}
 		<Tab value="fetch" size="xs">Fetch</Tab>
+		<Tab value="email" size="xs">Email</Tab>
 
 		<svelte:fragment slot="content">
 			{#key token}
@@ -360,6 +367,25 @@ done`
 											}}
 										>
 											<Highlight language={typescript} code={fetchCode()} />
+											<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+										</div>
+									{/key}{/key}{/key}{/key}
+					{/key}
+				</TabContent>
+				<TabContent value="email">
+					{#key args}
+						{#key requestType}
+							{#key webhookType}
+								{#key tokenType}
+									{#key token}
+										<div
+											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+											on:click={(e) => {
+												e.preventDefault()
+												copyToClipboard(emailAddress())
+											}}
+										>
+											<Highlight language={bash} code={emailAddress()} />
 											<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
 										</div>
 									{/key}{/key}{/key}{/key}
