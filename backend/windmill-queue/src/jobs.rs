@@ -2232,6 +2232,12 @@ pub async fn get_result_by_id(
     }
 }
 
+#[derive(FromRow)]
+struct FlowJobResult {
+    leaf_jobs: Option<Json<Box<RawValue>>>,
+    parent_job: Option<Uuid>,
+}
+
 #[async_recursion]
 pub async fn get_result_by_id_from_running_flow(
     db: &Pool<Postgres>,
@@ -2240,12 +2246,11 @@ pub async fn get_result_by_id_from_running_flow(
     node_id: &str,
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
-    let flow_job_result = sqlx::query!(
-        "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
-        node_id,
-        flow_id,
-        w_id,
-    )
+    let flow_job_result = sqlx::query_as::<_, FlowJobResult>(
+        "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3")
+    .bind(node_id)
+    .bind(flow_id)
+    .bind(w_id)
     .fetch_optional(db)
     .await?;
 
@@ -2257,7 +2262,7 @@ pub async fn get_result_by_id_from_running_flow(
 
     let job_result = flow_job_result
         .leaf_jobs
-        .map(|x| serde_json::from_value(x).ok())
+        .map(|x| serde_json::from_str(x.get()).ok())
         .flatten();
 
     if job_result.is_none() && flow_job_result.parent_job.is_some() {
