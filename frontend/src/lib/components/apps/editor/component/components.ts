@@ -1009,7 +1009,7 @@ export const components = {
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-					tooltip: 'Job id to display logs from'
+					tooltip: 'Job id to display status from'
 				}
 			}
 		}
@@ -1330,7 +1330,7 @@ export const components = {
 		}
 	},
 	formcomponent: {
-		name: 'Submit form',
+		name: 'Submit Form',
 		icon: FormInput,
 		documentationLink: `${documentationBaseUrl}/submit_form`,
 		dims: '3:5-6:5' as AppComponentDimensions,
@@ -3384,7 +3384,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	conditionalwrapper: {
-		name: 'Conditional tabs',
+		name: 'Conditional Tabs',
 		icon: Split,
 		documentationLink: `${documentationBaseUrl}/conditional_tabs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -3412,7 +3412,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	statcomponent: {
-		name: 'Statistic card',
+		name: 'Statistic Card',
 		icon: FileBarChart,
 		documentationLink: `${documentationBaseUrl}/statistic_card`,
 		dims: '2:4-3:4' as AppComponentDimensions,
@@ -4022,7 +4022,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	jobiddisplaycomponent: {
-		name: 'Rich result by Job Id',
+		name: 'Rich Result by Job Id',
 		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}/rich_result_by_job_id`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -4036,7 +4036,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-					tooltip: 'Job id to display logs from'
+					tooltip: 'Job id to display result from'
 				},
 				title: {
 					type: 'static',

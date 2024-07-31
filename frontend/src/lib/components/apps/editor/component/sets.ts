@@ -48,6 +48,7 @@ const inputs: ComponentSet = {
 		'dateinputcomponent',
 		'timeinputcomponent',
 		'datetimeinputcomponent',
+		'dateselectcomponent',
 		'fileinputcomponent',
 		's3fileinputcomponent',
 		'checkboxcomponent',
@@ -55,8 +56,7 @@ const inputs: ComponentSet = {
 		'resourceselectcomponent',
 		'multiselectcomponentv2',
 		'selecttabcomponent',
-		'selectstepcomponent',
-		'dateselectcomponent'
+		'selectstepcomponent'
 	]
 } as const
 
