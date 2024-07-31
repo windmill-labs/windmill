@@ -146,7 +146,6 @@
 	})
 </script>
 
-{$recomputeAllContext.componentNumber}
 <RecomputeAllButton
 	on:click={() => onClick()}
 	{interval}

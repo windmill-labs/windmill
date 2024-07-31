@@ -16,7 +16,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let items = [
+	const items = [
 		{
 			displayName: 'Once',
 			action: () => dispatch('setInter', undefined)
