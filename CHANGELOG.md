@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.371.4](https://github.com/windmill-labs/windmill/compare/v1.371.3...v1.371.4) (2024-07-31)
+
+
+### Bug Fixes
+
+* **frontend:** fix recompute all ([#4161](https://github.com/windmill-labs/windmill/issues/4161)) ([10c6997](https://github.com/windmill-labs/windmill/commit/10c699759e1d06d009783b9f5cba2cbf3ba6a7da))
+* **frontend:** If multiple recompute all present, interval is now in sync ([#4162](https://github.com/windmill-labs/windmill/issues/4162)) ([efeb65b](https://github.com/windmill-labs/windmill/commit/efeb65be4c91491bb4fbedfbc160da7517ebe1d6))
+* improve index usage and runs page performance ([d69aa8d](https://github.com/windmill-labs/windmill/commit/d69aa8d484de016ae7e7bbd190ce6c254818c861))
+
 ## [1.371.3](https://github.com/windmill-labs/windmill/compare/v1.371.2...v1.371.3) (2024-07-30)
 
 
