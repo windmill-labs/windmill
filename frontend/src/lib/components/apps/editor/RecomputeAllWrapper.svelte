@@ -51,7 +51,9 @@
 				interval={$recomputeAllContext.interval}
 				componentNumber={$recomputeAllContext.componentNumber}
 				on:click={$recomputeAllContext.onClick}
-				on:setInter={(e) => ($recomputeAllContext.interval = e.detail)}
+				on:setInter={(e) => {
+					$recomputeAllContext.setInter?.(e.detail)
+				}}
 				refreshing={$recomputeAllContext.refreshing}
 				progress={$recomputeAllContext.progress}
 				loading={$recomputeAllContext.loading}

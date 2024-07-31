@@ -1,14 +1,7 @@
-<script lang="ts" context="module">
-	let loading: Writable<boolean> = writable(false)
-	let progress: Writable<number> = writable(100)
-</script>
-
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { allItems } from '../utils'
-
-	import { writable, type Writable } from 'svelte/store'
 	import RecomputeAllButton from './RecomputeAllButton.svelte'
 
 	const { runnableComponents, app, initialized, recomputeAllContext } =
@@ -25,7 +18,6 @@
 		$initialized.initializedComponents?.length ==
 			allItems($app.grid, $app.subgrids).length + ($app.hiddenInlineScripts?.length ?? 0) &&
 		refresh()
-	$: componentNumber = Object.values($runnableComponents).filter((x) => x.autoRefresh).length
 	$: $recomputeAllContext.componentNumber = Object.values($runnableComponents).filter(
 		(x) => x.autoRefresh
 	).length
@@ -55,6 +47,7 @@
 			if (stopAfterClear) return
 		}
 		refresh()
+
 		if (interval) {
 			shouldRefresh = true
 			timeout = setInterval(refresh, interval)
@@ -63,21 +56,23 @@
 	}
 
 	function startProgress() {
-		progress.set(100)
+		$recomputeAllContext.progress = 100
 		if (progressTimer) clearInterval(progressTimer)
 		progressTimer = setInterval(() => {
-			progress.update((n) => {
-				const newProgress = n - 100 / ((interval ?? 1000) / 100)
+			if ($recomputeAllContext.progress) {
+				const newProgress = $recomputeAllContext.progress - 100 / ((interval ?? 1000) / 100)
 				if (newProgress <= 0) {
 					return 0
 				}
-				return newProgress
-			})
+
+				$recomputeAllContext.progress = newProgress
+			}
 		}, 100)
 	}
 
 	function setInter(inter: number | undefined) {
 		interval = inter
+		$recomputeAllContext.interval = inter
 		onClick(!inter)
 	}
 
@@ -89,8 +84,8 @@
 			firstLoad = true
 			isFirstLoad = true
 		}
-		$loading = true
-		$progress = 100
+		$recomputeAllContext.loading = true
+		$recomputeAllContext.progress = 100
 
 		console.log('refresh all')
 		refreshing = []
@@ -126,7 +121,7 @@
 			.filter(Boolean)
 
 		Promise.all(promises).finally(() => {
-			$loading = false
+			$recomputeAllContext.loading = false
 		})
 	}
 
@@ -143,14 +138,6 @@
 		}
 	}
 
-	progress.subscribe((n) => {
-		$recomputeAllContext.progress = n
-	})
-
-	loading.subscribe((n) => {
-		$recomputeAllContext.loading = n
-	})
-
 	onMount(() => {
 		$recomputeAllContext = {
 			onClick,
@@ -163,11 +150,11 @@
 	on:click={() => onClick()}
 	{interval}
 	{refreshing}
-	{componentNumber}
-	loading={$loading}
-	progress={$progress}
+	componentNumber={$recomputeAllContext.componentNumber}
+	loading={$recomputeAllContext.loading}
+	progress={$recomputeAllContext.progress}
 	on:setInter={(e) => {
 		setInter(e.detail)
-		$recomputeAllContext.interval = e.detail
+		onClick(false)
 	}}
 />
