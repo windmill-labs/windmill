@@ -53,6 +53,8 @@
 				on:click={$recomputeAllContext.onClick}
 				on:setInter={(e) => ($recomputeAllContext.interval = e.detail)}
 				refreshing={$recomputeAllContext.refreshing}
+				progress={$recomputeAllContext.progress}
+				loading={$recomputeAllContext.loading}
 			/>
 		{/if}
 	</div>

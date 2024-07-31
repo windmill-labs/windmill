@@ -143,12 +143,15 @@
 		}
 	}
 
-	recomputeAllContext.subscribe((v) => {
-		console.log('recomputeAllContext', v)
+	progress.subscribe((n) => {
+		$recomputeAllContext.progress = n
+	})
+
+	loading.subscribe((n) => {
+		$recomputeAllContext.loading = n
 	})
 
 	onMount(() => {
-		// On mount we register the callbacks
 		$recomputeAllContext = {
 			onClick,
 			setInter
@@ -161,6 +164,8 @@
 	{interval}
 	{refreshing}
 	{componentNumber}
+	loading={$loading}
+	progress={$progress}
 	on:setInter={(e) => {
 		setInter(e.detail)
 		$recomputeAllContext.interval = e.detail

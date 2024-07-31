@@ -1,8 +1,3 @@
-<script lang="ts" context="module">
-	let loading: Writable<boolean> = writable(false)
-	let progress: Writable<number> = writable(100)
-</script>
-
 <script lang="ts">
 	import { Loader2, RefreshCw, TimerReset } from 'lucide-svelte'
 	import Button from '../../common/button/Button.svelte'
@@ -10,13 +5,14 @@
 	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import { classNames } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
-	import { writable, type Writable } from 'svelte/store'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	export let componentNumber: number = 0
 	export let interval: number | undefined = undefined
 	export let refreshing: string[] = []
+	export let progress: number = 100
+	export let loading: boolean | undefined = false
 
 	const dispatch = createEventDispatcher()
 
@@ -45,10 +41,10 @@
 			)}
 			title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
 				? `every ${interval / 1000} seconds`
-				: 'Once'} {refreshing.length > 0 ? `(live: ${refreshing.join(', ')}))` : ''}"
+				: 'Once'} {refreshing?.length > 0 ? `(live: ${refreshing?.join(', ')}))` : ''}"
 		>
 			<div class="z-10 flex flex-row items-center gap-2">
-				{#if !$loading}
+				{#if !loading}
 					<RefreshCw size={14} />
 				{:else}
 					<Loader2 class="animate-spin text-blue-500" size={14} />
@@ -110,7 +106,7 @@
 		<div class="w-full bg-gray-200 rounded-full h-0.5 dark:bg-gray-700">
 			<div
 				class="bg-blue-300 h-0.5 rounded-full dark:bg-blue-500 transition-all"
-				style="width: {$progress}%"
+				style="width: {progress}%"
 			/>
 		</div>
 	{/if}
