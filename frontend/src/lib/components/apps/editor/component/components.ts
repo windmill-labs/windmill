@@ -4056,7 +4056,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 	recomputeallcomponent: {
 		name: 'Recompute all',
 		icon: RefreshCw,
-		documentationLink: `${documentationBaseUrl}/top_bar`,
+		documentationLink: `${documentationBaseUrl}/recompute_all`,
 		dims: '4:1-6:1' as AppComponentDimensions,
 		customCss: {
 			container: { style: '', class: '' }
