@@ -118,7 +118,13 @@
 		debuggingComponents: writable({}),
 		replaceStateFn,
 		gotoFn,
-		policy
+		policy,
+		recomputeAllContext: writable({
+			loading: false,
+			componentNumber: 0,
+			refreshing: [],
+			progress: 100
+		})
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -200,11 +206,13 @@
 			: 'max-w-7xl'} mx-auto"
 		id="app-content"
 	>
-		{#if $appStore.grid && $appStore.hideLegacyTopBar !== true}
+		{#if $appStore.grid}
 			<div
 				class={twMerge(
 					'mx-auto',
-					hideRefreshBar || $appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
+					hideRefreshBar || $appStore?.norefreshbar || $appStore.hideLegacyTopBar === true
+						? 'invisible h-0 overflow-hidden'
+						: ''
 				)}
 			>
 				<div
