@@ -119,7 +119,12 @@
 		replaceStateFn,
 		gotoFn,
 		policy,
-		recomputeAllContext: writable({})
+		recomputeAllContext: writable({
+			loading: false,
+			componentNumber: 0,
+			refreshing: [],
+			progress: 100
+		})
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined

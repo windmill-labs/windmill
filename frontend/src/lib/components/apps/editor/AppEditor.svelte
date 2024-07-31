@@ -169,7 +169,12 @@
 		debuggingComponents: writable({}),
 		replaceStateFn: (path) => replaceState(path, $page.state),
 		policy: policy,
-		recomputeAllContext: writable({})
+		recomputeAllContext: writable({
+			loading: false,
+			componentNumber: 0,
+			refreshing: [],
+			progress: 100
+		})
 	})
 
 	let scale = writable(100)

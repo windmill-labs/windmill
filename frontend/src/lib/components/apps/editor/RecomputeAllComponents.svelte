@@ -18,9 +18,9 @@
 		$initialized.initializedComponents?.length ==
 			allItems($app.grid, $app.subgrids).length + ($app.hiddenInlineScripts?.length ?? 0) &&
 		refresh()
-	$: $recomputeAllContext.componentNumber = Object.values($runnableComponents).filter(
-		(x) => x.autoRefresh
-	).length
+
+	$: $recomputeAllContext.componentNumber =
+		Object.values($runnableComponents).filter((x) => x.autoRefresh).length ?? 0
 
 	onMount(() => {
 		if (appEditorContext) {
@@ -146,11 +146,12 @@
 	})
 </script>
 
+{$recomputeAllContext.componentNumber}
 <RecomputeAllButton
 	on:click={() => onClick()}
 	{interval}
 	{refreshing}
-	componentNumber={$recomputeAllContext.componentNumber}
+	componentNumber={$recomputeAllContext.componentNumber ?? 0}
 	loading={$recomputeAllContext.loading}
 	progress={$recomputeAllContext.progress}
 	on:setInter={(e) => {
