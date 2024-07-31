@@ -130,6 +130,7 @@
 				running: success == 'running' ? true : undefined,
 				isSkipped: isSkipped ? undefined : false,
 				isFlowStep: jobKindsCat != 'all' ? false : undefined,
+				hasNullParent: jobKindsCat != 'all' ? false : undefined,
 				label: label === null || label === '' ? undefined : label,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
