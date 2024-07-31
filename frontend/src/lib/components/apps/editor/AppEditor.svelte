@@ -168,7 +168,8 @@
 		previewTheme,
 		debuggingComponents: writable({}),
 		replaceStateFn: (path) => replaceState(path, $page.state),
-		policy: policy
+		policy: policy,
+		recomputeAllContext: writable({})
 	})
 
 	let scale = writable(100)

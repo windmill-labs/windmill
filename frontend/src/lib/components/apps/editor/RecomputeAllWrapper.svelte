@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
-	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import { dfs } from './appUtils'
 	import { deepEqual } from 'fast-equals'
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import RecomputeAllButton from './RecomputeAllButton.svelte'
 
 	export let containerClass: string | undefined = undefined
 	export let containerStyle: string | undefined = undefined
 
-	const { selectedComponent, app, connectingInput, allIdsInPath, bgRuns } =
+	const { selectedComponent, app, connectingInput, allIdsInPath, bgRuns, recomputeAllContext } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -47,7 +47,13 @@
 	</div>
 	<div>
 		{#if !$connectingInput.opened}
-			<RecomputeAllComponents />
+			<RecomputeAllButton
+				interval={$recomputeAllContext.interval}
+				componentNumber={$recomputeAllContext.componentNumber}
+				on:click={$recomputeAllContext.onClick}
+				on:setInter={(e) => ($recomputeAllContext.interval = e.detail)}
+				refreshing={$recomputeAllContext.refreshing}
+			/>
 		{/if}
 	</div>
 </div>
