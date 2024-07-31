@@ -50,7 +50,7 @@
 			<RecomputeAllButton
 				interval={$recomputeAllContext.interval}
 				componentNumber={$recomputeAllContext.componentNumber ?? 0}
-				on:click={$recomputeAllContext.onClick}
+				on:click={() => $recomputeAllContext.onClick?.()}
 				on:setInter={(e) => {
 					$recomputeAllContext.setInter?.(e.detail)
 				}}
