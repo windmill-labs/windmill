@@ -9,7 +9,6 @@
 	const appEditorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	let timeout: NodeJS.Timeout | undefined = undefined
-	let interval: number | undefined = undefined
 	let shouldRefresh = false
 	let firstLoad = false
 	let progressTimer: NodeJS.Timeout | undefined = undefined
@@ -48,9 +47,9 @@
 		}
 		refresh()
 
-		if (interval) {
+		if ($recomputeAllContext.interval) {
 			shouldRefresh = true
-			timeout = setInterval(refresh, interval)
+			timeout = setInterval(refresh, $recomputeAllContext.interval)
 			startProgress()
 		}
 	}
@@ -60,7 +59,8 @@
 		if (progressTimer) clearInterval(progressTimer)
 		progressTimer = setInterval(() => {
 			if ($recomputeAllContext.progress) {
-				const newProgress = $recomputeAllContext.progress - 100 / ((interval ?? 1000) / 100)
+				const newProgress =
+					$recomputeAllContext.progress - 100 / (($recomputeAllContext.interval ?? 1000) / 100)
 				if (newProgress <= 0) {
 					return 0
 				}
@@ -71,7 +71,6 @@
 	}
 
 	function setInter(inter: number | undefined) {
-		interval = inter
 		$recomputeAllContext.interval = inter
 		onClick(!inter)
 	}
@@ -133,7 +132,7 @@
 				if (progressTimer) clearInterval(progressTimer)
 			}
 		} else if (shouldRefresh) {
-			timeout = setInterval(refresh, interval)
+			timeout = setInterval(refresh, $recomputeAllContext.interval)
 			startProgress()
 		}
 	}
@@ -148,7 +147,7 @@
 
 <RecomputeAllButton
 	on:click={() => onClick()}
-	{interval}
+	interval={$recomputeAllContext.interval}
 	{refreshing}
 	componentNumber={$recomputeAllContext.componentNumber ?? 0}
 	loading={$recomputeAllContext.loading}
