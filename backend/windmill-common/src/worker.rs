@@ -57,6 +57,10 @@ lazy_static::lazy_static! {
         env_vars: Default::default(),
     }));
 
+    pub static ref WORKER_PULL_QUERIES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
+    pub static ref WORKER_SUSPENDED_PULL_QUERY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+
+
     pub static ref SERVER_CONFIG: Arc<RwLock<ServerConfig>> = Arc::new(RwLock::new(ServerConfig { smtp: Default::default(), timeout_wait_result: 20 }));
 
 
@@ -74,6 +78,63 @@ lazy_static::lazy_static! {
 
     static ref CUSTOM_TAG_REGEX: Regex =  Regex::new(r"^(\w+)\(((?:\w+)\+?)+\)$").unwrap();
 
+}
+
+pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
+    let query = format!(
+        "UPDATE queue
+            SET running = true
+              , started_at = coalesce(started_at, now())
+              , last_ping = now()
+              , suspend_until = null
+            WHERE id = (
+                SELECT id
+                FROM queue
+                WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
+                ORDER BY priority DESC NULLS LAST, created_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
+            running,  script_hash,  script_path,  args,   null as logs,  raw_code,  canceled,  canceled_by,
+            canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as,
+            flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,
+            same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak,
+             root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
+             timeout,  flow_step_id,  cache_ttl, priority", wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", "));
+    let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
+    *l = query;
+}
+
+pub async fn make_pull_query(wc: &WorkerConfig) {
+    let mut queries = vec![];
+    for tags in wc.priority_tags_sorted.iter() {
+        let query = format!("UPDATE queue
+        SET running = true
+        , started_at = coalesce(started_at, now())
+        , last_ping = now()
+        , suspend_until = null
+        WHERE id = (
+            SELECT id
+            FROM queue
+            WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+            ORDER BY priority DESC NULLS LAST, scheduled_for
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
+        running,  script_hash,  script_path,  args,  null as logs,  raw_code,  canceled,  canceled_by,
+        canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as,
+        flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,
+        same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak,
+         root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,
+         timeout,  flow_step_id,  cache_ttl, priority", tags.tags.iter().map(|x| format!("'{x}'")).join(", "));
+
+        queries.push(query);
+    }
+
+    let mut l = WORKER_PULL_QUERIES.write().await;
+    *l = queries;
 }
 
 pub const TMP_DIR: &str = "/tmp/windmill";

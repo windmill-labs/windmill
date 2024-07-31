@@ -60,6 +60,7 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
         to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, NO_LOGS, WORKER_CONFIG,
+        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     BASE_URL, DB, METRICS_ENABLED,
 };
@@ -1979,35 +1980,11 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   suspend_until is non-null
          *   and suspend = 0 when the resume messages are received
          *   or suspend_until <= now() if it has timed out */
-        let config = WORKER_CONFIG.read().await.clone();
-        let tags = config.worker_tags.clone();
-        #[cfg(not(feature = "enterprise"))]
-        let priority_tags_sorted = vec![PriorityTags { priority: 0, tags: tags.clone() }];
-        #[cfg(feature = "enterprise")]
-        let priority_tags_sorted = config.priority_tags_sorted.clone();
-        drop(config);
+        let query = WORKER_SUSPENDED_PULL_QUERY.read().await;
+
         let r = if suspend_first {
-            sqlx::query_as::<_, QueuedJob>("UPDATE queue
-            SET running = true
-              , started_at = coalesce(started_at, now())
-              , last_ping = now()
-              , suspend_until = null
-            WHERE id = (
-                SELECT id
-                FROM queue
-                WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag = ANY($1)
-                ORDER BY priority DESC NULLS LAST, created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-            running,  script_hash,  script_path,  args,   null as logs,  raw_code,  canceled,  canceled_by,  
-            canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as, 
-            flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
-            same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
-             root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
-             timeout,  flow_step_id,  cache_ttl, priority")
-                .bind(tags)
+            // tracing::info!("Pulling job with query: {}", query);
+            sqlx::query_as::<_, QueuedJob>(&query)
                 .fetch_optional(db)
                 .await?
         } else {
@@ -2018,41 +1995,16 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             // let instant = Instant::now();
             let mut highest_priority_job: Option<QueuedJob> = None;
 
-            for priority_tags in priority_tags_sorted {
-                let r = sqlx::query_as::<_, QueuedJob>(
-                    "UPDATE queue
-                    SET running = true
-                    , started_at = coalesce(started_at, now())
-                    , last_ping = now()
-                    , suspend_until = null
-                    WHERE id = (
-                        SELECT id
-                        FROM queue
-                        WHERE running = false AND scheduled_for <= now() AND tag = ANY($1)
-                        ORDER BY priority DESC NULLS LAST, scheduled_for, created_at
-                        FOR UPDATE SKIP LOCKED
-                        LIMIT 1
-                    )
-                    RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-                    running,  script_hash,  script_path,  args,  null as logs,  raw_code,  canceled,  canceled_by,  
-                    canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as, 
-                    flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
-                    same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
-                     root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
-                     timeout,  flow_step_id,  cache_ttl, priority",
-                )
-                .bind(priority_tags.tags.clone())
-                .fetch_optional(db)
-                .await?;
+            let queries = WORKER_PULL_QUERIES.read().await;
+
+            for query in queries.iter() {
+                // tracing::info!("Pulling job with query: {}", query);
+                let r = sqlx::query_as::<_, QueuedJob>(query)
+                    .fetch_optional(db)
+                    .await?;
 
                 if let Some(pulled_job) = r {
-                    let id = pulled_job.id;
                     highest_priority_job = Some(pulled_job);
-                    tracing::debug!(
-                        "Pulling for job {id} with tags {:?} with priority {}",
-                        priority_tags.tags,
-                        priority_tags.priority
-                    );
                     break;
                 }
                 // else continue pulling for lower priority tags
