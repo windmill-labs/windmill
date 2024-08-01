@@ -197,7 +197,8 @@
 					size: 'xs',
 					color: 'dark',
 					disabled: !can_write,
-					startIcon: Pen
+					startIcon: Pen,
+					loadUntilNav: true
 				}
 			})
 		}
