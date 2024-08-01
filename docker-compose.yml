@@ -124,12 +124,12 @@ services:
       - PORT=8001
       - DATABASE_URL=${DATABASE_URL}
       - MODE=indexer
-      #how often will new jobs be added to the index to be searched
-      - TANTIVY_REFRESH_INDEX_PERIOD__S=300
-      #how many documents to batch in one commit
-      - TANTIVY_DOC_COMMIT_MAX_BATCH_SIZE=100000
-      #log memory usage and progress every so many documents indexed
-      - TANTIVY_SHOW_MEMORY_EVERY=10000
+      - TANTIVY_MAX_INDEXED_JOB_LOG_SIZE__MB=1 # job logs bigger than this will be truncated before indexing
+      - TANTIVY_S3_BACKUP_PERIOD__S=3600 # how often to backup the index into object storage
+      - TANTIVY_INDEX_WRITER_MEMORY_BUDGET__MB=100 # higher budget for higher indexing throughput
+      - TANTIVY_REFRESH_INDEX_PERIOD__S=300 #how often to start indexing new jobs
+      - TANTIVY_DOC_COMMIT_MAX_BATCH_SIZE=100000 #how many documents to batch in one commit
+      - TANTIVY_SHOW_MEMORY_EVERY=10000 #log memory usage and progress every so many documents indexed
     depends_on:
       db:
         condition: service_healthy
