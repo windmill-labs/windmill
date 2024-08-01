@@ -31,6 +31,7 @@ services:
     restart: unless-stopped
     expose:
       - 8000
+      - 2525
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=server
@@ -151,22 +152,37 @@ services:
     expose:
       - 3002
 
-  caddy:
-    image: caddy:2.5.2-alpine
+  nginx:
+    image: nginx:1.17.0-alpine
     restart: unless-stopped
-
-    # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      # - ./certs:/certs # Provide custom certificate files like cert.pem and key.pem to enable HTTPS - See the corresponding section in the Caddyfile
     ports:
-      # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80
-      # - 443:443 # Uncomment to enable HTTPS handling by Caddy
+      # - 443:443
+      - 25:25
+    volumes:
+      - ./nginx/unsecured.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/smtp_server.conf:/etc/nginx/conf.d/smtp_server.conf
+      # - ./nginx/custom_ssl.conf:/etc/nginx/conf.d/default.conf # Uncomment and comment line above to provide custom SSL configuration
+      # - ./certs:/certs # Provide custom certificate files like cert.pem and key.pem to enable HTTPS - See the corresponding section in custom_ssl.conf
     environment:
-      - BASE_URL=":80"
-      # - BASE_URL=":443" # uncomment and comment line above to enable HTTPS via custom certificate and key files
-      # - BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
+      - BASE_URL=localhost
+      # - BASE_URL=mydomain.com
+
+  # # Uncomment the following section to enable HTTPS via Let's Encrypt
+  # nginx:
+  #   image: jonasal/nginx-certbot:5.2.1
+  #   restart: unless-stopped
+  #   ports:
+  #     - 80:80
+  #     - 443:443
+  #     - 25:25
+  #   volumes:
+  #     - ./nginx/automatic_ssl.conf:/etc/nginx/user_conf.d/default.conf
+  #     - ./nginx/smtp_server.conf:/etc/nginx/user_conf.d/smtp_server.conf
+  #     - letsencrypt_data:/etc/letsencrypt
+  #   environment:
+  #     - CERTBOT_EMAIL=email@mydomain.com
+  #     - BASE_URL=mydomain.com
 
 volumes:
   db_data: null
@@ -174,3 +190,4 @@ volumes:
   worker_logs: null
   windmill_index: null
   lsp_cache: null
+  # letsencrypt_data: null

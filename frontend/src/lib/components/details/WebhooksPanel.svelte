@@ -18,6 +18,7 @@
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../HighlightTheme.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	let userSettings: UserSettings
 
@@ -27,6 +28,8 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
+
+	let selectedTab: string = 'rest'
 
 	let webhooks: {
 		async: {
@@ -80,6 +83,10 @@
 	$: if (webhookType === 'async' && requestType === 'get_path') {
 		// Request type is not supported for async webhooks
 		requestType = 'hash'
+	}
+
+	$: if (webhookType === 'sync' && selectedTab === 'email') {
+		webhookType = 'async'
 	}
 
 	$: url =
@@ -267,6 +274,7 @@ done`
 					label="Sync"
 					value="sync"
 					tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+					disabled={selectedTab === 'email'}
 				/>
 			</ToggleButtonGroup>
 		</div>
@@ -297,17 +305,19 @@ done`
 				/>
 			</ToggleButtonGroup>
 		</div>
-		<div class="flex flex-row justify-between">
-			<div class="text-xs font-semibold flex flex-row items-center">Token configuration</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
-				<ToggleButton label="Token in Headers" value="headers" />
-				<ToggleButton label="Token in Query" value="query" />
-			</ToggleButtonGroup>
-		</div>
+		{#if selectedTab !== 'email'}
+			<div class="flex flex-row justify-between">
+				<div class="text-xs font-semibold flex flex-row items-center">Token configuration</div>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
+					<ToggleButton label="Token in Headers" value="headers" />
+					<ToggleButton label="Token in Query" value="query" />
+				</ToggleButtonGroup>
+			</div>
+		{/if}
 	</div>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<Tabs selected="rest">
+	<Tabs bind:selected={selectedTab}>
 		<Tab value="rest" size="xs">REST</Tab>
 		{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 			<Tab value="curl" size="xs">Curl</Tab>
@@ -373,23 +383,26 @@ done`
 					{/key}
 				</TabContent>
 				<TabContent value="email">
-					{#key args}
-						{#key requestType}
-							{#key webhookType}
-								{#key tokenType}
-									{#key token}
-										<div
-											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-											on:click={(e) => {
-												e.preventDefault()
-												copyToClipboard(emailAddress())
-											}}
-										>
-											<Highlight language={bash} code={emailAddress()} />
-											<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
-										</div>
-									{/key}{/key}{/key}{/key}
-					{/key}
+					<div class="flex flex-col gap-4">
+						{#key args}
+							{#key requestType}
+								{#key webhookType}
+									{#key tokenType}
+										{#key token}
+											<div class="flex flex-col gap-2">
+												<ClipboardPanel title="Email address" content={emailAddress()} />
+											</div>
+										{/key}
+									{/key}
+								{/key}
+							{/key}
+						{/key}
+						<Alert title="Email triggers" size="xs">
+							To trigger the job by email, send an email to the address above. The job will receive
+							two arguments: `raw_email` containing the raw email as string, and `parsed_email`
+							containing the parsed email as an object.
+						</Alert>
+					</div>
 				</TabContent>
 			{/key}
 		</svelte:fragment>

@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 use tokio::fs::DirBuilder;
-use windmill_api::{smtp_server::SmtpServer, HTTP_CLIENT};
+use windmill_api::{smtp_server_ee::SmtpServer, HTTP_CLIENT};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::schedule_key_renewal;

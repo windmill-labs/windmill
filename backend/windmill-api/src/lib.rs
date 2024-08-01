@@ -76,7 +76,7 @@ mod schedule;
 mod scim_ee;
 mod scripts;
 mod settings;
-pub mod smtp_server;
+pub mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
