@@ -9772,6 +9772,9 @@ components:
           type: boolean
         is_refreshed:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
       required:
         - workspace_id
         - path
@@ -9810,6 +9813,9 @@ components:
           type: integer
         is_oauth:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
       required:
         - path
         - value
