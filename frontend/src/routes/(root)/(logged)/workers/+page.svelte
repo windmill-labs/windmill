@@ -549,7 +549,7 @@
 													{/if}
 												</Cell>
 												<Cell>
-													{Math.ceil(occupancy_rate ?? 0 * 100)}%
+													{Math.ceil((occupancy_rate ?? 0) * 100)}%
 												</Cell>
 											{/if}
 											<Cell>
