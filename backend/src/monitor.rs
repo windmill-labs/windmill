@@ -406,6 +406,21 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
+    let deleted_expired_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE expires_at IS NOT NULL AND expires_at > now() RETURNING path",
+    )
+    .fetch_all(db)
+    .await;
+
+    match deleted_expired_variables {
+        Ok(res) => {
+            if res.len() > 0 {
+                tracing::info!("deleted {} expired variables {:?}", res.len(), res)
+            }
+        }
+        Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {

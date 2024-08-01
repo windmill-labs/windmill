@@ -103,7 +103,8 @@ async fn list_variables(
          is_secret, variable.description, variable.extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
          account.refresh_error,
          resource.path IS NOT NULL as is_linked,
-         account.refresh_token != '' as is_refreshed
+         account.refresh_token != '' as is_refreshed,
+         variable.expires_at
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
@@ -317,8 +318,8 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         &w_id,
         variable.path,
         value,
@@ -326,6 +327,7 @@ async fn create_variable(
         variable.description,
         variable.account,
         variable.is_oauth.unwrap_or(false),
+        variable.expires_at
     )
     .execute(&mut *tx)
     .await?;
