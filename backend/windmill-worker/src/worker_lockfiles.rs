@@ -1361,7 +1361,7 @@ async fn capture_dependency_job(
                 npm_mode,
             )
             .await?;
-            if req.is_some() {
+            if req.is_some() && !raw_deps {
                 crate::bun_executor::prebundle_script(
                     job_raw_code,
                     req.clone(),
