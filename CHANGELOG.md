@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.372.0](https://github.com/windmill-labs/windmill/compare/v1.371.4...v1.372.0) (2024-08-01)
+
+
+### Features
+
+* variables created by password fields expire after 7 days ([b5464e2](https://github.com/windmill-labs/windmill/commit/b5464e2906bdaedb4752e198e40b7e8c4dbb1338))
+
+
+### Bug Fixes
+
+* fix raw_deps handling ([efcf0e4](https://github.com/windmill-labs/windmill/commit/efcf0e40f68342f8330cf5d610979eb7fe92ce09))
+* improve cancel_selection job for running jobs ([42e3ae9](https://github.com/windmill-labs/windmill/commit/42e3ae92e3841579f8ac0821b58ebb72c4204c98))
+
 ## [1.371.4](https://github.com/windmill-labs/windmill/compare/v1.371.3...v1.371.4) (2024-07-31)
 
 
