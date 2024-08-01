@@ -308,7 +308,8 @@
 						startIcon: Pen,
 						color: 'dark',
 						variant: 'contained',
-						disabled: !can_write
+						disabled: !can_write,
+						loadUntilNav: true
 					}
 				})
 			}

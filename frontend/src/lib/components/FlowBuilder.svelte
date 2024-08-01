@@ -1221,7 +1221,7 @@
 						size="xs"
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
-						disabled={!newFlow && !savedFlow}
+						disabled={(!newFlow && !savedFlow) || loading}
 						shortCut={{
 							key: 'S'
 						}}
@@ -1231,6 +1231,7 @@
 
 					<CustomPopover appearTimeout={0} focusEl={msgInput}>
 						<Button
+							disabled={loading}
 							loading={loadingSave}
 							size="xs"
 							startIcon={{ icon: Save }}

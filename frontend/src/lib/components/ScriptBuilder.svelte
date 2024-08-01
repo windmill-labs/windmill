@@ -69,6 +69,7 @@
 	import Summary from './Summary.svelte'
 
 	export let script: NewScript
+	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
 	export let template: 'docker' | 'bunnative' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
@@ -1133,6 +1134,7 @@
 						<Button
 							loading={loadingSave}
 							size="xs"
+							disabled={!fullyLoaded}
 							startIcon={{ icon: Save }}
 							on:click={() => editScript(false)}
 							dropdownItems={computeDropdownItems(initialPath)}
