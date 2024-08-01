@@ -51,7 +51,7 @@
 	let sync = true
 
 	$: jobKinds = computeJobKinds(jobKindsCat)
-	$: ($workspaceStore && loadJobsIntern(true)) ||
+	$: ($workspaceStore ||
 		(path &&
 			label &&
 			success &&
@@ -65,7 +65,13 @@
 			showSchedules != undefined &&
 			allWorkspaces != undefined &&
 			argFilter != undefined &&
-			resultFilter != undefined)
+			resultFilter != undefined)) &&
+		onParamChanges()
+
+	function onParamChanges() {
+		resetJobs()
+		loadJobsIntern(true)
+	}
 
 	$: if (!intervalId && autoRefresh) {
 		intervalId = setInterval(syncer, refreshRate)
@@ -213,14 +219,18 @@
 		minTs = nMinTs
 		maxTs = nMaxTs
 		if (reset) {
-			jobs = undefined
-			completedJobs = undefined
-			externalJobs = undefined
-			extendedJobs = undefined
-			intervalId && clearInterval(intervalId)
-			intervalId = setInterval(syncer, refreshRate)
+			resetJobs()
 		}
 		await loadJobsIntern(shouldGetCount)
+	}
+
+	function resetJobs() {
+		jobs = undefined
+		completedJobs = undefined
+		externalJobs = undefined
+		extendedJobs = undefined
+		intervalId && clearInterval(intervalId)
+		intervalId = setInterval(syncer, refreshRate)
 	}
 	async function loadJobsIntern(shouldGetCount?: boolean): Promise<void> {
 		if (shouldGetCount) {
