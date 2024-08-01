@@ -274,6 +274,16 @@ export type AppViewerContext = {
 	replaceStateFn?: ((url: string) => void) | undefined
 	gotoFn?: ((url: string, opt?: Record<string, any> | undefined) => void) | undefined
 	policy: Policy
+
+	recomputeAllContext: Writable<{
+		onClick?: () => void
+		componentNumber?: number | undefined
+		interval?: number | undefined
+		refreshing?: string[] | undefined
+		setInter?: (interval: number) => void | undefined
+		progress?: number | undefined
+		loading?: boolean | undefined
+	}>
 }
 
 export type AppEditorContext = {

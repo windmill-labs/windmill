@@ -42,8 +42,8 @@ use windmill_common::{
     users::truncate_token,
     utils::{now_from_db, rd_string},
     worker::{
-        load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE,
-        DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
+        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
     },
     BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
     METRICS_DEBUG_ENABLED, METRICS_ENABLED,
@@ -401,6 +401,21 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Ok(res) => {
             if res.len() > 0 {
                 tracing::info!("deleted {} cache resource: {:?}", res.len(), res)
+            }
+        }
+        Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
+    }
+
+    let deleted_expired_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE expires_at IS NOT NULL AND expires_at > now() RETURNING path",
+    )
+    .fetch_all(db)
+    .await;
+
+    match deleted_expired_variables {
+        Ok(res) => {
+            if res.len() > 0 {
+                tracing::info!("deleted {} expired variables {:?}", res.len(), res)
             }
         }
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
@@ -948,6 +963,8 @@ pub async fn reload_worker_config(
 
             let mut wc = WORKER_CONFIG.write().await;
             tracing::info!("Reloading worker config...");
+            make_suspended_pull_query(&config).await;
+            make_pull_query(&config).await;
             *wc = config
         }
     }

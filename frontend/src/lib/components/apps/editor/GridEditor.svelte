@@ -48,7 +48,7 @@
 </script>
 
 <div class="w-full z-[1000] overflow-visible h-full">
-	{#if $app.hideLegacyTopBar !== true}
+	<div class={$app.hideLegacyTopBar ? 'hidden' : ''}>
 		<div
 			class="w-full sticky top-0 flex justify-between border-b {$componentActive
 				? 'invisible'
@@ -94,7 +94,7 @@
 				</div>
 			</div>
 		</div>
-	{/if}
+	</div>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}

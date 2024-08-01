@@ -790,6 +790,10 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
             .expect("could not create initial worker dir");
     }
 
+    tracing::info!(
+        "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
+        *windmill_worker::SLEEP_QUEUE
+    );
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
@@ -802,7 +806,9 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let hostname = hostname.clone();
 
         handles.push(tokio::spawn(async move {
-            tracing::info!(worker = %worker_name, "starting worker");
+            if num_workers > 1 {
+                tracing::info!(worker = %worker_name, "starting worker {i}");
+            }
 
             let f = windmill_worker::run_worker(
                 &db1,

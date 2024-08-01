@@ -26,6 +26,7 @@ export async function main(example_input: number = 3) {
 `
 
 export const BUNNATIVE_INIT_CODE = `//native
+//you can add proxy support using //proxy http(s)://host:port
 
 // native scripts are bun scripts that are executed on native workers and can be parallelized
 // only fetch is allowed, but imports will work as long as they also use only fetch and the standard lib

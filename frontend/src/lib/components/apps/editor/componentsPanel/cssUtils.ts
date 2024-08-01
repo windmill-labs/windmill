@@ -567,7 +567,7 @@ export const customisationByComponent: Customisation[] = [
 	{
 		components: ['conditionalwrapper'],
 		selectors: [
-			{ selector: '.wm-conditional-tabs', comment: 'Conditional tabs', customCssKey: 'container' }
+			{ selector: '.wm-conditional-tabs', comment: 'Conditional Tabs', customCssKey: 'container' }
 		],
 		variables: []
 	},
