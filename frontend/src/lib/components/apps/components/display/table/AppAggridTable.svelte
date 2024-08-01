@@ -306,7 +306,12 @@
 						onGridReady: (e) => {
 							outputs?.ready.set(true)
 							value = value
-							if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault === true) {
+							if (
+								result &&
+								result.length > 0 &&
+								resolvedConfig?.selectFirstRowByDefault === true &&
+								selectedRowIndex === -1
+							) {
 								e.api.getRowNode('0')?.setSelected(true)
 							}
 							$componentControl[id] = {

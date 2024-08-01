@@ -17,6 +17,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -88,6 +89,17 @@
 	)
 
 	let valid = true
+
+	let previousDefault = resolvedConfig.defaultValues
+
+	$: resolvedConfig.defaultValues &&
+		!deepEqual(previousDefault, resolvedConfig.defaultValues) &&
+		onDefaultChange()
+
+	function onDefaultChange() {
+		previousDefault = structuredClone(resolvedConfig.defaultValues)
+		args = previousDefault ?? {}
+	}
 </script>
 
 {#each Object.keys(components['schemaformcomponent'].initialData.configuration) as key (key)}

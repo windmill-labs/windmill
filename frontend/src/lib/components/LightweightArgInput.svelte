@@ -22,6 +22,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -184,10 +185,11 @@
 
 	let prevDefaultValue: any = undefined
 	async function changeDefaultValue(inputCat, defaultValue) {
-		if (value == null || value == undefined || value == prevDefaultValue) {
+		if (value == null || value == undefined || deepEqual(value, prevDefaultValue)) {
 			value = defaultValue
 		}
-		prevDefaultValue = defaultValue
+		prevDefaultValue = structuredClone(defaultValue)
+
 		if (value == null || value == undefined) {
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {

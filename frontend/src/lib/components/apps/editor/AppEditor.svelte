@@ -80,9 +80,9 @@
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
-	$: selectedComponent.subscribe((s) => {
-		console.log('selectedComponent', s)
-	})
+	// $: selectedComponent.subscribe((s) => {
+	// 	console.log('selectedComponent', s)
+	// })
 	const mode = writable<EditorMode>('dnd')
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
