@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.373.0](https://github.com/windmill-labs/windmill/compare/v1.372.0...v1.373.0) (2024-08-01)
+
+
+### Features
+
+* Indexing improvements ([#4167](https://github.com/windmill-labs/windmill/issues/4167)) ([edcee6d](https://github.com/windmill-labs/windmill/commit/edcee6d8611ff96bfbca7ba811e5e67beaa80f5a))
+
+
+### Bug Fixes
+
+* app forms default values changes gets propagated ([cd61fc1](https://github.com/windmill-labs/windmill/commit/cd61fc1e8c00cc3a57af0228cdf958b2fb3a2699))
+
 ## [1.372.0](https://github.com/windmill-labs/windmill/compare/v1.371.4...v1.372.0) (2024-08-01)
 
 
