@@ -156,9 +156,6 @@ services:
 
   caddy:
     image: ghcr.io/windmill-labs/caddy-l4:latest
-    build:
-      context: ./docker
-      dockerfile: DockerfileCaddy
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
