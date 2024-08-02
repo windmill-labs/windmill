@@ -135,6 +135,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 					position: { x: 0, y: 0 },
 					type: 'whileLoopStart'
 				}
+				addEdge(module.id, startNode.id)
 
 				const endNode = {
 					id: `${module.id}-end`,
@@ -147,6 +148,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				nodes.push(endNode)
 
 				processModules(module.value.modules, startNode, endNode, currentOffset + 50)
+				previousId = endNode.id
 			} else if (module.value.type === 'branchone') {
 				// Start
 				addNode(module, currentOffset, 'module')
@@ -179,12 +181,10 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 			}
 
 			if (index === 0) {
-				console.log('Adding edge between beforeNode and module', beforeNode.id, module.id)
 				addEdge(beforeNode.id, module.id)
 			}
 
 			if (index === modules.length - 1 && previousId) {
-				console.log(nextNode, previousId)
 				addEdge(previousId, nextNode.id)
 			}
 		})

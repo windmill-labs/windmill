@@ -105,14 +105,20 @@
 		branchAllEnd: BranchAllEndNode,
 		forLoopEnd: ForLoopEndNode,
 		forLoopStart: ForLoopStartNode,
-		result: ResultNode
+		result: ResultNode,
+		whileLoopStart: ForLoopStartNode,
+		whileLoopEnd: ForLoopEndNode
 	}
 	const edgeTypes = {
 		edge: BaseEdge
 	}
 </script>
 
-<div class="h-screen">
+<div
+	style={`min-height: ${minHeight}px; max-height: ${
+		maxHeight ? maxHeight + 'px' : 'none'
+	}; height:100%;`}
+>
 	<SvelteFlow
 		{nodes}
 		{edges}
