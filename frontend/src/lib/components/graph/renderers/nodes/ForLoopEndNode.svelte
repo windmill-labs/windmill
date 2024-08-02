@@ -13,16 +13,16 @@
 		<span class="text-xs">0.01s</span>
 	</NodeToolbar>
 {/if}
-
-<VirtualItem
-	label={'Collect result of each iteration'}
-	modules={[]}
-	id={data.id}
-	index={1}
-	selectable
-	selected={false}
-	insertable={false}
-/>
-
-<Handle type="source" position={Position.Bottom} />
-<Handle type="target" position={Position.Top} />
+<div style={`margin-left: ${data.offset}px;`}>
+	<VirtualItem
+		label={'Collect result of each iteration'}
+		modules={[]}
+		id={data.id}
+		index={1}
+		selectable
+		selected={false}
+		insertable={false}
+	/>
+</div>
+<Handle type="source" position={Position.Bottom} style={`margin-left: ${data.offset / 2}px;`} />
+<Handle type="target" position={Position.Top} style={`margin-left: ${data.offset / 2}px;`} />

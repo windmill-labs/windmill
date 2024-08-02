@@ -129,6 +129,6 @@
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		fitView
 	>
-		<Background />
+		<Background class="!bg-surface-secondary" />
 	</SvelteFlow>
 </div>
