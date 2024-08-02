@@ -2498,7 +2498,7 @@ async fn tarball_workspace(
                 ScriptLang::Mssql => "ms.sql",
                 ScriptLang::Graphql => "gql",
                 ScriptLang::Nativets => "fetch.ts",
-                ScriptLang::Bun => {
+                ScriptLang::Bun | ScriptLang::Bunnative => {
                     if default_ts.as_ref().is_some_and(|x| x == "bun") {
                         "ts"
                     } else {
@@ -2599,9 +2599,9 @@ async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
             sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND path NOT LIKE 'u/%/secret_arg/%'"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
             } else {
-                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND path NOT LIKE  'u/%/secret_arg/%'"
+                "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
             })
             .bind(&w_id)
             .fetch_all(&mut *tx)

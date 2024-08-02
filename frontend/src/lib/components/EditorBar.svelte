@@ -46,7 +46,7 @@
 	import Popover from './Popover.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
-	export let lang: SupportedLanguage | undefined
+	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
 	export let websocketAlive: {
 		pyright: boolean
@@ -58,7 +58,8 @@
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
 	export let kind: 'script' | 'trigger' | 'approval' = 'script'
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
+		'script'
 	export let collabMode = false
 	export let collabLive = false
 	export let collabUsers: { name: string }[] = []
@@ -86,6 +87,7 @@
 		'go',
 		'deno',
 		'bun',
+		'bunnative',
 		'nativets',
 		'php'
 	].includes(lang ?? '')
@@ -96,6 +98,7 @@
 		'go',
 		'deno',
 		'bun',
+		'bunnative',
 		'nativets',
 		'php'
 	].includes(lang ?? '')
@@ -106,6 +109,7 @@
 		'go',
 		'deno',
 		'bun',
+		'bunnative',
 		'nativets',
 		'php'
 	].includes(lang ?? '')
@@ -315,7 +319,7 @@
 		if (!editor) return
 		if (lang == 'deno') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
-		} else if (lang === 'bun' || lang == 'nativets') {
+		} else if (lang === 'bun' || lang === 'bunnative' || lang == 'nativets') {
 			editor.insertAtCursor(`process.env["${name}"]`)
 		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import os')) {
@@ -353,7 +357,7 @@
 				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
-		} else if (lang === 'bun') {
+		} else if (lang === 'bun' || lang === 'bunnative') {
 			const code = editor.getCode()
 			if (!code.includes(`import * as wmill from`)) {
 				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
@@ -423,7 +427,7 @@ $var = json_decode(curl_exec($ch));`)
 				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
-		} else if (lang === 'bun') {
+		} else if (lang === 'bun' || lang === 'bunnative') {
 			const code = editor.getCode()
 			if (!code.includes(`import * as wmill from`)) {
 				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)

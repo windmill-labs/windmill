@@ -287,10 +287,14 @@ lazy_static::lazy_static! {
 
     pub static ref JOB_TOKEN: Option<String> = std::env::var("JOB_TOKEN").ok();
 
-    static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
+    pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
     .and_then(|x| x.parse::<u64>().ok())
-    .unwrap_or(DEFAULT_SLEEP_QUEUE);
+    .unwrap_or(DEFAULT_SLEEP_QUEUE * std::env::var("NUM_WORKERS")
+    .ok()
+    .map(|x| x.parse().ok())
+    .flatten()
+    .unwrap_or(2) / 2);
 
 
     pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
@@ -3051,7 +3055,7 @@ mount {{
             )
             .await
         }
-        Some(ScriptLang::Bun) => {
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
             handle_bun_job(
                 requirements_o,
                 codebase,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_job_completed_index_2')",
+  "query": "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,13 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "45587eb1ea7b6e695327ab7dfbd13c96e7415d16f5fe7d92c308020696e3dd7f"
+  "hash": "51a7e36ba1cc1616a19485eb5930cf90df758e85a8cac6037d044d5bd7440681"
 }

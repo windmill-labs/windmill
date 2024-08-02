@@ -22,7 +22,7 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
 use serde::Serialize;
 use windmill_common::auth::JWT_SECRET;
-use windmill_common::worker::{PriorityTags, WORKER_CONFIG};
+use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -1008,8 +1008,12 @@ fn spawn_test_worker(
         {
             let mut wc = WORKER_CONFIG.write().await;
             (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
-            (*wc).priority_tags_sorted =
-                vec![PriorityTags { priority: 0, tags: (*wc).worker_tags.clone() }]
+            (*wc).priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
+                priority: 0,
+                tags: (*wc).worker_tags.clone(),
+            }];
+            windmill_common::worker::make_suspended_pull_query(&wc).await;
+            windmill_common::worker::make_pull_query(&wc).await;
         }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,

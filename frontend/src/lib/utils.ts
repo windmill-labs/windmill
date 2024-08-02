@@ -12,7 +12,7 @@ import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Script } from './gen'
-import type { EnumType } from './common'
+import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 
@@ -556,7 +556,6 @@ export function deepMergeWithPriority<T>(target: T, source: T): T {
 
 	for (const key in source) {
 		if (source.hasOwnProperty(key) && merged?.hasOwnProperty(key)) {
-			console.log(target)
 			if (target?.hasOwnProperty(key)) {
 				merged[key] = deepMergeWithPriority(target[key], source[key])
 			} else {
@@ -927,4 +926,14 @@ export function shouldDisplayPlaceholder(
 	}
 
 	return type === undefined
+}
+
+export function getSchemaFromProperties(properties: { [name: string]: SchemaProperty }): Schema {
+	return {
+		properties: Object.fromEntries(Object.entries(properties).filter(([k, v]) => k !== 'label')),
+		required: Object.keys(properties).filter((k) => properties[k].required),
+		$schema: '',
+		type: 'object',
+		order: Object.keys(properties).filter((k) => k !== 'label')
+	}
 }

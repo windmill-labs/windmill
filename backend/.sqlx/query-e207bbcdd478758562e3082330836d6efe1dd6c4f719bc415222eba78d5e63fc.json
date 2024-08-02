@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM queue WHERE created_at <= $1",
+  "query": "SELECT id FROM queue",
   "describe": {
     "columns": [
       {
@@ -10,13 +10,11 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Timestamptz"
-      ]
+      "Left": []
     },
     "nullable": [
       false
     ]
   },
-  "hash": "8455e77a6a87bd0b8dbe55c854abfb3938cb9a440e9d53323a93ec9473417890"
+  "hash": "e207bbcdd478758562e3082330836d6efe1dd6c4f719bc415222eba78d5e63fc"
 }

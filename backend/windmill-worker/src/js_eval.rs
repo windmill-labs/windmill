@@ -65,9 +65,9 @@ impl ContainerRootCertStoreProvider {
     fn add_certificate(&mut self, cert_path: String) -> io::Result<()> {
         let cert_file = std::fs::File::open(cert_path)?;
         let mut reader = BufReader::new(cert_file);
-        let pem_file = rustls_pemfile::certs(&mut reader)?;
+        let pem_file = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
 
-        self.root_cert_store.add_parsable_certificates(&pem_file);
+        self.root_cert_store.add_parsable_certificates(pem_file);
         Ok(())
     }
 }
@@ -189,22 +189,25 @@ pub async fn eval_timeout(
     }
 
     if by_id.is_some() && authed_client.is_some() {
-        if let Some(x) = RE_FULL
-            .captures(&expr)
-            .and_then(|x| x.get(1).map(|y| y.as_str()))
-        {
-            // tracing::error!("{:?}", x.split(".").collect::<Vec<_>>());
-            let arr = x.split(".").collect::<Vec<_>>();
-            let mut iter = arr.iter();
-            iter.next();
-            if let Some(id) = iter.next() {
-                let path = iter.join(".");
-                let query = if path.is_empty() { None } else { Some(path) };
-                return authed_client
-                    .unwrap()
-                    .get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query)
-                    .await;
-            }
+        if let Some((id, idx_o, rest)) = RE_FULL.captures(&expr).map(|x| {
+            (
+                x.get(1).unwrap().as_str(),
+                x.get(2).map(|y| y.as_str()),
+                x.get(3).map(|y| y.as_str()),
+            )
+        }) {
+            let query = if let Some(idx) = idx_o {
+                match rest {
+                    Some(rest) => Some(format!("{}{}", idx, rest)),
+                    None => Some(idx.to_string()),
+                }
+            } else {
+                rest.map(|x| x.trim_start_matches('.').to_string())
+            };
+            return authed_client
+                .unwrap()
+                .get_result_by_id(&by_id.as_ref().unwrap().flow_job.to_string(), id, query)
+                .await;
         }
     }
 
@@ -334,10 +337,11 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>results(?:(?:\.(?:[a-z]|[A-Z]|_|[1-9])+)|(?:\[\".*?\"\])))"#)
-            .unwrap();
+        Regex::new(r#"(?m)(?P<r>results(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
     static ref RE_FULL: Regex =
-        Regex::new(r"(?m)^results((?:\.(?:(?:[a-z]|[A-Z]|_|[1-9])+))+)$").unwrap();
+        Regex::new(r"(?m)^results\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$").unwrap();
+    static ref RE_PROXY: Regex =
+        Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
 
 fn replace_with_await_result(expr: String) -> String {
@@ -626,6 +630,51 @@ pub struct LogString {
     pub s: String,
 }
 
+pub struct NativeAnnotation {
+    pub useragent: Option<String>,
+    pub proxy: Option<(String, Option<(String, String)>)>,
+}
+
+pub fn get_annotation(inner_content: &str) -> NativeAnnotation {
+    let mut res = NativeAnnotation { useragent: None, proxy: None };
+
+    let anns = inner_content
+        .lines()
+        .take_while(|x| x.starts_with("//"))
+        .map(|x| x.to_string().trim_start_matches("//").trim().to_string())
+        .collect_vec();
+
+    for ann in anns.iter() {
+        if ann.starts_with("useragent") {
+            res.useragent = Some(ann.trim_start_matches("useragent").trim().to_string());
+        } else if ann.starts_with("proxy") {
+            res.proxy = capture_proxy(ann.trim_start_matches("proxy").trim());
+        }
+    }
+    res
+}
+
+fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
+    RE_PROXY.captures(s).map(|x| {
+        (
+            format!(
+                "{}://{}{}",
+                x.get(1).map(|x| x.as_str()).unwrap_or_default(),
+                x.get(5).map(|x| x.as_str()).unwrap_or_default(),
+                x.get(7)
+                    .map(|x| format!(":{}", x.as_str()))
+                    .unwrap_or_default(),
+            ),
+            x.get(3).map(|y| {
+                (
+                    y.as_str().to_string(),
+                    x.get(4).map(|x| x.as_str().to_string()).unwrap_or_default(),
+                )
+            }),
+        )
+    })
+}
+
 pub async fn eval_fetch_timeout(
     env_code: String,
     ts_expr: String,
@@ -651,20 +700,45 @@ pub async fn eval_fetch_timeout(
         })
         .collect::<Vec<_>>();
 
+    let ann = get_annotation(&ts_expr);
+
+    #[cfg(not(feature = "enterprise"))]
+    if ann.proxy.is_some() {
+        return Err(Error::ExecutionErr("Proxy is an EE feature".to_string()).into());
+    }
+
+    let mut extra_logs = String::new();
+    if ann.useragent.is_some() {
+        extra_logs.push_str(&format!("useragent: {}\n", ann.useragent.as_ref().unwrap()));
+    }
+    if ann.proxy.is_some() {
+        let (proxy, auth) = ann.proxy.as_ref().unwrap();
+        extra_logs.push_str(&format!(
+            "proxy: {proxy} (basic auth: {})\n",
+            auth.is_some()
+        ));
+    }
+
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
         let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
 
-        let deno_fetch_options = if let Some(cert_path) = env::var("DENO_CERT").ok() {
-            let mut cert_store_provider = ContainerRootCertStoreProvider::new();
-            cert_store_provider.add_certificate(cert_path)?;
-
-            deno_fetch::Options {
-                root_cert_store_provider: Some(Arc::new(cert_store_provider)),
-                ..Default::default()
-            }
-        } else {
-            Default::default()
+        let fetch_options = deno_fetch::Options {
+            root_cert_store_provider: if let Some(cert_path) = env::var("DENO_CERT").ok() {
+                let mut cert_store_provider = ContainerRootCertStoreProvider::new();
+                cert_store_provider.add_certificate(cert_path)?;
+                Some(Arc::new(cert_store_provider))
+            } else {
+                None
+            },
+            user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
+            proxy: ann.proxy.map(|x| deno_tls::Proxy {
+                url: x.0,
+                basic_auth: x
+                    .1
+                    .map(|(username, password)| deno_tls::BasicAuth { username, password }),
+            }),
+            ..Default::default()
         };
 
         let exts: Vec<Extension> = vec![
@@ -675,7 +749,7 @@ pub async fn eval_fetch_timeout(
                 Arc::new(BlobStore::default()),
                 None,
             ),
-            deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(deno_fetch_options),
+            deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
             deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
             ext,
         ];
@@ -753,7 +827,7 @@ pub async fn eval_fetch_timeout(
         })
     });
 
-    let r = run_future_with_polling_update_job_poller(
+    let (res, logs) = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
         db,
@@ -770,8 +844,8 @@ pub async fn eval_fetch_timeout(
         }
         e
     })?;
-    *mem_peak = (r.0.get().len() / 1000) as i32;
-    Ok(r)
+    *mem_peak = (res.get().len() / 1000) as i32;
+    Ok((res, format!("{extra_logs}{logs}")))
 }
 
 const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");

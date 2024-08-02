@@ -40,10 +40,10 @@ pub struct ListableVariable {
     pub is_refreshed: Option<bool>,
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
+    pub expires_at: Option<chrono::DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
-
 pub struct ExportableListableVariable {
     pub workspace_id: String,
     pub path: String,
@@ -51,8 +51,16 @@ pub struct ExportableListableVariable {
     pub is_secret: bool,
     pub description: String,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<i32>,
+    #[serde(skip_serializing_if = "is_none_or_false")]
     pub is_oauth: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::DateTime<Utc>>,
+}
+
+fn is_none_or_false(b: &Option<bool>) -> bool {
+    b.is_none() || !b.unwrap()
 }
 
 #[derive(Deserialize)]
@@ -63,6 +71,7 @@ pub struct CreateVariable {
     pub description: String,
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
+    pub expires_at: Option<chrono::DateTime<Utc>>,
 }
 
 pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {

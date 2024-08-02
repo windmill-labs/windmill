@@ -20,8 +20,10 @@ const layout: ComponentSet = {
 		'steppercomponent',
 		'carousellistcomponent',
 		'decisiontreecomponent',
-		'navbarcomponent'
-	]
+		'navbarcomponent',
+		'recomputeallcomponent'
+	],
+	presets: ['topbarcomponent']
 } as const
 
 const buttons: ComponentSet = {
@@ -46,6 +48,7 @@ const inputs: ComponentSet = {
 		'dateinputcomponent',
 		'timeinputcomponent',
 		'datetimeinputcomponent',
+		'dateselectcomponent',
 		'fileinputcomponent',
 		's3fileinputcomponent',
 		'checkboxcomponent',
@@ -53,8 +56,7 @@ const inputs: ComponentSet = {
 		'resourceselectcomponent',
 		'multiselectcomponentv2',
 		'selecttabcomponent',
-		'selectstepcomponent',
-		'dateselectcomponent'
+		'selectstepcomponent'
 	]
 } as const
 

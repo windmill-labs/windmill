@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setInputCat as computeInputCat, emptyString } from '$lib/utils'
+	import { setInputCat as computeInputCat, emptyString, getSchemaFromProperties } from '$lib/utils'
 	import { Button } from './common'
 	import { createEventDispatcher, tick } from 'svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -22,6 +22,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
+	import { deepEqual } from 'fast-equals'
 
 	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
 	export let label: string = ''
@@ -45,6 +46,7 @@
 				enum?: string[]
 				multiselect?: string[]
 				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined = undefined
 	export let displayHeader = true
@@ -115,9 +117,14 @@
 		}
 	}
 
+	// Only used for object inputCat
 	export function evalValueToRaw() {
 		if (value) {
 			rawValue = JSON.stringify(value, null, 4)
+		} else {
+			// If value is undefined, set rawValue to empty object
+			// This is to prevent the textarea from being empty
+			rawValue = '{}'
 		}
 	}
 
@@ -176,8 +183,13 @@
 		}
 	}
 
+	let prevDefaultValue: any = undefined
 	async function changeDefaultValue(inputCat, defaultValue) {
-		value = defaultValue
+		if (value == null || value == undefined || deepEqual(value, prevDefaultValue)) {
+			value = defaultValue
+		}
+		prevDefaultValue = structuredClone(defaultValue)
+
 		if (value == null || value == undefined) {
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
@@ -201,6 +213,18 @@
 		value = undefined
 		valid = true
 		error = ''
+	}
+
+	function addItemByItemsType() {
+		if (value == undefined || !Array.isArray(value)) {
+			value = []
+		}
+
+		if (itemsType?.type === 'object') {
+			value = value.concat({})
+		} else {
+			value = value.concat('')
+		}
 	}
 </script>
 
@@ -335,12 +359,19 @@
 													bind:value={v}
 													resourceType={itemsType?.resourceType}
 												/>
+											{:else if itemsType?.type === 'object' && itemsType?.properties}
+												<div class="p-8 border rounded-md w-full">
+													<LightweightSchemaForm
+														schema={getSchemaFromProperties(itemsType?.properties)}
+														bind:args={v}
+													/>
+												</div>
 											{:else}
 												<input type="text" bind:value={v} />
 											{/if}
 											<button
 												transition:fade|local={{ duration: 100 }}
-												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+												class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2 flex items-center h-6"
 												aria-label="Clear"
 												on:click={() => {
 													value = value.filter((el) => el != v)
@@ -364,10 +395,7 @@
 									size="sm"
 									btnClasses="mt-1"
 									on:click={() => {
-										if (value == undefined || !Array.isArray(value)) {
-											value = []
-										}
-										value = value.concat('')
+										addItemByItemsType()
 									}}
 									startIcon={{ icon: Plus }}
 								>

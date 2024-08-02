@@ -111,7 +111,7 @@
 	export let useWebsockets: boolean = true
 	export let listenEmptyChanges = false
 	export let small = false
-	export let scriptLang: Preview['language']
+	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
 
 	const rHash = randomHash()
@@ -127,7 +127,9 @@
 
 	let initialPath: string | undefined = path
 
-	$: path != initialPath && (scriptLang == 'deno' || scriptLang == 'bun') && handlePathChange()
+	$: path != initialPath &&
+		(scriptLang == 'deno' || scriptLang == 'bun' || scriptLang == 'bunnative') &&
+		handlePathChange()
 
 	let websockets: WebSocket[] = []
 	let languageClients: MonacoLanguageClient[] = []
@@ -1147,7 +1149,7 @@
 			const hostname = getHostname()
 
 			// const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
-			if (scriptLang == 'bun') {
+			if (scriptLang == 'bun' || scriptLang == 'bunnative') {
 				// const processLib = { content: processStdContent, filePath: 'process.d.ts' }
 				// const domLib = { content: domContent, filePath: 'dom.d.ts' }
 				// languages.typescript.typescriptDefaults.setExtraLibs([stdLib, domLib, processLib])
