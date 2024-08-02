@@ -7,6 +7,7 @@
 	import { twMerge } from 'tailwind-merge'
 
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
+	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 
 	export let flow: {
 		summary: string
@@ -30,7 +31,7 @@
 			class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
 			class:overflow-auto={overflowAuto}
 		>
-			<FlowGraph
+			<FlowGraphV2
 				{download}
 				minHeight={400}
 				modules={flow?.value?.modules}

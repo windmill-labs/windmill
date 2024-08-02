@@ -68,9 +68,10 @@
 		'w-full flex relative overflow-hidden rounded-sm',
 		selectable ? 'cursor-pointer' : '',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
-		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : ''
+		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : '',
+		'bg-surface'
 	)}
-	style="min-width: 275px; max-height: 80px; background-color: {bgColor};"
+	style="min-width: 275px; max-height: 80px; background-color: {bgColor} !important;"
 	on:click={() => {
 		if (selectable) {
 			if (id) {
