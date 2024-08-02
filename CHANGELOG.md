@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.373.1](https://github.com/windmill-labs/windmill/compare/v1.373.0...v1.373.1) (2024-08-02)
+
+
+### Bug Fixes
+
+* fix run_flow_async from call ([63abd5b](https://github.com/windmill-labs/windmill/commit/63abd5b14606869eafbd25d8469638b85b96e199))
+* **frontend:** Add support for array of objects in th UI ([#4170](https://github.com/windmill-labs/windmill/issues/4170)) ([91e364b](https://github.com/windmill-labs/windmill/commit/91e364bde5459447945d7dae65c1cab2858c69ac))
+
 ## [1.373.0](https://github.com/windmill-labs/windmill/compare/v1.372.0...v1.373.0) (2024-08-01)
 
 
