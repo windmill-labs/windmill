@@ -71,6 +71,7 @@
 		!$selectedId.startsWith('settings') &&
 		$selectedId !== 'failure' &&
 		$selectedId !== 'Result'
+
 	let dataflow = false
 
 	let dispatch = createEventDispatcher()
