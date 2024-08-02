@@ -3,7 +3,7 @@
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
@@ -17,6 +17,7 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
+	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -53,6 +54,8 @@
 		}
 		return kind == 'script' && !failureModule
 	}
+
+	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
 </script>
 
 <div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
@@ -193,7 +196,7 @@
 			<div class="pb-2" />
 		{/if}
 		<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
-			{#each langs as [label, lang] (lang)}
+			{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
 				{#if displayLang(lang, kind)}
 					<FlowScriptPicker
 						id={`flow-editor-action-script-${lang}`}

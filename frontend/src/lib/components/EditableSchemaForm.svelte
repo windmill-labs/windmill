@@ -471,6 +471,7 @@
 																} else {
 																	schema.required = schema.required?.filter((x) => x !== argName)
 																}
+																dispatch('change', schema)
 															}}
 															on:schemaChange={(e) => {
 																schema = schema

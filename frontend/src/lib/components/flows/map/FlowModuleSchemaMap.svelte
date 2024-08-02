@@ -35,6 +35,8 @@
 	export let disableStaticInputs = false
 	export let disableTutorials = false
 	export let disableAi = false
+	export let disableSettings = false
+
 	export let smallErrorHandler = false
 
 	let flowTutorials: FlowTutorials | undefined = undefined
@@ -240,7 +242,9 @@
 		{#if $copilotCurrentStepStore !== undefined}
 			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
 		{/if}
-		<FlowSettingsItem />
+		{#if !disableSettings}
+			<FlowSettingsItem />
+		{/if}
 		{#if !disableStaticInputs}
 			<FlowConstantsItem />
 		{/if}

@@ -12,6 +12,12 @@
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
+	export let disableStaticInputs = false
+	export let disableTutorials = false
+	export let disableAi = false
+	export let disableSettings = false
+	export let smallErrorHandler = false
+	export let enableAi = true
 
 	let size = 40
 
@@ -35,7 +41,15 @@
 						{/each}
 					</div>
 				{:else if $flowStore.value.modules}
-					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} on:reload />
+					<FlowModuleSchemaMap
+						{disableStaticInputs}
+						{disableTutorials}
+						{disableAi}
+						{disableSettings}
+						{smallErrorHandler}
+						bind:modules={$flowStore.value.modules}
+						on:reload
+					/>
 				{/if}
 			</div>
 		</Pane>
@@ -47,7 +61,7 @@
 					</div>
 				</div>
 			{:else}
-				<FlowEditorPanel enableAi />
+				<FlowEditorPanel {enableAi} />
 			{/if}
 		</Pane>
 	</Splitpanes>
