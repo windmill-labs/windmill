@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 use tokio::fs::DirBuilder;
-use windmill_api::{smtp_server_ee::SmtpServer, HTTP_CLIENT};
+use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::schedule_key_renewal;
@@ -405,6 +405,7 @@ Windmill Community Edition {GIT_VERSION}
                     server_killpill_rx,
                     base_internal_tx,
                     server_mode,
+                    base_internal_url.clone(),
                 )
                 .await?;
             } else {
@@ -414,19 +415,6 @@ Windmill Community Edition {GIT_VERSION}
                         anyhow::anyhow!("Could not send base_internal_url to agent: {e:#}")
                     })?;
             }
-            Ok(()) as anyhow::Result<()>
-        };
-
-        let smtp_server_f = async {
-            let mut smtp_server = SmtpServer {};
-
-            if let Err(err) = smtp_server
-                .start_listener_thread(base_internal_url.clone())
-                .await
-            {
-                tracing::error!("Error starting SMTP server: {err:#}");
-            }
-
             Ok(()) as anyhow::Result<()>
         };
 
@@ -669,8 +657,7 @@ Windmill Community Edition {GIT_VERSION}
             monitor_f,
             server_f,
             metrics_f,
-            indexer_f,
-            smtp_server_f
+            indexer_f
         )?;
     } else {
         tracing::info!("Nothing to do, exiting.");

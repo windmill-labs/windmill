@@ -12,6 +12,7 @@ use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 use crate::oauth2_ee::AllClients;
+use crate::smtp_server_ee::SmtpServer;
 use crate::tracing_init::MyOnFailure;
 use crate::{
     oauth2_ee::SlackVerifier,
@@ -164,6 +165,7 @@ pub async fn run_server(
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
+    base_internal_url: String,
 ) -> anyhow::Result<()> {
     if let Some(mut rsmq) = rsmq.clone() {
         for tag in ALL_TAGS.read().await.iter() {
@@ -195,8 +197,8 @@ pub async fn run_server(
 
     let middleware_stack = ServiceBuilder::new()
         .layer(Extension(db.clone()))
-        .layer(Extension(rsmq))
-        .layer(Extension(user_db))
+        .layer(Extension(rsmq.clone()))
+        .layer(Extension(user_db.clone()))
         .layer(Extension(auth_cache.clone()))
         .layer(Extension(index_reader))
         .layer(Extension(index_writer))
@@ -215,7 +217,18 @@ pub async fn run_server(
 
     if server_mode {
         #[cfg(feature = "embedding")]
-        load_embeddings_db(&db)
+        load_embeddings_db(&db);
+
+        let smtp_server = Arc::new(SmtpServer {
+            db: db.clone(),
+            user_db: user_db,
+            auth_cache: auth_cache.clone(),
+            rsmq: rsmq,
+            base_internal_url: base_internal_url.clone(),
+        });
+        if let Err(err) = smtp_server.start_listener_thread(addr).await {
+            tracing::error!("Error starting SMTP server: {err:#}");
+        }
     }
 
     let job_helpers_service = {

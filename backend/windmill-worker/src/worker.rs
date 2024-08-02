@@ -2275,6 +2275,34 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         return Err(Error::ExecutionErr(e.to_string()));
     }
 
+    #[cfg(not(feature = "enterprise"))]
+    if job.created_by.starts_with("email-trigger-") {
+        let daily_count = sqlx::query!(
+            "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
+        ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
+
+        if let Some(count) = daily_count {
+            if count >= 100 {
+                return Err(error::Error::QuotaExceeded(format!(
+                    "Email trigger usage limit of 100 per day has been reached."
+                )));
+            } else {
+                sqlx::query!(
+                    "UPDATE metrics SET value = $1 WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day'",
+                    serde_json::json!(count + 1)
+                )
+                .execute(db)
+                .await?;
+            }
+        } else {
+            sqlx::query!(
+                "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
+            )
+            .execute(db)
+            .await?;
+        }
+    }
+
     let step = if job.is_flow_step {
         let r = update_flow_status_in_progress(
             db,
