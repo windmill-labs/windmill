@@ -691,10 +691,12 @@
 			</div>
 		</h1>
 		{#if job?.['deleted']}
-			<Alert type="error" title="Deleted">
-				The content of this run was deleted (by an admin, no less)
-			</Alert>
-			<div class="my-2" />
+			<div class="max-w-7xl mx-auto w-full px-4">
+				<Alert type="error" title="Deleted">
+					The content of this run was deleted (by an admin, no less)
+				</Alert>
+			</div>
+			<div class="my-4" />
 		{/if}
 
 		<!-- Arguments and actions -->
