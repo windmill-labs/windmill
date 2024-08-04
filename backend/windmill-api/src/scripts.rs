@@ -52,7 +52,7 @@ use windmill_common::{
     utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
     },
-    worker::to_raw_value,
+    worker::{get_annotation, to_raw_value},
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -570,20 +570,33 @@ async fn create_script_internal<'c>(
     let lock = if !(ns.language == ScriptLang::Python3
         || ns.language == ScriptLang::Go
         || ns.language == ScriptLang::Bun
+        || ns.language == ScriptLang::Bunnative
         || ns.language == ScriptLang::Deno
         || ns.language == ScriptLang::Php)
+        || ns.codebase.is_some()
     {
         Some(String::new())
     } else {
         ns.lock
             .and_then(|e| if e.is_empty() { None } else { Some(e) })
     };
-    let needs_lock_gen = lock.is_none();
+    let needs_lock_gen = lock.is_none() && codebase.is_none();
     let envs = ns.envs.as_ref().map(|x| x.as_slice());
     let envs = if ns.envs.is_none() || ns.envs.as_ref().unwrap().is_empty() {
         None
     } else {
         envs
+    };
+
+    let lang = if &ns.language == &ScriptLang::Bun || &ns.language == &ScriptLang::Bunnative {
+        let anns = get_annotation(&ns.content);
+        if anns.native_mode {
+            ScriptLang::Bunnative
+        } else {
+            ScriptLang::Bun
+        }
+    } else {
+        ns.language.clone()
     };
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
@@ -604,7 +617,7 @@ async fn create_script_internal<'c>(
         ns.is_template.unwrap_or(false),
         extra_perms,
         lock,
-        ns.language.clone() as ScriptLang,
+        lang as ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
         ns.tag,
         ns.draft_only,

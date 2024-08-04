@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
-import type { AppComponent } from './editor/component'
+import { type AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import type {

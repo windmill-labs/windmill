@@ -1393,7 +1393,7 @@ async fn cancel_jobs(
 
     sqlx::query!(
         "DELETE FROM queue WHERE id = any($1) AND workspace_id = $2",
-        &jobs,
+        &trivial_jobs,
         w_id
     )
     .execute(&mut *tx)
@@ -5003,7 +5003,7 @@ async fn delete_completed_job<'a>(
     require_admin(authed.is_admin, &authed.username)?;
     let job_o = sqlx::query_as::<_, CompletedJob>(
         "UPDATE completed_job SET args = null, logs = '', result = null, deleted = true WHERE id = $1 AND workspace_id = $2 \
-         RETURNING *",
+         RETURNING *, null as labels",
     )
     .bind(id)
     .bind(&w_id)

@@ -157,9 +157,12 @@ export async function handleFile(
       log.info(`Starting building the bundle for ${path}`);
       const out = await esbuild.build({
         entryPoints: [path],
-        format: "esm",
+        format: "cjs",
         bundle: true,
         write: false,
+        platform: "node",
+        packages: "bundle",
+        target: "node20.15.1",
       });
       bundleContent = out.outputFiles[0].text;
       log.info(`Finished building the bundle for ${path}`);
@@ -429,6 +432,7 @@ export const exts = [
   ".sql",
   ".gql",
   ".ps1",
+  ".php",
 ];
 
 export function removeExtensionToPath(path: string): string {

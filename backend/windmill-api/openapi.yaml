@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.368.2
+  version: 1.373.1
   title: Windmill API
 
   contact:
@@ -2444,6 +2444,8 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: variable list
@@ -9770,6 +9772,9 @@ components:
           type: boolean
         is_refreshed:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
       required:
         - workspace_id
         - path
@@ -9808,6 +9813,9 @@ components:
           type: integer
         is_oauth:
           type: boolean
+        expires_at:
+          type: string
+          format: date-time
       required:
         - path
         - value

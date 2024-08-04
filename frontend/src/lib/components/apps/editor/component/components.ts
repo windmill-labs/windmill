@@ -49,7 +49,9 @@ import {
 	AlertTriangle,
 	Clock,
 	CalendarClock,
-	AppWindow
+	AppWindow,
+	PanelTop,
+	RefreshCw
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -279,6 +281,8 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 
 export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
 
+export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
+
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
@@ -356,6 +360,7 @@ export type TypedComponent =
 	| NavBarComponent
 	| DateSelectComponent
 	| JobIdDisplayComponent
+	| RecomputeAllComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -368,7 +373,18 @@ export function getRecommendedDimensionsByComponent(
 	componentType: AppComponent['type'],
 	column: number
 ): Size {
-	const size = components[componentType].dims.split('-')[column === 3 ? 0 : 1].split(':')
+	return processDimension(components[componentType].dims, column)
+}
+
+export function processDimension(
+	dimension: AppComponentDimensions | undefined,
+	column: number
+): Size {
+	if (!dimension) {
+		return { w: 1, h: 1 }
+	}
+
+	const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 	return { w: +size[0], h: +size[1] }
 }
 
@@ -398,6 +414,7 @@ export type PresetComponentConfig = {
 	targetComponent: keyof typeof components
 	configuration: object
 	type: string
+	dims?: AppComponentDimensions
 }
 
 export interface InitialAppComponent extends Partial<Aligned> {
@@ -992,7 +1009,7 @@ export const components = {
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-					tooltip: 'Job id to display logs from'
+					tooltip: 'Job id to display status from'
 				}
 			}
 		}
@@ -1134,6 +1151,12 @@ export const components = {
 					fieldType: 'text',
 
 					tooltip: 'Tooltip text if not empty'
+				},
+				disableNoText: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Remove the "No text" placeholder'
 				}
 			}
 		}
@@ -1307,7 +1330,7 @@ export const components = {
 		}
 	},
 	formcomponent: {
-		name: 'Submit form',
+		name: 'Submit Form',
 		icon: FormInput,
 		documentationLink: `${documentationBaseUrl}/submit_form`,
 		dims: '3:5-6:5' as AppComponentDimensions,
@@ -3361,7 +3384,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	conditionalwrapper: {
-		name: 'Conditional tabs',
+		name: 'Conditional Tabs',
 		icon: Split,
 		documentationLink: `${documentationBaseUrl}/conditional_tabs`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -3389,7 +3412,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	statcomponent: {
-		name: 'Statistic card',
+		name: 'Statistic Card',
 		icon: FileBarChart,
 		documentationLink: `${documentationBaseUrl}/statistic_card`,
 		dims: '2:4-3:4' as AppComponentDimensions,
@@ -3999,7 +4022,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		}
 	},
 	jobiddisplaycomponent: {
-		name: 'Rich result by Job Id',
+		name: 'Rich Result by Job Id',
 		icon: Monitor,
 		documentationLink: `${documentationBaseUrl}/rich_result_by_job_id`,
 		dims: '2:8-6:8' as AppComponentDimensions,
@@ -4013,7 +4036,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-					tooltip: 'Job id to display logs from'
+					tooltip: 'Job id to display result from'
 				},
 				title: {
 					type: 'static',
@@ -4028,6 +4051,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
 				}
 			}
+		}
+	},
+	recomputeallcomponent: {
+		name: 'Recompute all',
+		icon: RefreshCw,
+		documentationLink: `${documentationBaseUrl}/recompute_all`,
+		dims: '4:1-6:1' as AppComponentDimensions,
+		customCss: {
+			container: { style: '', class: '' }
+		},
+		initialData: {
+			...defaultAlignement,
+			componentInput: undefined,
+			configuration: {},
+			menuItems: true
 		}
 	}
 } as const
@@ -4054,6 +4092,14 @@ export const presetComponents = {
 			}
 		},
 		type: 'invisibletabscomponent'
+	},
+	topbarcomponent: {
+		name: 'Top Bar',
+		icon: PanelTop,
+		targetComponent: 'containercomponent' as const,
+		configuration: {},
+		type: 'topbarcomponent',
+		dims: '6:2-12:2' as AppComponentDimensions
 	}
 }
 

@@ -80,6 +80,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
+	import type { WhitelabelCustomUi } from './custom_ui'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -95,6 +96,9 @@
 		  })
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let customUi: WhitelabelCustomUi = {}
+
+	$: setContext('customUi', customUi)
 
 	const dispatch = createEventDispatcher()
 
@@ -1010,26 +1014,40 @@
 		}
 	}
 
-	const moreItems: {
+	let moreItems: {
 		displayName: string
 		icon: ComponentType<Icon>
 		action: () => void
 		disabled?: boolean
-	}[] = [
-		{
-			displayName: 'Deployment History',
-			icon: HistoryIcon,
-			action: () => {
-				flowHistory?.open()
-			},
-			disabled: newFlow
-		},
-		{
-			displayName: 'Export',
-			icon: FileJson,
-			action: () => jsonViewerDrawer?.openDrawer()
-		}
-	]
+	}[] = []
+
+	$: onCustomUiChange(customUi)
+
+	function onCustomUiChange(customUi: WhitelabelCustomUi | undefined) {
+		moreItems = [
+			...(customUi?.topBar?.history != false
+				? [
+						{
+							displayName: 'Deployment History',
+							icon: HistoryIcon,
+							action: () => {
+								flowHistory?.open()
+							},
+							disabled: newFlow
+						}
+				  ]
+				: []),
+			...(customUi?.topBar?.history != false
+				? [
+						{
+							displayName: 'Export',
+							icon: FileJson,
+							action: () => jsonViewerDrawer?.openDrawer()
+						}
+				  ]
+				: [])
+		]
+	}
 
 	let deploymentMsg = ''
 	let msgInput: HTMLInputElement | undefined = undefined
@@ -1117,111 +1135,119 @@
 							{$scheduleStore.cron ?? ''}
 						</Button>
 					{/if}
-					<div class="flex justify-start w-full">
-						<div>
-							<button
-								on:click={async () => {
-									select('settings-metadata')
-									document.getElementById('path')?.focus()
-								}}
-							>
-								<Badge
-									color="gray"
-									class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
+
+					{#if customUi?.topBar?.path != false}
+						<div class="flex justify-start w-full">
+							<div>
+								<button
+									on:click={async () => {
+										select('settings-metadata')
+										document.getElementById('path')?.focus()
+									}}
 								>
-									<Pen size={12} class="mr-2" /> Path
-								</Badge>
-							</button>
+									<Badge
+										color="gray"
+										class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
+									>
+										<Pen size={12} class="mr-2" /> Path
+									</Badge>
+								</button>
+							</div>
+							<input
+								type="text"
+								readonly
+								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
+								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+								on:focus={({ currentTarget }) => {
+									currentTarget.select()
+								}}
+							/>
 						</div>
-						<input
-							type="text"
-							readonly
-							value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
-							on:focus={({ currentTarget }) => {
-								currentTarget.select()
-							}}
-						/>
-					</div>
+					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}
 						<Awareness />
 					{/if}
 					<div>
-						<ButtonDropdown hasPadding={false}>
-							<svelte:fragment slot="buttonReplacement">
-								<Button nonCaptureEvent size="xs" color="light">
-									<div class="flex flex-row items-center">
-										<MoreVertical size={14} />
-									</div>
-								</Button>
-							</svelte:fragment>
-							<svelte:fragment slot="items">
-								{#each moreItems as item}
-									<MenuItem
-										on:click={item.action}
-										disabled={item.disabled}
-										class={item.disabled ? 'opacity-50' : ''}
-									>
-										<div
-											class={twMerge(
-												'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-											)}
-										>
-											<svelte:component this={item.icon} size={14} />
-											{item.displayName}
+						{#if moreItems?.length > 0}
+							<ButtonDropdown hasPadding={false}>
+								<svelte:fragment slot="buttonReplacement">
+									<Button nonCaptureEvent size="xs" color="light">
+										<div class="flex flex-row items-center">
+											<MoreVertical size={14} />
 										</div>
-									</MenuItem>
-								{/each}
-							</svelte:fragment>
-						</ButtonDropdown>
+									</Button>
+								</svelte:fragment>
+								<svelte:fragment slot="items">
+									{#each moreItems as item}
+										<MenuItem
+											on:click={item.action}
+											disabled={item.disabled}
+											class={item.disabled ? 'opacity-50' : ''}
+										>
+											<div
+												class={twMerge(
+													'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
+												)}
+											>
+												<svelte:component this={item.icon} size={14} />
+												{item.displayName}
+											</div>
+										</MenuItem>
+									{/each}
+								</svelte:fragment>
+							</ButtonDropdown>
+						{/if}
 					</div>
-
-					<FlowBuilderTutorials
-						on:reload={() => {
-							renderCount += 1
-						}}
-					/>
-					<Button
-						color="light"
-						variant="border"
-						size="xs"
-						on:click={() => {
-							if (!savedFlow) {
-								return
-							}
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'normal',
-								deployed: savedFlow,
-								draft: savedFlow['draft'],
-								current: { ...$flowStore, path: $pathStore }
-							})
-						}}
-						disabled={!savedFlow}
-					>
-						<div class="flex flex-row gap-2 items-center">
-							<DiffIcon size={14} />
-							Diff
-						</div>
-					</Button>
-
-					<FlowCopilotStatus
-						{copilotLoading}
-						bind:copilotStatus
-						{genFlow}
-						{finishCopilotFlowBuilder}
-						{abortController}
-					/>
-
+					{#if customUi?.topBar?.tutorials != false}
+						<FlowBuilderTutorials
+							on:reload={() => {
+								renderCount += 1
+							}}
+						/>
+					{/if}
+					{#if customUi?.topBar?.diff != false}
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							on:click={() => {
+								if (!savedFlow) {
+									return
+								}
+								diffDrawer?.openDrawer()
+								diffDrawer?.setDiff({
+									mode: 'normal',
+									deployed: savedFlow,
+									draft: savedFlow['draft'],
+									current: { ...$flowStore, path: $pathStore }
+								})
+							}}
+							disabled={!savedFlow}
+						>
+							<div class="flex flex-row gap-2 items-center">
+								<DiffIcon size={14} />
+								Diff
+							</div>
+						</Button>
+					{/if}
+					{#if customUi?.topBar?.aiBuilder != false}
+						<FlowCopilotStatus
+							{copilotLoading}
+							bind:copilotStatus
+							{genFlow}
+							{finishCopilotFlowBuilder}
+							{abortController}
+						/>
+					{/if}
 					<FlowPreviewButtons />
 					<Button
 						loading={loadingDraft}
 						size="xs"
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
-						disabled={!newFlow && !savedFlow}
+						disabled={(!newFlow && !savedFlow) || loading}
 						shortCut={{
 							key: 'S'
 						}}
@@ -1231,6 +1257,7 @@
 
 					<CustomPopover appearTimeout={0} focusEl={msgInput}>
 						<Button
+							disabled={loading}
 							loading={loadingSave}
 							size="xs"
 							startIcon={{ icon: Save }}
@@ -1269,6 +1296,8 @@
 			<!-- metadata -->
 			{#if $flowStateStore}
 				<FlowEditor
+					enableAi={customUi?.stepInputs?.ai != false}
+					disableSettings={customUi?.settingsPanel === false}
 					{loading}
 					on:reload={() => {
 						renderCount += 1

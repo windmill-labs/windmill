@@ -25,6 +25,23 @@ export async function main(example_input: number = 3) {
 }
 `
 
+export const BUNNATIVE_INIT_CODE = `//native
+//you can add proxy support using //proxy http(s)://host:port
+
+// native scripts are bun scripts that are executed on native workers and can be parallelized
+// only fetch is allowed, but imports will work as long as they also use only fetch and the standard lib
+
+//import * as wmill from "windmill-client"
+
+export async function main(example_input: number = 3) {
+  // "3" is the default value of example_input, it can be overriden with code or using the UI
+  const res = await fetch(\`https://jsonplaceholder.typicode.com/todos/\${example_input}\`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+`
+
 export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
 //import * as wmill from './windmill.ts'
 
@@ -57,17 +74,22 @@ export async function main(
 }
 `
 
-export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
+export const BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+// https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
+
+// import { toWords } from "number-to-words@1"
 import * as wmill from "windmill-client"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
 
+
 export async function main(
   a: number,
   b: "my" | "enum",
   //c: Postgresql,
-  //d: wmill.S3Object, // for large files backed by S3 (https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files)
+  //d: wmill.S3Object, // https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files 
+  //d: DynSelect_foo, // https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing#dynamic-select
   e = "inferred type string from default arg",
   f = { nested: "object" },
   g: {
@@ -454,9 +476,18 @@ export function isInitialCode(content: string): boolean {
 }
 
 export function initialCode(
-	language: SupportedLanguage | undefined,
+	language: SupportedLanguage | 'bunnative' | undefined,
 	kind: Script['kind'] | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
+	subkind:
+		| 'pgsql'
+		| 'mysql'
+		| 'flow'
+		| 'script'
+		| 'fetch'
+		| 'docker'
+		| 'powershell'
+		| 'bunnative'
+		| undefined
 ): string {
 	if (!kind) {
 		kind = 'script'
@@ -519,8 +550,10 @@ export function initialCode(
 		return GRAPHQL_INIT_CODE
 	} else if (language == 'php') {
 		return PHP_INIT_CODE
-	} else if (language == 'bun') {
-		if (kind === 'approval') {
+	} else if (language == 'bun' || language == 'bunnative') {
+		if (language == 'bunnative' || subkind === 'bunnative') {
+			return BUNNATIVE_INIT_CODE
+		} else if (kind === 'approval') {
 			return BUN_INIT_CODE_APPROVAL
 		} else if (kind === 'failure') {
 			return BUN_FAILURE_MODULE_CODE
@@ -542,9 +575,18 @@ export function initialCode(
 }
 
 export function getResetCode(
-	language: SupportedLanguage | undefined,
+	language: SupportedLanguage | 'bunnative' | undefined,
 	kind: Script['kind'] | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
+	subkind:
+		| 'pgsql'
+		| 'mysql'
+		| 'flow'
+		| 'script'
+		| 'fetch'
+		| 'docker'
+		| 'powershell'
+		| 'bunnative'
+		| undefined
 ) {
 	if (language === 'deno') {
 		return DENO_INIT_CODE_CLEAR
@@ -554,6 +596,8 @@ export function getResetCode(
 		return NATIVETS_INIT_CODE_CLEAR
 	} else if (language === 'bun') {
 		return BUN_INIT_CODE_CLEAR
+	} else if (language === 'bunnative') {
+		return BUNNATIVE_INIT_CODE
 	} else {
 		return initialCode(language, kind, subkind)
 	}

@@ -6,12 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    vec,
-};
+use std::{borrow::Borrow, collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -65,6 +60,7 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath},
     worker::{
         to_raw_value, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, NO_LOGS, WORKER_CONFIG,
+        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     BASE_URL, DB, METRICS_ENABLED,
 };
@@ -1984,35 +1980,11 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   suspend_until is non-null
          *   and suspend = 0 when the resume messages are received
          *   or suspend_until <= now() if it has timed out */
-        let config = WORKER_CONFIG.read().await.clone();
-        let tags = config.worker_tags.clone();
-        #[cfg(not(feature = "enterprise"))]
-        let priority_tags_sorted = vec![PriorityTags { priority: 0, tags: tags.clone() }];
-        #[cfg(feature = "enterprise")]
-        let priority_tags_sorted = config.priority_tags_sorted.clone();
-        drop(config);
+        let query = WORKER_SUSPENDED_PULL_QUERY.read().await;
+
         let r = if suspend_first {
-            sqlx::query_as::<_, QueuedJob>("UPDATE queue
-            SET running = true
-              , started_at = coalesce(started_at, now())
-              , last_ping = now()
-              , suspend_until = null
-            WHERE id = (
-                SELECT id
-                FROM queue
-                WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag = ANY($1)
-                ORDER BY priority DESC NULLS LAST, created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-            running,  script_hash,  script_path,  args,   null as logs,  raw_code,  canceled,  canceled_by,  
-            canceled_reason,  last_ping,  job_kind, schedule_path,  permissioned_as, 
-            flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
-            same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
-             root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
-             timeout,  flow_step_id,  cache_ttl, priority")
-                .bind(tags)
+            // tracing::info!("Pulling job with query: {}", query);
+            sqlx::query_as::<_, QueuedJob>(&query)
                 .fetch_optional(db)
                 .await?
         } else {
@@ -2023,41 +1995,16 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             // let instant = Instant::now();
             let mut highest_priority_job: Option<QueuedJob> = None;
 
-            for priority_tags in priority_tags_sorted {
-                let r = sqlx::query_as::<_, QueuedJob>(
-                    "UPDATE queue
-                    SET running = true
-                    , started_at = coalesce(started_at, now())
-                    , last_ping = now()
-                    , suspend_until = null
-                    WHERE id = (
-                        SELECT id
-                        FROM queue
-                        WHERE running = false AND scheduled_for <= now() AND tag = ANY($1)
-                        ORDER BY priority DESC NULLS LAST, scheduled_for, created_at
-                        FOR UPDATE SKIP LOCKED
-                        LIMIT 1
-                    )
-                    RETURNING  id,  workspace_id,  parent_job,  created_by,  created_at,  started_at,  scheduled_for,
-                    running,  script_hash,  script_path,  args,  null as logs,  raw_code,  canceled,  canceled_by,  
-                    canceled_reason,  last_ping,  job_kind,  schedule_path,  permissioned_as, 
-                    flow_status,  raw_flow,  is_flow_step,  language,  suspend,  suspend_until,  
-                    same_worker,  raw_lock,  pre_run_error,  email,  visible_to_owner,  mem_peak, 
-                     root_job,  leaf_jobs,  tag,  concurrent_limit,  concurrency_time_window_s,  
-                     timeout,  flow_step_id,  cache_ttl, priority",
-                )
-                .bind(priority_tags.tags.clone())
-                .fetch_optional(db)
-                .await?;
+            let queries = WORKER_PULL_QUERIES.read().await;
+
+            for query in queries.iter() {
+                // tracing::info!("Pulling job with query: {}", query);
+                let r = sqlx::query_as::<_, QueuedJob>(query)
+                    .fetch_optional(db)
+                    .await?;
 
                 if let Some(pulled_job) = r {
-                    let id = pulled_job.id;
                     highest_priority_job = Some(pulled_job);
-                    tracing::debug!(
-                        "Pulling for job {id} with tags {:?} with priority {}",
-                        priority_tags.tags,
-                        priority_tags.priority
-                    );
                     break;
                 }
                 // else continue pulling for lower priority tags
@@ -2198,33 +2145,49 @@ pub async fn get_result_by_id(
     {
         Ok(res) => Ok(res),
         Err(_) => {
-            let running_flow_job = sqlx::query_as::<_, QueuedJob>(
+            let running_flow_job =sqlx::query_as::<_, QueuedJob>(
                 "SELECT * FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $1), $1) = id AND workspace_id = $2"
             ).bind(flow_id)
             .bind(&w_id)
-            .fetch_optional(&db)
-            .await?;
+            .fetch_optional(&db).await?;
+            match running_flow_job {
+                Some(job) => {
+                    let restarted_from = windmill_common::utils::not_found_if_none(
+                        job.parse_flow_status()
+                            .map(|status| status.restarted_from)
+                            .flatten(),
+                        "Flow result by id in leaf jobs",
+                        format!("{}, {}", flow_id, node_id),
+                    )?;
 
-            let restarted_from = windmill_common::utils::not_found_if_none(
-                running_flow_job
-                    .map(|fj| fj.parse_flow_status())
-                    .flatten()
-                    .map(|status| status.restarted_from)
-                    .flatten(),
-                "Flow result by id in leaf jobs",
-                format!("{}, {}", flow_id, node_id),
-            )?;
-
-            get_result_by_id_from_original_flow(
-                &db,
-                w_id.as_str(),
-                &restarted_from.flow_job_id,
-                node_id.as_str(),
-                json_path.clone(),
-            )
-            .await
+                    get_result_by_id_from_original_flow(
+                        &db,
+                        w_id.as_str(),
+                        &restarted_from.flow_job_id,
+                        node_id.as_str(),
+                        json_path.clone(),
+                    )
+                    .await
+                }
+                None => {
+                    get_result_by_id_from_original_flow(
+                        &db,
+                        w_id.as_str(),
+                        &flow_id,
+                        node_id.as_str(),
+                        json_path.clone(),
+                    )
+                    .await
+                }
+            }
         }
     }
+}
+
+#[derive(FromRow)]
+struct FlowJobResult {
+    leaf_jobs: Option<Json<Box<RawValue>>>,
+    parent_job: Option<Uuid>,
 }
 
 #[async_recursion]
@@ -2235,12 +2198,11 @@ pub async fn get_result_by_id_from_running_flow(
     node_id: &str,
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
-    let flow_job_result = sqlx::query!(
-        "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
-        node_id,
-        flow_id,
-        w_id,
-    )
+    let flow_job_result = sqlx::query_as::<_, FlowJobResult>(
+        "SELECT leaf_jobs->$1::text as leaf_jobs, parent_job FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3")
+    .bind(node_id)
+    .bind(flow_id)
+    .bind(w_id)
     .fetch_optional(db)
     .await?;
 
@@ -2252,7 +2214,7 @@ pub async fn get_result_by_id_from_running_flow(
 
     let job_result = flow_job_result
         .leaf_jobs
-        .map(|x| serde_json::from_value(x).ok())
+        .map(|x| serde_json::from_str(x.get()).ok())
         .flatten();
 
     if job_result.is_none() && flow_job_result.parent_job.is_some() {
@@ -2275,6 +2237,61 @@ pub async fn get_result_by_id_from_running_flow(
 }
 
 #[async_recursion]
+async fn get_completed_flow_node_result_rec(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    subflows: Vec<CompletedJob>,
+    node_id: &str,
+    json_path: Option<String>,
+) -> error::Result<Option<Box<RawValue>>> {
+    for subflow in subflows {
+        let flow_status = subflow.parse_flow_status().ok_or_else(|| {
+            error::Error::InternalErr(format!("Could not parse flow status of {}", subflow.id))
+        })?;
+
+        if let Some(node_status) = flow_status
+            .modules
+            .iter()
+            .find(|module| module.id() == node_id)
+        {
+            return match (node_status.job(), node_status.flow_jobs()) {
+                (Some(leaf_job_uuid), None) => extract_result_from_job_result(
+                    db,
+                    w_id,
+                    JobResult::SingleJob(leaf_job_uuid),
+                    json_path.clone(),
+                )
+                .await
+                .map(Some),
+                (Some(_), Some(jobs)) => extract_result_from_job_result(
+                    db,
+                    w_id,
+                    JobResult::ListJob(jobs),
+                    json_path.clone(),
+                )
+                .await
+                .map(Some),
+                _ => Err(error::Error::NotFound(format!(
+                    "Flow result by id in leaf jobs not found at name {}",
+                    node_id,
+                ))),
+            };
+        } else {
+            let subflows = sqlx::query_as::<_, CompletedJob>(
+                "SELECT *, null as labels FROM completed_job WHERE parent_job = $1 AND workspace_id = $2 AND flow_status IS NOT NULL",
+            ).bind(subflow.id).bind(w_id).fetch_all(db).await?;
+            match get_completed_flow_node_result_rec(db, w_id, subflows, node_id, json_path.clone())
+                .await?
+            {
+                Some(res) => return Ok(Some(res)),
+                None => continue,
+            };
+        }
+    }
+
+    Ok(None)
+}
+
 async fn get_result_by_id_from_original_flow(
     db: &Pool<Postgres>,
     w_id: &str,
@@ -2293,130 +2310,16 @@ async fn get_result_by_id_from_original_flow(
     let flow_job = windmill_common::utils::not_found_if_none(
         flow_job,
         "Flow result by id in leaf jobs",
-        format!("{}", completed_flow_id),
+        format!("{}, {}", completed_flow_id, node_id),
     )?;
 
-    let mut leaf_jobs_for_flow = HashMap::<String, JobResult>::new();
-    compute_leaf_jobs_for_completed_flow(
-        db,
-        w_id,
-        flow_job.id,
-        Some(flow_job.clone()),
-        &mut leaf_jobs_for_flow,
-    )
-    .await?;
-
-    if !leaf_jobs_for_flow.contains_key(&node_id.to_string()) {
-        // if the flow is itself a restart flow, the step job might be from the upstream flow
-        let restarted_from = windmill_common::utils::not_found_if_none(
-            flow_job
-                .parse_flow_status()
-                .map(|status| status.restarted_from)
-                .flatten(),
-            "Flow result by id in leaf jobs",
-            format!("{}", completed_flow_id),
-        )?;
-        return get_result_by_id_from_original_flow(
-            db,
-            w_id,
-            &restarted_from.flow_job_id,
-            node_id,
-            json_path,
-        )
-        .await;
+    match get_completed_flow_node_result_rec(db, w_id, vec![flow_job], node_id, json_path).await? {
+        Some(res) => Ok(res),
+        None => Err(error::Error::NotFound(format!(
+            "Flow result by id in leaf jobs not found at name {}, {}",
+            completed_flow_id, node_id
+        ))),
     }
-
-    // if the job is in the leaf_jobs map, then fetch its result and return
-    let leaf_job_uuid = leaf_jobs_for_flow.get(&node_id.to_string()).unwrap();
-    extract_result_from_job_result(db, w_id, leaf_job_uuid.to_owned(), json_path).await
-}
-
-#[async_recursion]
-async fn compute_leaf_jobs_for_completed_flow(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    completed_flow_id: Uuid,
-    completed_flow_row: Option<CompletedJob>, // if provided, will be used, otherwise completed_flow_id must be set and the job definition will be pulled from DB
-    recursive_result: &mut HashMap<String, JobResult>,
-) -> error::Result<()> {
-    let flow_status = match completed_flow_row {
-        Some(job) => job.parse_flow_status(),
-        None => {
-            let job_status_raw = sqlx::query_scalar!(
-                "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
-                completed_flow_id,
-                w_id,
-            )
-            .fetch_one(db)
-            .await?;
-            job_status_raw
-                .map(|raw| serde_json::from_value::<FlowStatus>(raw).ok())
-                .flatten()
-        }
-    };
-
-    let flow_job_status_modules = windmill_common::utils::not_found_if_none(
-        flow_status.map(|fs| fs.modules),
-        "Flow result by id in leaf jobs",
-        format!("{}", completed_flow_id),
-    )?;
-
-    let children_jobs = sqlx::query_as::<_, (Uuid, JobKind)>(
-        "SELECT id, job_kind FROM completed_job WHERE parent_job = $1 AND workspace_id = $2",
-    )
-    .bind(completed_flow_id)
-    .bind(w_id)
-    .fetch_all(db)
-    .await?;
-
-    for child_job in children_jobs {
-        let child_job_id = child_job.0;
-        let child_job_kind = child_job.1;
-        match child_job_kind {
-            JobKind::Script | JobKind::Preview | JobKind::Script_Hub => {
-                // if is potentially a leaf job. Get its step_id from the initial flow definition and add it to the result map
-                for module in &flow_job_status_modules {
-                    if module.job().map(|id| id == child_job_id).unwrap_or(false) {
-                        recursive_result.insert(module.id(), JobResult::SingleJob(child_job_id));
-                    }
-                }
-            }
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow => {
-                // Extract the leaf job for this flow and add them to the result map
-                for module in &flow_job_status_modules {
-                    // we add the module as an element of ListJob for this step ID and recursiively extract leaf job of the sub-flow
-                    match module {
-                        FlowStatusModule::Success { flow_jobs: Some(jobs), .. } => {
-                            let jobs_set: HashSet<Uuid> = HashSet::from_iter(jobs.iter().cloned());
-                            if jobs_set.contains(&child_job_id) {
-                                let new_list_job = match recursive_result.get(&module.id()) {
-                                    Some(JobResult::ListJob(jobs_list)) => {
-                                        let mut jobs_list_c = jobs_list.clone();
-                                        jobs_list_c.push(child_job_id);
-                                        jobs_list_c
-                                    }
-                                    _ => vec![child_job_id],
-                                };
-                                recursive_result
-                                    .insert(module.id(), JobResult::ListJob(new_list_job));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                compute_leaf_jobs_for_completed_flow(
-                    db,
-                    w_id,
-                    child_job_id,
-                    None,
-                    recursive_result,
-                )
-                .await?;
-            }
-            _ => {} // do nothing
-        }
-    }
-    Ok(())
 }
 
 async fn extract_result_from_job_result(
@@ -2426,27 +2329,52 @@ async fn extract_result_from_job_result(
     json_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     match job_result {
-        JobResult::ListJob(job_ids) => {
-            let rows = sqlx::query_as::<_, ResultWithId>(
-                "SELECT id, result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
-            )
-            .bind(job_ids.as_slice())
-            .bind(w_id)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .filter_map(|x| x.result.map(|y| (x.id, y)))
-            .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
-            let result = job_ids
+        JobResult::ListJob(job_ids) => match json_path {
+            Some(json_path) => {
+                let mut parts = json_path.split(".");
+
+                let Some(idx) = parts.next().map(|x| x.parse::<usize>().ok()).flatten() else {
+                    return Ok(to_raw_value(&serde_json::Value::Null));
+                };
+                let Some(job_id) = job_ids.get(idx).cloned() else {
+                    return Ok(to_raw_value(&serde_json::Value::Null));
+                };
+                Ok(sqlx::query_as::<_, ResultR>(
+                    "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                )
+                .bind(job_id)
+                .bind(w_id)
+                .bind(
+                    parts.map(|x| x.to_string()).collect::<Vec<_>>()
+                )
+                .fetch_optional(db)
+                .await?
+                .map(|r| r.result.map(|x| x.0))
+                .flatten()
+                .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)))
+            }
+            None => {
+                let rows = sqlx::query_as::<_, ResultWithId>(
+                    "SELECT id, result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
+                )
+                .bind(job_ids.as_slice())
+                .bind(w_id)
+                .fetch_all(db)
+                .await?
                 .into_iter()
-                .map(|id| {
-                    rows.get(&id)
-                        .map(|x| x.0.clone())
-                        .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
-                })
-                .collect::<Vec<_>>();
-            Ok(to_raw_value(&result))
-        }
+                .filter_map(|x| x.result.map(|y| (x.id, y)))
+                .collect::<HashMap<Uuid, Json<Box<RawValue>>>>();
+                let result = job_ids
+                    .into_iter()
+                    .map(|id| {
+                        rows.get(&id)
+                            .map(|x| x.0.clone())
+                            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null))
+                    })
+                    .collect::<Vec<_>>();
+                Ok(to_raw_value(&result))
+            }
+        },
         JobResult::SingleJob(x) => Ok(sqlx::query_as::<_, ResultR>(
             "SELECT result #> $3 as result FROM completed_job WHERE id = $1 AND workspace_id = $2",
         )
@@ -2862,6 +2790,14 @@ where
                 Error::BadRequest(format!("Cloud events batching is not supported yet"))
                     .into_response(),
             )
+        } else if content_type.unwrap().starts_with("text/plain") {
+            let bytes = Bytes::from_request(req, _state)
+                .await
+                .map_err(IntoResponse::into_response)?;
+            let str = String::from_utf8(bytes.to_vec())
+                .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
+            extra.insert("raw_string".to_string(), to_raw_value(&str));
+            Ok(PushArgsOwned { extra: Some(extra), args: HashMap::new() })
         } else if content_type
             .unwrap()
             .starts_with("application/x-www-form-urlencoded")
@@ -3694,10 +3630,15 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             language
                 .as_ref()
                 .map(|x| {
-                    if per_workspace {
-                        format!("{}-{}", x.as_str(), workspace_id)
+                    let tag_lang = if x == &ScriptLang::Bunnative {
+                        ScriptLang::Nativets.as_str()
                     } else {
-                        x.as_str().to_string()
+                        x.as_str()
+                    };
+                    if per_workspace {
+                        format!("{}-{}", tag_lang, workspace_id)
+                    } else {
+                        tag_lang.to_string()
                     }
                 })
                 .unwrap_or_else(default)

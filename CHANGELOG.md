@@ -1,5 +1,119 @@
 # Changelog
 
+## [1.373.1](https://github.com/windmill-labs/windmill/compare/v1.373.0...v1.373.1) (2024-08-02)
+
+
+### Bug Fixes
+
+* fix run_flow_async from call ([63abd5b](https://github.com/windmill-labs/windmill/commit/63abd5b14606869eafbd25d8469638b85b96e199))
+* **frontend:** Add support for array of objects in th UI ([#4170](https://github.com/windmill-labs/windmill/issues/4170)) ([91e364b](https://github.com/windmill-labs/windmill/commit/91e364bde5459447945d7dae65c1cab2858c69ac))
+
+## [1.373.0](https://github.com/windmill-labs/windmill/compare/v1.372.0...v1.373.0) (2024-08-01)
+
+
+### Features
+
+* Indexing improvements ([#4167](https://github.com/windmill-labs/windmill/issues/4167)) ([edcee6d](https://github.com/windmill-labs/windmill/commit/edcee6d8611ff96bfbca7ba811e5e67beaa80f5a))
+
+
+### Bug Fixes
+
+* app forms default values changes gets propagated ([cd61fc1](https://github.com/windmill-labs/windmill/commit/cd61fc1e8c00cc3a57af0228cdf958b2fb3a2699))
+
+## [1.372.0](https://github.com/windmill-labs/windmill/compare/v1.371.4...v1.372.0) (2024-08-01)
+
+
+### Features
+
+* variables created by password fields expire after 7 days ([b5464e2](https://github.com/windmill-labs/windmill/commit/b5464e2906bdaedb4752e198e40b7e8c4dbb1338))
+
+
+### Bug Fixes
+
+* fix raw_deps handling ([efcf0e4](https://github.com/windmill-labs/windmill/commit/efcf0e40f68342f8330cf5d610979eb7fe92ce09))
+* improve cancel_selection job for running jobs ([42e3ae9](https://github.com/windmill-labs/windmill/commit/42e3ae92e3841579f8ac0821b58ebb72c4204c98))
+
+## [1.371.4](https://github.com/windmill-labs/windmill/compare/v1.371.3...v1.371.4) (2024-07-31)
+
+
+### Bug Fixes
+
+* **frontend:** fix recompute all ([#4161](https://github.com/windmill-labs/windmill/issues/4161)) ([10c6997](https://github.com/windmill-labs/windmill/commit/10c699759e1d06d009783b9f5cba2cbf3ba6a7da))
+* **frontend:** If multiple recompute all present, interval is now in sync ([#4162](https://github.com/windmill-labs/windmill/issues/4162)) ([efeb65b](https://github.com/windmill-labs/windmill/commit/efeb65be4c91491bb4fbedfbc160da7517ebe1d6))
+* improve index usage and runs page performance ([d69aa8d](https://github.com/windmill-labs/windmill/commit/d69aa8d484de016ae7e7bbd190ce6c254818c861))
+
+## [1.371.3](https://github.com/windmill-labs/windmill/compare/v1.371.2...v1.371.3) (2024-07-30)
+
+
+### Bug Fixes
+
+* for codebase bundle, use cjs exports instead ([be8cedf](https://github.com/windmill-labs/windmill/commit/be8cedfe7fe42105a375c92536ec7f5e5a1343bf))
+
+## [1.371.2](https://github.com/windmill-labs/windmill/compare/v1.371.1...v1.371.2) (2024-07-30)
+
+
+### Bug Fixes
+
+* improve codebase handling by ignoring creating lock and bundle ([716bb71](https://github.com/windmill-labs/windmill/commit/716bb7118b0d5b8dd86799d5514f37b068613256))
+
+## [1.371.1](https://github.com/windmill-labs/windmill/compare/v1.371.0...v1.371.1) (2024-07-30)
+
+
+### Bug Fixes
+
+* database connections now scale linearly with number of subworkers ([f59046a](https://github.com/windmill-labs/windmill/commit/f59046a9249962ba7e1739de579cd8d885ec63a8))
+
+## [1.371.0](https://github.com/windmill-labs/windmill/compare/v1.370.0...v1.371.0) (2024-07-30)
+
+
+### Features
+
+* **frontend:** support array of objects in schema ([#4106](https://github.com/windmill-labs/windmill/issues/4106)) ([5992b82](https://github.com/windmill-labs/windmill/commit/5992b821803d9cdc45fa0dee100f159dd3ed557f))
+
+
+### Bug Fixes
+
+* always consider electron as external for bundles ([06433a6](https://github.com/windmill-labs/windmill/commit/06433a6ec65534e1a11085cefd6a67699e4eb0a0))
+* fix bunnative lock creation ([6a33624](https://github.com/windmill-labs/windmill/commit/6a33624416cc48e2a1ab21afbd2ac4ab48be2559))
+* submit and form persistence on app on render change ([28277da](https://github.com/windmill-labs/windmill/commit/28277da35bae1c18f16e85d093989e0d419b3601))
+* support bunnative in the CLI ([e02e644](https://github.com/windmill-labs/windmill/commit/e02e644d4ca16773bae3cc2a6b52ac08417d3905))
+
+## [1.370.0](https://github.com/windmill-labs/windmill/compare/v1.369.1...v1.370.0) (2024-07-29)
+
+
+### Features
+
+* get completed flow node result by api/download + eval list result json path optim ([#4108](https://github.com/windmill-labs/windmill/issues/4108)) ([5031a8c](https://github.com/windmill-labs/windmill/commit/5031a8cb015e3ba8d668f5de769b8d67da82c116))
+
+
+### Bug Fixes
+
+* improve native runtime with axios support ([6e91005](https://github.com/windmill-labs/windmill/commit/6e91005daa4bbe2f0bd1f8b1c2cce1f68485f9ef))
+
+## [1.369.1](https://github.com/windmill-labs/windmill/compare/v1.369.0...v1.369.1) (2024-07-29)
+
+
+### Bug Fixes
+
+* fix lang picker artefact for script editor ([bc94acb](https://github.com/windmill-labs/windmill/commit/bc94acb378b1310271dd3dda80614e0e38b5285f))
+
+## [1.369.0](https://github.com/windmill-labs/windmill/compare/v1.368.3...v1.369.0) (2024-07-29)
+
+
+### Features
+
+* add support for text/plain webhook ([#4146](https://github.com/windmill-labs/windmill/issues/4146)) ([eb6557a](https://github.com/windmill-labs/windmill/commit/eb6557a6beb5d3b2324b30f2abc117b1a122c3f7))
+* **frontend:** App bar as components ([#4103](https://github.com/windmill-labs/windmill/issues/4103)) ([fb89eed](https://github.com/windmill-labs/windmill/commit/fb89eed8fa43568ffe3a22c5a6dd0b9f38890a37))
+* remove nativets in favor of bun with native pragma ([18f22be](https://github.com/windmill-labs/windmill/commit/18f22be2bae3136f1d9ff06c74f3751504bef60b))
+* remove nativets in favor of bun with native pragma ([b02baa2](https://github.com/windmill-labs/windmill/commit/b02baa2cfb242f7f6ed64e9861a8562272fb2974))
+
+## [1.368.3](https://github.com/windmill-labs/windmill/compare/v1.368.2...v1.368.3) (2024-07-28)
+
+
+### Bug Fixes
+
+* update bun to 1.1.21 ([e45a8a4](https://github.com/windmill-labs/windmill/commit/e45a8a4591649de240a4bff0a25301a2586618bf))
+
 ## [1.368.2](https://github.com/windmill-labs/windmill/compare/v1.368.1...v1.368.2) (2024-07-28)
 
 

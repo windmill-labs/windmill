@@ -25,7 +25,7 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::{not_found_if_none, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
@@ -92,7 +92,10 @@ async fn list_variables(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(lq): Query<ListVariableQuery>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<ListableVariable>> {
+    let (per_page, offset) = paginate(pagination);
+
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
@@ -100,17 +103,22 @@ async fn list_variables(
          is_secret, variable.description, variable.extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
          account.refresh_error,
          resource.path IS NOT NULL as is_linked,
-         account.refresh_token != '' as is_refreshed
+         account.refresh_token != '' as is_refreshed,
+         variable.expires_at
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $1
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $1
          WHERE variable.workspace_id = $1 AND variable.path NOT LIKE 'u/' || $2 || '/secret_arg/%' 
             AND variable.path LIKE $3 || '%'
-         ORDER BY path",
+         ORDER BY path
+         LIMIT $4 OFFSET $5
+",
     )
     .bind(&w_id)
     .bind(&authed.username)
     .bind(&lq.path_start.unwrap_or_default())
+    .bind(per_page as i32)
+    .bind(offset as i32)
     .fetch_all(&mut *tx)
     .await?;
 
@@ -310,8 +318,8 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         &w_id,
         variable.path,
         value,
@@ -319,6 +327,7 @@ async fn create_variable(
         variable.description,
         variable.account,
         variable.is_oauth.unwrap_or(false),
+        variable.expires_at
     )
     .execute(&mut *tx)
     .await?;

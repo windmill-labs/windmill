@@ -1,6 +1,11 @@
 <script lang="ts">
 	import type { EnumType, SchemaProperty } from '$lib/common'
-	import { setInputCat as computeInputCat, debounce, emptyString } from '$lib/utils'
+	import {
+		setInputCat as computeInputCat,
+		debounce,
+		emptyString,
+		getSchemaFromProperties
+	} from '$lib/utils'
 	import { DollarSign, Pipette, Plus, X } from 'lucide-svelte'
 	import { createEventDispatcher, tick } from 'svelte'
 	import Multiselect from 'svelte-multiselect'
@@ -54,6 +59,7 @@
 				enum?: string[]
 				multiselect?: string[]
 				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined = undefined
 
@@ -381,7 +387,7 @@
 															on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 															multiple={false}
 														/>
-													{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined}
+													{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
 														<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
 													{:else if Array.isArray(itemsType?.enum)}
 														<ArgEnum
@@ -403,6 +409,17 @@
 														/>
 													{:else if itemsType?.type == 'resource' && itemsType?.resourceType}
 														<ResourcePicker bind:value={v} resourceType={itemsType?.resourceType} />
+													{:else if itemsType?.type === 'object' && itemsType?.properties}
+														<div class="p-8 border rounded-md w-full">
+															<SchemaForm
+																{onlyMaskPassword}
+																{disablePortal}
+																{disabled}
+																noDelete
+																schema={getSchemaFromProperties(itemsType?.properties)}
+																bind:args={v}
+															/>
+														</div>
 													{:else}
 														<input type="text" bind:value={v} id="arg-input-array" />
 													{/if}
@@ -623,7 +640,7 @@
 							/>
 						{/if}
 					</div>
-				{:else if properties && Object.keys(properties).length > 0}
+				{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
 					<div class="p-4 pl-8 border rounded-md w-full">
 						{#if orderEditable}
 							<SchemaFormDnd

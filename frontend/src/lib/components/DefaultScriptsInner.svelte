@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { WorkspaceService, type WorkspaceDefaultScripts } from '$lib/gen'
+	import { WorkspaceService, type Script, type WorkspaceDefaultScripts } from '$lib/gen'
 	import { defaultScripts, workspaceStore } from '$lib/stores'
 	import { flip } from 'svelte/animate'
 	import Toggle from './Toggle.svelte'
@@ -8,10 +8,12 @@
 
 	$: langs = computeLangs($defaultScripts)
 
-	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined) {
-		const allLangs = Object.keys(defaultScriptLanguages)
+	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined): Script['language'][] {
+		const allLangs = Object.keys(defaultScriptLanguages) as Script['language'][]
 		if (!defaultScripts || defaultScripts.order == undefined) return allLangs
-		return defaultScripts.order?.concat(allLangs.filter((l) => !defaultScripts.order?.includes(l)))
+		return defaultScripts.order
+			?.concat(allLangs.filter((l) => !defaultScripts.order?.includes(l)))
+			.filter((x) => x != 'nativets') as Script['language'][]
 	}
 
 	async function changePosition(i: number, up: boolean) {
@@ -60,7 +62,10 @@
 					on:change={(e) => {
 						let toggled = e.detail
 						if (toggled) {
-							defaultScripts.update((s) => ({ ...(s ?? {}), hidden: [...(s?.hidden ?? []), lang] }))
+							defaultScripts.update((s) => ({
+								...(s ?? {}),
+								hidden: [...(s?.hidden ?? []), lang]
+							}))
 						} else {
 							defaultScripts.update((s) => ({
 								...(s ?? {}),

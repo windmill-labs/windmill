@@ -6,6 +6,16 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'App bar as components',
+		href: 'https://www.windmill.dev/changelog/app-bar-components',
+		date: '2024-07-29'
+	},
+	{
+		label: 'TypeScript Bun scripts are automatically pre-bundled',
+		href: 'https://www.windmill.dev/changelog/pre-bundle-bun-scripts',
+		date: '2024-07-26'
+	},
+	{
 		label: 'Dynamic Select',
 		href: 'https://www.windmill.dev/changelog/dynamic-select',
 		date: '2024-07-22'

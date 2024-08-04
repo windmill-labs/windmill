@@ -33,8 +33,10 @@
 	let reloadAction: () => Promise<void> = async () => {}
 
 	let savedScript: NewScriptWithDraft | undefined = undefined
+	let fullyLoaded = false
 
 	async function loadScript(): Promise<void> {
+		fullyLoaded = false
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == $page.params.path) {
 			script = scriptLoadedFromUrl
 			reloadAction = async () => {
@@ -148,6 +150,7 @@
 				script.parent_hash = topHash
 			}
 		}
+		fullyLoaded = true
 	}
 
 	$: {
@@ -192,6 +195,7 @@
 		bind:this={scriptBuilder}
 		{initialPath}
 		{script}
+		{fullyLoaded}
 		bind:savedScript
 		{initialArgs}
 		{diffDrawer}
