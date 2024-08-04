@@ -19,6 +19,7 @@
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import { SettingService } from '$lib/gen'
 
 	let userSettings: UserSettings
 
@@ -42,6 +43,15 @@
 			get_path?: string
 		}
 	}
+
+	let emailDomain: string = $page.url.hostname
+	async function getEmailDomain() {
+		emailDomain =
+			((await SettingService.getGlobal({
+				key: 'email_domain'
+			})) as any) ?? $page.url.hostname
+	}
+	getEmailDomain()
 
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
@@ -118,7 +128,7 @@
 	function emailAddress() {
 		return `${$workspaceStore}+${
 			requestType === 'hash' ? 'hash.' + hash : (isFlow ? 'flow.' : '') + path.replaceAll('/', '.')
-		}+${token}@${$page.url.hostname}`
+		}+${token}@${emailDomain}`
 	}
 
 	function fetchCode() {
