@@ -164,7 +164,7 @@ services:
     ports:
       # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80
-      - 25:25 # for smtp server
+      - 25:25
       # - 443:443 # Uncomment to enable HTTPS handling by Caddy
     environment:
       - BASE_URL=":80"
