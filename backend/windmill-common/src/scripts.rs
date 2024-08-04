@@ -150,6 +150,7 @@ pub struct Script {
     pub deleted: bool,
     pub is_template: bool,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,

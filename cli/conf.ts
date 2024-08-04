@@ -28,6 +28,10 @@ export interface Codebase {
   relative_path: string;
   includes?: string[];
   excludes?: string[];
+  assets?: {
+    from: string;
+    to: string;
+  }[];
 }
 
 export async function readConfigFile(): Promise<SyncOptions> {
