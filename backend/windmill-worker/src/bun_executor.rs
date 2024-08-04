@@ -501,24 +501,36 @@ pub async fn generate_bun_bundle(
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
+    use crate::global_cache::extract_tar;
+
     let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-    let bun_cache_path = format!("{}/{}", BUN_CACHE_DIR, path);
-    let dst = format!("{job_dir}/main.js");
+    let bun_cache_path = format!("{}/{}", crate::ROOT_CACHE_NOMOUNT_DIR, path);
+    let is_tar = id.ends_with(".tar");
+
+    let dst = format!(
+        "{job_dir}/{}",
+        if is_tar { "codebase.tar" } else { "main.js" }
+    );
     let dirs_splitted = bun_cache_path.split("/").collect_vec();
     tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
     if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
         tracing::info!("loading {bun_cache_path} from cache");
-        tokio::fs::symlink(&bun_cache_path, dst).await?;
+        if is_tar {
+            extract_tar(fs::read(bun_cache_path)?.into(), job_dir).await?;
+        } else {
+            tokio::fs::symlink(&bun_cache_path, dst).await?;
+        }
     } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
         .read()
         .await
         .clone()
     {
         let bytes = attempt_fetch_bytes(os, &path).await?;
-        if *windmill_common::worker::CLOUD_HOSTED {
-            tokio::fs::write(dst, &bytes).await?;
+
+        tokio::fs::write(&bun_cache_path, &bytes).await?;
+        if is_tar {
+            extract_tar(bytes, job_dir).await?;
         } else {
-            tokio::fs::write(&bun_cache_path, &bytes).await?;
             tokio::fs::symlink(bun_cache_path, dst).await?;
         }
 
