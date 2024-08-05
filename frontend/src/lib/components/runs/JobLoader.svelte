@@ -122,21 +122,26 @@
 	): Promise<Job[]> {
 		loadingFetch = true
 		try {
+			let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
+			let scriptPathExact = path === null || path === '' ? undefined : path
 			return JobService.listJobs({
 				workspace: $workspaceStore!,
 				createdOrStartedBefore: startedBefore,
 				createdOrStartedAfter: startedAfter,
 				createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 				schedulePath,
-				scriptPathExact: path === null || path === '' ? undefined : path,
+				scriptPathExact,
 				createdBy: user === null || user === '' ? undefined : user,
-				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+				scriptPathStart: scriptPathStart,
 				jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
 				running: success == 'running' ? true : undefined,
 				isSkipped: isSkipped ? undefined : false,
-				isFlowStep: jobKindsCat != 'all' ? false : undefined,
-				hasNullParent: jobKindsCat != 'all' ? false : undefined,
+				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
+				hasNullParent:
+					scriptPathExact != undefined || scriptPathStart != undefined || jobKinds != 'all'
+						? true
+						: undefined,
 				label: label === null || label === '' ? undefined : label,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
