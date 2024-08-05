@@ -27,11 +27,11 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { ResourceType } from '$lib/gen'
-	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
+	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
+	import { canWrite, classNames, emptySchema, isDeployable, removeMarkdown, truncate } from '$lib/utils'
 	import { convert } from '@redocly/json-to-json-schema'
 	import {
 		Braces,
@@ -324,6 +324,17 @@
 			types: false
 		}
 	}
+
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = undefined
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui
+	}
+	getDeployUiSettings()
 </script>
 
 <ConfirmationModal
@@ -748,13 +759,17 @@
 														resourceEditor?.initEdit?.(path)
 													}
 												},
-												{
-													displayName: 'Deploy to prod/staging',
-													icon: FileUp,
-													action: () => {
-														deploymentDrawer.openDrawer(path, 'resource')
-													}
-												},
+												...(isDeployable('resource', path, deployUiSettings)
+													? [
+															{
+																displayName: 'Deploy to prod/staging',
+																icon: FileUp,
+																action: () => {
+																	deploymentDrawer.openDrawer(path, 'resource')
+																}
+															}
+													  ]
+													: []),
 												{
 													displayName: 'Delete',
 													disabled: !canWrite,

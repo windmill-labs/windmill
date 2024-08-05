@@ -6,7 +6,7 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { FlowService, type Flow, DraftService } from '$lib/gen'
+	import { FlowService, type Flow, DraftService, type WorkspaceDeployUISettings } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -14,7 +14,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
+	import { DELETE, copyToClipboard, isDeployable, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import {
 		Pen,
@@ -42,6 +42,7 @@
 	export let errorHandlerMuted: boolean
 	export let depth: number = 0
 	export let menuOpen: boolean = false
+	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -190,15 +191,19 @@
 							copyToClipboard(path)
 						}
 					},
-					{
-						displayName: 'Deploy to staging/prod',
-						icon: Globe,
-						action: () => {
-							deploymentDrawer.openDrawer(path, 'flow')
-						},
-						disabled: archived,
-						hide: $userStore?.operator
-					},
+					...(isDeployable('flow', path, deployUiSettings)
+						? [
+								{
+									displayName: 'Deploy to staging/prod',
+									icon: Globe,
+									action: () => {
+										deploymentDrawer.openDrawer(path, 'flow')
+									},
+									disabled: archived,
+									hide: $userStore?.operator
+								}
+						  ]
+						: []),
 					{
 						displayName: 'Deployments',
 						icon: HistoryIcon,

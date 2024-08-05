@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import {
+		FlowService,
+		JobService,
+		WorkspaceService,
+		type Flow,
+		type FlowModule,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
+	import { canWrite, defaultIfEmptyString, emptyString, isDeployable } from '$lib/utils'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
@@ -10,7 +17,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
@@ -206,7 +213,21 @@
 
 	$: mainButtons = getMainButtons(flow, args)
 
-	function getMenuItems(flow: Flow | undefined) {
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = undefined
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui
+	}
+	getDeployUiSettings()
+
+	function getMenuItems(
+		flow: Flow | undefined,
+		deployUiSettings: WorkspaceDeployUISettings | undefined
+	) {
 		if (!flow || $userStore?.operator) return []
 
 		const menuItems: any = []
@@ -232,11 +253,13 @@
 			}
 		})
 
-		menuItems.push({
-			label: 'Deploy to staging/prod',
-			onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Server
-		})
+		if (isDeployable('flow', flow?.path ?? '', deployUiSettings)) {
+			menuItems.push({
+				label: 'Deploy to staging/prod',
+				onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
+				Icon: Server
+			})
+		}
 
 		if (can_write) {
 			menuItems.push({
@@ -318,7 +341,7 @@
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}
-				menuItems={getMenuItems(flow)}
+				menuItems={getMenuItems(flow, deployUiSettings)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
 				bind:errorHandlerMuted={flow.ws_error_handler_muted}
 				scriptOrFlowPath={flow.path}
