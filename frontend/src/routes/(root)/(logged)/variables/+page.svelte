@@ -86,7 +86,7 @@
 			return
 		}
 		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-		deployUiSettings = settings.deploy_ui
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
 
