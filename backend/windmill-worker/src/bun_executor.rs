@@ -1321,8 +1321,6 @@ pub async fn start_worker(
     tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
     if !codebase.is_some() {
         let _ = write_file(job_dir, "main.ts", inner_content).await?;
-    } else {
-        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
     }
 
     let common_bun_proc_envs: HashMap<String, String> =
