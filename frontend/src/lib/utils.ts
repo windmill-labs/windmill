@@ -969,7 +969,7 @@ export function isDeployable(
 }
 
 export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
-	include_path: ["**"],
+	include_path: [],
 	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret']
 }
 
