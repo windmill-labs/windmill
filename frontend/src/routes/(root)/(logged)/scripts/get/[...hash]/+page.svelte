@@ -7,7 +7,10 @@
 		emptyString,
 		canWrite,
 		truncateHash,
-		isDeployable
+		isDeployable,
+
+		ALL_DEPLOYABLE
+
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -328,7 +331,8 @@
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
-			deployUiSettings = undefined
+			deployUiSettings = ALL_DEPLOYABLE
+			return
 		}
 		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui

@@ -12,6 +12,7 @@
 	import { ArrowBigUp } from 'lucide-svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { WorkspaceService, type WorkspaceDeployUISettings } from '$lib/gen'
+	import { ALL_DEPLOYABLE } from '$lib/utils'
 
 	export let item
 	export let depth: number = 0
@@ -30,7 +31,8 @@
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
-			deployUiSettings = undefined
+			deployUiSettings = ALL_DEPLOYABLE
+			return
 		}
 		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui

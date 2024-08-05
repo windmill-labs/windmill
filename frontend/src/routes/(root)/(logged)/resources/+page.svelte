@@ -31,7 +31,7 @@
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, classNames, emptySchema, isDeployable, removeMarkdown, truncate } from '$lib/utils'
+	import { ALL_DEPLOYABLE, canWrite, classNames, emptySchema, isDeployable, removeMarkdown, truncate } from '$lib/utils'
 	import { convert } from '@redocly/json-to-json-schema'
 	import {
 		Braces,
@@ -329,7 +329,8 @@
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
-			deployUiSettings = undefined
+			deployUiSettings = ALL_DEPLOYABLE
+			return
 		}
 		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui

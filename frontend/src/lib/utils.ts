@@ -14,7 +14,7 @@ import { sendUserToast } from './toast'
 import type { Script, WorkspaceDeployUISettings } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
-import pm from 'picomatch'
+import { minimatch } from 'minimatch'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -947,7 +947,7 @@ export function isDeployable(
 	deployUiSettings: WorkspaceDeployUISettings | undefined
 ) {
 	if (deployUiSettings == undefined) {
-		return true
+		return false
 	}
 
 	if (
@@ -960,11 +960,16 @@ export function isDeployable(
 	if (
 		deployUiSettings.include_path != undefined &&
 		deployUiSettings.include_path.length != 0 &&
-		deployUiSettings.include_path.every((x) => !pm(x)(path))
+		deployUiSettings.include_path.every((x) => !minimatch(path, x))
 	) {
 		return false
 	}
 
 	return true
+}
+
+export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
+	include_path: ["**"],
+	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret']
 }
 

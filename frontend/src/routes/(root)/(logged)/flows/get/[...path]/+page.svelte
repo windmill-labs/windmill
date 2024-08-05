@@ -8,7 +8,7 @@
 		type FlowModule,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString, isDeployable } from '$lib/utils'
+	import { ALL_DEPLOYABLE, canWrite, defaultIfEmptyString, emptyString, isDeployable } from '$lib/utils'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
@@ -217,7 +217,8 @@
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
-			deployUiSettings = undefined
+			deployUiSettings = ALL_DEPLOYABLE
+			return
 		}
 		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui
