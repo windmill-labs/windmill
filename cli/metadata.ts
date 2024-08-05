@@ -164,7 +164,7 @@ export async function generateFlowLockInternal(
   hashes = await generateFlowHash(folder);
 
   for (const [path, hash] of Object.entries(hashes)) {
-    await updateMetadataLock(folder, hash, path);
+    await updateMetadataGlobalLock(folder, hash, path);
   }
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
 }
@@ -210,8 +210,15 @@ export async function generateScriptMetadataInternal(
 
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
-  const metadataContent = await Deno.readTextFile(metadataWithType.path);
+  let metadataContent = await Deno.readTextFile(metadataWithType.path);
+  const c = findCodebase(scriptPath, codebases);
+
+  if (c) {
+    metadataContent += c.digest ?? "";
+  }
+
   let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
+
   if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
     if (!noStaleMessage) {
       log.info(
@@ -242,7 +249,6 @@ export async function generateScriptMetadataInternal(
   }
 
   if (!opts.schemaOnly && !justUpdateMetadataLock) {
-    const c = findCodebase(scriptPath, codebases);
     if (!c) {
       await updateScriptLock(
         workspace,
@@ -252,7 +258,9 @@ export async function generateScriptMetadataInternal(
         metadataParsedContent,
         rawReqs
       );
+      metadataParsedContent.codebase = undefined;
     } else {
+      metadataParsedContent.codebase = c.digest;
       metadataParsedContent.lock = "";
     }
   } else {
@@ -266,8 +274,17 @@ export async function generateScriptMetadataInternal(
     metaPath = remotePath + ".script.json";
     newMetadataContent = JSON.stringify(metadataParsedContent);
   }
-  hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
-  await updateMetadataLock(remotePath, hash);
+
+  let metadataContentUsedForHash = newMetadataContent;
+  if (c) {
+    metadataContentUsedForHash += c.digest ?? "";
+  }
+  hash = await generateScriptHash(
+    rawReqs,
+    scriptContent,
+    metadataContentUsedForHash
+  );
+  await updateMetadataGlobalLock(remotePath, hash);
   if (!justUpdateMetadataLock) {
     await Deno.writeTextFile(metaPath, newMetadataContent);
   }
@@ -347,8 +364,17 @@ async function updateScriptLock(
       );
     }
     const lockPath = remotePath + ".script.lock";
-    await Deno.writeTextFile(lockPath, lock);
-    metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+    if (lock != "") {
+      await Deno.writeTextFile(lockPath, lock);
+      metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+    } else {
+      try {
+        if (await Deno.stat(lockPath)) {
+          await Deno.remove(lockPath);
+        }
+      } catch {}
+      metadataContent.lock = "";
+    }
   } catch (e) {
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
@@ -821,7 +847,7 @@ export async function generateScriptHash(
   );
 }
 
-export async function updateMetadataLock(
+export async function updateMetadataGlobalLock(
   path: string,
   hash: string,
   subpath?: string

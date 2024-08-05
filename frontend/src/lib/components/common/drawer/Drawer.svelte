@@ -73,7 +73,7 @@
 		on:close
 	>
 		<aside
-			class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
+			class="drawer windmill-drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
 			class:open
 			class:close={!open && timeout}
 			style={`${style}; --zIndex: ${zIndex};`}

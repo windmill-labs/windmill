@@ -952,21 +952,23 @@ pub async fn update_flow_status_after_job_completion_internal<
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
         }
 
-        if let Some(parent_job) = flow_job.parent_job {
-            tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
+        if flow_job.is_flow_step {
+            if let Some(parent_job) = flow_job.parent_job {
+                tracing::info!(subflow_id = %flow_job.id, parent_id = %parent_job, "subflow is finished, updating parent flow status");
 
-            return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
-                flow: parent_job,
-                job_id_for_status: flow,
-                success: success && !is_failure_step,
-                result: nresult.clone(),
-                stop_early_override: if stop_early {
-                    Some(skip_if_stop_early)
-                } else {
-                    None
-                },
-                skip_error_handler: skip_error_handler || is_failure_step,
-            }));
+                return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
+                    flow: parent_job,
+                    job_id_for_status: flow,
+                    success: success && !is_failure_step,
+                    result: nresult.clone(),
+                    stop_early_override: if stop_early {
+                        Some(skip_if_stop_early)
+                    } else {
+                        None
+                    },
+                    skip_error_handler: skip_error_handler || is_failure_step,
+                }));
+            }
         }
         Ok(None)
     } else {

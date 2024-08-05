@@ -6,6 +6,8 @@
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import EditableSchemaDrawer from './schema/EditableSchemaDrawer.svelte'
+	import type { SchemaProperty } from '$lib/common'
 
 	export let canEditResourceType: boolean = false
 	export let itemsType:
@@ -14,6 +16,7 @@
 				contentEncoding?: 'base64'
 				enum?: string[]
 				resourceType?: string
+				properties?: { [name: string]: SchemaProperty }
 		  }
 		| undefined
 
@@ -23,6 +26,20 @@
 			: Array.isArray(itemsType?.enum)
 			? 'enum'
 			: 'string'
+
+	let schema = {
+		properties: itemsType?.properties || {},
+		order: Object.keys(itemsType?.properties || {}),
+		required: Object.values(itemsType?.properties || {}).map((p) => p.required)
+	}
+
+	function updateItemsType() {
+		itemsType = {
+			...itemsType,
+			properties: schema.properties,
+			type: 'object'
+		}
+	}
 </script>
 
 {#if canEditResourceType}
@@ -37,7 +54,7 @@
 				} else if (selected == 'number') {
 					itemsType = { type: 'number' }
 				} else if (selected == 'object') {
-					itemsType = { type: 'object' }
+					itemsType = { ...itemsType, type: 'object' }
 				} else if (selected == 'bytes') {
 					itemsType = { type: 'string', contentEncoding: 'base64' }
 				} else if (selected == 'resource') {
@@ -130,4 +147,13 @@
 			</Button>
 		</div>
 	</label>
+{/if}
+
+{#if selected === 'object'}
+	<EditableSchemaDrawer
+		bind:schema
+		on:change={() => {
+			updateItemsType()
+		}}
+	/>
 {/if}

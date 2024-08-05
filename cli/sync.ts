@@ -65,6 +65,9 @@ export function findCodebase(
   path: string,
   codebases: SyncCodebase[]
 ): SyncCodebase | undefined {
+  if (!path.endsWith(".ts")) {
+    return;
+  }
   for (const c of codebases) {
     let included = false;
     let excluded = false;
@@ -95,6 +98,7 @@ export function findCodebase(
     }
   }
 }
+
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
@@ -163,7 +167,9 @@ export async function FSFSElement(
       async getContentText(): Promise<string> {
         const content = await Deno.readTextFile(localP);
 
-        return await addCodebaseDigestIfRelevant(localP, content, codebases);
+        const r = await addCodebaseDigestIfRelevant(localP, content, codebases);
+        // console.log(r);
+        return r;
       },
     };
   }
@@ -441,6 +447,8 @@ function ZipFSElement(
                 "!inline " +
                 removeSuffix(p.replaceAll(SEP, "/"), ".json") +
                 ".lock";
+            } else if (parsed["lock"] == "") {
+              parsed["lock"] = "";
             } else {
               parsed["lock"] = undefined;
             }
