@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { FlowGraph } from './graph'
-
 	import type { FlowModule, FlowValue } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'

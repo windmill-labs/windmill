@@ -1,10 +1,10 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
+	// @ts-ignore
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
 	import { Wand2 } from 'lucide-svelte'
 
 	type $$Props = NodeProps
-	export let data: $$Props['data']
 </script>
 
 <NodeToolbar isVisible position={Position.Top}>

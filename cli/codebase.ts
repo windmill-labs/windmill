@@ -12,7 +12,13 @@ export async function listSyncCodebases(
     log.info(`Found ${nb_codebase} codebases:`);
   }
   for (const codebase of options?.codebases ?? []) {
-    const digest = await digestDir(codebase.relative_path);
+    let digest = await digestDir(
+      codebase.relative_path,
+      JSON.stringify(codebase)
+    );
+    if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+      digest += ".tar";
+    }
     log.info(`Codebase ${codebase.relative_path}, digest: ${digest}`);
     res.push({ ...codebase, digest });
   }

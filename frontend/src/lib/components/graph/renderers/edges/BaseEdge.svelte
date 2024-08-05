@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-ignore
 	import { getBezierPath, BaseEdge, type EdgeProps } from '@xyflow/svelte'
 
 	type $$Props = EdgeProps

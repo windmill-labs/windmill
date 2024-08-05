@@ -1,18 +1,18 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
+	// @ts-ignore
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
 
-	type $$Props = NodeProps
-
-	export let data: $$Props['data']
-	$$restProps
+	export let data: {
+		label: string
+	}
 </script>
 
-{#if data.time}
-	<NodeToolbar isVisible position={Position.Top} align="end">
+<NodeToolbar isVisible position={Position.Top}>
+	<div style="width:300px;" class="flex flex-row">
 		<span class="text-xs">0.01s</span>
-	</NodeToolbar>
-{/if}
+	</div>
+</NodeToolbar>
 
 <VirtualItem
 	label={data.label}

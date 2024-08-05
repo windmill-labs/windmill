@@ -1,13 +1,12 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
+	// @ts-ignore
+
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
 
 	type $$Props = NodeProps
 
 	export let data: $$Props['data']
-	export let id: $$Props['id']
-
-	$$restProps
 </script>
 
 {#if data.time}

@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.374.0](https://github.com/windmill-labs/windmill/compare/v1.373.1...v1.374.0) (2024-08-04)
+
+
+### Features
+
+* add support for assets using tar for codebase deploy ([3508b6d](https://github.com/windmill-labs/windmill/commit/3508b6d793b0ce21c0c264a50bb000cd61c21920))
+* caddy with l4 image ([#4178](https://github.com/windmill-labs/windmill/issues/4178)) ([811de58](https://github.com/windmill-labs/windmill/commit/811de58712f619045a3653fe5b98ff0c7599f392))
+
+
+### Bug Fixes
+
+* fix delete job ([86e23f2](https://github.com/windmill-labs/windmill/commit/86e23f2aed234a64fce46e1b6253f788546876af))
+
+## [1.373.1](https://github.com/windmill-labs/windmill/compare/v1.373.0...v1.373.1) (2024-08-02)
+
+
+### Bug Fixes
+
+* fix run_flow_async from call ([63abd5b](https://github.com/windmill-labs/windmill/commit/63abd5b14606869eafbd25d8469638b85b96e199))
+* **frontend:** Add support for array of objects in th UI ([#4170](https://github.com/windmill-labs/windmill/issues/4170)) ([91e364b](https://github.com/windmill-labs/windmill/commit/91e364bde5459447945d7dae65c1cab2858c69ac))
+
 ## [1.373.0](https://github.com/windmill-labs/windmill/compare/v1.372.0...v1.373.0) (2024-08-01)
 
 

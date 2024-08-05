@@ -19,12 +19,14 @@
 	import { sendUserToast } from '$lib/utils'
 	import { workerTags } from '$lib/stores'
 	import { getLatestHashForScript } from '$lib/scripts'
+	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	export let module: FlowModule
 	const { scriptEditorDrawer, flowStore, selectedId } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
+	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
 
 	loadWorkerGroups()
 
@@ -132,15 +134,17 @@
 				Edit {#if module.value.hash != undefined} (locked hash){/if}
 			</Button>
 		{/if}
-		<Button
-			size="xs"
-			color="light"
-			on:click={() => dispatch('fork')}
-			startIcon={{ icon: GitFork }}
-			iconOnly={false}
-		>
-			Fork
-		</Button>
+		{#if customUi?.scriptFork != false}
+			<Button
+				size="xs"
+				color="light"
+				on:click={() => dispatch('fork')}
+				startIcon={{ icon: GitFork }}
+				iconOnly={false}
+			>
+				Fork
+			</Button>
+		{/if}
 	{/if}
 	<div class="px-0.5" />
 	{#if module.value.type === 'rawscript'}

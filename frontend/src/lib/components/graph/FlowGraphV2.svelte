@@ -13,6 +13,7 @@
 		type Node,
 		type Edge,
 		ConnectionLineType
+		// @ts-ignore
 	} from '@xyflow/svelte'
 	// @ts-ignore
 	import dagre from '@dagrejs/dagre'

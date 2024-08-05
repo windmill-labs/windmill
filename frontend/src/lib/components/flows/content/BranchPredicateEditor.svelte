@@ -57,9 +57,8 @@
 	</PropPickerWrapper>
 {:else}
 	<div class="flex justify-between gap-4 p-2">
-		<div><pre class="text-sm">{branch.expr}</pre></div><div
-			class="flex flex-row gap-2 items-center"
-		>
+		<div class="truncate"><pre class="text-sm truncate">{branch.expr}</pre></div>
+		<div class="flex flex-row gap-2 items-center">
 			{#if enableAi}
 				<PredicateGen
 					on:setExpr={(e) => {

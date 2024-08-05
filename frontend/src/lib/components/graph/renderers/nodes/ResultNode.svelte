@@ -1,11 +1,11 @@
 <script lang="ts">
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
+	// @ts-ignore
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte'
 
 	type $$Props = NodeProps
 
-	$$restProps
 	let darkMode: boolean = false
 </script>
 
