@@ -11,9 +11,10 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Script } from './gen'
+import type { Script, WorkspaceDeployUISettings } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
+import { minimatch } from 'minimatch'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -494,7 +495,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -504,7 +505,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
+	return function(...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null
@@ -720,7 +721,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
@@ -937,3 +938,38 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 		order: Object.keys(properties).filter((k) => k !== 'label')
 	}
 }
+
+type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret'
+
+export function isDeployable(
+	type: DeployUIType,
+	path: string,
+	deployUiSettings: WorkspaceDeployUISettings | undefined
+) {
+	if (deployUiSettings == undefined) {
+		return false
+	}
+
+	if (
+		deployUiSettings.include_type != undefined &&
+		!deployUiSettings.include_type.includes(type)
+	) {
+		return false
+	}
+
+	if (
+		deployUiSettings.include_path != undefined &&
+		deployUiSettings.include_path.length != 0 &&
+		deployUiSettings.include_path.every((x) => !minimatch(path, x))
+	) {
+		return false
+	}
+
+	return true
+}
+
+export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
+	include_path: [],
+	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret']
+}
+
