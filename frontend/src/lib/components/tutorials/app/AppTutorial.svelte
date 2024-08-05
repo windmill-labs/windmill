@@ -84,7 +84,7 @@
 					description:
 						'Click on a component to add it to your app. Here we will add a display component.',
 					onNextClick: () => {
-						if (!$selectedComponent?.includes('b')) {
+						if (!$selectedComponent?.includes('e')) {
 							addComponent('displaycomponent')
 						}
 
@@ -216,7 +216,7 @@
 			},
 
 			{
-				element: '#connect-output-a',
+				element: '#connect-output-d',
 				popover: {
 					title: 'Select the output',
 					description: ' ',
@@ -265,7 +265,7 @@
 					description:
 						'We can now type in the text input and see the result in the display component',
 					onNextClick: () => {
-						connectInlineRunnableInputToComponentOutput($app, 'b', 'x', 'a', 'result')
+						connectInlineRunnableInputToComponentOutput($app, 'e', 'x', 'd', 'result', 'integer')
 
 						$app = $app
 
