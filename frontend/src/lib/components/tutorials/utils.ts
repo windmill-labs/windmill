@@ -1,4 +1,5 @@
 import type { FlowModule, OpenFlow } from '$lib/gen'
+import { deepEqual } from 'fast-equals'
 import { findGridItem } from '../apps/editor/appUtils'
 import type { App } from '../apps/types'
 
@@ -61,8 +62,177 @@ export function isFlowTainted(flow: OpenFlow) {
 	)
 }
 
+const emptyApp = {
+	grid: [
+		{
+			'3': {
+				fixed: false,
+				x: 0,
+				y: 0,
+				fullHeight: false,
+				w: 6,
+				h: 2
+			},
+			'12': {
+				fixed: false,
+				x: 0,
+				y: 0,
+				fullHeight: false,
+				w: 12,
+				h: 2
+			},
+			data: {
+				type: 'containercomponent',
+				configuration: {},
+				customCss: {
+					container: {
+						class: '!p-0',
+						style: ''
+					}
+				},
+				actions: [],
+				numberOfSubgrids: 1,
+				id: 'a'
+			},
+			id: 'a'
+		}
+	],
+	fullscreen: false,
+	unusedInlineScripts: [],
+	hiddenInlineScripts: [],
+	theme: {
+		type: 'path',
+		path: 'f/app_themes/theme_0'
+	},
+	subgrids: {
+		'a-0': [
+			{
+				'3': {
+					fixed: false,
+					x: 0,
+					y: 0,
+					fullHeight: false,
+					w: 6,
+					h: 1
+				},
+				'12': {
+					fixed: false,
+					x: 0,
+					y: 0,
+					fullHeight: false,
+					w: 6,
+					h: 1
+				},
+				data: {
+					type: 'textcomponent',
+					configuration: {
+						style: {
+							type: 'static',
+							value: 'Body'
+						},
+						copyButton: {
+							type: 'static',
+							value: false
+						},
+						tooltip: {
+							type: 'evalv2',
+							value: '',
+							fieldType: 'text',
+							expr: '`Author: ${ctx.author}`',
+							connections: [
+								{
+									componentId: 'ctx',
+									id: 'author'
+								}
+							]
+						},
+						disableNoText: {
+							type: 'static',
+							value: true,
+							fieldType: 'boolean'
+						}
+					},
+					componentInput: {
+						type: 'templatev2',
+						fieldType: 'template',
+						eval: '${ctx.summary}',
+						connections: [
+							{
+								id: 'summary',
+								componentId: 'ctx'
+							}
+						]
+					},
+					customCss: {
+						text: {
+							class: 'text-xl font-semibold whitespace-nowrap truncate',
+							style: ''
+						},
+						container: {
+							class: '',
+							style: ''
+						}
+					},
+					actions: [],
+					horizontalAlignment: 'left',
+					verticalAlignment: 'center',
+					id: 'b'
+				},
+				id: 'b'
+			},
+			{
+				'3': {
+					fixed: false,
+					x: 0,
+					y: 1,
+					fullHeight: false,
+					w: 3,
+					h: 1
+				},
+				'12': {
+					fixed: false,
+					x: 6,
+					y: 0,
+					fullHeight: false,
+					w: 6,
+					h: 1
+				},
+				data: {
+					type: 'recomputeallcomponent',
+					configuration: {},
+					actions: [],
+					menuItems: [],
+					horizontalAlignment: 'right',
+					verticalAlignment: 'center',
+					id: 'c'
+				},
+				id: 'c'
+			}
+		]
+	},
+	hideLegacyTopBar: true,
+	norefreshbar: false
+}
+
 export function isAppTainted(app: App) {
-	return !(app.grid.length === 0 && app.hiddenInlineScripts?.length === 0)
+	if (app.hideLegacyTopBar === true) {
+		// An empty app should have only have a topbar and no hidden inline scripts
+
+		if (Array.isArray(app.hiddenInlineScripts) && app.hiddenInlineScripts?.length > 0) {
+			return true
+		}
+
+		// New apps have only a single component which is the topbar
+		if (Array.isArray(app.grid) && app.grid.length > 1) {
+			return true
+		}
+
+		// Check if the current app is different from an empty app
+		return !deepEqual(app, emptyApp)
+	} else {
+		// For older apps,
+		return !(app.grid.length === 0 && app.hiddenInlineScripts?.length === 0)
+	}
 }
 
 export function updateFlowModuleById(
