@@ -111,7 +111,7 @@ pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
         tracing::info!("Failed to untar to {folder}. Error: {:?}", e);
         fs::remove_dir_all(&folder).await?;
         return Err(error::Error::ExecutionErr(format!(
-            "Failed to untar piptar {folder}"
+            "Failed to untar tar {folder}"
         )));
     }
     tracing::info!(
