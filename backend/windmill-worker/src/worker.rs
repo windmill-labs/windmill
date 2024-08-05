@@ -2771,10 +2771,10 @@ pub async fn get_script_content_by_hash(
             Option<String>,
             Option<ScriptLang>,
             Option<Vec<String>>,
-            bool,
+            Option<bool>,
         ),
     >(
-        "SELECT content, lock, language, envs, codebase IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
+        "SELECT content, lock, language, envs, codebase LIKE '%.tar' as codebase FROM script WHERE hash = $1 AND workspace_id = $2",
     )
     .bind(script_hash.0)
     .bind(w_id)
@@ -2786,8 +2786,14 @@ pub async fn get_script_content_by_hash(
         lockfile: r.1,
         language: r.2,
         envs: r.3,
-        codebase: if r.4 {
-            Some(script_hash.to_string())
+        codebase: if r.4.is_some() {
+            let b = r.4.unwrap();
+            let sh = script_hash.to_string();
+            if b {
+                Some(format!("{sh}.tar"))
+            } else {
+                Some(sh)
+            }
         } else {
             None
         },
