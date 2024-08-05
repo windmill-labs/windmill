@@ -9,6 +9,7 @@
 	export let icon: any = undefined
 	export let shortcutKey: string | undefined = undefined
 	export let containerClass: string | undefined = undefined
+	export let mouseMoved = false
 
 	const dispatch = createEventDispatcher()
 
@@ -49,7 +50,12 @@
 <div
 	{id}
 	on:click|stopPropagation={runAction}
-	on:mouseenter={() => dispatch('hover')}
+	on:mouseenter={() => {
+		if (mouseMoved) {
+			dispatch('hover')
+		}
+		mouseMoved=false
+	}}
 	class={twMerge(
 		`rounded-md w-full transition-all cursor-pointer ${
 			hovered ? 'bg-surface-hover' : ''

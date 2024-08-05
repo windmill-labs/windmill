@@ -395,7 +395,7 @@
 	}
 
 	const warnJobLimitMsg =
-		'The exact number of concurrent job at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
+		'The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
 
 	$: warnJobLimit =
 		graph === 'ConcurrencyChart' &&
