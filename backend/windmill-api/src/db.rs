@@ -520,6 +520,14 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             sqlx::query("create index concurrently if not exists root_job_index_by_path_2 ON completed_job (workspace_id, script_path, created_at desc) WHERE parent_job IS NULL")
                 .execute(db)
                 .await?;
+
+            i += 1;
+            tracing::info!("step {i} of {migration_job_name} migration");
+
+            sqlx::query("create index concurrently if not exists ix_completed_job_created_at ON completed_job  (created_at DESC)")
+                    .execute(db)
+                    .await?;
+
             i += 1;
             tracing::info!("step {i} of {migration_job_name} migration");
 
