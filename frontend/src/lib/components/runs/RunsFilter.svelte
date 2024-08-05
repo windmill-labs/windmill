@@ -18,6 +18,7 @@
 	export let path: string | null = null
 	export let label: string | null = null
 	export let concurrencyKey: string | null = null
+	export let tag: string | null = null
 	export let success: 'running' | 'success' | 'failure' | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
@@ -37,11 +38,12 @@
 
 	$: displayedLabel = label
 	$: displayedConcurrencyKey = concurrencyKey
+	$: displayedTag = tag
 
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
 
-	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' = 'path'
+	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' | 'tag' = 'path'
 
 	const dispatch = createEventDispatcher()
 
@@ -63,11 +65,15 @@
 		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
 			manuallySet = true
 			filterBy = 'concurrencyKey'
+		} else if (tag !== null && tag !== '' && filterBy !== 'tag') {
+			manuallySet = true
+			filterBy = 'tag'
 		}
 	}
 
 	let labelTimeout: NodeJS.Timeout | undefined = undefined
 	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
+	let tagTimeout: NodeJS.Timeout | undefined = undefined
 </script>
 
 <div class="flex gap-4">
@@ -94,6 +100,7 @@
 							folder = null
 							label = null
 							concurrencyKey = null
+							tag = null
 						} else {
 							manuallySet = false
 						}
@@ -105,7 +112,8 @@
 					<ToggleButtonMore
 						togglableItems={[
 							{ label: 'Concurrency key', value: 'concurrencyKey' },
-							{ label: 'Label', value: 'label' }
+							{ label: 'Label', value: 'label' },
+							{ label: 'Tag', value: 'tag' }
 						]}
 					/>
 				</ToggleButtonGroup>
@@ -295,6 +303,39 @@
 						/>
 					</div>
 				{/key}
+			{:else if filterBy === 'tag'}
+				{#key tag}
+					<div class="relative">
+						{#if tag}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									tag = null
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+						<span class="text-xs absolute -top-4"> Tag </span>
+
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedTag}
+							on:keydown={(e) => {
+								if (tagTimeout) {
+									clearTimeout(tagTimeout)
+								}
+
+								tagTimeout = setTimeout(() => {
+									tag = displayedTag
+								}, 1000)
+							}}
+						/>
+					</div>
+				{/key}
 			{/if}
 		</div>
 		<div class="relative">
@@ -383,6 +424,8 @@
 									user = null
 									folder = null
 									label = null
+									concurrencyKey = null
+									tag = null
 								} else {
 									manuallySet = false
 								}
@@ -391,6 +434,9 @@
 							<ToggleButton value="path" label="Path" />
 							<ToggleButton value="user" label="User" />
 							<ToggleButton value="folder" label="Folder" />
+							<ToggleButton value="concurrencyKey" label="Concurrency" />
+							<ToggleButton value="tag" label="Tag" />
+							<ToggleButton value="label" label="Label" />
 						</ToggleButtonGroup>
 					</Label>
 
@@ -415,10 +461,10 @@
 										items={usernames}
 										value={user}
 										bind:selectedItem={user}
-										inputClassName="!h-[32px] py-1 !text-xs !w-64"
+										inputClassName="!h-[32px] py-1 !text-xs !w-80"
 										hideArrow
 										className={user ? '!font-bold' : ''}
-										dropdownClassName="!font-normal !w-64 !max-w-64"
+										dropdownClassName="!font-normal !w-80 !max-w-80"
 									/>
 								</div>
 							</Label>
@@ -445,10 +491,10 @@
 										items={folders}
 										value={folder}
 										bind:selectedItem={folder}
-										inputClassName="!h-[32px] py-1 !text-xs !w-64"
+										inputClassName="!h-[32px] py-1 !text-xs !w-80"
 										hideArrow
 										className={folder ? '!font-bold' : ''}
-										dropdownClassName="!font-normal !w-64 !max-w-64"
+										dropdownClassName="!font-normal !w-80 !max-w-80"
 									/>
 								</div>
 							</Label>
@@ -479,6 +525,107 @@
 										hideArrow
 										className={path ? '!font-bold' : ''}
 										dropdownClassName="!font-normal !w-80 !max-w-80"
+									/>
+								</div>
+							</Label>
+						{/key}
+					{:else if filterBy === 'tag'}
+						{#key tag}
+							<Label label="Tag">
+								<div class="relative w-full">
+									{#if tag}
+										<button
+											class="absolute top-2 right-2 z-50"
+											on:click={() => {
+												tag = null
+											}}
+										>
+											<X size={14} />
+										</button>
+									{/if}
+
+									<input
+										autofocus
+										type="text"
+										class="!h-[32px] py-1 !text-xs !w-80"
+										bind:value={displayedTag}
+										on:keydown={(e) => {
+											if (tagTimeout) {
+												clearTimeout(tagTimeout)
+											}
+
+											tagTimeout = setTimeout(() => {
+												tag = displayedTag
+												console.log(tag)
+											}, 1000)
+										}}
+									/>
+								</div></Label
+							>
+						{/key}
+					{:else if filterBy === 'label'}
+						{#key label}
+							<Label label="Label">
+								<div class="relative w-full">
+									{#if label}
+										<button
+											class="absolute top-2 right-2 z-50"
+											on:click={() => {
+												label = null
+											}}
+										>
+											<X size={14} />
+										</button>
+									{/if}
+
+									<input
+										autofocus
+										type="text"
+										class="!h-[32px] py-1 !text-xs !w-80"
+										bind:value={displayedLabel}
+										on:keydown={(e) => {
+											if (labelTimeout) {
+												clearTimeout(labelTimeout)
+											}
+
+											labelTimeout = setTimeout(() => {
+												label = displayedLabel
+											}, 1000)
+										}}
+									/>
+								</div></Label
+							>
+						{/key}
+					{:else if filterBy === 'concurrencyKey'}
+						{#key concurrencyKey}
+							<Label label="Concurrency Key">
+								<div class="relative w-full">
+									{#if concurrencyKey}
+										<button
+											class="absolute top-2 right-2 z-50"
+											on:click={() => {
+												concurrencyKey = null
+												// dispatch('reset')
+											}}
+										>
+											<X size={14} />
+										</button>
+									{/if}
+
+									<input
+										autofocus
+										type="text"
+										class="!h-[32px] py-1 !text-xs !w-80"
+										bind:value={displayedConcurrencyKey}
+										on:keydown={(e) => {
+											if (concurrencyKeyTimeout) {
+												clearTimeout(concurrencyKeyTimeout)
+											}
+
+											concurrencyKeyTimeout = setTimeout(() => {
+												concurrencyKey = displayedConcurrencyKey
+											}, 1000)
+										}}
 									/>
 								</div>
 							</Label>
