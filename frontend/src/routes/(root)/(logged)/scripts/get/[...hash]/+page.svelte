@@ -1,11 +1,20 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { base } from '$lib/base'
-	import { JobService, ScriptService, type Script } from '$lib/gen'
-	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
+	import { JobService, ScriptService, WorkspaceService, type Script, type WorkspaceDeployUISettings } from '$lib/gen'
+	import {
+		defaultIfEmptyString,
+		emptyString,
+		canWrite,
+		truncateHash,
+		isDeployable,
+
+		ALL_DEPLOYABLE
+
+	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -318,7 +327,22 @@
 	}
 	$: mainButtons = getMainButtons(script, args, topHash, can_write)
 
-	function getMenuItems(script: Script | undefined) {
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
+
+	function getMenuItems(
+		script: Script | undefined,
+		deployUiSettings: WorkspaceDeployUISettings | undefined
+	) {
 		if (!script || $userStore?.operator) return []
 
 		const menuItems: any = []
@@ -347,13 +371,15 @@
 			}
 		})
 
-		menuItems.push({
-			label: 'Deploy to staging/prod',
-			Icon: Server,
-			onclick: () => {
-				deploymentDrawer.openDrawer(script?.path ?? '', 'script')
-			}
-		})
+		if (isDeployable('script', script?.path ?? '', deployUiSettings)) {
+			menuItems.push({
+				label: 'Deploy to staging/prod',
+				Icon: Server,
+				onclick: () => {
+					deploymentDrawer.openDrawer(script?.path ?? '', 'script')
+				}
+			})
+		}
 
 		if (SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB) {
 			menuItems.push({
@@ -471,7 +497,7 @@
 			<svelte:fragment slot="header">
 				<DetailPageHeader
 					{mainButtons}
-					menuItems={getMenuItems(script)}
+					menuItems={getMenuItems(script, deployUiSettings)}
 					title={defaultIfEmptyString(script.summary, script.path)}
 					bind:errorHandlerMuted={script.ws_error_handler_muted}
 					errorHandlerKind="script"

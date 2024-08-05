@@ -482,12 +482,40 @@
 			}
 			gitSyncTestJobs = []
 		}
+		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
+			deployUiSettings = {
+				include_path:
+					settings.deploy_ui.include_path?.length ?? 0 > 0
+						? settings.deploy_ui.include_path ?? []
+						: [],
+				include_type: {
+					scripts: (settings.deploy_ui.include_type?.indexOf('script') ?? -1) >= 0,
+					flows: (settings.deploy_ui.include_type?.indexOf('flow') ?? -1) >= 0,
+					apps: (settings.deploy_ui.include_type?.indexOf('app') ?? -1) >= 0,
+					resources: (settings.deploy_ui.include_type?.indexOf('resource') ?? -1) >= 0,
+					variables: (settings.deploy_ui.include_type?.indexOf('variable') ?? -1) >= 0,
+					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0,
+				}
+			}
+		}
 
 		// check openai_client_credentials_oauth
 		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
 			workspace: $workspaceStore!,
 			path: 'openai_client_credentials_oauth'
 		})
+	}
+
+	let deployUiSettings:  {
+		include_path: string[]
+		include_type: {
+			scripts: boolean
+			flows: boolean
+			apps: boolean
+			resources: boolean
+			variables: boolean
+			secrets: boolean
+		}
 	}
 
 	$: {
@@ -688,7 +716,7 @@
 				</div>
 			</div>
 			{#if $enterpriseLicense}
-				<DeployToSetting bind:workspaceToDeployTo />
+				<DeployToSetting bind:workspaceToDeployTo bind:deployUiSettings />
 			{:else}
 				<div class="my-2"
 					><Alert type="error" title="Enterprise license required"

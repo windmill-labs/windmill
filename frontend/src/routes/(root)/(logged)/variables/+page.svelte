@@ -18,11 +18,11 @@
 	import TableSimple from '$lib/components/TableSimple.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import type { ContextualVariable, ListableVariable } from '$lib/gen'
+	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite, isOwner, truncate } from '$lib/utils'
+	import { ALL_DEPLOYABLE, canWrite, isDeployable, isOwner, truncate } from '$lib/utils'
 	import {
 		Plus,
 		FileUp,
@@ -77,6 +77,18 @@
 			}
 		})
 	}
+
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 
 	async function loadContextualVariables(): Promise<void> {
 		contextualVariables = await VariableService.listContextualVariables({
@@ -347,13 +359,17 @@
 													},
 													disabled: !owner
 												},
-												{
-													displayName: 'Deploy to prod/staging',
-													icon: FileUp,
-													action: () => {
-														deploymentDrawer.openDrawer(path, 'variable')
-													}
-												},
+												...(isDeployable(is_secret ? 'secret' : 'variable', path, deployUiSettings)
+													? [
+															{
+																displayName: 'Deploy to prod/staging',
+																icon: FileUp,
+																action: () => {
+																	deploymentDrawer.openDrawer(path, 'variable')
+																}
+															}
+													  ]
+													: []),
 												{
 													displayName: owner ? 'Share' : 'See Permissions',
 													action: () => {
