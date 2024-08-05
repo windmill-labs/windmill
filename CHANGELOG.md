@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.375.0](https://github.com/windmill-labs/windmill/compare/v1.374.0...v1.375.0) (2024-08-05)
+
+
+### Features
+
+* deployment UI filter deployable items ([#4183](https://github.com/windmill-labs/windmill/issues/4183)) ([f2f8bbe](https://github.com/windmill-labs/windmill/commit/f2f8bbe1d4364540854fef3bf11df5bb4252c17d))
+* improve indices of completed_runs for faster load ([cc111ba](https://github.com/windmill-labs/windmill/commit/cc111ba7dcd7fe6c4280d394d4eb0e723e9d8b19))
+
+
+### Bug Fixes
+
+* **frontend:** add missing truncate for branch predicates ([#4180](https://github.com/windmill-labs/windmill/issues/4180)) ([947dd21](https://github.com/windmill-labs/windmill/commit/947dd219335244728213e95a46e577428ac65464))
+* **frontend:** fix style panel for compoentn without custom css ([#4182](https://github.com/windmill-labs/windmill/issues/4182)) ([43a89ee](https://github.com/windmill-labs/windmill/commit/43a89ee1ccbeeac11211277f8005d85541c71dc3))
+* **frontend:** fix tutorial for apps with the new topbar ([#4186](https://github.com/windmill-labs/windmill/issues/4186)) ([704e75e](https://github.com/windmill-labs/windmill/commit/704e75e893a94e71091c840aa5608837c0617526))
+
 ## [1.374.0](https://github.com/windmill-labs/windmill/compare/v1.373.1...v1.374.0) (2024-08-04)
 
 
