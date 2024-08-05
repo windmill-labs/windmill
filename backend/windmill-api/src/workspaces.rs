@@ -1060,7 +1060,7 @@ struct EditDeployUIConfig {
 }
 
 #[cfg(not(feature = "enterprise"))]
-async fn edit_deployment_ui_config(
+async fn edit_deploy_ui_config(
     _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Path(_w_id): Path<String>,
