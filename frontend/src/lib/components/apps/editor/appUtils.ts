@@ -366,7 +366,10 @@ export function appComponentFromType<T extends keyof typeof components>(
 			tabs: init.tabs,
 			conditions: init.conditions,
 			nodes: init.nodes,
-			customCss: deepMergeWithPriority(ccomponents[type].customCss as any, override?.customCss),
+			customCss: deepMergeWithPriority(
+				ccomponents[type].customCss as any,
+				override?.customCss ?? {}
+			),
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
 			actions: [],
