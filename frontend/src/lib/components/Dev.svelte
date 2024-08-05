@@ -196,11 +196,12 @@
 			replaceScript(event.data)
 		} else if (event.data.type == 'testBundle') {
 			if (event.data.id == lastBundleCommandId) {
-				testBundle(event.data.file)
+				testBundle(event.data.file, event.data.isTar)
 			} else {
 				sendUserToast(`Bundle received ${lastBundleCommandId} was obsolete, ignoring`, true)
 			}
 		} else if (event.data.type == 'testBundleError') {
+			loadingCodebaseButton = false
 			sendUserToast(
 				typeof event.data.error == 'object' ? JSON.stringify(event.data.error) : event.data.error,
 				true
@@ -244,7 +245,7 @@
 		window.parent?.postMessage({ type: 'refresh' }, '*')
 	})
 
-	async function testBundle(file: string) {
+	async function testBundle(file: string, isTar: boolean) {
 		testJobLoader?.abstractRun(async () => {
 			try {
 				const form = new FormData()
@@ -252,14 +253,25 @@
 					'preview',
 					JSON.stringify({
 						content: currentScript?.content,
-						kind: 'bundle',
+						kind: isTar ? 'tarbundle' : 'bundle',
 						path: currentScript?.path,
 						args,
 						language: currentScript?.language,
 						tag: currentScript?.tag
 					})
 				)
-				form.append('file', file)
+				// sendUserToast(JSON.stringify(file))
+				if (isTar) {
+					var array: number[] = []
+					file = atob(file)
+					for (var i = 0; i < file.length; i++) {
+						array.push(file.charCodeAt(i))
+					}
+					let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
+					form.append('file', blob)
+				} else {
+					form.append('file', file)
+				}
 
 				const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
 
