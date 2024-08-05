@@ -38,7 +38,7 @@
 		include_path: string[]
 		include_type: DeployUITypeMap
 	} = {
-		include_path: ['f/**'],
+		include_path: [],
 		include_type: all_ok
 	}
 
