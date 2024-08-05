@@ -32,7 +32,8 @@
 			<Section label="Prompt">
 				A prompt is simply an approval step that can be self-approved. To do this, include the
 				resume url in the returned payload of the step. The UX will automatically adapt and show the
-				prompt to the operator when running the flow. e.g:
+				prompt to the operator when running the flow. Additionally, adding the cancel url will also
+				render a cancel button, providing the operator with an option to cancel the step e.g:
 				<Tabs selected="bun" class="pt-4">
 					<Tab value="bun">TypeScript (Bun)</Tab>
 					<Tab value="deno">TypeScript (Deno)</Tab>
@@ -49,6 +50,8 @@ export async function main() {
 
     return {
         resume: urls['resume'],
+        // If present, the UI will show a cancel button 
+        cancel: urls['cancel'], 
         default_args: {}, // optional, see below
         enums: {} // optional, see below
     }
@@ -65,6 +68,8 @@ export async function main() {
 
     return {
         resume: urls['resume'],
+        // If present, the UI will show a cancel button
+        cancel: urls['cancel'],
         default_args: {}, // optional, see below
         enums: {} // optional, see below
     }
@@ -80,6 +85,8 @@ def main():
     urls = wmill.get_resume_urls()
     return {
         "resume": urls["resume"],
+        # If present, the UI will show a cancel button
+        "cancel": urls["cancel"],
         "default_args": {}, # optional, see below
         "enums": {} # optional, see below
     }
