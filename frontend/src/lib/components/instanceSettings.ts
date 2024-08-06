@@ -46,8 +46,7 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Email domain',
-			description:
-				'Domain to display in webhooks for email triggers, default is the webpage domain prefixed by "mail."',
+			description: 'Domain to display in webhooks for email triggers (should match the MX record)',
 			key: 'email_domain',
 			fieldType: 'text',
 			storage: 'setting',
