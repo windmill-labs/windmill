@@ -44,12 +44,12 @@
 		}
 	}
 
-	let emailDomain: string = $page.url.hostname
+	let emailDomain: string = "mail." + $page.url.hostname
 	async function getEmailDomain() {
 		emailDomain =
 			((await SettingService.getGlobal({
 				key: 'email_domain'
-			})) as any) ?? $page.url.hostname
+			})) as any) ?? ("mail." + $page.url.hostname)
 	}
 	getEmailDomain()
 
