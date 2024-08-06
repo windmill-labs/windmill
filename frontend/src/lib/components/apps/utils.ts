@@ -443,4 +443,4 @@ export function getImageDataURL(imageKind: string | undefined, image: string | u
 	}
 }
 
-export const ctxRegex = /^ctx\.(workspace|groups|username|email|onBehalfOfEmail)$/
+export const ctxRegex = /^ctx\.(workspace|groups|username|email|author)$/
