@@ -341,7 +341,7 @@ pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<Str
         |_, chars| {
             let mut arg_name = String::new();
             while let Some(&(_, char)) = chars.peek() {
-                if char.is_alphanumeric() {
+                if char.is_alphanumeric() || char == '_' {
                     arg_name.push(char);
                     chars.next();
                 } else {
@@ -751,8 +751,8 @@ SELECT ?, ?;
         let code = r#"
 -- :param1 (int) = 3
 -- :param2 (text)
--- :param3 (text)
-SELECT :param3, :param1;
+-- :param_3 (text)
+SELECT :param_3, :param1;
 SELECT :param2;
 "#;
         assert_eq!(
@@ -779,7 +779,7 @@ SELECT :param2;
                     },
                     Arg {
                         otyp: Some("text".to_string()),
-                        name: "param3".to_string(),
+                        name: "param_3".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
