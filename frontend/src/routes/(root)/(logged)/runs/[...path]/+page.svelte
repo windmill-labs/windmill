@@ -473,6 +473,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
+		isSelectingJobsToCancel = false
 	}}
 	loading={fetchingFilteredJobs}
 	on:canceled={() => {
@@ -496,6 +497,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
+		isSelectingJobsToCancel = false
 	}}
 	on:canceled={() => {
 		isCancelingVisibleJobs = false
