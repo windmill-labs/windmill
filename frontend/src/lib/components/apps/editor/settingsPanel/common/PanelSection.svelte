@@ -4,6 +4,7 @@
 
 	export let title: string
 	export let noPadding: boolean = false
+	export let fullHeight: boolean = true
 	export let titlePadding: string = ''
 	export let tooltip = ''
 	export let documentationLink: string | undefined = undefined
@@ -13,8 +14,9 @@
 <div
 	class={classNames(
 		$$props.class,
-		'flex flex-col h-full gap-2 items-start',
-		noPadding ? '' : 'p-3'
+		'flex flex-col gap-2 items-start',
+		noPadding ? '' : 'p-3',
+		fullHeight ? 'h-full' : ''
 	)}
 	{id}
 >
