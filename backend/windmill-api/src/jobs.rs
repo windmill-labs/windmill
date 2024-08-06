@@ -184,7 +184,10 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
-        .route("/run/preview_bundle", post(run_bundle_preview_script))
+        .route(
+            "/run/preview_bundle",
+            post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route(
@@ -1459,7 +1462,6 @@ async fn cancel_selection(
     Path(w_id): Path<String>,
     Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
     let jobs_to_cancel = sqlx::query_scalar!(
@@ -2611,6 +2613,7 @@ enum PreviewKind {
     Http,
     Noop,
     Bundle,
+    Tarbundle,
 }
 
 #[derive(Deserialize)]
@@ -3856,6 +3859,8 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
+    use windmill_common::scripts::PREVIEW_IS_TAR_CODEBASE_HASH;
+
     check_license_key_valid().await?;
 
     check_scopes(&authed, || format!("runscript"))?;
@@ -3868,9 +3873,12 @@ async fn run_bundle_preview_script(
     let mut job_id = None;
     let mut tx = None;
     let mut uploaded = false;
+    let mut is_tar = false;
+
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
-        let data = field.bytes().await.unwrap();
+        let data = field.bytes().await;
+        let data = data.map_err(to_anyhow)?;
         if name == "preview" {
             let preview: Preview = serde_json::from_slice(&data).map_err(to_anyhow)?;
 
@@ -3882,27 +3890,33 @@ async fn run_bundle_preview_script(
 
             let args = preview.args.unwrap_or_default();
 
+            is_tar = match preview.kind {
+                Some(PreviewKind::Tarbundle) => true,
+                _ => false,
+            };
+
+            // tracing::info!("is_tar 1: {is_tar}");
             // hmap.insert("")
             let (uuid, ntx) = push(
                 &db,
                 ltx,
                 &w_id,
-                match preview.kind {
-                    Some(PreviewKind::Identity) => JobPayload::Identity,
-                    Some(PreviewKind::Noop) => JobPayload::Noop,
-                    _ => JobPayload::Code(RawCode {
-                        hash: Some(PREVIEW_IS_CODEBASE_HASH),
-                        content: preview.content.unwrap_or_default(),
-                        path: preview.path,
-                        language: preview.language.unwrap_or(ScriptLang::Deno),
-                        lock: preview.lock,
-                        concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
-                        concurrency_time_window_s: None, // TODO(gbouv): same as above
-                        cache_ttl: None,
-                        dedicated_worker: preview.dedicated_worker,
-                        custom_concurrency_key: None,
-                    }),
-                },
+                JobPayload::Code(RawCode {
+                    hash: if is_tar {
+                        Some(PREVIEW_IS_TAR_CODEBASE_HASH)
+                    } else {
+                        Some(PREVIEW_IS_CODEBASE_HASH)
+                    },
+                    content: preview.content.unwrap_or_default(),
+                    path: preview.path,
+                    language: preview.language.unwrap_or(ScriptLang::Deno),
+                    lock: preview.lock,
+                    concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
+                    concurrency_time_window_s: None, // TODO(gbouv): same as above
+                    cache_ttl: None,
+                    dedicated_worker: preview.dedicated_worker,
+                    custom_concurrency_key: None,
+                }),
                 PushArgs::from(&args),
                 authed.display_username(),
                 &authed.email,
@@ -3927,7 +3941,7 @@ async fn run_bundle_preview_script(
             tx = Some(ntx);
         }
         if name == "file" {
-            let id = job_id
+            let mut id = job_id
                 .as_ref()
                 .ok_or_else(|| {
                     Error::BadRequest(
@@ -3935,6 +3949,12 @@ async fn run_bundle_preview_script(
                     )
                 })?
                 .to_string();
+
+            // tracing::info!("is_tar 2: {is_tar}");
+
+            if is_tar {
+                id = format!("{}.tar", id);
+            }
 
             uploaded = true;
 

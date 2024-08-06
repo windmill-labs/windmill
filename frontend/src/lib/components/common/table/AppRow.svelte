@@ -4,7 +4,12 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, DraftService, type ListableApp } from '$lib/gen'
+	import {
+		AppService,
+		DraftService,
+		type ListableApp,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -28,7 +33,7 @@
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { DELETE, copyToClipboard } from '$lib/utils'
+	import { DELETE, copyToClipboard, isDeployable } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 
@@ -41,6 +46,7 @@
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let depth: number = 0
 	export let menuOpen: boolean = false
+	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -163,14 +169,18 @@
 						disabled: !canWrite,
 						hide: $userStore?.operator
 					},
-					{
-						displayName: 'Deploy to staging/prod',
-						icon: Globe,
-						action: () => {
-							deploymentDrawer.openDrawer(path, 'app')
-						},
-						hide: $userStore?.operator
-					},
+					...(isDeployable('app', path, deployUiSettings)
+						? [
+								{
+									displayName: 'Deploy to staging/prod',
+									icon: Globe,
+									action: () => {
+										deploymentDrawer.openDrawer(path, 'app')
+									},
+									hide: $userStore?.operator
+								}
+						  ]
+						: []),
 					{
 						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
 						icon: FileJson,

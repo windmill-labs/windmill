@@ -6,6 +6,11 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Nativets runtime supports npm packages and relative imports',
+		href: 'https://www.windmill.dev/changelog/native-runtime-imports',
+		date: '2024-07-29'
+	},
+	{
 		label: 'App bar as components',
 		href: 'https://www.windmill.dev/changelog/app-bar-components',
 		date: '2024-07-29'

@@ -7,8 +7,7 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
-    worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR},
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR}
 };
 
 use anyhow::{Context, Result};
@@ -2820,23 +2819,23 @@ async fn handle_code_execution_job(
         envs,
         codebase,
     } = match job.job_kind {
-        JobKind::Preview => ContentReqLangEnvs {
-            content: job
-                .raw_code
-                .clone()
-                .unwrap_or_else(|| "no raw code".to_owned()),
-            lockfile: job.raw_lock.clone(),
-            language: job.language.to_owned(),
-            envs: None,
-            codebase: if job
-                .script_hash
-                .is_some_and(|y| y.0 == PREVIEW_IS_CODEBASE_HASH)
-            {
-                Some(job.id.to_string())
-            } else {
-                None
-            },
-        },
+        JobKind::Preview => {
+            let codebase = match job.script_hash.map(|x| x.0) {
+                Some(PREVIEW_IS_CODEBASE_HASH) => Some(job.id.to_string()),
+                Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(format!("{}.tar", job.id)),
+                _ => None,
+            };
+            
+            ContentReqLangEnvs {
+                content: job
+                    .raw_code
+                    .clone()
+                    .unwrap_or_else(|| "no raw code".to_owned()),
+                lockfile: job.raw_lock.clone(),
+                language: job.language.to_owned(),
+                envs: None,
+                codebase
+        }},
         JobKind::Script_Hub => {
             get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
         }

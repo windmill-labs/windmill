@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.374.0
+  version: 1.375.0
   title: Windmill API
 
   contact:
@@ -1507,6 +1507,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   git_sync:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
+                  deploy_ui:
+                    $ref: "#/components/schemas/WorkspaceDeployUISettings"
                   default_app:
                     type: string
                   default_scripts:
@@ -1888,6 +1890,32 @@ paths:
               properties:
                 git_sync_settings:
                   $ref: "#/components/schemas/WorkspaceGitSyncSettings"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_deploy_ui_config:
+    post:
+      summary: edit workspace deploy ui settings
+      operationId: editWorkspaceDeployUISettings
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Workspace deploy UI settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deploy_ui_settings:
+                  $ref: "#/components/schemas/WorkspaceDeployUISettings"
 
       responses:
         "200":
@@ -11077,6 +11105,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GitRepositorySettings"
+
+    WorkspaceDeployUISettings:
+      type: object
+      properties:
+        include_path:
+          type: array
+          items:
+            type: string
+        include_type:
+          type: array
+          items:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+              - resource
+              - variable
+              - secret
 
     WorkspaceDefaultScripts:
       type: object
