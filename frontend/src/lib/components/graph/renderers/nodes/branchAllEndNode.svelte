@@ -6,7 +6,6 @@
 	type $$Props = NodeProps
 
 	export let data: $$Props['data']
-	$$restProps
 </script>
 
 {#if data.time}

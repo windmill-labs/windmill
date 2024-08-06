@@ -18,7 +18,8 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 			data: {
 				value: module.value,
 				offset: offset,
-				module: module
+				module: module,
+				modules: modules
 			},
 			position: { x: 0, y: 0 },
 			type: type

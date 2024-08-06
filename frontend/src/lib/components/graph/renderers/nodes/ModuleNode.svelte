@@ -1,23 +1,116 @@
 <script lang="ts">
+	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	// @ts-ignore
+	import type { FlowModule, FlowModuleValue } from '$lib/gen/types.gen'
+	import { ClipboardCopy, GitBranchPlus } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
+	import NodeWrapper from './NodeWrapper.svelte'
+	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 
-	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
+	export let data: {
+		offset: number
+		value: FlowModuleValue
+		module: FlowModule
+		trigger: boolean
+		insertable: boolean
+		insertableEnd: boolean
+		annotation: string | undefined
+		branchable: boolean
+		bgColor: string
+		modules: FlowModule[]
+		moving: string | undefined
+		duration_ms: number | undefined
+		disableAi: boolean
+		wrapperId: string | undefined
+		retries: number | undefined
+		flowJobs:
+			| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
+			| undefined
+	}
 
-	type $$Props = NodeProps
+	$: idx = data.modules?.findIndex((m) => m.id === data.module.id)
 
-	export let data: $$Props['data']
+	const dispatch = createEventDispatcher()
+	let openMenu: boolean | undefined = undefined
 </script>
 
-{#if data.time}
-	<NodeToolbar isVisible position={Position.Top} align="end">
-		<span class="text-xs">0.01s</span>
-	</NodeToolbar>
-{/if}
+<NodeWrapper offset={data.offset}>
+	<MapItem
+		mod={data.module}
+		trigger={data.trigger}
+		insertable={data.insertable}
+		insertableEnd={data.insertableEnd}
+		annotation={data.annotation}
+		branchable={data.branchable}
+		bgColor={data.bgColor}
+		modules={data.modules ?? []}
+		moving={data.moving}
+		duration_ms={data.duration_ms}
+		disableAi={data.disableAi}
+		wrapperId={data.wrapperId}
+		retries={data.retries}
+		flowJobs={data.flowJobs}
+		on:delete
+		on:insert
+		on:move
+		on:newBranch
+		on:select
+		on:selectedIteration
+	/>
+</NodeWrapper>
 
-<div style={`margin-left: ${data.offset}px;`}>
-	<MapItem mod={data.module} modules={[]} />
-</div>
+<NodeToolbar isVisible position={Position.Top} align="end">
+	{#if data.insertable}
+		<div
+			class="{openMenu
+				? 'z-20'
+				: ''} w-[27px] absolute -top-[35px] left-[50%] right-[50%] -translate-x-1/2"
+		>
+			{#if data.moving}
+				<button
+					title="Add branch"
+					on:click={() => {
+						dispatch('insert', { modules: data.modules, index: idx, detail: 'move' })
+					}}
+					type="button"
+					disabled={data.wrapperId === data.moving}
+					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+				>
+					<ClipboardCopy class="m-[5px]" size={15} />
+				</button>
+			{:else}
+				<InsertModuleButton
+					bind:disableAi={data.disableAi}
+					bind:open={openMenu}
+					bind:trigger={data.trigger}
+					on:insert={(e) => {
+						dispatch('insert', {
+							modules: data.modules,
+							index: idx + 1,
+							detail: 'script',
+							script: e.detail
+						})
+					}}
+					on:new={(e) => {
+						dispatch('insert', { modules: data.modules, index: idx, detail: e.detail })
+					}}
+					index={idx}
+					modules={data.modules}
+				/>
+			{/if}
+		</div>
+	{/if}
+</NodeToolbar>
 
-<Handle type="source" position={Position.Bottom} style={`margin-left: ${data.offset / 2}px;`} />
-<Handle type="target" position={Position.Top} style={`margin-left: ${data.offset / 2}px;`} />
+<NodeToolbar isVisible position={Position.Bottom} align="center">
+	{#if data.value.type === 'branchall'}
+		<button
+			class="rounded-full border bg-white p-1 hover:bg-gray-200"
+			on:click={() => {
+				dispatch('addBranch')
+			}}
+		>
+			<GitBranchPlus size={16} />
+		</button>
+	{/if}
+</NodeToolbar>

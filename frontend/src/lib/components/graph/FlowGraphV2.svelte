@@ -89,7 +89,10 @@
 		return { nodes, edges }
 	}
 
-	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(modules)
+	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(modules, {
+		insertable,
+		disableAi
+	})
 
 	const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
 		initialNodes,
