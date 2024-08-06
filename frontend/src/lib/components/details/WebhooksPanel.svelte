@@ -44,12 +44,12 @@
 		}
 	}
 
-	let emailDomain: string = "mail." + $page.url.hostname
+	let emailDomain: string | null = null
 	async function getEmailDomain() {
 		emailDomain =
 			((await SettingService.getGlobal({
 				key: 'email_domain'
-			})) as any) ?? ("mail." + $page.url.hostname)
+			})) as any) ?? null
 	}
 	getEmailDomain()
 
@@ -393,26 +393,37 @@ done`
 					{/key}
 				</TabContent>
 				<TabContent value="email">
-					<div class="flex flex-col gap-4">
-						{#key args}
-							{#key requestType}
-								{#key webhookType}
-									{#key tokenType}
-										{#key token}
-											<div class="flex flex-col gap-2">
-												<ClipboardPanel title="Email address" content={emailAddress()} />
-											</div>
+					{#if emailDomain}
+						<div class="flex flex-col gap-4">
+							{#key args}
+								{#key requestType}
+									{#key webhookType}
+										{#key tokenType}
+											{#key token}
+												<div class="flex flex-col gap-2">
+													<ClipboardPanel title="Email address" content={emailAddress()} />
+												</div>
+											{/key}
 										{/key}
 									{/key}
 								{/key}
 							{/key}
-						{/key}
-						<Alert title="Email triggers" size="xs">
-							To trigger the job by email, send an email to the address above. The job will receive
-							two arguments: `raw_email` containing the raw email as string, and `parsed_email`
-							containing the parsed email as an object.
-						</Alert>
-					</div>
+							<Alert title="Email triggers" size="xs">
+								To trigger the job by email, send an email to the address above. The job will
+								receive two arguments: `raw_email` containing the raw email as string, and
+								`parsed_email` containing the parsed email as an object.
+							</Alert>
+						</div>
+					{:else}
+						<div>
+							<Alert title="Email triggers are disabled" size="xs" kind="danger">
+								Ask an instance superadmin to setup the instance for email triggering (<a
+									target="_blank"
+									href="https://windmill.dev/docs/advanced/email_triggers">docs</a
+								>) and to set the email domain in the instance settings.
+							</Alert>
+						</div>
+					{/if}
 				</TabContent>
 			{/key}
 		</svelte:fragment>
