@@ -12,7 +12,8 @@
 		Position,
 		type Node,
 		type Edge,
-		ConnectionLineType
+		ConnectionLineType,
+		MiniMap
 		// @ts-ignore
 	} from '@xyflow/svelte'
 	// @ts-ignore
@@ -26,6 +27,7 @@
 	import ForLoopStartNode from './renderers/nodes/ForLoopStartNode.svelte'
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
+	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -53,11 +55,10 @@
 		flowInputsStore: Writable<FlowInput | undefined>
 	}>('FlowGraphContext', { selectedId, flowInputsStore })
 
-	// XYFLOW
-
 	const nodeWidth = 300
 	const nodeHeight = 36
 	const dagreGraph = new dagre.graphlib.Graph()
+
 	dagreGraph.setDefaultEdgeLabel(() => ({}))
 
 	function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB') {
@@ -89,10 +90,7 @@
 		return { nodes, edges }
 	}
 
-	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(modules, {
-		insertable,
-		disableAi
-	})
+	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(modules)
 
 	const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
 		initialNodes,
@@ -114,8 +112,11 @@
 		whileLoopEnd: ForLoopEndNode
 	}
 	const edgeTypes = {
-		edge: BaseEdge
+		edge: BaseEdge,
+		empty: EmptyEdge
 	}
+
+	const proOptions = { hideAttribution: true }
 </script>
 
 <div
@@ -132,7 +133,9 @@
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		fitView
+		{proOptions}
 	>
 		<Background class="!bg-surface-secondary" />
+		<MiniMap nodeStrokeWidth={3} />
 	</SvelteFlow>
 </div>

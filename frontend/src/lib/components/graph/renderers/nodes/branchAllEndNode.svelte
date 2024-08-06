@@ -2,6 +2,7 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	// @ts-ignore
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
+	import NodeWrapper from './NodeWrapper.svelte'
 
 	type $$Props = NodeProps
 
@@ -14,15 +15,15 @@
 	</NodeToolbar>
 {/if}
 
-<VirtualItem
-	label={'Collect result from all branches'}
-	modules={[]}
-	index={1}
-	id={data.id}
-	selectable
-	selected={false}
-	insertable={false}
-/>
-
-<Handle type="source" position={Position.Bottom} />
-<Handle type="target" position={Position.Top} />
+<NodeWrapper let:darkMode enableSourceHandle enableTargetHandle>
+	<VirtualItem
+		label={'Collect result from all branches'}
+		modules={[]}
+		index={1}
+		id={data.id}
+		selectable
+		selected={false}
+		insertable={false}
+		bgColor={darkMode ? '#2e3440' : '#dfe6ee'}
+	/>
+</NodeWrapper>

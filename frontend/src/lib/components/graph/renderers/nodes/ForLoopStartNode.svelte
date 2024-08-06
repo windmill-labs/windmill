@@ -1,16 +1,15 @@
 <script lang="ts">
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	// @ts-ignore
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
+	import NodeWrapper from './NodeWrapper.svelte'
 
-	type $$Props = NodeProps
-
-	export let data: $$Props['data']
-	let darkMode: boolean = false
+	export let data: {
+		offset: number
+		id: string
+		time: number | undefined
+	}
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 {#if data.time}
 	<NodeToolbar isVisible position={Position.Top} align="end">
@@ -18,7 +17,7 @@
 	</NodeToolbar>
 {/if}
 
-<div style={`margin-left: ${data.offset}px;`}>
+<NodeWrapper let:darkMode offset={data.offset} enableSourceHandle enableTargetHandle>
 	<VirtualItem
 		label={'Do one iteration'}
 		modules={[]}
@@ -29,7 +28,4 @@
 		id={data.id}
 		bgColor={darkMode ? '#2e3440' : '#dfe6ee'}
 	/>
-</div>
-
-<Handle type="source" position={Position.Bottom} style={`margin-left: ${data.offset / 2}px;`} />
-<Handle type="target" position={Position.Top} style={`margin-left: ${data.offset / 2}px;`} />
+</NodeWrapper>

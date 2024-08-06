@@ -28,12 +28,12 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 		return module.id
 	}
 
-	function addEdge(sourceId: string, targetId: string, customId?: string) {
+	function addEdge(sourceId: string, targetId: string, customId?: string, type?: string) {
 		edges.push({
 			id: customId || `edge:${sourceId}->${targetId}`,
 			source: sourceId,
 			target: targetId,
-			type: 'edge'
+			type: type ?? 'edge'
 		})
 	}
 
@@ -96,7 +96,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 					nodes.push(startNode)
 
-					addEdge(module.id, startNode.id)
+					addEdge(module.id, startNode.id, undefined, 'empty')
 
 					processModules(branch.modules, startNode, endNode)
 				})
@@ -112,7 +112,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 					type: 'forLoopStart'
 				}
 
-				addEdge(module.id, startNode.id)
+				addEdge(module.id, startNode.id, undefined, 'empty')
 
 				const endNode = {
 					id: `${module.id}-end`,
@@ -136,7 +136,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 					position: { x: 0, y: 0 },
 					type: 'whileLoopStart'
 				}
-				addEdge(module.id, startNode.id)
+				addEdge(module.id, startNode.id, undefined, 'empty')
 
 				const endNode = {
 					id: `${module.id}-end`,

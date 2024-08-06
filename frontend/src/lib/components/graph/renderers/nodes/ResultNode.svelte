@@ -1,24 +1,18 @@
 <script lang="ts">
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	// @ts-ignore
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte'
-
-	type $$Props = NodeProps
-
-	let darkMode: boolean = false
+	import NodeWrapper from './NodeWrapper.svelte'
 </script>
 
-<DarkModeObserver bind:darkMode />
-
-<VirtualItem
-	label={'Result'}
-	modules={[]}
-	index={1}
-	selectable
-	selected={false}
-	insertable={false}
-	bgColor={darkMode ? '#2e3440' : '#dfe6ee'}
-/>
-
-<Handle type="target" position={Position.Top} />
+<NodeWrapper let:darkMode enableSourceHandle={false}>
+	<VirtualItem
+		label={'Result'}
+		modules={[]}
+		index={1}
+		selectable
+		selected={false}
+		insertable={false}
+		bgColor={darkMode ? '#2e3440' : '#dfe6ee'}
+	/>
+</NodeWrapper>

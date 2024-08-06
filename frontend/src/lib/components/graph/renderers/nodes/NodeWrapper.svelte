@@ -1,18 +1,23 @@
 <script lang="ts">
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+
 	// @ts-ignore
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
 
 	export let enableSourceHandle: boolean = true
 	export let enableTargetHandle: boolean = true
 	export let offset: number = 0
+	let darkMode: boolean = false
 </script>
 
-<div class="relative" style={`margin-left: ${offset}px;`}>
+<DarkModeObserver bind:darkMode />
+
+<div class="relative shadow-md" style={`margin-left: ${offset}px;`}>
 	<div class="absolute -top-6 z-50">
 		<slot name="header" />
 	</div>
 
-	<slot />
+	<slot {darkMode} />
 </div>
 
 {#if enableSourceHandle}

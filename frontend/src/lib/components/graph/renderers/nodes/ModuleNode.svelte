@@ -1,4 +1,5 @@
 <script lang="ts">
+	// @ts-ignore
 	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import type { FlowModule, FlowModuleValue } from '$lib/gen/types.gen'
@@ -105,7 +106,7 @@
 <NodeToolbar isVisible position={Position.Bottom} align="center">
 	{#if data.value.type === 'branchall'}
 		<button
-			class="rounded-full border bg-white p-1 hover:bg-gray-200"
+			class="rounded-full border hover:bg-surface-hover bg-surface p-1"
 			on:click={() => {
 				dispatch('addBranch')
 			}}
