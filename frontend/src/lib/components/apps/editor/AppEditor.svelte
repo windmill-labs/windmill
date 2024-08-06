@@ -536,6 +536,7 @@
 	}
 
 	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = undefined
+	let stillInJobEnter = false
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -679,9 +680,15 @@
 										class="relative h-full w-full overflow-x-visible"
 										on:mouseenter={() => {
 											runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
-											$runnableJob.focused = true
+											stillInJobEnter = true
+											runnableJobEnterTimeout = setTimeout(() => {
+												if (stillInJobEnter) {
+													$runnableJob.focused = true
+												}
+											}, 200)
 										}}
 										on:mouseleave={() => {
+											stillInJobEnter = false
 											runnableJobEnterTimeout = setTimeout(
 												() => ($runnableJob.focused = false),
 												200
