@@ -25,6 +25,7 @@
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
+	import { ctxRegex } from '../../utils'
 
 	// Component props
 	export let id: string
@@ -341,7 +342,12 @@
 							allowUserResources.push(k)
 						}
 					} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
-						nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
+						const ctxMatch = field.expr.match(ctxRegex)
+						if (ctxMatch) {
+							nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
+						} else {
+							nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
+						}
 						if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
 							allowUserResources.push(k)
 						}
