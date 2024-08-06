@@ -18,6 +18,8 @@
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../HighlightTheme.svelte'
+	import Alert from '../common/alert/Alert.svelte'
+	import { SettingService } from '$lib/gen'
 
 	let userSettings: UserSettings
 
@@ -27,6 +29,8 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
+
+	let selectedTab: string = 'rest'
 
 	let webhooks: {
 		async: {
@@ -39,6 +43,15 @@
 			get_path?: string
 		}
 	}
+
+	let emailDomain: string = "mail." + $page.url.hostname
+	async function getEmailDomain() {
+		emailDomain =
+			((await SettingService.getGlobal({
+				key: 'email_domain'
+			})) as any) ?? ("mail." + $page.url.hostname)
+	}
+	getEmailDomain()
 
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
@@ -82,6 +95,10 @@
 		requestType = 'hash'
 	}
 
+	$: if (webhookType === 'sync' && selectedTab === 'email') {
+		webhookType = 'async'
+	}
+
 	$: url =
 		webhooks[webhookType][requestType] +
 		(tokenType === 'query'
@@ -106,6 +123,12 @@
 			headers['Authorization'] = `Bearer ${token}`
 		}
 		return headers
+	}
+
+	function emailAddress() {
+		return `${$workspaceStore}+${
+			requestType === 'hash' ? 'hash.' + hash : (isFlow ? 'flow.' : '') + path.replaceAll('/', '.')
+		}+${token}@${emailDomain}`
 	}
 
 	function fetchCode() {
@@ -261,6 +284,7 @@ done`
 					label="Sync"
 					value="sync"
 					tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+					disabled={selectedTab === 'email'}
 				/>
 			</ToggleButtonGroup>
 		</div>
@@ -291,22 +315,25 @@ done`
 				/>
 			</ToggleButtonGroup>
 		</div>
-		<div class="flex flex-row justify-between">
-			<div class="text-xs font-semibold flex flex-row items-center">Token configuration</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
-				<ToggleButton label="Token in Headers" value="headers" />
-				<ToggleButton label="Token in Query" value="query" />
-			</ToggleButtonGroup>
-		</div>
+		{#if selectedTab !== 'email'}
+			<div class="flex flex-row justify-between">
+				<div class="text-xs font-semibold flex flex-row items-center">Token configuration</div>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
+					<ToggleButton label="Token in Headers" value="headers" />
+					<ToggleButton label="Token in Query" value="query" />
+				</ToggleButtonGroup>
+			</div>
+		{/if}
 	</div>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<Tabs selected="rest">
+	<Tabs bind:selected={selectedTab}>
 		<Tab value="rest" size="xs">REST</Tab>
 		{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 			<Tab value="curl" size="xs">Curl</Tab>
 		{/if}
 		<Tab value="fetch" size="xs">Fetch</Tab>
+		<Tab value="email" size="xs">Email</Tab>
 
 		<svelte:fragment slot="content">
 			{#key token}
@@ -364,6 +391,28 @@ done`
 										</div>
 									{/key}{/key}{/key}{/key}
 					{/key}
+				</TabContent>
+				<TabContent value="email">
+					<div class="flex flex-col gap-4">
+						{#key args}
+							{#key requestType}
+								{#key webhookType}
+									{#key tokenType}
+										{#key token}
+											<div class="flex flex-col gap-2">
+												<ClipboardPanel title="Email address" content={emailAddress()} />
+											</div>
+										{/key}
+									{/key}
+								{/key}
+							{/key}
+						{/key}
+						<Alert title="Email triggers" size="xs">
+							To trigger the job by email, send an email to the address above. The job will receive
+							two arguments: `raw_email` containing the raw email as string, and `parsed_email`
+							containing the parsed email as an object.
+						</Alert>
+					</div>
 				</TabContent>
 			{/key}
 		</svelte:fragment>

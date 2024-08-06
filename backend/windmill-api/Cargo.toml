@@ -59,6 +59,10 @@ tracing-subscriber.workspace = true
 quick_cache.workspace = true
 rand.workspace = true
 time.workspace = true
+native-tls.workspace = true
+tokio-native-tls.workspace = true
+openssl.workspace = true
+mail-parser = { workspace = true, features = ["serde_support"] }
 magic-crypt.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
