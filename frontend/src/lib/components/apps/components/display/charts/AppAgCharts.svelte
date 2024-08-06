@@ -111,7 +111,10 @@
 							yName: d.name
 						}
 					}
-				}) as any[]) ?? []
+				}) as any[]) ?? [],
+			background: {
+				visible: false
+			}
 		}
 
 		outputs.result.set({
@@ -220,6 +223,9 @@
 		}
 		const options = {
 			container: document.getElementById(`agchart-${id}`) as HTMLElement,
+			background: {
+				visible: false
+			},
 			...result
 		}
 
@@ -252,7 +258,10 @@
 			const options: AgChartOptions = {
 				container: document.getElementById(`agchart-${id}`) as HTMLElement,
 				data: [],
-				series: []
+				series: [],
+				background: {
+					visible: false
+				}
 			}
 
 			chartInstance = AgChartsInstance?.create(options)
