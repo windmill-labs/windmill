@@ -2278,7 +2278,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         return Err(Error::ExecutionErr(e.to_string()));
     }
 
-    #[cfg(not(feature = "enterprise"))]
+    #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
     if job.created_by.starts_with("email-trigger-") {
         let daily_count = sqlx::query!(
             "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"

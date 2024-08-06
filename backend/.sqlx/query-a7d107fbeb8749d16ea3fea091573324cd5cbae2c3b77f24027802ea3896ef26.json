@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a7d107fbeb8749d16ea3fea091573324cd5cbae2c3b77f24027802ea3896ef26"
+}
