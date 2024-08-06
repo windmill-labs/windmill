@@ -336,7 +336,7 @@ pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<Str
             char == prefix
                 && chars
                     .peek()
-                    .is_some_and(|&(_, next_char)| next_char.is_alphanumeric())
+                    .is_some_and(|&(_, next_char)| next_char.is_alphanumeric() || next_char == '_')
         },
         |_, chars| {
             let mut arg_name = String::new();
