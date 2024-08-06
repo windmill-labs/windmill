@@ -14,6 +14,7 @@
 	import { clickOutside, displayDateOnly, isMac, sendUserToast } from '$lib/utils'
 	import TimeAgo from '../TimeAgo.svelte'
 	import {
+		AlertTriangle,
 		BoxesIcon,
 		CalendarIcon,
 		Code2Icon,
@@ -36,6 +37,7 @@
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
+	import Popover from '../Popover.svelte'
 
 	let open: boolean = false
 
@@ -176,7 +178,11 @@
 	let debounceTimeout: any = undefined
 	const debouncePeriod: number = 1000
 	let loadingCompletedRuns: boolean = false
+	let queryParseErrors: string[] = []
+
 	async function handleSearch() {
+		queryParseErrors = []
+
 		if (
 			tab !== 'default' &&
 			(searchTerm === '' ||
@@ -231,6 +237,7 @@
 						workspace: $workspaceStore!
 					})
 					itemMap['runs'] = searchResults.hits
+					queryParseErrors = searchResults.query_parse_errors
 				} catch (e) {
 					sendUserToast(e, true)
 				}
@@ -325,12 +332,20 @@
 		goto(path)
 	}
 
+	let mouseMoved: boolean = false
+	function handleMouseMove () {
+		mouseMoved = true
+
+	}
+
 	onMount(() => {
 		window.addEventListener('keydown', handleKeydown)
+		window.addEventListener('mousemove', handleMouseMove)
 	})
 
 	onDestroy(() => {
 		window.removeEventListener('keydown', handleKeydown)
+		window.removeEventListener('mousemove', handleMouseMove)
 	})
 
 	$: searchTerm, handleSearch()
@@ -512,12 +527,25 @@
 							>{placeholderFromPrefix(searchTerm)}</label
 						>
 					</div>
+					{#if queryParseErrors.length > 0}
+						<Popover notClickable placement="bottom-start">
+							<AlertTriangle size={16} class="text-yellow-500" />
+							<svelte:fragment slot="text">
+								Some of your search terms have been ignored because one or more parse errors:<br/><br/>
+								<ul>
+									{#each queryParseErrors as msg}
+										<li>- {msg}</li>
+									{/each}
+								</ul>
+							</svelte:fragment>
+						</Popover>
+					{/if}
 				</div>
 				<div class="overflow-y-auto relative {maxModalHeight(tab)}">
 					{#if tab === 'default' || tab === 'switch-mode'}
 						{@const items = (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e))}
 						{#if items.length > 0}
-							<div class="p-2 border-b">
+							<div class={tab === 'switch-mode' ? "p-2" : "p-2 border-b"}>
 								{#each items as el}
 									<QuickMenuItem
 										on:select={el?.action}
@@ -527,6 +555,7 @@
 										label={el?.label}
 										icon={el?.icon}
 										shortcutKey={el?.shortcutKey}
+										bind:mouseMoved
 									/>
 								{/each}
 							</div>
@@ -549,6 +578,7 @@
 											el.path +
 											(el.starred ? ' ★' : '')}
 										icon={iconForWindmillItem(el.type)}
+										bind:mouseMoved
 									/>
 								{/each}
 							{/if}
@@ -600,6 +630,7 @@
 											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
 											icon={r?.icon}
 											containerClass="rounded-md px-2 py-1 my-2"
+											bind:mouseMoved
 										>
 											<svelte:fragment slot="itemReplacement">
 												<div

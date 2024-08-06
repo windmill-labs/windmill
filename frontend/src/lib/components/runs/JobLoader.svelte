@@ -36,6 +36,7 @@
 	export let completedJobs: CompletedJob[] | undefined = undefined
 	export let externalJobs: Job[] | undefined = undefined
 	export let concurrencyKey: string | null
+	export let tag: string | null
 	export let extendedJobs: ExtendedJobs | undefined = undefined
 	export let argError = ''
 	export let resultError = ''
@@ -58,6 +59,7 @@
 			isSkipped != undefined &&
 			jobKinds &&
 			concurrencyKey &&
+			tag &&
 			lookback &&
 			user &&
 			folder &&
@@ -143,6 +145,7 @@
 						? true
 						: undefined,
 				label: label === null || label === '' ? undefined : label,
+				tag: tag === null || tag === '' ? undefined : tag,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
 				args:
@@ -190,6 +193,7 @@
 				isSkipped: isSkipped ? undefined : false,
 				isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				label: label === null || label === '' ? undefined : label,
+				tag: tag === null || tag === '' ? undefined : tag,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
 				args:

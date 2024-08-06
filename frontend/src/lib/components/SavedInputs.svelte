@@ -186,6 +186,7 @@
 	label={null}
 	folder={null}
 	concurrencyKey={null}
+	tag={null}
 	success="running"
 	argFilter={undefined}
 	bind:loading
