@@ -1462,7 +1462,6 @@ async fn cancel_selection(
     Path(w_id): Path<String>,
     Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
     let jobs_to_cancel = sqlx::query_scalar!(
