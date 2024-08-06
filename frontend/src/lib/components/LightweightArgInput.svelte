@@ -96,18 +96,15 @@
 
 	$: render && changeDefaultValue(inputCat, defaultValue)
 
-	$: rawValue && evalRawValueToValue()
+	$: (rawValue || inputCat === 'object') && evalRawValueToValue()
 
 	$: validateInput(pattern, value, required)
 
-	$: {
-		if (inputCat === 'object') {
-			evalValueToRaw()
-		}
-	}
-
 	function evalRawValueToValue() {
-		if (rawValue) {
+		if (!rawValue || rawValue === '') {
+			value = undefined
+			error = ''
+		} else {
 			try {
 				value = JSON.parse(rawValue)
 				error = ''
@@ -124,7 +121,7 @@
 		} else {
 			// If value is undefined, set rawValue to empty object
 			// This is to prevent the textarea from being empty
-			rawValue = '{}'
+			rawValue = ''
 		}
 	}
 

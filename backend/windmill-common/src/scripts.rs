@@ -133,6 +133,7 @@ impl Display for ScriptKind {
 }
 
 pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
+pub const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Script {

@@ -47,7 +47,7 @@ import {
 } from "./conf.ts";
 import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import fs from "node:fs";
-import { Tarball } from "npm:@ayonli/jsext/archive";
+import { type Tarball } from "npm:@ayonli/jsext/archive";
 
 export interface ScriptFile {
   parent_hash?: string;

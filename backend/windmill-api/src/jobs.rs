@@ -184,7 +184,10 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route("/run/preview", post(run_preview_script))
-        .route("/run/preview_bundle", post(run_bundle_preview_script))
+        .route(
+            "/run/preview_bundle",
+            post(run_bundle_preview_script).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .route("/add_batch_jobs/:n", post(add_batch_jobs))
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route(
@@ -1031,7 +1034,7 @@ pub struct ListableCompletedJob {
     pub labels: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Default)]
 pub struct RunJobQuery {
     scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     scheduled_in_secs: Option<i64>,
@@ -1459,7 +1462,6 @@ async fn cancel_selection(
     Path(w_id): Path<String>,
     Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = user_db.begin(&authed).await?;
     let jobs_to_cancel = sqlx::query_scalar!(
@@ -2611,6 +2613,7 @@ enum PreviewKind {
     Http,
     Noop,
     Bundle,
+    Tarbundle,
 }
 
 #[derive(Deserialize)]
@@ -2749,6 +2752,23 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: PushArgsOwned,
 ) -> error::Result<(StatusCode, String)> {
+    run_flow_by_path_inner(
+        authed, db, user_db, rsmq, w_id, flow_path, run_query, args, None,
+    )
+    .await
+}
+
+pub async fn run_flow_by_path_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    w_id: String,
+    flow_path: StripPath,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+    label_prefix: Option<String>,
+) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
     let flow_path = flow_path.to_path();
@@ -2781,7 +2801,9 @@ pub async fn run_flow_by_path(
         &w_id,
         JobPayload::Flow { path: flow_path.to_string(), dedicated_worker },
         PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
+        &label_prefix
+            .map(|x| x + authed.display_username())
+            .unwrap_or_else(|| authed.display_username().to_string()),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -2908,6 +2930,31 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: PushArgsOwned,
 ) -> error::Result<(StatusCode, String)> {
+    run_script_by_path_inner(
+        authed,
+        db,
+        user_db,
+        rsmq,
+        w_id,
+        script_path,
+        run_query,
+        args,
+        None,
+    )
+    .await
+}
+
+pub async fn run_script_by_path_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    w_id: String,
+    script_path: StripPath,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+    label_prefix: Option<String>,
+) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -2932,7 +2979,9 @@ pub async fn run_script_by_path(
         &w_id,
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
+        &label_prefix
+            .map(|x| x + authed.display_username())
+            .unwrap_or_else(|| authed.display_username().to_string()),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
@@ -3810,6 +3859,8 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
+    use windmill_common::scripts::PREVIEW_IS_TAR_CODEBASE_HASH;
+
     check_license_key_valid().await?;
 
     check_scopes(&authed, || format!("runscript"))?;
@@ -3822,9 +3873,12 @@ async fn run_bundle_preview_script(
     let mut job_id = None;
     let mut tx = None;
     let mut uploaded = false;
+    let mut is_tar = false;
+
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
-        let data = field.bytes().await.unwrap();
+        let data = field.bytes().await;
+        let data = data.map_err(to_anyhow)?;
         if name == "preview" {
             let preview: Preview = serde_json::from_slice(&data).map_err(to_anyhow)?;
 
@@ -3836,27 +3890,33 @@ async fn run_bundle_preview_script(
 
             let args = preview.args.unwrap_or_default();
 
+            is_tar = match preview.kind {
+                Some(PreviewKind::Tarbundle) => true,
+                _ => false,
+            };
+
+            // tracing::info!("is_tar 1: {is_tar}");
             // hmap.insert("")
             let (uuid, ntx) = push(
                 &db,
                 ltx,
                 &w_id,
-                match preview.kind {
-                    Some(PreviewKind::Identity) => JobPayload::Identity,
-                    Some(PreviewKind::Noop) => JobPayload::Noop,
-                    _ => JobPayload::Code(RawCode {
-                        hash: Some(PREVIEW_IS_CODEBASE_HASH),
-                        content: preview.content.unwrap_or_default(),
-                        path: preview.path,
-                        language: preview.language.unwrap_or(ScriptLang::Deno),
-                        lock: preview.lock,
-                        concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
-                        concurrency_time_window_s: None, // TODO(gbouv): same as above
-                        cache_ttl: None,
-                        dedicated_worker: preview.dedicated_worker,
-                        custom_concurrency_key: None,
-                    }),
-                },
+                JobPayload::Code(RawCode {
+                    hash: if is_tar {
+                        Some(PREVIEW_IS_TAR_CODEBASE_HASH)
+                    } else {
+                        Some(PREVIEW_IS_CODEBASE_HASH)
+                    },
+                    content: preview.content.unwrap_or_default(),
+                    path: preview.path,
+                    language: preview.language.unwrap_or(ScriptLang::Deno),
+                    lock: preview.lock,
+                    concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
+                    concurrency_time_window_s: None, // TODO(gbouv): same as above
+                    cache_ttl: None,
+                    dedicated_worker: preview.dedicated_worker,
+                    custom_concurrency_key: None,
+                }),
                 PushArgs::from(&args),
                 authed.display_username(),
                 &authed.email,
@@ -3881,7 +3941,7 @@ async fn run_bundle_preview_script(
             tx = Some(ntx);
         }
         if name == "file" {
-            let id = job_id
+            let mut id = job_id
                 .as_ref()
                 .ok_or_else(|| {
                     Error::BadRequest(
@@ -3889,6 +3949,12 @@ async fn run_bundle_preview_script(
                     )
                 })?
                 .to_string();
+
+            // tracing::info!("is_tar 2: {is_tar}");
+
+            if is_tar {
+                id = format!("{}.tar", id);
+            }
 
             uploaded = true;
 
@@ -4333,6 +4399,31 @@ pub async fn run_job_by_hash(
     Query(run_query): Query<RunJobQuery>,
     args: PushArgsOwned,
 ) -> error::Result<(StatusCode, String)> {
+    run_job_by_hash_inner(
+        authed,
+        db,
+        user_db,
+        rsmq,
+        w_id,
+        script_hash,
+        run_query,
+        args,
+        None,
+    )
+    .await
+}
+
+pub async fn run_job_by_hash_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    w_id: String,
+    script_hash: ScriptHash,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+    label_prefix: Option<String>,
+) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -4378,7 +4469,9 @@ pub async fn run_job_by_hash(
             priority,
         },
         PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
+        &label_prefix
+            .map(|x| x + authed.display_username())
+            .unwrap_or_else(|| authed.display_username().to_string()),
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,

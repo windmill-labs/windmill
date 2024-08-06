@@ -27,12 +27,8 @@
 	export let overrideAllowKindChange: boolean = true
 	export let originalType: string | undefined = undefined
 
-	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind(
-		enum_,
-		contentEncoding,
-		pattern,
-		format
-	)
+	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' | 'date-time' =
+		computeKind(enum_, contentEncoding, pattern, format)
 
 	const allowKindChange = overrideAllowKindChange || originalType === 'string'
 
@@ -53,6 +49,15 @@
 		// 'duration',
 		// 'ipv6',
 		// 'jsonpointer',
+	]
+
+	const FIELD_SETTINGS = [
+		['None', 'none'],
+		['File', 'base64', 'Encoded as Base 64'],
+		['Enum', 'enum'],
+		['Datetime', 'date-time'],
+		['Format', 'format'],
+		['Pattern', 'pattern']
 	]
 
 	$: format =
@@ -111,6 +116,9 @@
 				if (e.detail != 'enum') {
 					enum_ = undefined
 				}
+				if (e.detail == 'date-time') {
+					format = 'date-time'
+				}
 				if (e.detail == 'none') {
 					pattern = undefined
 					format = undefined
@@ -122,7 +130,7 @@
 				}
 			}}
 		>
-			{#each [['None', 'none'], ['File', 'base64', 'Encoded as Base 64'], ['Enum', 'enum'], ['Format', 'format'], ['Pattern', 'pattern']] as x}
+			{#each FIELD_SETTINGS as x}
 				<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
 			{/each}
 		</ToggleButtonGroup>

@@ -45,6 +45,15 @@ export const settings: Record<string, Setting[]> = {
 					: false
 		},
 		{
+			label: 'Email domain',
+			description:
+				'Domain to display in webhooks for email triggers, default is the webpage domain prefixed by "mail."',
+			key: 'email_domain',
+			fieldType: 'text',
+			storage: 'setting',
+			placeholder: 'mail.windmill.com'
+		},
+		{
 			label: 'Request Size Limit In MB',
 			description: 'Maximum size of HTTP requests in MB.',
 			cloudonly: true,

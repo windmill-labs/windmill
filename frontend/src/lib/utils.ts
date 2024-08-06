@@ -495,7 +495,7 @@ export function isObject(obj: any) {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		// @ts-ignore
 		const context = this
 		clearTimeout(timeout)
@@ -505,7 +505,7 @@ export function debounce(func: (...args: any[]) => any, wait: number) {
 
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
-	return function(...args: any[]) {
+	return function (...args: any[]) {
 		if (!timeout) {
 			timeout = setTimeout(() => {
 				timeout = null
@@ -721,7 +721,7 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) { }
+		} catch (err) {}
 		i++
 	}
 	if (i >= times) {
@@ -883,7 +883,7 @@ export function computeKind(
 	contentEncoding: 'base64' | 'binary' | undefined,
 	pattern: string | undefined,
 	format: string | undefined
-): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' {
+): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'date-time' {
 	if (enum_ != undefined) {
 		return 'enum'
 	}
@@ -892,6 +892,9 @@ export function computeKind(
 	}
 	if (pattern != undefined) {
 		return 'pattern'
+	}
+	if (format == 'date-time') {
+		return 'date-time'
 	}
 	if (format != undefined && format != '') {
 		if (format?.startsWith('resource')) {
@@ -950,10 +953,7 @@ export function isDeployable(
 		return false
 	}
 
-	if (
-		deployUiSettings.include_type != undefined &&
-		!deployUiSettings.include_type.includes(type)
-	) {
+	if (deployUiSettings.include_type != undefined && !deployUiSettings.include_type.includes(type)) {
 		return false
 	}
 
@@ -972,4 +972,3 @@ export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
 	include_path: [],
 	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret']
 }
-

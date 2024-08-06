@@ -4857,6 +4857,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-parser"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed5a1335c3a964788c90cb42ae04a34b5f2628e89566949ce3bd4ada695c0bcd"
+dependencies = [
+ "encoding_rs",
+ "serde",
+]
+
+[[package]]
 name = "mail-send"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10455,9 +10465,12 @@ dependencies = [
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
+ "mail-parser",
  "mime_guess",
+ "native-tls",
  "object_store",
  "openidconnect",
+ "openssl",
  "pin-project",
  "prometheus",
  "quick_cache",
@@ -10479,6 +10492,7 @@ dependencies = [
  "tinyvector",
  "tokenizers",
  "tokio",
+ "tokio-native-tls",
  "tokio-tar",
  "tokio-util",
  "tower",
