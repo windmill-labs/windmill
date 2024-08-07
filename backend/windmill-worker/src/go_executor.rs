@@ -12,7 +12,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
-    worker::{save_cache, CLOUD_HOSTED},
+    worker::save_cache,
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy};
