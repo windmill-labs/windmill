@@ -181,6 +181,10 @@ export type ResourceSelectComponent = BaseComponent<'resourceselectcomponent'> &
 	RecomputeOthersSource & {
 		onSelect?: string[]
 	}
+export type ResourceConnectComponent = BaseComponent<'userresourcecomponent'> &
+	RecomputeOthersSource & {
+		onSelect?: string[]
+	}
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type MultiSelectComponentV2 = BaseComponent<'multiselectcomponentv2'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'> &
@@ -361,6 +365,7 @@ export type TypedComponent =
 	| DateSelectComponent
 	| JobIdDisplayComponent
 	| RecomputeAllComponent
+	| ResourceConnectComponent
 
 export type AppComponent = BaseAppComponent & TypedComponent
 
@@ -2216,7 +2221,7 @@ This is a paragraph.
 		}
 	},
 	resourceselectcomponent: {
-		name: 'Resource Select',
+		name: 'Static Resource Select',
 		icon: List,
 		documentationLink: `${documentationBaseUrl}/resource_select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
@@ -2245,6 +2250,38 @@ This is a paragraph.
 					value: true,
 
 					tooltip: 'Set the width of the options popup to 100% of the select width'
+				},
+				disabled: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false
+				}
+			}
+		}
+	},
+	userresourcecomponent: {
+		name: 'User Resource Input',
+		icon: List,
+		documentationLink: `${documentationBaseUrl}/resource_select`,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		customCss: {
+			input: { style: '' }
+		},
+		initialData: {
+			verticalAlignment: 'center',
+			componentInput: undefined,
+			configuration: {
+				resourceType: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'postgresql'
+				},
+				expressOauthSetup: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip:
+						'If enabled, skip some steps while adding oauth resources: No scopes to set prior to OAuth sign-in,  and no path to set after OAuth sign-in'
 				},
 				disabled: {
 					type: 'static',
