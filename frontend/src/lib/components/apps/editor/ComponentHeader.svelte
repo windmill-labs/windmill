@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, ArrowDownFromLine, Bug, Expand, Move, Network, Pen, Plug2 } from 'lucide-svelte'
+	import { Anchor, ArrowDownFromLine, Bug, Network, Pen, Plug2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button, Popup } from '$lib/components/common'
@@ -28,6 +28,27 @@
 
 	const { errorByComponent, openDebugRun, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	const componentOptions = {
+		isEditable: false,
+		isConditionalWrapper: false,
+		hasTabs: false,
+		isDecisionTree: false
+	}
+
+	// Function to check if any condition is met
+	function checkComponentOptions(): boolean {
+		componentOptions.isEditable = hasInlineEditor
+		componentOptions.isConditionalWrapper = component.type === 'conditionalwrapper'
+		componentOptions.hasTabs =
+			component.type === 'steppercomponent' ||
+			(component.type === 'tabscomponent' &&
+				component.configuration.tabsKind.type === 'static' &&
+				component.configuration.tabsKind.value === 'invisibleOnView')
+		componentOptions.isDecisionTree = component.type === 'decisiontreecomponent'
+
+		return Object.values(componentOptions).some((value) => value)
+	}
 </script>
 
 {#if connecting}
@@ -54,142 +75,126 @@
 {#if selected || hover}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
-	<span
-		on:mouseover|stopPropagation={() => {
-			dispatch('mouseover')
-		}}
-		on:mousedown|stopPropagation|capture
-		draggable="false"
-		title={`Id: ${component.id}`}
-		class={twMerge(
-			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[9px] -left-[8px] border rounded-sm z-50 cursor-move',
-			selected
-				? 'bg-indigo-500/90 border-indigo-600 text-white'
-				: $connectingInput.opened
-				? 'bg-red-500/90 border-red-600 text-white'
-				: 'bg-blue-500/90 border-blue-600 text-white'
-		)}
-	>
-		{component.id}
-	</span>
-{/if}
-
-{#if selected && !connecting}
-	<div class="top-[-9px] -right-[8px] flex flex-row absolute gap-1.5 z-50">
-		{#if hasInlineEditor}
-			<button
-				title="Edit"
-				class={classNames(
-					'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-					'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-				)}
-				on:click={() => dispatch('triggerInlineEditor')}
-				on:pointerdown|stopPropagation
-			>
-				{#if inlineEditorOpened}
-					<Pen aria-label="Unlock position" size={14} class="text-orange-500" />
-				{:else}
-					<Pen aria-label="Lock position" size={14} />
-				{/if}
-			</button>
-		{/if}
-		{#if component.type === 'conditionalwrapper'}
-			<TabsDebug id={component.id} tabs={component.conditions ?? []} isConditionalDebugMode />
-		{:else if component.type === 'steppercomponent' || (component.type === 'tabscomponent' && component.configuration.tabsKind.type === 'static' && component.configuration.tabsKind.value === 'invisibleOnView')}
-			<TabsDebug id={component.id} tabs={component.tabs ?? []} />
-		{:else if component.type === 'decisiontreecomponent'}
-			<button
-				title={'Open Decision Tree Editor'}
-				class={classNames(
-					'text-2xs py-0.5 px-1 font-bold w-fit border cursor-pointer rounded-sm',
-					'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-				)}
-				on:click={() => {
-					const element = document.getElementById(`decision-tree-graph-editor`)
-					if (element) {
-						element.click()
-					}
-				}}
-				on:pointerdown|stopPropagation
-			>
-				<Network size={14} />
-			</button>
-			<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
-		{/if}
-
-		<!-- {#if willNotDisplay}
-			<Popover>
-				<svelte:fragment slot="text">
-					This component won't render, because an other component above it is set to fill the
-					height.
-				</svelte:fragment>
-				<div
+	<div class="-top-[16px] -left-[8px] flex flex-row absolute gap-0.5 h-fit">
+		<div
+			on:mouseover|stopPropagation={() => {
+				dispatch('mouseover')
+			}}
+			on:mousedown|stopPropagation|capture
+			draggable="false"
+			title={`Id: ${component.id}`}
+			class={twMerge(
+				'text-2xs w-fit h-full border rounded z-50 cursor-move flex flex-row font-semibold items-center shadow g-indigo-500/90 border-indigo-500 text-white min-h-5',
+				selected
+					? 'bg-indigo-500/90 border-indigo-500 text-white'
+					: $connectingInput.opened
+					? 'bg-red-500/90 border-red-600 text-white'
+					: 'bg-blue-500/90 border-blue-600 text-white'
+			)}
+		>
+			<div class="px-1 text-2xs w-fit h-full">
+				{component.id}
+			</div>
+			<div class="flex flex-row px-1">
+				<button
 					title="Fill height"
 					class={classNames(
-						'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-						'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
+						'px-1 text-2xs py-0.5 font-bold w-fit rounded cursor-pointer',
+						'text-white hover:bg-black hover:bg-opacity-10 hover:text-indigo-200'
 					)}
+					on:click={() => dispatch('fillHeight')}
+					on:pointerdown|stopPropagation
 				>
-					<EyeOff aria-label="Expand position" size={14} />
-				</div>
-			</Popover>
-		{/if} -->
+					<ArrowDownFromLine
+						aria-label="Expand position"
+						size={11}
+						class={fullHeight ? 'text-orange-400' : ''}
+					/>
+				</button>
 
-		<button
-			title="Fill height"
-			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-			)}
-			on:click={() => dispatch('fillHeight')}
-			on:pointerdown|stopPropagation
-		>
-			<ArrowDownFromLine
-				aria-label="Expand position"
-				size={14}
-				class={fullHeight ? 'text-orange-500' : ''}
-			/>
-		</button>
-
-		<button
-			title="Expand"
-			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-			)}
-			on:click={() => dispatch('expand')}
-			on:pointerdown|stopPropagation
-		>
-			<Expand aria-label="Expand position" size={14} />
-		</button>
-		<button
-			title="Lock Position"
-			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border  rounded-sm cursor-pointer',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
-			)}
-			on:click={() => dispatch('lock')}
-			on:pointerdown|stopPropagation
-		>
-			{#if locked}
-				<Anchor aria-label="Unlock position" size={14} class="text-orange-500" />
-			{:else}
-				<Anchor aria-label="Lock position" size={14} />
-			{/if}
-		</button>
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div
-			draggable="false"
-			title="Move"
-			on:mousedown|stopPropagation|capture
-			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-move rounded-sm',
-				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800',
-				'flex items-center justify-center'
-			)}
-		>
-			<Move size={14} />
+				<button
+					title="Lock Position"
+					class={classNames(
+						'px-1 text-2xs py-0.5 font-bold w-fit rounded cursor-pointer',
+						'text-white hover:bg-black hover:bg-opacity-10 hover:text-indigo-200'
+					)}
+					on:click={() => dispatch('lock')}
+					on:pointerdown|stopPropagation
+				>
+					{#if locked}
+						<Anchor aria-label="Unlock position" size={11} class="text-orange-400" />
+					{:else}
+						<Anchor aria-label="Lock position" size={11} />
+					{/if}
+				</button>
+			</div>
 		</div>
+		{#if selected && !connecting && checkComponentOptions()}
+			<div
+				class="bg-indigo-100/90 border-indigo-200 text-indigo-600 px-1 text-2xs font-semibold w-fit border shadow rounded z-50 flex flex-row items-center min-h-5"
+			>
+				{#if componentOptions.isEditable}
+					<button
+						title="Edit"
+						class={classNames(
+							'px-1 text-2xs py-0.5 font-bold w-fit cursor-pointer rounded',
+							'text-indigo-600 hover:bg-indigo-200 hover:text-indigo-800'
+						)}
+						on:click={() => dispatch('triggerInlineEditor')}
+						on:pointerdown|stopPropagation
+					>
+						{#if inlineEditorOpened}
+							<Pen aria-label="Unlock position" size={11} class="text-orange-400" />
+						{:else}
+							<Pen aria-label="Lock position" size={11} />
+						{/if}
+					</button>
+				{/if}
+				{#if componentOptions.isConditionalWrapper}
+					<TabsDebug id={component.id} tabs={component.conditions ?? []} isConditionalDebugMode />
+				{:else if componentOptions.hasTabs}
+					<TabsDebug id={component.id} tabs={component.tabs ?? []} />
+				{:else if componentOptions.isDecisionTree}
+					<button
+						title={'Open Decision Tree Editor'}
+						class={classNames(
+							'text-2xs py-0.5 px-1 font-bold w-fit cursor-pointer rounded-sm',
+							'text-indigo-600 hover:bg-black hover:bg-opacity-10 hover:text-indigo-800'
+						)}
+						on:click={() => {
+							const element = document.getElementById(`decision-tree-graph-editor`)
+							if (element) {
+								element.click()
+							}
+						}}
+						on:pointerdown|stopPropagation
+					>
+						<Network size={11} />
+					</button>
+					<DecisionTreeDebug id={component.id} nodes={component.nodes ?? []} />
+				{/if}
+
+				<!-- {#if willNotDisplay}
+				<Popover>
+					<svelte:fragment slot="text">
+						This component won't render, because an other component above it is set to fill the
+						height.
+					</svelte:fragment>
+					<div
+						title="Fill height"
+						class={classNames(
+							'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+							'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
+						)}
+					>
+						<EyeOff aria-label="Expand position" size={14} />
+					</div>
+				</Popover>
+			{/if} -->
+
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+			</div>
+		{/if}
 	</div>
 {/if}
 
