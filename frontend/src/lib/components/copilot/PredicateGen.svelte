@@ -52,7 +52,7 @@ Here's the user's request: ${instructions}
 You can find the details of all the steps below:
 ${flowDetails}
 
-Determine for the user the javascript expression for the branching condition composed of the previous results or the flow inputs.
+Determine for the user the JavaScript expression for the branching condition composed of the previous results or the flow inputs.
 All inputs start with either results. or flow_input. and are followed by the key of the input.
 Here's a summary of the available data:
 <available>

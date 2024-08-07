@@ -315,7 +315,7 @@
 							<ToggleButton
 								small
 								light
-								tooltip="Javascript expression ('flow_input' or 'results')."
+								tooltip="JavaScript expression ('flow_input' or 'results')."
 								value="javascript"
 								icon={FunctionSquare}
 							/>
