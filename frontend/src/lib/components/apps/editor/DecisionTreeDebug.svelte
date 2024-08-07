@@ -71,17 +71,17 @@
 	<button
 		title={'Debug tabs'}
 		class={classNames(
-			'text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+			'px-1 text-2xs font-bold rounded cursor-pointer w-fit h-ful',
 			isDebugging($debuggingComponents, id)
 				? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
-				: 'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+				: 'text-indigo-600 hover:bg-indigo-300 hover:text-indigo-800'
 		)}
 		on:click={() => dispatch('triggerInlineEditor')}
 		on:pointerdown|stopPropagation
 	>
 		<ButtonDropdown hasPadding={false}>
 			<svelte:fragment slot="buttonReplacement">
-				<div class="px-1">
+				<div class="px-1 h-full">
 					{#if isDebugging($debuggingComponents, id)}
 						<div class="flex flex-row items-center gap-2">
 							{`Debugging node ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
@@ -94,7 +94,7 @@
 									)
 								}}
 							>
-								<X size={14} />
+								<X size={11} />
 							</button>
 						</div>
 					{:else}
