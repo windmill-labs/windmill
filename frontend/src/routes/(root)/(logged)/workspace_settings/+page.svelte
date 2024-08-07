@@ -565,7 +565,7 @@
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
-			path: 'hub/7925/git-repo-test-read-write-windmill',
+			path: 'hub/8944/git-repo-test-read-write-windmill',
 			requestBody: {
 				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
 			}
