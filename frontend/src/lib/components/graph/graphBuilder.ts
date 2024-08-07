@@ -19,16 +19,21 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				value: module.value,
 				offset: offset,
 				module: module,
-				modules: modules
+				modules: modules,
+				parentIds: []
 			},
-			position: { x: 0, y: 0 },
+			position: { x: -1, y: -1 },
 			type: type
 		})
 
 		return module.id
 	}
 
+	const parents: { [key: string]: string[] } = {}
+
 	function addEdge(sourceId: string, targetId: string, customId?: string, type?: string) {
+		parents[targetId] = [...(parents[targetId] ?? []), sourceId]
+
 		edges.push({
 			id: customId || `edge:${sourceId}->${targetId}`,
 			source: sourceId,
@@ -39,15 +44,19 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 	const inputNode: Node = {
 		id: 'input',
-		position: { x: 0, y: 0 },
+		position: { x: -1, y: -1 },
 		type: 'input2',
-		data: {}
+		data: {
+			parentIds: []
+		}
 	}
 
 	const resultNode: Node = {
 		id: 'result',
-		data: {},
-		position: { x: 0, y: 0 },
+		data: {
+			parentIds: []
+		},
+		position: { x: -1, y: -1 },
 		type: 'result'
 	}
 
@@ -70,6 +79,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 			if (module.value.type === 'rawscript') {
 				addNode(module, currentOffset, 'module')
+
 				previousId = module.id
 			} else if (module.value.type === 'branchall') {
 				// Start
@@ -79,7 +89,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				const endNode = {
 					id: `${module.id}-end`,
 					data: { offset: currentOffset, id: module.id },
-					position: { x: 0, y: 0 },
+					position: { x: -1, y: -1 },
 					type: 'branchAllEnd'
 				}
 				nodes.push(endNode)
@@ -90,7 +100,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 					const startNode = {
 						id: `${module.id}-branch-${branchIndex}`,
 						data: { offset: currentOffset, label: `Branch ${branchIndex + 1}`, id: module.id },
-						position: { x: 0, y: 0 },
+						position: { x: -1, y: -1 },
 						type: 'branchAllStart'
 					}
 
@@ -108,7 +118,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				const startNode = {
 					id: `${module.id}-start`,
 					data: { offset: currentOffset + 50, id: module.id },
-					position: { x: 0, y: 0 },
+					position: { x: -1, y: -1 },
 					type: 'forLoopStart'
 				}
 
@@ -117,7 +127,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				const endNode = {
 					id: `${module.id}-end`,
 					data: { offset: currentOffset, id: module.id },
-					position: { x: 0, y: 0 },
+					position: { x: -1, y: -1 },
 					type: 'forLoopEnd'
 				}
 
@@ -133,7 +143,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				const startNode = {
 					id: `${module.id}-start`,
 					data: { offset: currentOffset + 50 },
-					position: { x: 0, y: 0 },
+					position: { x: -1, y: -1 },
 					type: 'whileLoopStart'
 				}
 				addEdge(module.id, startNode.id, undefined, 'empty')
@@ -141,7 +151,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				const endNode = {
 					id: `${module.id}-end`,
 					data: { offset: currentOffset },
-					position: { x: 0, y: 0 },
+					position: { x: -1, y: -1 },
 					type: 'whileLoopEnd'
 				}
 
@@ -158,7 +168,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				const endNode = {
 					id: `${module.id}-end`,
 					data: { offset: currentOffset },
-					position: { x: 0, y: 0 },
+					position: { x: -1, y: -1 },
 					type: 'branchOneEnd'
 				}
 				nodes.push(endNode)
@@ -169,7 +179,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 					const startNode = {
 						id: `${module.id}-branch-${branchIndex}`,
 						data: { offset: currentOffset },
-						position: { x: 0, y: 0 },
+						position: { x: -1, y: -1 },
 						type: 'branchOneStart'
 					}
 
@@ -192,6 +202,14 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 	}
 
 	processModules(modules, inputNode, resultNode)
+
+	Object.keys(parents).forEach((key) => {
+		const node = nodes.find((n) => n.id === key)
+
+		if (node) {
+			node.data.parentIds = parents[key]
+		}
+	})
 
 	return { nodes, edges }
 }

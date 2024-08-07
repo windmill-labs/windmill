@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type FlowModule } from '../../gen'
-	import { type GraphModuleState } from '.'
+	import { NODE, type GraphModuleState } from '.'
 	import { setContext } from 'svelte'
 
 	import { writable, type Writable } from 'svelte/store'
@@ -9,7 +9,6 @@
 	import {
 		SvelteFlow,
 		Background,
-		Position,
 		type Node,
 		type Edge,
 		ConnectionLineType,
@@ -28,7 +27,8 @@
 	import ResultNode from './renderers/nodes/ResultNode.svelte'
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
-
+	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
+	let width = 0
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -55,47 +55,61 @@
 		flowInputsStore: Writable<FlowInput | undefined>
 	}>('FlowGraphContext', { selectedId, flowInputsStore })
 
-	const nodeWidth = 300
-	const nodeHeight = 36
-	const dagreGraph = new dagre.graphlib.Graph()
-
-	dagreGraph.setDefaultEdgeLabel(() => ({}))
-
-	function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB') {
-		dagreGraph.setGraph({ rankdir: direction })
-
-		nodes.forEach((node) => {
-			dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight })
-		})
-
-		edges.forEach((edge) => {
-			dagreGraph.setEdge(edge.source, edge.target, {
-				minlen: 1
-			})
-		})
-
-		dagre.layout(dagreGraph)
-
-		nodes.forEach((node) => {
-			const nodeWithPosition = dagreGraph.node(node.id)
-			node.targetPosition = Position.Top
-			node.sourcePosition = Position.Bottom
-
-			node.position = {
-				x: nodeWithPosition.x - nodeWidth / 2,
-				y: nodeWithPosition.y - nodeHeight / 2
+	let fullWidth = 0
+	function layoutNodes(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+		let seenId: string[] = []
+		for (const n of nodes) {
+			if (seenId.includes(n.id)) {
+				n.id = n.id + '_dup'
 			}
-		})
+			seenId.push(n.id)
+		}
 
-		return { nodes, edges }
+		const flattenParentIds = nodes.map((n) => ({
+			...n,
+			parentIds: n.data?.parentIds ?? []
+		}))
+
+		const stratify = dagStratify().id(({ id }: Node) => id)
+		const dag = stratify(flattenParentIds)
+
+		let boxSize: any
+		try {
+			const layout = sugiyama()
+				.decross(decrossOpt())
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		} catch {
+			const layout = sugiyama()
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		}
+
+		const newNodes = dag.descendants().map((des) => ({
+			...des.data,
+			id: des.data.id,
+			position: {
+				x: des.x
+					? (des.data.data.offset ?? 0) +
+					  des.x +
+					  (fullSize ? fullWidth : width) / 2 -
+					  boxSize.width / 2 -
+					  NODE.width / 2
+					: 0,
+				y: des.y || 0
+			}
+		}))
+
+		return {
+			nodes: newNodes,
+			edges
+		}
 	}
 
 	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(modules)
-
-	const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-		initialNodes,
-		initialEdges
-	)
+	const { nodes: layoutedNodes, edges: layoutedEdges } = layoutNodes(initialNodes, initialEdges)
 
 	const nodes = writable<Node[]>(layoutedNodes)
 	const edges = writable<Edge[]>(layoutedEdges)
@@ -123,19 +137,26 @@
 	style={`min-height: ${minHeight}px; max-height: ${
 		maxHeight ? maxHeight + 'px' : 'none'
 	}; height:100%;`}
+	bind:clientWidth={width}
+	class="h-full"
 >
 	<SvelteFlow
 		{nodes}
 		{edges}
 		{edgeTypes}
 		{nodeTypes}
-		nodesDraggable={false}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		fitView
 		{proOptions}
 	>
 		<Background class="!bg-surface-secondary" />
-		<MiniMap nodeStrokeWidth={3} />
+		<MiniMap nodeStrokeWidth={3} darkMode />
 	</SvelteFlow>
 </div>
+
+<style>
+	:global(.svelte-flow__handle) {
+		opacity: 0;
+	}
+</style>

@@ -642,6 +642,7 @@
 				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
 			boxSize = layout(dag)
 		}
+
 		return {
 			nodes: dag.descendants().map((des) => ({
 				...des.data,

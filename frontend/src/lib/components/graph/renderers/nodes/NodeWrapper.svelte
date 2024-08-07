@@ -21,9 +21,9 @@
 </div>
 
 {#if enableSourceHandle}
-	<Handle type="source" position={Position.Bottom} />
+	<Handle type="source" position={Position.Bottom} style={`margin-left: ${offset / 2}px;`} />
 {/if}
 
 {#if enableTargetHandle}
-	<Handle type="target" position={Position.Top} />
+	<Handle type="target" position={Position.Top} style={`margin-left: ${offset / 2}px;`} />
 {/if}

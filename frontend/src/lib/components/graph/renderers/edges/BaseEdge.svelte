@@ -22,15 +22,25 @@
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
 		sourceX,
-		sourceY,
+		sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
 		sourcePosition,
 		targetX,
 		targetY,
-		targetPosition
+		targetPosition,
+		curvature: 0.1
 	})
+
+	function getStraightLinePath({ sourceX, sourceY, targetX, targetY }) {
+		return `M${sourceX},${sourceY} L${sourceX},${targetY - 100}`
+	}
+
+	$: completeEdge =
+		targetY - sourceY > 100
+			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetX, targetY })}`
+			: edgePath
 </script>
 
-<BaseEdge path={edgePath} {markerEnd} {style} />
+<BaseEdge path={completeEdge} {markerEnd} {style} />
 <EdgeLabelRenderer>
 	<div
 		class="edgeButtonContainer nodrag nopan"
