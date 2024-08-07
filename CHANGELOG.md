@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.376.1](https://github.com/windmill-labs/windmill/compare/v1.376.0...v1.376.1) (2024-08-07)
+
+
+### Bug Fixes
+
+* email triggers sqlx CE and improve email parsing  ([#4203](https://github.com/windmill-labs/windmill/issues/4203)) ([6e9c350](https://github.com/windmill-labs/windmill/commit/6e9c350b4aa27355d03cb409da36e8f44ff548dc))
+* mysql params starting with underscore ([#4201](https://github.com/windmill-labs/windmill/issues/4201)) ([e7148f6](https://github.com/windmill-labs/windmill/commit/e7148f672303ccf2b5c49bd9d75ee9764657490e))
+
 ## [1.376.0](https://github.com/windmill-labs/windmill/compare/v1.375.0...v1.376.0) (2024-08-06)
 
 
