@@ -47,6 +47,9 @@
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			value = nvalue
+		},
+		askNewResource() {
+			resourcePicker?.askNewResource()
 		}
 	}
 
@@ -55,15 +58,17 @@
 		if (!value || value === '') {
 			nval = undefined
 		} else {
-			nval = '$res:' + value
+			nval = '$res:' + value.replace('$res:', '')
 		}
 		outputs?.result.set(nval)
 		if (iterContext && listInputs) {
-			listInputs.set(id, value)
+			listInputs.set(id, nval)
 		}
 	}
 
 	let css = initCss($app.css?.['userresourcecomponent'], customCss)
+
+	let resourcePicker: ResourcePicker | undefined = undefined
 </script>
 
 {#each Object.keys(components['userresourcecomponent'].initialData.configuration) as key (key)}
@@ -90,6 +95,8 @@
 	<AlignWrapper {render} {verticalAlignment}>
 		<div class="relative w-full">
 			<ResourcePicker
+				expressOAuthSetup={resolvedConfig.expressOauthSetup}
+				bind:this={resourcePicker}
 				{value}
 				on:change={(e) => {
 					assignValue(e.detail)
