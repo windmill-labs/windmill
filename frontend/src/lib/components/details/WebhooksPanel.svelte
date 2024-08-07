@@ -20,6 +20,7 @@
 	import HighlightTheme from '../HighlightTheme.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import { SettingService } from '$lib/gen'
+	import { base } from '$lib/base'
 
 	let userSettings: UserSettings
 
@@ -56,16 +57,16 @@
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs`
+		let webhookBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
 		return {
 			async: {
-				hash: `${base}/run/h/${hash}`,
-				path: `${base}/run/p/${path}`
+				hash: `${webhookBase}/run/h/${hash}`,
+				path: `${webhookBase}/run/p/${path}`
 			},
 			sync: {
-				hash: `${base}/run_wait_result/h/${hash}`,
-				path: `${base}/run_wait_result/p/${path}`,
-				get_path: `${base}/run_wait_result/p/${path}`
+				hash: `${webhookBase}/run_wait_result/h/${hash}`,
+				path: `${webhookBase}/run_wait_result/p/${path}`,
+				get_path: `${webhookBase}/run_wait_result/p/${path}`
 			}
 		}
 	}
