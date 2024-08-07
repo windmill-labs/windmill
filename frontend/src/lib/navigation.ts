@@ -2,7 +2,7 @@ import { goto as svelteGoto } from '$app/navigation'
 import { base as svelteBase } from '$app/paths'
 
 export function goto(path, options = {}) {
-	if (svelteBase == '') {
+	if (svelteBase == '' || path.startsWith('?')) {
 		return svelteGoto(path, options)
 	} else {
 		const fullPath = path.startsWith(svelteBase) ? path : `${svelteBase}${path}`
@@ -22,9 +22,7 @@ export async function setQuery(
 		url.searchParams.delete(key)
 	}
 
-	await goto(
-		currentHash
-			? `?${url.searchParams.toString()}${currentHash}`
-			: `?${url.searchParams.toString()}`
-	)
+	let searchParams = url.searchParams.toString()
+
+	await goto(currentHash ? `?${searchParams}${currentHash}` : `?${searchParams}`)
 }
