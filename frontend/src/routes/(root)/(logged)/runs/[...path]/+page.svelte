@@ -49,6 +49,7 @@
 	let folder: string | null = $page.url.searchParams.get('folder')
 	let label: string | null = $page.url.searchParams.get('label')
 	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
+	let tag: string | null = $page.url.searchParams.get('tag')
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
 		'success'
@@ -125,6 +126,7 @@
 		schedulePath ||
 		jobKindsCat ||
 		concurrencyKey ||
+		tag ||
 		graph ||
 		minTs ||
 		maxTs ||
@@ -218,6 +220,12 @@
 			searchParams.delete('concurrency_key')
 		}
 
+		if (tag) {
+			searchParams.set('tag', tag)
+		} else {
+			searchParams.delete('tag')
+		}
+
 		if (label) {
 			searchParams.set('label', label)
 		} else {
@@ -287,6 +295,7 @@
 		folder = null
 		label = null
 		concurrencyKey = null
+		tag = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -295,6 +304,7 @@
 		user = e.detail
 		label = null
 		concurrencyKey = null
+		tag = null
 	}
 
 	function filterByFolder(e: CustomEvent<string>) {
@@ -303,6 +313,7 @@
 		folder = e.detail
 		label = null
 		concurrencyKey = null
+		tag = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -311,6 +322,7 @@
 		folder = null
 		label = e.detail
 		concurrencyKey = null
+		tag = null
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -319,6 +331,16 @@
 		folder = null
 		label = null
 		concurrencyKey = e.detail
+		tag = null
+	}
+
+	function filterByTag(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = e.detail
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
@@ -369,7 +391,8 @@
 					? resultFilter
 					: undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
-			concurrencyKey: concurrencyKey ?? undefined
+			concurrencyKey: concurrencyKey ?? undefined,
+			tag: tag ?? undefined
 		}
 
 		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
@@ -395,7 +418,7 @@
 	}
 
 	const warnJobLimitMsg =
-		'The exact number of concurrent job at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
+		'The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
 
 	$: warnJobLimit =
 		graph === 'ConcurrencyChart' &&
@@ -430,6 +453,7 @@
 	{concurrencyKey}
 	{argError}
 	{resultError}
+	{tag}
 	bind:loading
 	bind:this={jobLoader}
 	lookback={graphIsRunsChart ? 0 : lookback}
@@ -449,6 +473,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
+		isSelectingJobsToCancel = false
 	}}
 	loading={fetchingFilteredJobs}
 	on:canceled={() => {
@@ -472,6 +497,7 @@
 		selectedIds = []
 		jobLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
+		isSelectingJobsToCancel = false
 	}}
 	on:canceled={() => {
 		isCancelingVisibleJobs = false
@@ -521,6 +547,7 @@
 					bind:folder
 					bind:label
 					bind:concurrencyKey
+					bind:tag
 					bind:path
 					bind:success
 					bind:argFilter
@@ -815,6 +842,7 @@
 							on:filterByFolder={filterByFolder}
 							on:filterByLabel={filterByLabel}
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
+							on:filterByTag={filterByTag}
 						/>
 					{:else}
 						<div class="gap-1 flex flex-col">
@@ -872,6 +900,9 @@
 					bind:folder
 					bind:path
 					bind:user
+					bind:label
+					bind:concurrencyKey
+					bind:tag
 					bind:success
 					bind:argFilter
 					bind:resultFilter
@@ -1158,6 +1189,7 @@
 				on:filterByFolder={filterByFolder}
 				on:filterByLabel={filterByLabel}
 				on:filterByConcurrencyKey={filterByConcurrencyKey}
+				on:filterByTag={filterByTag}
 			/>
 		</div>
 	</div>

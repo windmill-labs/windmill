@@ -18,6 +18,7 @@
 	export let acceptSelf: boolean = false
 	export let recomputeOnInputChanged = true
 	export let showOnDemandOnlyToggle = false
+	export let securedContext = false
 	export let overridenByComponent: string[] = []
 
 	$: finalInputSpecsConfiguration = inputSpecsConfiguration ?? inputSpecs
@@ -79,6 +80,7 @@
 					{displayType}
 					{recomputeOnInputChanged}
 					{showOnDemandOnlyToggle}
+					{securedContext}
 				/>
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">

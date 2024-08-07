@@ -28,6 +28,7 @@ pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
+pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 
 pub const ENV_SETTINGS: [&str; 50] = [
     "DISABLE_NSJAIL",

@@ -1,0 +1,10 @@
+FROM caddy:2.8.4-builder-alpine AS builder
+
+RUN xcaddy build \
+  --with github.com/mholt/caddy-l4@145ec36251a44286f05a10d231d8bfb3a8192e09 \
+  --with github.com/RussellLuo/caddy-ext/layer4@ab1e18cfe426012af351a68463937ae2e934a2a1
+
+
+FROM caddy:2.8.4-alpine
+
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

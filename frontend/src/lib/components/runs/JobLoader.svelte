@@ -36,6 +36,7 @@
 	export let completedJobs: CompletedJob[] | undefined = undefined
 	export let externalJobs: Job[] | undefined = undefined
 	export let concurrencyKey: string | null
+	export let tag: string | null
 	export let extendedJobs: ExtendedJobs | undefined = undefined
 	export let argError = ''
 	export let resultError = ''
@@ -58,6 +59,7 @@
 			isSkipped != undefined &&
 			jobKinds &&
 			concurrencyKey &&
+			tag &&
 			lookback &&
 			user &&
 			folder &&
@@ -122,22 +124,28 @@
 	): Promise<Job[]> {
 		loadingFetch = true
 		try {
+			let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
+			let scriptPathExact = path === null || path === '' ? undefined : path
 			return JobService.listJobs({
 				workspace: $workspaceStore!,
 				createdOrStartedBefore: startedBefore,
 				createdOrStartedAfter: startedAfter,
 				createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 				schedulePath,
-				scriptPathExact: path === null || path === '' ? undefined : path,
+				scriptPathExact,
 				createdBy: user === null || user === '' ? undefined : user,
-				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+				scriptPathStart: scriptPathStart,
 				jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
 				running: success == 'running' ? true : undefined,
 				isSkipped: isSkipped ? undefined : false,
-				isFlowStep: jobKindsCat != 'all' ? false : undefined,
-				hasNullParent: jobKindsCat != 'all' ? false : undefined,
+				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
+				hasNullParent:
+					scriptPathExact != undefined || scriptPathStart != undefined || jobKinds != 'all'
+						? true
+						: undefined,
 				label: label === null || label === '' ? undefined : label,
+				tag: tag === null || tag === '' ? undefined : tag,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
 				args:
@@ -185,6 +193,7 @@
 				isSkipped: isSkipped ? undefined : false,
 				isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				label: label === null || label === '' ? undefined : label,
+				tag: tag === null || tag === '' ? undefined : tag,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
 				args:

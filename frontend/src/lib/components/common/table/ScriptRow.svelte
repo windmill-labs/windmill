@@ -7,7 +7,12 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
-	import { ScriptService, type Script, DraftService } from '$lib/gen'
+	import {
+		ScriptService,
+		type Script,
+		DraftService,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 
 	import { createEventDispatcher } from 'svelte'
@@ -16,7 +21,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { copyToClipboard, DELETE, isDeployable, isOwner } from '$lib/utils'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
 	import {
@@ -49,6 +54,7 @@
 	export let showCode: (path: string, summary: string) => void
 	export let depth: number = 0
 	export let menuOpen: boolean = false
+	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -211,15 +217,19 @@
 						disabled: !owner || script.archived,
 						hide: $userStore?.operator
 					},
-					{
-						displayName: 'Deploy to staging/prod',
-						icon: FileUp,
-						action: () => {
-							deploymentDrawer.openDrawer(script.path, 'script')
-						},
-						disabled: script.archived,
-						hide: $userStore?.operator
-					},
+					...(isDeployable('script', script.path, deployUiSettings)
+						? [
+								{
+									displayName: 'Deploy to staging/prod',
+									icon: FileUp,
+									action: () => {
+										deploymentDrawer.openDrawer(script.path, 'script')
+									},
+									disabled: script.archived,
+									hide: $userStore?.operator
+								}
+						  ]
+						: []),
 					{
 						displayName: 'View runs',
 						icon: List,

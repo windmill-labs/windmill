@@ -7,8 +7,7 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET},
-    worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR},
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR}
 };
 
 use anyhow::{Context, Result};
@@ -2279,6 +2278,34 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         return Err(Error::ExecutionErr(e.to_string()));
     }
 
+    #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
+    if job.created_by.starts_with("email-trigger-") {
+        let daily_count = sqlx::query!(
+            "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
+        ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
+
+        if let Some(count) = daily_count {
+            if count >= 100 {
+                return Err(error::Error::QuotaExceeded(format!(
+                    "Email trigger usage limit of 100 per day has been reached."
+                )));
+            } else {
+                sqlx::query!(
+                    "UPDATE metrics SET value = $1 WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day'",
+                    serde_json::json!(count + 1)
+                )
+                .execute(db)
+                .await?;
+            }
+        } else {
+            sqlx::query!(
+                "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
+            )
+            .execute(db)
+            .await?;
+        }
+    }
+
     let step = if job.is_flow_step {
         let r = update_flow_status_in_progress(
             db,
@@ -2743,10 +2770,10 @@ pub async fn get_script_content_by_hash(
             Option<String>,
             Option<ScriptLang>,
             Option<Vec<String>>,
-            bool,
+            Option<bool>,
         ),
     >(
-        "SELECT content, lock, language, envs, codebase IS NOT NULL FROM script WHERE hash = $1 AND workspace_id = $2",
+        "SELECT content, lock, language, envs, codebase LIKE '%.tar' as codebase FROM script WHERE hash = $1 AND workspace_id = $2",
     )
     .bind(script_hash.0)
     .bind(w_id)
@@ -2758,8 +2785,14 @@ pub async fn get_script_content_by_hash(
         lockfile: r.1,
         language: r.2,
         envs: r.3,
-        codebase: if r.4 {
-            Some(script_hash.to_string())
+        codebase: if r.4.is_some() {
+            let b = r.4.unwrap();
+            let sh = script_hash.to_string();
+            if b {
+                Some(format!("{sh}.tar"))
+            } else {
+                Some(sh)
+            }
         } else {
             None
         },
@@ -2786,23 +2819,23 @@ async fn handle_code_execution_job(
         envs,
         codebase,
     } = match job.job_kind {
-        JobKind::Preview => ContentReqLangEnvs {
-            content: job
-                .raw_code
-                .clone()
-                .unwrap_or_else(|| "no raw code".to_owned()),
-            lockfile: job.raw_lock.clone(),
-            language: job.language.to_owned(),
-            envs: None,
-            codebase: if job
-                .script_hash
-                .is_some_and(|y| y.0 == PREVIEW_IS_CODEBASE_HASH)
-            {
-                Some(job.id.to_string())
-            } else {
-                None
-            },
-        },
+        JobKind::Preview => {
+            let codebase = match job.script_hash.map(|x| x.0) {
+                Some(PREVIEW_IS_CODEBASE_HASH) => Some(job.id.to_string()),
+                Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(format!("{}.tar", job.id)),
+                _ => None,
+            };
+            
+            ContentReqLangEnvs {
+                content: job
+                    .raw_code
+                    .clone()
+                    .unwrap_or_else(|| "no raw code".to_owned()),
+                lockfile: job.raw_lock.clone(),
+                language: job.language.to_owned(),
+                envs: None,
+                codebase
+        }},
         JobKind::Script_Hub => {
             get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
         }
