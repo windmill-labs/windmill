@@ -9,13 +9,13 @@ RUN set -eux; \
     url=; \
     case "$arch" in \
     'amd64') \
-    targz='go1.21.0.linux-amd64.tar.gz'; \
+    targz='go1.22.5.linux-amd64.tar.gz'; \
     ;; \
     'arm64') \
-    targz='go1.21.0.linux-arm64.tar.gz'; \
+    targz='go1.22.5.linux-arm64.tar.gz'; \
     ;; \
     'armhf') \
-    targz='go1.21.0.linux-armv6l.tar.gz'; \
+    targz='go1.22.5.linux-armv6l.tar.gz'; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \

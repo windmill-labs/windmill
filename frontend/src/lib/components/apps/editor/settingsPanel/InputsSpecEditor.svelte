@@ -42,6 +42,7 @@
 	export let showOnDemandOnlyToggle = true
 	export let documentationLink: string | undefined = undefined
 	export let markdownTooltip: string | undefined = undefined
+	export let securedContext = false
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -185,6 +186,7 @@
 				{fixedOverflowWidgets}
 				{recomputeOnInputChanged}
 				{showOnDemandOnlyToggle}
+				{securedContext}
 			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />

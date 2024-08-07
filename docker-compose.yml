@@ -31,6 +31,7 @@ services:
     restart: unless-stopped
     expose:
       - 8000
+      - 2525
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=server
@@ -154,9 +155,8 @@ services:
       - 3002
 
   caddy:
-    image: caddy:2.5.2-alpine
+    image: ghcr.io/windmill-labs/caddy-l4:latest
     restart: unless-stopped
-
     # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
@@ -164,6 +164,7 @@ services:
     ports:
       # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
       - 80:80
+      - 25:25
       # - 443:443 # Uncomment to enable HTTPS handling by Caddy
     environment:
       - BASE_URL=":80"

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.375.0"
+version = "1.376.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -25,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.375.0"
+version = "1.376.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -54,6 +54,7 @@ openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
+sqlx = ["windmill-worker/sqlx"]
 
 [dependencies]
 anyhow.workspace = true
@@ -240,6 +241,9 @@ candle-nn = "0.3.0"
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7b5f736c7e94f92c945453c9e", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
+tokio-native-tls = "^0"
+openssl = "=0.10"
+mail-parser = "^0"
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }

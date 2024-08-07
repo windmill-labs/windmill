@@ -1,3 +1,13 @@
+{
+	layer4 {
+		:25 {
+			proxy {
+				to windmill_server:2525
+			}
+		}
+	}
+}
+
 {$BASE_URL} {
         bind {$ADDRESS}
         reverse_proxy /ws/* http://lsp:3001
