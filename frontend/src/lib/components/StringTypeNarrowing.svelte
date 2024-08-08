@@ -266,8 +266,7 @@
 		{#if format == 'date'}
 			<div class="mt-1" />
 
-			<div class="grid grid-cols-3 gap-2"
-				>x
+			<div class="grid grid-cols-3 gap-2">
 				<Label label="Date format passed to script" class="col-span-2">
 					<svelte:fragment slot="header">
 						<Tooltip light>
