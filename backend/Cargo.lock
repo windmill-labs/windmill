@@ -6781,6 +6781,7 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d6d2a27d57148378eb5e111173f4276ad26340ecc5c49a4a2152167a2d6a37"
 dependencies = [
+ "async-compression 0.4.12",
  "base64 0.22.1",
  "bytes",
  "encoding_rs",

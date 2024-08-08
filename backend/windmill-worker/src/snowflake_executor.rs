@@ -4,6 +4,7 @@ use core::fmt::Write;
 use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use reqwest::Response;
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -44,6 +45,12 @@ struct SnowflakeDatabase {
 struct SnowflakeResponse {
     data: Vec<Vec<Value>>,
     resultSetMetaData: SnowflakeResultSetMetaData,
+    statementHandle: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct SnowflakeDataOnlyResponse {
+    data: Vec<Vec<Value>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -51,6 +58,7 @@ struct SnowflakeResponse {
 struct SnowflakeResultSetMetaData {
     numRows: i64,
     rowType: Vec<SnowflakeRowType>,
+    partitionInfo: Vec<Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -63,6 +71,38 @@ struct SnowflakeRowType {
 #[derive(Deserialize)]
 struct SnowflakeError {
     message: String,
+}
+
+trait SnowflakeResponseExt {
+    async fn get_snowflake_response<T: for<'a> Deserialize<'a>>(
+        self,
+    ) -> windmill_common::error::Result<T>;
+}
+
+impl SnowflakeResponseExt for Result<Response, reqwest::Error> {
+    async fn get_snowflake_response<T: for<'a> Deserialize<'a>>(
+        self,
+    ) -> windmill_common::error::Result<T> {
+        match self {
+            Ok(response) => match response.error_for_status_ref() {
+                Ok(_) => response
+                    .json::<T>()
+                    .await
+                    .map_err(|e| Error::ExecutionErr(e.to_string())),
+                Err(e) => {
+                    let resp = response.text().await.unwrap_or("".to_string());
+                    match serde_json::from_str::<SnowflakeError>(&resp) {
+                        Ok(sf_err) => return Err(Error::ExecutionErr(sf_err.message)),
+                        Err(_) => return Err(Error::ExecutionErr(e.to_string())),
+                    }
+                }
+            },
+            Err(e) => Err(Error::ExecutionErr(format!(
+                "Could not send request: {:?}",
+                e
+            ))),
+        }
+    }
 }
 
 fn do_snowflake_inner<'a>(
@@ -105,59 +145,66 @@ fn do_snowflake_inner<'a>(
             .json(&body)
             .send()
             .await
-            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+            .get_snowflake_response::<SnowflakeResponse>()
+            .await?;
 
-        match response.error_for_status_ref() {
-            Ok(_) => {
-                let result = response
-                    .json::<SnowflakeResponse>()
-                    .await
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+        if response.resultSetMetaData.numRows > 10000 {
+            return Err(Error::ExecutionErr(
+                "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
+                    .to_string(),
+            ));
+        }
+        if let Some(column_order) = column_order {
+            *column_order = Some(
+                response
+                    .resultSetMetaData
+                    .rowType
+                    .iter()
+                    .map(|x| x.name.clone())
+                    .collect::<Vec<String>>(),
+            );
+        }
 
-                if result.resultSetMetaData.numRows > 10000 {
-                    return Err(Error::ExecutionErr(
-                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
-                ));
-                }
-                if let Some(column_order) = column_order {
-                    *column_order = Some(
-                        result
-                            .resultSetMetaData
-                            .rowType
-                            .iter()
-                            .map(|x| x.name.clone())
-                            .collect::<Vec<String>>(),
-                    );
-                }
-                let rows = to_raw_value(
-                    &result
-                        .data
-                        .iter()
-                        .map(|row| {
-                            let mut row_map = serde_json::Map::new();
-                            row.iter()
-                                .zip(result.resultSetMetaData.rowType.iter())
-                                .for_each(|(val, row_type)| {
-                                    row_map.insert(
-                                        row_type.name.clone(),
-                                        parse_val(&val, &row_type.r#type),
-                                    );
-                                });
-                            row_map
-                        })
-                        .collect::<Vec<_>>(),
+        let mut rows = response.data;
+
+        if response.resultSetMetaData.partitionInfo.len() > 1 {
+            for idx in 1..response.resultSetMetaData.partitionInfo.len() {
+                let url = format!(
+                    "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+                    account_identifier.to_uppercase(),
+                    response.statementHandle
                 );
+                let response = HTTP_CLIENT
+                    .get(url)
+                    .bearer_auth(token)
+                    .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+                    .query(&[("partition", idx.to_string())])
+                    .send()
+                    .await
+                    .get_snowflake_response::<SnowflakeDataOnlyResponse>()
+                    .await?;
 
-                Ok(rows)
-            }
-            Err(e) => {
-                let resp = response.text().await.unwrap_or("".to_string());
-                match serde_json::from_str::<SnowflakeError>(&resp) {
-                    Ok(sf_err) => Err(Error::ExecutionErr(sf_err.message)),
-                    Err(_) => Err(Error::ExecutionErr(e.to_string())),
-                }
+                rows.extend(response.data);
             }
         }
+
+        let rows = to_raw_value(
+            &rows
+                .iter()
+                .map(|row| {
+                    let mut row_map = serde_json::Map::new();
+                    row.iter()
+                        .zip(response.resultSetMetaData.rowType.iter())
+                        .for_each(|(val, row_type)| {
+                            row_map
+                                .insert(row_type.name.clone(), parse_val(&val, &row_type.r#type));
+                        });
+                    row_map
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(rows)
     };
 
     Ok(result_f.boxed())
