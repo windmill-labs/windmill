@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { setContext } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
 
 	import { writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
@@ -12,7 +12,8 @@
 		type Node,
 		type Edge,
 		ConnectionLineType,
-		MiniMap
+		Controls,
+		ControlButton
 		// @ts-ignore
 	} from '@xyflow/svelte'
 	// @ts-ignore
@@ -28,7 +29,8 @@
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
-	let width = 0
+	import { Expand } from 'lucide-svelte'
+
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -43,6 +45,8 @@
 	export let insertable = false
 	export let moving: string | undefined = undefined
 	export let scroll = false
+
+	// Download: display a top level button to open the graph in a new tab
 	export let download = false
 	export let fullSize = false
 	export let disableAi = false
@@ -55,7 +59,11 @@
 		flowInputsStore: Writable<FlowInput | undefined>
 	}>('FlowGraphContext', { selectedId, flowInputsStore })
 
+	const dispatch = createEventDispatcher()
+
 	let fullWidth = 0
+	let width = 0
+
 	function layoutNodes(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
 		let seenId: string[] = []
 		for (const n of nodes) {
@@ -68,7 +76,7 @@
 		const flattenParentIds = nodes.map((n) => ({
 			...n,
 			parentIds: n.data?.parentIds ?? []
-		}))
+		})) as any
 
 		const stratify = dagStratify().id(({ id }: Node) => id)
 		const dag = stratify(flattenParentIds)
@@ -108,7 +116,14 @@
 		}
 	}
 
-	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(modules)
+	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(
+		modules,
+		{
+			disableAi,
+			insertable
+		},
+		failureModule
+	)
 	const { nodes: layoutedNodes, edges: layoutedEdges } = layoutNodes(initialNodes, initialEdges)
 
 	const nodes = writable<Node[]>(layoutedNodes)
@@ -124,13 +139,26 @@
 		result: ResultNode,
 		whileLoopStart: ForLoopStartNode,
 		whileLoopEnd: ForLoopEndNode
-	}
+	} as any
+
 	const edgeTypes = {
 		edge: BaseEdge,
 		empty: EmptyEdge
-	}
+	} as any
 
 	const proOptions = { hideAttribution: true }
+
+	function handleNodeClick(e: CustomEvent) {
+		const mod = e.detail.node.data.module as FlowModule
+
+		if (!notSelectable && mod) {
+			if ($selectedId != mod.id) {
+				$selectedId = mod.id
+			}
+			console.log('selected', mod)
+			dispatch('select', mod)
+		}
+	}
 </script>
 
 <div
@@ -145,18 +173,35 @@
 		{edges}
 		{edgeTypes}
 		{nodeTypes}
+		minZoom={1}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		fitView
 		{proOptions}
+		nodesDraggable={false}
+		preventScrolling={!scroll}
+		on:nodeclick={(e) => handleNodeClick(e)}
 	>
 		<Background class="!bg-surface-secondary" />
-		<MiniMap nodeStrokeWidth={3} darkMode />
+		<Controls position="top-right" orientation="horizontal" showLock={false}>
+			{#if download}
+				<ControlButton on:click={() => dispatch('expand')} class="!bg-surface">
+					<Expand size="14" />
+				</ControlButton>
+			{/if}
+		</Controls>
 	</SvelteFlow>
 </div>
 
 <style>
 	:global(.svelte-flow__handle) {
 		opacity: 0;
+	}
+
+	:global(.svelte-flow__controls-button) {
+		@apply bg-surface border-0;
+	}
+	:global(.svelte-flow__controls-button:hover) {
+		@apply bg-surface-hover;
 	}
 </style>

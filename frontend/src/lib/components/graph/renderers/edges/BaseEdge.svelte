@@ -1,24 +1,27 @@
 <script lang="ts">
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import {
 		getBezierPath,
 		BaseEdge,
-		type EdgeProps,
+		type Position,
 		EdgeLabelRenderer
 		// @ts-ignore
 	} from '@xyflow/svelte'
 
-	type $$Props = EdgeProps
+	export let sourceX: number
+	export let sourceY: number
+	export let sourcePosition: Position
+	export let targetX: number
+	export let targetY: number
+	export let targetPosition: Position
+	export let markerEnd: string | undefined = undefined
+	export let style: string | undefined = undefined
 
-	export let id: $$Props['id']
-	export let sourceX: $$Props['sourceX']
-	export let sourceY: $$Props['sourceY']
-	export let sourcePosition: $$Props['sourcePosition']
-	export let targetX: $$Props['targetX']
-	export let targetY: $$Props['targetY']
-	export let targetPosition: $$Props['targetPosition']
-	export let markerEnd: $$Props['markerEnd'] = undefined
-	export let style: $$Props['style'] = undefined
+	export let data: {
+		insertable: boolean
+		modules: FlowModule[]
+	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
 		sourceX,
@@ -42,12 +45,14 @@
 
 <BaseEdge path={completeEdge} {markerEnd} {style} />
 <EdgeLabelRenderer>
-	<div
-		class="edgeButtonContainer nodrag nopan"
-		style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
-	>
-		<InsertModuleButton index={0} modules={[]} />
-	</div>
+	{#if data?.insertable}
+		<div
+			class="edgeButtonContainer nodrag nopan"
+			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+		>
+			<InsertModuleButton index={0} modules={data?.modules ?? []} funcDesc="" />
+		</div>
+	{/if}
 </EdgeLabelRenderer>
 
 <style>
@@ -57,20 +62,5 @@
 		/* everything inside EdgeLabelRenderer has no pointer events by default */
 		/* if you have an interactive element, set pointer-events: all */
 		pointer-events: all;
-	}
-
-	.edgeButton {
-		width: 20px;
-		height: 20px;
-		background: #eee;
-		border: 1px solid #fff;
-		cursor: pointer;
-		border-radius: 50%;
-		font-size: 12px;
-		line-height: 1;
-	}
-
-	.edgeButton:hover {
-		box-shadow: 0 0 6px 2px rgba(0, 0, 0, 0.08);
 	}
 </style>

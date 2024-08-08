@@ -3,10 +3,14 @@
 	// @ts-ignore
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
+	import type { FlowModule } from '$lib/gen/models/FlowModule'
 
-	type $$Props = NodeProps
-
-	export let data: $$Props['data']
+	export let data: {
+		id: string
+		time: number | undefined
+		insertable: boolean
+		modules: FlowModule[]
+	}
 </script>
 
 {#if data.time}
@@ -19,7 +23,7 @@
 	<VirtualItem
 		label={'Collect result from all branches'}
 		modules={[]}
-		index={1}
+		index={data.modules.findIndex((m) => m.id == data.id) + 1}
 		id={data.id}
 		selectable
 		selected={false}

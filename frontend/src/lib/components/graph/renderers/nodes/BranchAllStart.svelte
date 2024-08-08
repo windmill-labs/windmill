@@ -10,34 +10,37 @@
 	export let data: {
 		label: string
 		branchIndex: number
+		insertable: boolean
 	}
 
 	const dispatch = createEventDispatcher()
 </script>
 
 <NodeToolbar isVisible position={Position.Top}>
-	<Popover>
-		<button
-			class="rounded-full border p-1 hover:bg-surface-hover bg-surface"
-			on:click={() => {
-				dispatch('deleteBranch', { branchIndex: data.branchIndex })
-			}}
-		>
-			<X size={16} />
-		</button>
+	{#if data.insertable}
+		<Popover>
+			<button
+				class="rounded-full border p-1 hover:bg-surface-hover bg-surface"
+				on:click={() => {
+					dispatch('deleteBranch', { branchIndex: data.branchIndex })
+				}}
+			>
+				<X size={16} />
+			</button>
 
-		<svelte:fragment slot="text">Delete branch</svelte:fragment>
-	</Popover>
+			<svelte:fragment slot="text">Delete branch</svelte:fragment>
+		</Popover>
+	{/if}
 </NodeToolbar>
 
 <NodeWrapper let:darkMode>
 	<VirtualItem
 		label={data.label}
 		modules={[]}
-		index={1}
+		index={data.branchIndex}
 		selectable
 		selected={false}
-		insertable={false}
+		insertable={data.insertable}
 		bgColor={darkMode ? '#2e3440' : '#dfe6ee'}
 	/>
 </NodeWrapper>

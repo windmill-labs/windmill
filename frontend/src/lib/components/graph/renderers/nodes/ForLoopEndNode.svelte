@@ -2,10 +2,16 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	// @ts-ignore
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
+	import NodeWrapper from './NodeWrapper.svelte'
+	import type { FlowModule } from '$lib/gen/models/FlowModule'
 
-	type $$Props = NodeProps
-
-	export let data: $$Props['data']
+	export let data: {
+		offset: number
+		id: string
+		time: number | undefined
+		insertable: boolean
+		modules: FlowModule[]
+	}
 </script>
 
 {#if data.time}
@@ -13,16 +19,14 @@
 		<span class="text-xs">0.01s</span>
 	</NodeToolbar>
 {/if}
-<div style={`margin-left: ${data.offset}px;`}>
+
+<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle>
 	<VirtualItem
 		label={'Collect result of each iteration'}
-		modules={[]}
-		id={data.id}
+		modules={data.modules}
 		index={1}
 		selectable
 		selected={false}
-		insertable={false}
+		insertable={data.insertable}
 	/>
-</div>
-<Handle type="source" position={Position.Bottom} style={`margin-left: ${data.offset / 2}px;`} />
-<Handle type="target" position={Position.Top} style={`margin-left: ${data.offset / 2}px;`} />
+</NodeWrapper>

@@ -1,7 +1,12 @@
 import type { FlowModule } from '$lib/gen'
 import { type Node, type Edge } from '@xyflow/svelte'
+import { add } from 'date-fns'
 
-export default function graphBuilder(modules: FlowModule[] | undefined): {
+export default function graphBuilder(
+	modules: FlowModule[] | undefined,
+	extra: Record<string, any>,
+	failureModule: FlowModule | undefined
+): {
 	nodes: Node[]
 	edges: Edge[]
 } {
@@ -20,7 +25,8 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				offset: offset,
 				module: module,
 				modules: modules,
-				parentIds: []
+				parentIds: [],
+				...extra
 			},
 			position: { x: -1, y: -1 },
 			type: type
@@ -38,7 +44,11 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 			id: customId || `edge:${sourceId}->${targetId}`,
 			source: sourceId,
 			target: targetId,
-			type: type ?? 'edge'
+			type: type ?? 'edge',
+			data: {
+				insertable: extra.insertable,
+				modules
+			}
 		})
 	}
 
@@ -88,7 +98,13 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 				// "Collect result of each branch" node
 				const endNode = {
 					id: `${module.id}-end`,
-					data: { offset: currentOffset, id: module.id },
+					data: {
+						offset: currentOffset,
+						id: module.id,
+						module: module,
+						modules: modules,
+						...extra
+					},
 					position: { x: -1, y: -1 },
 					type: 'branchAllEnd'
 				}
@@ -99,7 +115,12 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 					const startNode = {
 						id: `${module.id}-branch-${branchIndex}`,
-						data: { offset: currentOffset, label: `Branch ${branchIndex + 1}`, id: module.id },
+						data: {
+							offset: currentOffset,
+							label: `Branch ${branchIndex + 1}`,
+							id: module.id,
+							...extra
+						},
 						position: { x: -1, y: -1 },
 						type: 'branchAllStart'
 					}
@@ -117,7 +138,13 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 				const startNode = {
 					id: `${module.id}-start`,
-					data: { offset: currentOffset + 50, id: module.id },
+					data: {
+						offset: currentOffset + 50,
+						id: module.id,
+						module: module,
+						modules: modules,
+						...extra
+					},
 					position: { x: -1, y: -1 },
 					type: 'forLoopStart'
 				}
@@ -126,7 +153,13 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 				const endNode = {
 					id: `${module.id}-end`,
-					data: { offset: currentOffset, id: module.id },
+					data: {
+						offset: currentOffset,
+						id: module.id,
+						module: module,
+						modules: modules,
+						...extra
+					},
 					position: { x: -1, y: -1 },
 					type: 'forLoopEnd'
 				}
@@ -142,7 +175,12 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 				const startNode = {
 					id: `${module.id}-start`,
-					data: { offset: currentOffset + 50 },
+					data: {
+						offset: currentOffset + 50,
+						module: module,
+						modules: modules,
+						...extra
+					},
 					position: { x: -1, y: -1 },
 					type: 'whileLoopStart'
 				}
@@ -150,7 +188,7 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 
 				const endNode = {
 					id: `${module.id}-end`,
-					data: { offset: currentOffset },
+					data: { offset: currentOffset, module: module, modules: modules, ...extra },
 					position: { x: -1, y: -1 },
 					type: 'whileLoopEnd'
 				}
@@ -202,6 +240,10 @@ export default function graphBuilder(modules: FlowModule[] | undefined): {
 	}
 
 	processModules(modules, inputNode, resultNode)
+
+	if (failureModule) {
+		addNode(failureModule, 0, 'module')
+	}
 
 	Object.keys(parents).forEach((key) => {
 		const node = nodes.find((n) => n.id === key)

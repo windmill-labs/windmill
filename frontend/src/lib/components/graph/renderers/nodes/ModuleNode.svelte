@@ -35,7 +35,7 @@
 	let openMenu: boolean | undefined = undefined
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper offset={data.offset} let:darkMode>
 	<MapItem
 		mod={data.module}
 		trigger={data.trigger}
@@ -43,7 +43,7 @@
 		insertableEnd={data.insertableEnd}
 		annotation={data.annotation}
 		branchable={data.branchable}
-		bgColor={data.bgColor}
+		bgColor={darkMode ? '#2e3440' : '#dfe6ee'}
 		modules={data.modules ?? []}
 		moving={data.moving}
 		duration_ms={data.duration_ms}
@@ -104,7 +104,7 @@
 </NodeToolbar>
 
 <NodeToolbar isVisible position={Position.Bottom} align="center">
-	{#if data.value.type === 'branchall'}
+	{#if data.value.type === 'branchall' && data.insertable}
 		<button
 			class="rounded-full border hover:bg-surface-hover bg-surface p-1"
 			on:click={() => {
