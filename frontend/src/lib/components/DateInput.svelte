@@ -19,7 +19,7 @@
 			}
 
 			try {
-				let dateFromValue: Date | undefined = newDate ? new Date(newDate) : undefined
+				let dateFromValue: Date | undefined = newDate ? new Date(newDate + 'T00:00:00') : undefined
 
 				if (dateFromValue === undefined) {
 					return
