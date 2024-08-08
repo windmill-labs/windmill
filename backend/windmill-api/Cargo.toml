@@ -51,6 +51,7 @@ chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
 base64.workspace = true
+base32.workspace = true
 serde_urlencoded.workspace = true
 cron.workspace = true
 mime_guess.workspace = true

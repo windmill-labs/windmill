@@ -21,6 +21,7 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import { SettingService } from '$lib/gen'
 	import { base } from '$lib/base'
+	import { base32 } from 'rfc4648'
 
 	let userSettings: UserSettings
 
@@ -127,9 +128,16 @@
 	}
 
 	function emailAddress() {
-		return `${$workspaceStore}+${
-			requestType === 'hash' ? 'hash.' + hash : (isFlow ? 'flow.' : '') + path.replaceAll('/', '.')
-		}+${token}@${emailDomain}`
+		const pathOrHash = requestType === 'hash' ? hash : path.replaceAll('/', '.')
+		const plainPrefix = `${$workspaceStore}+${
+			(requestType === 'hash' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
+		}+${token}`
+		const encodedPrefix = base32
+			.stringify(new TextEncoder().encode(plainPrefix), {
+				pad: false
+			})
+			.toLowerCase()
+		return `${pathOrHash}+${encodedPrefix}@${emailDomain}`
 	}
 
 	function fetchCode() {
