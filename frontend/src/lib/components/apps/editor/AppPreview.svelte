@@ -66,11 +66,6 @@
 		author: policy.on_behalf_of_email
 	}
 
-	function hashchange(e: HashChangeEvent) {
-		ncontext.hash = e.newURL.split('#')[1]
-		ncontext = ncontext
-	}
-
 	function resizeWindow() {
 		!isEditor && ($breakpoint = window.innerWidth < 769 ? 'sm' : 'lg')
 	}
@@ -84,8 +79,31 @@
 
 	let parentContext = getContext<AppViewerContext>('AppViewerContext')
 
+	let worldStore = buildWorld(ncontext)
+	$: onContextChange(context)
+
+	function onContextChange(context: any) {
+		Object.assign(ncontext, context)
+		ncontext = ncontext
+		worldStore.update((x) => {
+			Object.entries(context).forEach(([key, value]) => {
+				x.outputsById?.['ctx']?.[key].set(value, true)
+			})
+			return x
+		})
+	}
+
+	function hashchange(e: HashChangeEvent) {
+		ncontext.hash = e.newURL.split('#')[1]
+		ncontext = ncontext
+		worldStore.update((x) => {
+			x.outputsById?.['ctx']?.['hash'].set(ncontext.hash, true)
+			return x
+		})
+	}
+
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore: buildWorld(ncontext),
+		worldStore: worldStore,
 		initialized: writable({ initialized: false, initializedComponents: [] }),
 		app: appStore,
 		summary: writable(summary),
@@ -196,7 +214,7 @@
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative h-full" bind:clientHeight={appHeight}>
+<div class="relative h-full grow" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 
