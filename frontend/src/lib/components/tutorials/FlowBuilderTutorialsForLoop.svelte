@@ -88,7 +88,7 @@
 				popover: {
 					title: 'Iterator expression',
 					description:
-						'The iterator expression is a javascript expression that respresents the array to iterate on. Here we will iterate on the firstname input letter by letter',
+						'The iterator expression is a JavaScript expression that respresents the array to iterate on. Here we will iterate on the firstname input letter by letter',
 					onNextClick: () => {
 						updateFlowModuleById($flowStore, id, (module) => {
 							if (module.value.type === 'forloopflow') {

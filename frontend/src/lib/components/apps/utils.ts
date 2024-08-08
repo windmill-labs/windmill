@@ -267,6 +267,11 @@ declare function showToast(message: string, error?: boolean): void;
 declare async function waitJob(id: string): Promise<any>;
 
 
+/**
+ * ask user resource on a UserResourceComponent
+ */
+declare async function askNewResource(id: string): void;
+
 `
 		: ''
 }

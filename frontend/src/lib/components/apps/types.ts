@@ -262,6 +262,7 @@ export type AppViewerContext = {
 				clearFiles?: () => void
 				showToast?: (message: string, error?: boolean) => void
 				recompute?: () => void
+				askNewResource?: () => void
 			}
 		>
 	>

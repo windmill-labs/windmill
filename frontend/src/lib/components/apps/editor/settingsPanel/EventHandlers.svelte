@@ -17,6 +17,7 @@
 		'formbuttoncomponent',
 		'checkboxcomponent',
 		'resourceselectcomponent',
+		'userresourcecomponent',
 		'selectcomponent',
 		'tabscomponent',
 		'conditionalwrapper',
@@ -64,7 +65,7 @@
 				bind:value={item.data.onToggle}
 			/>
 		{/if}
-		{#if item.data.type === 'resourceselectcomponent' || item.data.type === 'selectcomponent'}
+		{#if item.data.type === 'resourceselectcomponent' || item.data.type === 'selectcomponent' || item.data.type == 'userresourcecomponent'}
 			<EventHandlerItem
 				title="on select"
 				tooltip="Contrary to onSuccess, this will only trigger recompute when a human select an item, not if it set by a default value or by setValue"

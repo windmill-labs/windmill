@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.376.1](https://github.com/windmill-labs/windmill/compare/v1.376.0...v1.376.1) (2024-08-07)
+
+
+### Bug Fixes
+
+* email triggers sqlx CE and improve email parsing  ([#4203](https://github.com/windmill-labs/windmill/issues/4203)) ([6e9c350](https://github.com/windmill-labs/windmill/commit/6e9c350b4aa27355d03cb409da36e8f44ff548dc))
+* mysql params starting with underscore ([#4201](https://github.com/windmill-labs/windmill/issues/4201)) ([e7148f6](https://github.com/windmill-labs/windmill/commit/e7148f672303ccf2b5c49bd9d75ee9764657490e))
+
+## [1.376.0](https://github.com/windmill-labs/windmill/compare/v1.375.0...v1.376.0) (2024-08-06)
+
+
+### Features
+
+* email triggers ([#4163](https://github.com/windmill-labs/windmill/issues/4163)) ([a87f34f](https://github.com/windmill-labs/windmill/commit/a87f34fb4a5e54da38e2dbabf2ac551d35b021ee))
+* secure ctx variables in runnable inputs ([#4142](https://github.com/windmill-labs/windmill/issues/4142)) ([b54edf1](https://github.com/windmill-labs/windmill/commit/b54edf153ec90b9bafad9ed7bc92c29345951fe6))
+* Tag filter on Runs page ([#4193](https://github.com/windmill-labs/windmill/issues/4193)) ([7b31281](https://github.com/windmill-labs/windmill/commit/7b3128171ea7193efea569297a099bb9ee6935e1))
+
+
+### Bug Fixes
+
+* fix native scripts access to reserved variables ([7886f8f](https://github.com/windmill-labs/windmill/commit/7886f8f471bcb33f7cc640eab64ffc0dd3cb1726))
+* **frontend:** disable email triggers by default ([#4199](https://github.com/windmill-labs/windmill/issues/4199)) ([5e3a3e2](https://github.com/windmill-labs/windmill/commit/5e3a3e2103ce6218a60c570546355ef6ca574df2))
+* **frontend:** fix the app created from a script or flow with the new topbar ([#4194](https://github.com/windmill-labs/windmill/issues/4194)) ([657f03b](https://github.com/windmill-labs/windmill/commit/657f03bc67f84a8593b28483684c2ad8ad432865))
+* **frontend:** Fr/improve suspend drawer ([#4189](https://github.com/windmill-labs/windmill/issues/4189)) ([5104dba](https://github.com/windmill-labs/windmill/commit/5104dba63140e2186dc1eed7f0bf4e14e357bf3d))
+* **frontend:** Hide AgChart background to make styling work ([#4197](https://github.com/windmill-labs/windmill/issues/4197)) ([b9b30e6](https://github.com/windmill-labs/windmill/commit/b9b30e66ec485cc019561b092fc27d08aa4666b3))
+* **frontend:** Remove full height for the event handlers of runnables ([#4196](https://github.com/windmill-labs/windmill/issues/4196)) ([6749f2c](https://github.com/windmill-labs/windmill/commit/6749f2c1367bdbecb12941baaa87b63c4b4c6f20))
+* mysql support for underscore in named param ([#4200](https://github.com/windmill-labs/windmill/issues/4200)) ([cfa20ae](https://github.com/windmill-labs/windmill/commit/cfa20ae0d740014baea2e534cea5f787acaeb028))
+
 ## [1.375.0](https://github.com/windmill-labs/windmill/compare/v1.374.0...v1.375.0) (2024-08-05)
 
 
