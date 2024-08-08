@@ -197,7 +197,7 @@
 				flowModule.value,
 				$flowInputsStore[flowModule.id].flowStepWarnings ?? {},
 				$flowStateStore[$selectedId]?.schema ?? {},
-				$flowStore?.value?.modules?.map((m) => m?.id) ?? []
+				dfs($flowStore?.value?.modules, (fm) => fm.id) ?? []
 			).then((flowStepWarnings) => {
 				$flowInputsStore[flowModule.id].flowStepWarnings = flowStepWarnings
 			})
