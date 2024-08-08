@@ -1,11 +1,21 @@
 import type { FlowModule } from '$lib/gen'
 import { type Node, type Edge } from '@xyflow/svelte'
-import { add } from 'date-fns'
+
+export type GraphEventHandlers = {
+	insert: (detail) => void
+	deleteBranch: (detail, label: string) => void
+	select: (mod: FlowModule) => void
+	delete: (detail, label: string) => void
+	newBranch: (detail, label: string) => void
+	move: (module: FlowModule, modules: FlowModule[], index: number) => void
+	selectIteration: (detail, moduleId: string) => void
+}
 
 export default function graphBuilder(
 	modules: FlowModule[] | undefined,
 	extra: Record<string, any>,
-	failureModule: FlowModule | undefined
+	failureModule: FlowModule | undefined,
+	eventHandlers: GraphEventHandlers
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -26,6 +36,7 @@ export default function graphBuilder(
 				module: module,
 				modules: modules,
 				parentIds: [],
+				eventHandlers: eventHandlers,
 				...extra
 			},
 			position: { x: -1, y: -1 },
@@ -129,7 +140,11 @@ export default function graphBuilder(
 
 					addEdge(module.id, startNode.id, undefined, 'empty')
 
-					processModules(branch.modules, startNode, endNode)
+					if (branch.modules.length === 0) {
+						addEdge(startNode.id, endNode.id, undefined, 'empty')
+					} else {
+						processModules(branch.modules, startNode, endNode)
+					}
 				})
 
 				previousId = endNode.id

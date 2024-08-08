@@ -74,41 +74,25 @@
 </script>
 
 {#if mod}
-	{#if insertable}
-		<div
-			class="{openMenu
-				? 'z-20'
-				: ''} w-[27px] absolute -top-[35px] left-[50%] right-[50%] -translate-x-1/2"
-		>
-			{#if moving}
-				<button
-					title="Add branch"
-					on:click={() => {
-						dispatch('insert', { modules, index: idx, detail: 'move' })
-					}}
-					type="button"
-					disabled={wrapperId === moving}
-					class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-				>
-					<ClipboardCopy class="m-[5px]" size={15} />
-				</button>
-			{:else}
-				<InsertModuleButton
-					{disableAi}
-					bind:open={openMenu}
-					{trigger}
-					on:insert={(e) => {
-						dispatch('insert', { modules, index: idx + 1, detail: 'script', script: e.detail })
-					}}
-					on:new={(e) => {
-						dispatch('insert', { modules, index: idx, detail: e.detail })
-					}}
-					index={idx}
-					{modules}
-				/>
-			{/if}
-		</div>
-	{/if}
+	<div
+		class="{openMenu
+			? 'z-20'
+			: ''} w-[27px] absolute -top-[35px] left-[50%] right-[50%] -translate-x-1/2"
+	>
+		{#if moving}
+			<button
+				title="Add branch"
+				on:click={() => {
+					dispatch('insert', { modules, index: idx, detail: 'move' })
+				}}
+				type="button"
+				disabled={wrapperId === moving}
+				class=" text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+			>
+				<ClipboardCopy class="m-[5px]" size={15} />
+			</button>
+		{/if}
+	</div>
 	<div class="relative">
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">

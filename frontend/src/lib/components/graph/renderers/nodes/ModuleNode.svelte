@@ -6,7 +6,7 @@
 	import { ClipboardCopy, GitBranchPlus } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import type { GraphEventHandlers } from '../../graphBuilder'
 
 	export let data: {
 		offset: number
@@ -27,6 +27,7 @@
 		flowJobs:
 			| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
 			| undefined
+		eventHandlers: GraphEventHandlers
 	}
 
 	$: idx = data.modules?.findIndex((m) => m.id === data.module.id)
@@ -51,7 +52,9 @@
 		wrapperId={data.wrapperId}
 		retries={data.retries}
 		flowJobs={data.flowJobs}
-		on:delete
+		on:delete={(e) => {
+			data.eventHandlers.delete(e.detail, '')
+		}}
 		on:insert
 		on:move
 		on:newBranch
@@ -79,25 +82,6 @@
 				>
 					<ClipboardCopy class="m-[5px]" size={15} />
 				</button>
-			{:else}
-				<InsertModuleButton
-					bind:disableAi={data.disableAi}
-					bind:open={openMenu}
-					bind:trigger={data.trigger}
-					on:insert={(e) => {
-						dispatch('insert', {
-							modules: data.modules,
-							index: idx + 1,
-							detail: 'script',
-							script: e.detail
-						})
-					}}
-					on:new={(e) => {
-						dispatch('insert', { modules: data.modules, index: idx, detail: e.detail })
-					}}
-					index={idx}
-					modules={data.modules}
-				/>
 			{/if}
 		</div>
 	{/if}

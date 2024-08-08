@@ -5,7 +5,6 @@
 	import { classNames } from '$lib/utils'
 	import { ClipboardCopy, ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import InsertModuleButton from './InsertModuleButton.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { copilotInfo } from '$lib/stores'
 	import Menu from '$lib/components/common/menu/Menu.svelte'
@@ -103,7 +102,7 @@
 	</div>
 </div>
 
-{#if insertable && modules && (label != 'Input' || modules.length == 0)}
+{#if modules && (label != 'Input' || modules.length == 0)}
 	<div
 		class="{openMenu
 			? 'z-20'
@@ -127,33 +126,6 @@
 			>
 				<ClipboardCopy size={12} />
 			</button>
-		{:else}
-			<InsertModuleButton
-				{disableAi}
-				bind:open={openMenu}
-				trigger={label == 'Input'}
-				on:insert={(e) => {
-					if (modules) {
-						dispatch('insert', {
-							modules,
-							index,
-							detail: 'script',
-							script: e.detail
-						})
-					}
-				}}
-				on:new={(e) => {
-					if (modules) {
-						dispatch('insert', {
-							modules,
-							index: index,
-							detail: e.detail
-						})
-					}
-				}}
-				{index}
-				modules={modules ?? []}
-			/>
 		{/if}
 	</div>
 {/if}

@@ -122,12 +122,97 @@
 			disableAi,
 			insertable
 		},
-		failureModule
+		failureModule,
+		{
+			deleteBranch: (detail, label) => {
+				$selectedId = label
+				dispatch('deleteBranch', detail)
+			},
+			insert: (detail) => {
+				dispatch('insert', detail)
+			},
+			select: (mod) => {
+				if (!notSelectable) {
+					if ($selectedId != mod.id) {
+						$selectedId = mod.id
+					}
+					dispatch('select', mod)
+				}
+			},
+			delete: (detail, label) => {
+				$selectedId = label
+
+				dispatch('delete', detail)
+			},
+			newBranch: (detail, label) => {
+				dispatch('newBranch', detail)
+			},
+			move: (module, modules) => {
+				dispatch('move', { module, modules })
+			},
+			selectIteration: (detail, moduleId) => {
+				dispatch('selectIteration', { ...detail, moduleId: moduleId })
+			}
+		}
 	)
 	const { nodes: layoutedNodes, edges: layoutedEdges } = layoutNodes(initialNodes, initialEdges)
 
 	const nodes = writable<Node[]>(layoutedNodes)
 	const edges = writable<Edge[]>(layoutedEdges)
+
+	let renderCount: number = 0
+
+	function updateStores() {
+		const { nodes: initialNodes, edges: initialEdges } = graphBuilder(
+			modules,
+			{
+				disableAi,
+				insertable
+			},
+			failureModule,
+			{
+				deleteBranch: (detail, label) => {
+					$selectedId = label
+					dispatch('deleteBranch', detail)
+				},
+				insert: (detail) => {
+					dispatch('insert', detail)
+				},
+				select: (mod) => {
+					if (!notSelectable) {
+						if ($selectedId != mod.id) {
+							$selectedId = mod.id
+						}
+						dispatch('select', mod)
+					}
+				},
+				delete: (detail, label) => {
+					$selectedId = label
+
+					dispatch('delete', detail)
+				},
+				newBranch: (detail, label) => {
+					dispatch('newBranch', detail)
+				},
+				move: (module, modules) => {
+					dispatch('move', { module, modules })
+				},
+				selectIteration: (detail, moduleId) => {
+					dispatch('selectIteration', { ...detail, moduleId: moduleId })
+				}
+			}
+		)
+		const { nodes: layoutedNodes, edges: layoutedEdges } = layoutNodes(initialNodes, initialEdges)
+
+		$nodes = layoutedNodes
+		$edges = layoutedEdges
+
+		renderCount++
+	}
+
+	$: console.log('rebuildOnChange', rebuildOnChange)
+
+	$: rebuildOnChange && updateStores()
 
 	const nodeTypes = {
 		input2: InputNode,
@@ -168,29 +253,34 @@
 	bind:clientWidth={width}
 	class="h-full"
 >
-	<SvelteFlow
-		{nodes}
-		{edges}
-		{edgeTypes}
-		{nodeTypes}
-		minZoom={1}
-		connectionLineType={ConnectionLineType.SmoothStep}
-		defaultEdgeOptions={{ type: 'smoothstep' }}
-		fitView
-		{proOptions}
-		nodesDraggable={false}
-		preventScrolling={!scroll}
-		on:nodeclick={(e) => handleNodeClick(e)}
-	>
-		<Background class="!bg-surface-secondary" />
-		<Controls position="top-right" orientation="horizontal" showLock={false}>
-			{#if download}
-				<ControlButton on:click={() => dispatch('expand')} class="!bg-surface">
-					<Expand size="14" />
-				</ControlButton>
-			{/if}
-		</Controls>
-	</SvelteFlow>
+	{#key renderCount}
+		<SvelteFlow
+			{nodes}
+			{edges}
+			{edgeTypes}
+			{nodeTypes}
+			minZoom={1}
+			connectionLineType={ConnectionLineType.SmoothStep}
+			defaultEdgeOptions={{ type: 'smoothstep' }}
+			fitView
+			{proOptions}
+			nodesDraggable={false}
+			preventScrolling={!scroll}
+			on:nodeclick={(e) => handleNodeClick(e)}
+			on:delete={(e) => {
+				console.log('delete', e.detail)
+			}}
+		>
+			<Background class="!bg-surface-secondary" />
+			<Controls position="top-right" orientation="horizontal" showLock={false}>
+				{#if download}
+					<ControlButton on:click={() => dispatch('expand')} class="!bg-surface">
+						<Expand size="14" />
+					</ControlButton>
+				{/if}
+			</Controls>
+		</SvelteFlow>
+	{/key}
 </div>
 
 <style>
