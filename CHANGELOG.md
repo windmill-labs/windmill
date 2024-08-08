@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.377.0](https://github.com/windmill-labs/windmill/compare/v1.376.1...v1.377.0) (2024-08-08)
+
+
+### Features
+
+* **app:** add user resource select component ([413ad2c](https://github.com/windmill-labs/windmill/commit/413ad2c9259fd30871b5184bc4f7c3fece60918d))
+
+
+### Bug Fixes
+
+* Additional tracing when pulling and uploading search index [#4207](https://github.com/windmill-labs/windmill/issues/4207) ([4f9193c](https://github.com/windmill-labs/windmill/commit/4f9193c03664c336095e9aa2ea6232a4815c7387))
+* azure git sync test connection ([#4209](https://github.com/windmill-labs/windmill/issues/4209)) ([2c3d492](https://github.com/windmill-labs/windmill/commit/2c3d4920e0b575019dd18d0a4a9609e6f66be60e))
+* case insensitive encoding for email triggers ([#4211](https://github.com/windmill-labs/windmill/issues/4211)) ([55926f9](https://github.com/windmill-labs/windmill/commit/55926f957f83cf87a52070577ed79bed15e38836))
+* **cli:** Add esbuild loader for .node files for codebase ([a77f74c](https://github.com/windmill-labs/windmill/commit/a77f74cb7ea5ed3633564075169a5aeedae06152))
+* **frontend:** fix decision tree debug menu ([#4212](https://github.com/windmill-labs/windmill/issues/4212)) ([c90fb8d](https://github.com/windmill-labs/windmill/commit/c90fb8d293ef3aaa8264c2a2984e4203e4851f5c))
+* **frontend:** fix flow warnings ([#4213](https://github.com/windmill-labs/windmill/issues/4213)) ([bf629f3](https://github.com/windmill-labs/windmill/commit/bf629f39ccc411b6ed98081f414a8c3238d52957))
+* handle &gt;1 num workers stats ([#4177](https://github.com/windmill-labs/windmill/issues/4177)) ([0029dc1](https://github.com/windmill-labs/windmill/commit/0029dc11e9f0828c4a129586ac90a18b3f4dfe79))
+* handle snowflake partitions ([#4214](https://github.com/windmill-labs/windmill/issues/4214)) ([d1e119e](https://github.com/windmill-labs/windmill/commit/d1e119e0526933cf39320eecf7c4836cd45d0eb0))
+
 ## [1.376.1](https://github.com/windmill-labs/windmill/compare/v1.376.0...v1.376.1) (2024-08-07)
 
 

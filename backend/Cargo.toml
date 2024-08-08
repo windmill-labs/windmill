@@ -156,7 +156,7 @@ mail-send = { version = "0.4.0", features = ["builder"], default-features=false 
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
-reqwest = { version = "^0.12", features = ["json", "stream"] }
+reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
 time = "0.3.16"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
@@ -180,6 +180,7 @@ swc_ecma_parser = "=0.144.3"
 swc_ecma_ast = "=0.113.7"
 swc_ecma_visit = "=0.99.1"
 base64 = "0.21.0"
+base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
