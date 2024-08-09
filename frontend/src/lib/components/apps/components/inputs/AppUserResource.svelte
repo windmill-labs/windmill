@@ -15,6 +15,7 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -35,6 +36,15 @@
 	let outputs = initOutput($worldStore, id, {
 		result: undefined as string | undefined
 	})
+
+	let css = initCss($app.css?.['userresourcecomponent'], customCss)
+
+	$: classInput = twMerge(
+		'windmillapp w-full px-2',
+		css?.input?.class ?? '',
+		'wm-input',
+		'wm-user-resource-select'
+	)
 
 	let value: string | undefined = outputs.result.peak()?.replace('$res:', '')
 
@@ -66,8 +76,6 @@
 		}
 	}
 
-	let css = initCss($app.css?.['userresourcecomponent'], customCss)
-
 	let resourcePicker: ResourcePicker | undefined = undefined
 </script>
 
@@ -93,7 +101,10 @@
 <InitializeComponent {id} />
 {#if render}
 	<AlignWrapper {render} {verticalAlignment}>
-		<div class="relative w-full">
+		<div
+			class="relative w-full {classInput}',
+"
+		>
 			<ResourcePicker
 				expressOAuthSetup={resolvedConfig.expressOauthSetup}
 				bind:this={resourcePicker}
