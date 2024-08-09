@@ -1,5 +1,6 @@
 <script context="module" lang="ts">
 	import { writable } from 'svelte/store'
+	import Popover from '../../Popover.svelte'
 
 	interface ContextMenuRegistry {
 		id: string
@@ -18,6 +19,7 @@
 		ArrowDownFromLine,
 		Copy,
 		Expand,
+		ExternalLink,
 		Paintbrush2,
 		Scissors,
 		Trash
@@ -99,21 +101,33 @@
 			onClick: () => {
 				dispatch('fillHeight')
 			},
-			icon: ArrowDownFromLine
+			icon: ArrowDownFromLine,
+			tooltip: {
+				text: 'When set to full height, a component will extend its height to fill the entire parent container (or canvas).',
+				link: 'https://www.windmill.dev/docs/apps/app_configuration_settings/app_styling#full-height'
+			}
 		},
 		{
 			label: () => 'Expand',
 			onClick: () => {
 				dispatch('expand')
 			},
-			icon: Expand
+			icon: Expand,
+			tooltip: {
+				text: "Clicking the expand button maximizes the component's width and height, respecting other components' position.",
+				link: 'https://www.windmill.dev/docs/apps/canvas#expand-a-component'
+			}
 		},
 		{
 			label: () => (locked ? 'Unlock' : 'Lock'),
 			onClick: () => {
 				dispatch('lock')
 			},
-			icon: Anchor
+			icon: Anchor,
+			tooltip: {
+				text: 'Lock the component to prevent it from being repositioned by other components.',
+				link: 'https://www.windmill.dev/docs/apps/canvas#lock-the-position-of-a-component'
+			}
 		},
 		{
 			label: () => 'Show style panel',
@@ -121,7 +135,11 @@
 				secondaryMenuLeft?.toggle(stylePanel(), { type: 'style' })
 			},
 			icon: Paintbrush2,
-			disabled: $secondaryMenuLeft.isOpen
+			disabled: $secondaryMenuLeft.isOpen,
+			tooltip: {
+				text: 'Use style panel to define custom CSS and Tailwind classes for the components.',
+				link: 'https://www.windmill.dev/docs/apps/app_configuration_settings/app_styling'
+			}
 		},
 
 		{
@@ -156,30 +174,51 @@
 						{#each menuItems as item}
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<button
-								class={twMerge(
-									'flex items-center p-2 hover:bg-surface-hover cursor-pointer transition-all rounded-md  w-full',
-									item.color === 'red' && 'text-red-500',
-									item.color === 'green' && 'text-green-500',
-									item.color === 'blue' && 'text-blue-500',
-									item.disabled && 'opacity-50 cursor-not-allowed'
-								)}
-								on:click={() => {
-									item.onClick()
-									closeContextMenu()
-								}}
-								disabled={item.disabled}
-							>
-								<!-- svelte-ignore missing-declaration -->
-								<svelte:component this={item.icon} class="w-4 h-4" />
 
-								<span class="ml-2 text-xs">{item.label()}</span>
-								{#if item.shortcut}
-									<span class="ml-auto text-xs text-gray-400">
-										{item.shortcut}
-									</span>
-								{/if}
-							</button>
+							<Popover
+								notClickable
+								placement="right"
+								popupClass="z-[7000]"
+								disablePopup={!item.tooltip}
+								appearTimeout={800}
+							>
+								<svelte:fragment slot="text"
+									>{item.tooltip?.text}
+									{#if item.tooltip?.link}
+										<a href={item.tooltip.link} target="_blank" class="text-blue-300 text-xs">
+											<div class="flex flex-row gap-2 mt-4">
+												See documentation
+												<ExternalLink size="16" />
+											</div>
+										</a>
+									{/if}</svelte:fragment
+								>
+
+								<button
+									class={twMerge(
+										'flex items-center p-2 hover:bg-surface-hover cursor-pointer transition-all rounded-md  w-full',
+										item.color === 'red' && 'text-red-500',
+										item.color === 'green' && 'text-green-500',
+										item.color === 'blue' && 'text-blue-500',
+										item.disabled && 'opacity-50 cursor-not-allowed'
+									)}
+									on:click={() => {
+										item.onClick()
+										closeContextMenu()
+									}}
+									disabled={item.disabled}
+								>
+									<!-- svelte-ignore missing-declaration -->
+									<svelte:component this={item.icon} class="w-4 h-4" />
+
+									<span class="ml-2 text-xs">{item.label()}</span>
+									{#if item.shortcut}
+										<span class="ml-auto text-xs text-gray-400">
+											{item.shortcut}
+										</span>
+									{/if}
+								</button>
+							</Popover>
 						{/each}
 					</div>
 				</div>
