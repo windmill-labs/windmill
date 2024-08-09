@@ -37,7 +37,7 @@
 	>
 		<Cross class="mx-[5px]" size={15} />
 	</button>
-	<div id="flow-editor-insert-module">
+	<div id="flow-editor-insert-module" class="z-50">
 		<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} {disableAi} />
 
 		{#if funcDesc.length === 0}
