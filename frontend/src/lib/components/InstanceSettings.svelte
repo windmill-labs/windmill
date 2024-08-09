@@ -144,16 +144,27 @@
 
 	let resourceName = ''
 
-	function parseDate(license_key: string): string | undefined {
-		let splitted = license_key.split('.')
+	function parseLicenseKey(key: string): {
+		valid: boolean
+		expiration?: string
+	} {
+		let splitted = key.split('.')
 		if (splitted.length >= 3) {
 			try {
 				let i = parseInt(splitted[1])
 				let date = new Date(i * 1000)
-				return date.toLocaleDateString()
+				const stringDate = date.toLocaleDateString()
+				if (stringDate !== 'Invalid Date') {
+					return {
+						valid: date.getTime() > Date.now(),
+						expiration: date.toLocaleDateString()
+					}
+				}
 			} catch {}
 		}
-		return undefined
+		return {
+			valid: false
+		}
 	}
 
 	let to: string = ''
@@ -191,7 +202,9 @@
 	export async function renewLicenseKey() {
 		renewing = true
 		try {
-			await SettingService.renewLicenseKey()
+			await SettingService.renewLicenseKey({
+				licenseKey: values['license_key'] || undefined
+			})
 			sendUserToast('Key renewal successful')
 			loadSettings()
 		} catch (err) {
@@ -206,7 +219,9 @@
 	export async function openCustomerPortal() {
 		opening = true
 		try {
-			const url = await SettingService.createCustomerPortalSession()
+			const url = await SettingService.createCustomerPortalSession({
+				licenseKey: values['license_key'] || undefined
+			})
 			window.open(url, '_blank')
 		} finally {
 			opening = false
@@ -492,6 +507,7 @@
 													</div>
 												{/if}
 											{:else if setting.fieldType == 'license_key'}
+												{@const { valid, expiration } = parseLicenseKey(values[setting.key] ?? '')}
 												<div class="flex gap-2">
 													<Password
 														small
@@ -516,12 +532,24 @@
 												</div>
 												<div class="mt-1 flex flex-col gap-1 items-start">
 													{#if values[setting.key]?.length > 0}
-														{#if parseDate(values[setting.key])}
+														{#if valid}
 															<div class="flex flex-row gap-1 items-center">
 																<Info size={12} class="text-tertiary" />
 																<span class="text-tertiary text-xs"
-																	>License key expires on {parseDate(values[setting.key])}</span
+																	>License key expires on {expiration ?? ''}</span
 																>
+															</div>
+														{:else if expiration}
+															<div class="flex flex-row gap-1 items-center">
+																<AlertCircle size={12} class="text-red-600" />
+																<span class="text-red-600 text-xs"
+																	>License key expired on {expiration}</span
+																>
+															</div>
+														{:else}
+															<div class="flex flex-row gap-1 items-center">
+																<AlertCircle size={12} class="text-red-600" />
+																<span class="text-red-600 text-xs">Invalid license key format</span>
 															</div>
 														{/if}
 													{/if}
@@ -581,7 +609,7 @@
 														</div>
 													{/if}
 
-													{#if $enterpriseLicense}
+													{#if valid || expiration}
 														<div class="flex flex-row gap-2 mt-1">
 															<Button
 																on:click={renewLicenseKey}
