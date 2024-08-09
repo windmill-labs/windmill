@@ -31,6 +31,7 @@
 			| undefined
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
+		selected: boolean
 	}
 
 	$: idx = data.modules?.findIndex((m) => m.id === data.module.id)
@@ -63,7 +64,9 @@
 		on:delete={(e) => {
 			data.eventHandlers.delete(e.detail, '')
 		}}
-		on:insert
+		on:insert={(e) => {
+			data.eventHandlers.insert(e.detail)
+		}}
 		on:move
 		on:newBranch
 		on:select

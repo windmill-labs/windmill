@@ -4,7 +4,7 @@ import { type Node, type Edge } from '@xyflow/svelte'
 export type GraphEventHandlers = {
 	insert: (detail) => void
 	deleteBranch: (detail, label: string) => void
-	select: (mod: FlowModule) => void
+	select: (modId: string) => void
 	delete: (detail, label: string) => void
 	newBranch: (detail, label: string) => void
 	move: (module: FlowModule, modules: FlowModule[], index: number) => void
@@ -130,6 +130,9 @@ export default function graphBuilder(
 							offset: currentOffset,
 							label: `Branch ${branchIndex + 1}`,
 							id: module.id,
+							branchIndex: branchIndex,
+							modules: modules,
+							eventHandlers: eventHandlers,
 							...extra
 						},
 						position: { x: -1, y: -1 },
@@ -158,6 +161,7 @@ export default function graphBuilder(
 						id: module.id,
 						module: module,
 						modules: modules,
+						eventHandlers: eventHandlers,
 						...extra
 					},
 					position: { x: -1, y: -1 },
@@ -173,6 +177,7 @@ export default function graphBuilder(
 						id: module.id,
 						module: module,
 						modules: modules,
+						eventHandlers: eventHandlers,
 						...extra
 					},
 					position: { x: -1, y: -1 },
@@ -194,6 +199,7 @@ export default function graphBuilder(
 						offset: currentOffset + 50,
 						module: module,
 						modules: modules,
+						eventHandlers: eventHandlers,
 						...extra
 					},
 					position: { x: -1, y: -1 },

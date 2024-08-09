@@ -43,7 +43,6 @@
 			: edgePath
 </script>
 
-<BaseEdge path={completeEdge} {markerEnd} {style} />
 <EdgeLabelRenderer>
 	{#if data?.insertable}
 		<div
@@ -54,6 +53,7 @@
 		</div>
 	{/if}
 </EdgeLabelRenderer>
+<BaseEdge path={completeEdge} {markerEnd} {style} />
 
 <style>
 	.edgeButtonContainer {

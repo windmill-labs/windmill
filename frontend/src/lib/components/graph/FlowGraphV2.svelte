@@ -120,7 +120,8 @@
 		{
 			disableAi,
 			insertable,
-			flowModuleStates
+			flowModuleStates,
+			selectedId: $selectedId
 		},
 		failureModule,
 		{
@@ -131,12 +132,12 @@
 			insert: (detail) => {
 				dispatch('insert', detail)
 			},
-			select: (mod) => {
+			select: (modId) => {
 				if (!notSelectable) {
-					if ($selectedId != mod.id) {
-						$selectedId = mod.id
+					if ($selectedId != modId) {
+						$selectedId = modId
 					}
-					dispatch('select', mod)
+					dispatch('select', modId)
 				}
 			},
 			delete: (detail, label) => {
@@ -249,5 +250,9 @@
 	}
 	:global(.svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
+	}
+
+	:global(.svelte-flow__edgelabel-renderer) {
+		@apply z-50;
 	}
 </style>
