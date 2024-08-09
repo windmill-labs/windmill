@@ -845,6 +845,12 @@ paths:
       operationId: renewLicenseKey
       tags:
         - setting
+      parameters:
+        - name: license_key
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: status
@@ -859,6 +865,12 @@ paths:
       operationId: createCustomerPortalSession
       tags:
         - setting
+      parameters:
+        - name: license_key
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: url to portal
