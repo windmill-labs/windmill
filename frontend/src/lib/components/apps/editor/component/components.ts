@@ -2265,7 +2265,7 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}/resource_select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
-			input: { style: '' }
+			input: { style: '', class: '' }
 		},
 		initialData: {
 			verticalAlignment: 'center',

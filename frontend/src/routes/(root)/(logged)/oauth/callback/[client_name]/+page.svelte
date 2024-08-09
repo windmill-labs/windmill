@@ -5,6 +5,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	let client_name = $page.params.client_name
 	let error = $page.url.searchParams.get('error')
@@ -24,6 +25,7 @@
 					clientName: client_name,
 					requestBody: { code, state }
 				})
+				sendUserToast('successful', false)
 				window.opener.postMessage({ type: 'success', res, resource_type: client_name }, '*')
 				// goto(`/resources?resource_type=${client_name}`)
 			} catch (e) {

@@ -161,10 +161,13 @@
 	}
 
 	function popupListener(event) {
+		console.log('popupListener', event.data, event.origin, window.location.origin)
 		let data = event.data
-		if (event.origin !== window.location.origin) {
+		if (event.origin == null || event.origin !== window.location.origin) {
 			return
 		}
+
+		window.removeEventListener('message', popupListener)
 
 		if (data.type === 'error') {
 			sendUserToast(event.data.error, true)
@@ -212,7 +215,7 @@
 			// if (!newPageOAuth) {
 			// 	window.location.href = url.toString()
 			// } else {
-			window.addEventListener('message', popupListener, { once: true })
+			window.addEventListener('message', popupListener)
 			window.open(url.toString(), '_blank', 'popup=true')
 			step += 1
 

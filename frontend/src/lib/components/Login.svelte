@@ -173,6 +173,7 @@
 		if (data.type === 'error') {
 			sendUserToast(event.data.error, true)
 		} else if (data.type === 'success') {
+			window.removeEventListener('message', popupListener)
 			dispatch('login')
 		}
 	}
@@ -187,7 +188,7 @@
 		let url = base + '/api/oauth/login/' + provider
 		if (popup) {
 			localStorage.setItem('closeUponLogin', 'true')
-			window.addEventListener('message', popupListener, { once: true })
+			window.addEventListener('message', popupListener)
 			window.open(url, '_blank', 'popup')
 		} else {
 			window.location.href = url
