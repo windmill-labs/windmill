@@ -56,9 +56,9 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					},
 					actions: [],
 					numberOfSubgrids: 1,
-					id: 'g'
+					id: 'topbar'
 				},
-				id: 'g'
+				id: 'topbar'
 			}
 		],
 		fullscreen: false,
@@ -410,7 +410,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					id: 'f'
 				}
 			],
-			'g-0': [
+			'topbar-0': [
 				{
 					'3': {
 						fixed: false,
@@ -481,9 +481,9 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 						actions: [],
 						horizontalAlignment: 'left',
 						verticalAlignment: 'center',
-						id: 'h'
+						id: 'title'
 					},
-					id: 'h'
+					id: 'title'
 				},
 				{
 					'3': {
@@ -515,9 +515,9 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 						menuItems: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
-						id: 'i'
+						id: 'recomputeall'
 					},
-					id: 'i'
+					id: 'recomputeall'
 				}
 			]
 		}
@@ -592,7 +592,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 			},
 			{
 				'3': {
-					fixed: false,
+					fixed: true,
 					x: 0,
 					y: 8,
 					fullHeight: false,
@@ -600,7 +600,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					h: 2
 				},
 				'12': {
-					fixed: false,
+					fixed: true,
 					x: 0,
 					y: 0,
 					fullHeight: false,
@@ -618,9 +618,9 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					},
 					actions: [],
 					numberOfSubgrids: 1,
-					id: 'g'
+					id: 'topbar'
 				},
-				id: 'g'
+				id: 'topbar'
 			}
 		],
 		fullscreen: false,
@@ -973,7 +973,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					id: 'f'
 				}
 			],
-			'g-0': [
+			'topbar-0': [
 				{
 					'3': {
 						fixed: false,
@@ -1044,9 +1044,9 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						actions: [],
 						horizontalAlignment: 'left',
 						verticalAlignment: 'center',
-						id: 'h'
+						id: 'title'
 					},
-					id: 'h'
+					id: 'title'
 				},
 				{
 					'3': {
@@ -1078,9 +1078,9 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 						menuItems: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
-						id: 'i'
+						id: 'recomputeall'
 					},
-					id: 'i'
+					id: 'recomputeall'
 				}
 			]
 		}
