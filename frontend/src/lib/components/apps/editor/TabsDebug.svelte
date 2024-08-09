@@ -22,8 +22,10 @@
 <button
 	title={isConditionalDebugMode ? 'Debug conditions' : 'Debug tabs'}
 	class={classNames(
-		'text-2xs font-bold w-fit cursor-pointer rounded',
-		isManuallySelected ? 'hover:bg-red-200 hover:text-red-800' : ' hover:text-indigo-800'
+		'text-2xs font-bold w-fit h-full cursor-pointer rounded',
+		isManuallySelected
+			? 'hover:bg-red-200 hover:text-red-800'
+			: ' hover:text-indigo-800 hover:bg-indigo-300'
 	)}
 	on:click={() => dispatch('triggerInlineEditor')}
 	on:pointerdown|stopPropagation
@@ -46,12 +48,8 @@
 								(selected ?? 0) + 1
 							}`}{/if}
 					</div>
-				{:else if isSmall}<div class="flex h-full w-fit items-center flex-nowrap"
-						><Bug size={11} /></div
-					>{:else}
-					<div>
-						{isConditionalDebugMode ? `Debug conditions` : `Debug tabs`}
-					</div>
+				{:else if isSmall}<Bug size={11} />{:else}
+					{isConditionalDebugMode ? `Debug conditions` : `Debug tabs`}
 				{/if}
 			</div>
 		</svelte:fragment>

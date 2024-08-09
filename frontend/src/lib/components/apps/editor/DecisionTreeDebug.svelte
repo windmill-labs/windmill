@@ -75,18 +75,30 @@
 	<button
 		title={'Debug tabs'}
 		class={classNames(
+<<<<<<< HEAD
 			'px-1 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 			componentIsDebugging
 				? ' hover:bg-red-300 hover:text-red-800'
 				: ' hover:bg-indigo-300 hover:text-indigo-800'
+=======
+			'px-1 text-2xs font-bold rounded cursor-pointer w-fit h-ful',
+			isDebugging($debuggingComponents, id)
+				? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
+				: 'text-indigo-600 hover:bg-indigo-300 hover:text-indigo-800'
+>>>>>>> a8e880e12f7b32e814c58b1de87597194a6a71eb
 		)}
 		on:click={() => dispatch('triggerInlineEditor')}
 		on:pointerdown|stopPropagation
 	>
 		<ButtonDropdown hasPadding={false}>
 			<svelte:fragment slot="buttonReplacement">
+<<<<<<< HEAD
 				<div class="px-1 w-fit">
 					{#if componentIsDebugging}
+=======
+				<div class="px-1 h-full">
+					{#if isDebugging($debuggingComponents, id)}
+>>>>>>> a8e880e12f7b32e814c58b1de87597194a6a71eb
 						<div class="flex flex-row items-center gap-2">
 							{`${isSmall ? '' : 'Debugging node'} ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
 							<button
