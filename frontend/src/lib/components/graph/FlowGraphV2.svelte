@@ -64,7 +64,7 @@
 	let fullWidth = 0
 	let width = 0
 
-	function layoutNodes(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
 		for (const n of nodes) {
 			if (seenId.includes(n.id)) {
@@ -100,7 +100,9 @@
 			id: des.data.id,
 			position: {
 				x: des.x
-					? (des.data.data.offset ?? 0) +
+					? // @ts-ignore
+					  (des.data.data.offset ?? 0) +
+					  // @ts-ignore
 					  des.x +
 					  (fullSize ? fullWidth : width) / 2 -
 					  boxSize.width / 2 -
@@ -110,17 +112,15 @@
 			}
 		}))
 
-		return {
-			nodes: newNodes,
-			edges
-		}
+		return newNodes
 	}
 
-	const { nodes: initialNodes, edges: initialEdges } = graphBuilder(
+	$: graph = graphBuilder(
 		modules,
 		{
 			disableAi,
-			insertable
+			insertable,
+			flowModuleStates
 		},
 		failureModule,
 		{
@@ -155,64 +155,20 @@
 			}
 		}
 	)
-	const { nodes: layoutedNodes, edges: layoutedEdges } = layoutNodes(initialNodes, initialEdges)
 
-	const nodes = writable<Node[]>(layoutedNodes)
-	const edges = writable<Edge[]>(layoutedEdges)
-
-	let renderCount: number = 0
+	const nodes = writable<Node[]>([])
+	const edges = writable<Edge[]>([])
 
 	function updateStores() {
-		const { nodes: initialNodes, edges: initialEdges } = graphBuilder(
-			modules,
-			{
-				disableAi,
-				insertable
-			},
-			failureModule,
-			{
-				deleteBranch: (detail, label) => {
-					$selectedId = label
-					dispatch('deleteBranch', detail)
-				},
-				insert: (detail) => {
-					dispatch('insert', detail)
-				},
-				select: (mod) => {
-					if (!notSelectable) {
-						if ($selectedId != mod.id) {
-							$selectedId = mod.id
-						}
-						dispatch('select', mod)
-					}
-				},
-				delete: (detail, label) => {
-					$selectedId = label
-
-					dispatch('delete', detail)
-				},
-				newBranch: (detail, label) => {
-					dispatch('newBranch', detail)
-				},
-				move: (module, modules) => {
-					dispatch('move', { module, modules })
-				},
-				selectIteration: (detail, moduleId) => {
-					dispatch('selectIteration', { ...detail, moduleId: moduleId })
-				}
-			}
-		)
-		const { nodes: layoutedNodes, edges: layoutedEdges } = layoutNodes(initialNodes, initialEdges)
-
-		$nodes = layoutedNodes
-		$edges = layoutedEdges
+		$nodes = layoutNodes(graph?.nodes)
+		$edges = graph.edges
 
 		renderCount++
 	}
 
-	$: console.log('rebuildOnChange', rebuildOnChange)
+	$: graph && updateStores()
 
-	$: rebuildOnChange && updateStores()
+	let renderCount: number = 0
 
 	const nodeTypes = {
 		input2: InputNode,

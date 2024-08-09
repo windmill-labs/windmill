@@ -7,6 +7,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { GraphModuleState } from '../../model'
+	import { getStateColor } from '../../util'
 
 	export let data: {
 		offset: number
@@ -28,12 +30,18 @@
 			| { flowJobs: string[]; selected: number; flowJobsSuccess: (boolean | undefined)[] }
 			| undefined
 		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
 	}
 
 	$: idx = data.modules?.findIndex((m) => m.id === data.module.id)
 
 	const dispatch = createEventDispatcher()
 	let openMenu: boolean | undefined = undefined
+
+	let type = data.flowModuleStates?.[data.module.id]?.type
+	if (!type && data.flowJobs) {
+		type = 'InProgress'
+	}
 </script>
 
 <NodeWrapper offset={data.offset} let:darkMode>
@@ -44,7 +52,7 @@
 		insertableEnd={data.insertableEnd}
 		annotation={data.annotation}
 		branchable={data.branchable}
-		bgColor={darkMode ? '#2e3440' : '#dfe6ee'}
+		bgColor={getStateColor(type, darkMode)}
 		modules={data.modules ?? []}
 		moving={data.moving}
 		duration_ms={data.duration_ms}

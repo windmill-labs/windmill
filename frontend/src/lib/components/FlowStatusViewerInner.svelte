@@ -16,12 +16,7 @@
 	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import {
-		FlowGraph,
-		type DurationStatus,
-		type FlowStatusViewerContext,
-		type GraphModuleState
-	} from './graph'
+	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { emptyString, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
@@ -33,6 +28,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
+	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -914,7 +910,7 @@
 							{/each}
 						</div>
 
-						<FlowGraph
+						<FlowGraphV2
 							download
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
