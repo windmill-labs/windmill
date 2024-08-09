@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.378.0](https://github.com/windmill-labs/windmill/compare/v1.377.1...v1.378.0) (2024-08-09)
+
+
+### Features
+
+* **cli:** add customerBundler support ([70d1e6c](https://github.com/windmill-labs/windmill/commit/70d1e6c7208b59890ad4d15cad28b1f32d7970d2))
+* windmill embed ([d56a956](https://github.com/windmill-labs/windmill/commit/d56a956b9a471cca4042f43ba4e3922e42f121f1))
+
+
+### Bug Fixes
+
+* **frontend:** improve default id of the components of the topbar ([#4222](https://github.com/windmill-labs/windmill/issues/4222)) ([7115a35](https://github.com/windmill-labs/windmill/commit/7115a3577947c52aa72edcc134dcb8e739208df0))
+* **frontend:** support plus sign in emails format fields [#4223](https://github.com/windmill-labs/windmill/issues/4223) ([c0853ea](https://github.com/windmill-labs/windmill/commit/c0853eafc9f9bf6d454c6a70800c98c75c9d8ba3))
+
 ## [1.377.1](https://github.com/windmill-labs/windmill/compare/v1.377.0...v1.377.1) (2024-08-08)
 
 
