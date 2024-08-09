@@ -166,9 +166,6 @@ export async function handleFile(
         platform: "node",
         packages: "bundle",
         target: "node20.15.1",
-        loader: {
-          ".node": "file",
-        },
       });
       bundleContent = out.outputFiles[0].text;
       if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
