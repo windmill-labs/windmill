@@ -244,10 +244,11 @@ export function createNewGridItem(
 	data: AppComponent,
 	columns?: Record<number, any>,
 	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
-	recOverride?: Record<number, Size>
+	recOverride?: Record<number, Size>,
+	fixed?: boolean
 ): GridItem {
 	const newComponent = {
-		fixed: false,
+		fixed: fixed ?? false,
 		x: initialPosition.x,
 		y: initialPosition.y,
 		fullHeight: false
@@ -389,7 +390,9 @@ export function insertNewGridItem(
 	columns?: Record<string, any>,
 	keepId?: string,
 	initialPosition: { x: number; y: number } = { x: 0, y: 0 },
-	recOverride?: Record<number, Size>
+	recOverride?: Record<number, Size>,
+	keepSubgrids?: boolean,
+	fixed?: boolean
 ): string {
 	const id = keepId ?? getNextGridItemId(app)
 
@@ -404,7 +407,7 @@ export function insertNewGridItem(
 	}
 
 	// We only want to set subgrids when we are not moving
-	if (!keepId) {
+	if (!keepId || keepSubgrids) {
 		for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
 			app.subgrids[`${id}-${i}`] = []
 		}
@@ -436,7 +439,7 @@ export function insertNewGridItem(
 
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	const newItem = createNewGridItem(grid, id, data, columns, initialPosition, recOverride)
+	const newItem = createNewGridItem(grid, id, data, columns, initialPosition, recOverride, fixed)
 	grid.push(newItem)
 	return id
 }
@@ -1094,7 +1097,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 			subGridIndex: 0
 		},
 		undefined,
-		undefined,
+		'title',
 		undefined,
 		{
 			3: {
@@ -1118,7 +1121,7 @@ export function setUpTopBarComponentContent(id: string, app: App) {
 			subGridIndex: 0
 		},
 		undefined,
-		undefined,
+		'recomputeall',
 		undefined,
 		{
 			3: {
