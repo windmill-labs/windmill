@@ -251,21 +251,24 @@
 
 		let last = root ? undefined : flowJobIds?.flowJobs?.[flowJobIds?.flowJobs.length - 1]
 
+		// console.log(innerModule, modId)
+
 		Object.entries(recursiveRefresh).forEach(([key, v]) => {
 			if (modId) {
 				if ((root && key == loopJob?.job) || key == last) {
 					v(false)
-				} else {
 				}
 			} else {
 				v(false)
 			}
 		})
+
 		let njob = flowJobIds
 			? root && modId
 				? storedListJobs?.[loopJob.job]
-				: storedListJobs[flowJobIds.length - 1]
+				: storedListJobs?.[flowJobIds.length - 1]
 			: job
+
 		if (njob) {
 			dispatch('jobsLoaded', { job: njob, force: true })
 		}

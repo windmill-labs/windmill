@@ -15,11 +15,13 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { createEventDispatcher } from 'svelte'
 
 	export let rd: string | undefined = undefined
 	export let email: string | undefined = undefined
 	export let password: string | undefined = undefined
 	export let error: string | undefined = undefined
+	export let popup: boolean = false
 
 	const providers = [
 		{
@@ -160,6 +162,20 @@
 		}
 	}
 
+	const dispatch = createEventDispatcher()
+
+	function popupListener(event) {
+		let data = event.data
+		if (event.origin !== window.location.origin) {
+			return
+		}
+
+		if (data.type === 'error') {
+			sendUserToast(event.data.error, true)
+		} else if (data.type === 'success') {
+			dispatch('login')
+		}
+	}
 	function storeRedirect(provider: string) {
 		if (rd) {
 			try {
@@ -168,7 +184,14 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
-		window.location.href = base + '/api/oauth/login/' + provider
+		let url = base + '/api/oauth/login/' + provider
+		if (popup) {
+			localStorage.setItem('closeUponLogin', 'true')
+			window.addEventListener('message', popupListener, { once: true })
+			window.open(url, '_blank', 'popup')
+		} else {
+			window.location.href = url
+		}
 	}
 
 	$: error && sendUserToast(error, true)
