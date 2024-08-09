@@ -13,9 +13,17 @@
 <script lang="ts">
 	import { getModifierKey } from '$lib/utils'
 
-	import { Copy, Paintbrush2, Scissors, Trash } from 'lucide-svelte'
+	import {
+		Anchor,
+		ArrowDownFromLine,
+		Copy,
+		Expand,
+		Paintbrush2,
+		Scissors,
+		Trash
+	} from 'lucide-svelte'
 	import ComponentCallbacks from './component/ComponentCallbacks.svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import DeleteComponent from './settingsPanel/DeleteComponent.svelte'
 	import { secondaryMenuLeft } from './settingsPanel/secondaryMenu'
@@ -26,6 +34,9 @@
 	let contextMenuVisible = false
 	let menuX = 0
 	let menuY = 0
+
+	export let locked: boolean = false
+	export let fullHeight: boolean = false
 
 	function handleRightClick(event: MouseEvent) {
 		event.preventDefault()
@@ -61,11 +72,13 @@
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	const { movingcomponents, stylePanel } = getContext<AppEditorContext>('AppEditorContext')
 
+	const dispatch = createEventDispatcher()
+
 	let deleteComponent: DeleteComponent | undefined = undefined
 
 	const menuItems = [
 		{
-			label: 'Cut',
+			label: () => 'Cut',
 			onClick: () => {
 				componentCallbacks?.handleCut(new KeyboardEvent('keydown'))
 			},
@@ -74,7 +87,7 @@
 			disabled: $movingcomponents?.includes($selectedComponent?.[0] ?? '')
 		},
 		{
-			label: 'Copy',
+			label: () => 'Copy',
 			onClick: () => {
 				componentCallbacks?.handleCopy(new KeyboardEvent('keydown'))
 			},
@@ -82,7 +95,28 @@
 			shortcut: `${getModifierKey()}C`
 		},
 		{
-			label: 'Show style panel',
+			label: () => (fullHeight ? 'Undo fill height' : 'Fill height'),
+			onClick: () => {
+				dispatch('fillHeight')
+			},
+			icon: ArrowDownFromLine
+		},
+		{
+			label: () => 'Expand',
+			onClick: () => {
+				dispatch('expand')
+			},
+			icon: Expand
+		},
+		{
+			label: () => (locked ? 'Unlock' : 'Lock'),
+			onClick: () => {
+				dispatch('lock')
+			},
+			icon: Anchor
+		},
+		{
+			label: () => 'Show style panel',
 			onClick: () => {
 				secondaryMenuLeft?.toggle(stylePanel(), { type: 'style' })
 			},
@@ -91,7 +125,7 @@
 		},
 
 		{
-			label: 'Delete',
+			label: () => 'Delete',
 			onClick: () => {
 				deleteComponent?.removeGridElement()
 			},
@@ -139,7 +173,7 @@
 								<!-- svelte-ignore missing-declaration -->
 								<svelte:component this={item.icon} class="w-4 h-4" />
 
-								<span class="ml-2 text-xs">{item.label}</span>
+								<span class="ml-2 text-xs">{item.label()}</span>
 								{#if item.shortcut}
 									<span class="ml-auto text-xs text-gray-400">
 										{item.shortcut}
