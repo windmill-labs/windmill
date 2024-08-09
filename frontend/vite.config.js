@@ -34,7 +34,7 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [mkcert(), sveltekit(), circleDependency({ circleImportThrowErr: false })],
+	plugins: [sveltekit(), circleDependency({ circleImportThrowErr: false })],
 	define: {
 		__pkg__: version
 	},
