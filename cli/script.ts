@@ -172,6 +172,7 @@ export async function handleFile(
           format: "cjs",
           bundle: true,
           write: false,
+          external: codebase.external,
           platform: "node",
           packages: "bundle",
           target: "node20.15.1",
