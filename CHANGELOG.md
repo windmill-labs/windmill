@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.377.1](https://github.com/windmill-labs/windmill/compare/v1.377.0...v1.377.1) (2024-08-08)
+
+
+### Bug Fixes
+
+* **frontend:** fix timezone issues for Date only inputs ([#4215](https://github.com/windmill-labs/windmill/issues/4215)) ([2334802](https://github.com/windmill-labs/windmill/commit/2334802384e86c4269e1cbfd4f6f98a9a1e58f68))
+
 ## [1.377.0](https://github.com/windmill-labs/windmill/compare/v1.376.1...v1.377.0) (2024-08-08)
 
 

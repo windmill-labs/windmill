@@ -31,6 +31,8 @@
 				workspace: $page.params.workspace,
 				path: $page.params.secret
 			})
+			noPermission = false
+			notExists = false
 		} catch (e) {
 			if (e.status == 401) {
 				noPermission = true
@@ -42,8 +44,9 @@
 
 	if (BROWSER) {
 		setLicense()
-		loadApp()
-		loadUser()
+		loadUser().then(() => {
+			loadApp()
+		})
 	}
 
 	async function loadUser() {
@@ -95,7 +98,17 @@
 			in and have read access for this app{/if}</div
 	>
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
-		<Login rd={$page.url.toString()} />
+		<Login
+			on:login={() => {
+				// window.location.reload()
+				loadUser().then(() => {
+					loadApp()
+				})
+				app = app
+			}}
+			popup
+			rd={$page.url.toString()}
+		/>
 	</div>
 {:else if app}
 	{#key app}
