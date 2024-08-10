@@ -45,6 +45,23 @@
 			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
 			.filter((x) => x != undefined) as string[]
 	}
+
+	function handleLock(id: string) {
+		const gridItem = findGridItem($app, id)
+		if (gridItem) {
+			toggleFixed(gridItem)
+		}
+		$app = $app
+	}
+
+	function handleFillHeight(id: string) {
+		const gridItem = findGridItem($app, id)
+		const b = $breakpoint === 'sm' ? 3 : 12
+		if (gridItem?.[b]) {
+			gridItem[b].fullHeight = !gridItem[b].fullHeight
+		}
+		$app = $app
+	}
 </script>
 
 <div class="w-full z-[1000] overflow-visible h-full">
@@ -137,7 +154,23 @@
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
 				>
-					<GridEditorMenu id={dataItem.id}>
+					<GridEditorMenu
+						id={dataItem.id}
+						on:expand={() => {
+							push(history, $app)
+							$selectedComponent = [dataItem.id]
+							expandGriditem($app.grid, dataItem.id, $breakpoint)
+							$app = $app
+						}}
+						on:lock={() => {
+							handleLock(dataItem.id)
+						}}
+						on:fillHeight={() => {
+							handleFillHeight(dataItem.id)
+						}}
+						locked={isFixed(dataItem)}
+						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+					>
 						<Component
 							{hidden}
 							render={true}
@@ -146,25 +179,10 @@
 							locked={isFixed(dataItem)}
 							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 							on:lock={() => {
-								const gridItem = findGridItem($app, dataItem.id)
-								if (gridItem) {
-									toggleFixed(gridItem)
-								}
-								$app = $app
-							}}
-							on:expand={() => {
-								push(history, $app)
-								$selectedComponent = [dataItem.id]
-								expandGriditem($app.grid, dataItem.id, $breakpoint)
-								$app = $app
+								handleLock(dataItem.id)
 							}}
 							on:fillHeight={() => {
-								const gridItem = findGridItem($app, dataItem.id)
-								const b = $breakpoint === 'sm' ? 3 : 12
-								if (gridItem?.[b]) {
-									gridItem[b].fullHeight = !gridItem[b].fullHeight
-								}
-								$app = $app
+								handleFillHeight(dataItem.id)
 							}}
 						/>
 					</GridEditorMenu>
