@@ -281,6 +281,15 @@ settings. Do note that there is a limit of 10 SSO users on the community
 edition.
 
 [See documentation](https://www.windmill.dev/docs/misc/setup_oauth).
+### Code Style Guidelines
+
+Naming Conventions:
+
+Use camelCase for variables and functions.
+Use PascalCase for class names.
+Use uppercase letters for constants.
+
+Commenting: Write clear, concise comments to explain complex logic. Use // for single-line comments and /* */ for multi-line comments.
 
 ### Commercial license
 
