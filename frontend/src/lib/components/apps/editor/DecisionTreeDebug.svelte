@@ -6,10 +6,14 @@
 	import type { AppViewerContext } from '../types'
 	import type { DecisionTreeNode } from './component'
 	import { isDebugging } from './settingsPanel/decisionTree/utils'
-	import { X } from 'lucide-svelte'
+	import { X, Bug } from 'lucide-svelte'
 
 	export let nodes: DecisionTreeNode[] = []
 	export let id: string
+	export let isSmall = false
+	export let componentIsDebugging = false
+
+	$: componentIsDebugging = isDebugging($debuggingComponents, id)
 
 	const { componentControl, debuggingComponents, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -71,20 +75,20 @@
 	<button
 		title={'Debug tabs'}
 		class={classNames(
-			'text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
-			isDebugging($debuggingComponents, id)
-				? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
-				: 'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+			'px-1 text-2xs font-bold rounded cursor-pointer w-fit h-full',
+			componentIsDebugging
+				? ' hover:bg-red-300 hover:text-red-800'
+				: ' hover:bg-indigo-300 hover:text-indigo-800'
 		)}
 		on:click={() => dispatch('triggerInlineEditor')}
 		on:pointerdown|stopPropagation
 	>
 		<ButtonDropdown hasPadding={false}>
 			<svelte:fragment slot="buttonReplacement">
-				<div class="px-1">
-					{#if isDebugging($debuggingComponents, id)}
+				<div class="px-1 w-fit">
+					{#if componentIsDebugging}
 						<div class="flex flex-row items-center gap-2">
-							{`Debugging node ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
+							{`${isSmall ? '' : 'Debugging node'} ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
 							<button
 								on:click={() => {
 									$componentControl?.[id]?.setTab?.(0)
@@ -94,12 +98,14 @@
 									)
 								}}
 							>
-								<X size={14} />
+								<X size={11} />
 							</button>
 						</div>
-					{:else}
-						{`Debug nodes (current node: ${currentNodeId})`}
-					{/if}
+					{:else if isSmall}
+						<div class="flex h-full w-fit items-center"><Bug size={11} /></div>
+					{:else}<div class="whitespace-nowrap h-full"
+							>{`Debug nodes (current node: ${currentNodeId})`}</div
+						>{/if}
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="items">

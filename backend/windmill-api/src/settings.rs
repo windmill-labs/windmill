@@ -350,7 +350,7 @@ pub async fn renew_license_key() -> Result<String> {
 pub async fn renew_license_key(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
-    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db).await;
+    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, None).await;
 
     if result != "success" {
         return Err(error::Error::BadRequest(format!(
@@ -371,7 +371,7 @@ pub async fn create_customer_portal_session() -> Result<String> {
 
 #[cfg(feature = "enterprise")]
 pub async fn create_customer_portal_session() -> Result<String> {
-    let url = windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT).await?;
+    let url = windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, None).await?;
 
     return Ok(url);
 }
