@@ -1,6 +1,6 @@
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.event_name != 'pull_request' && github.repository || 'windmill-labs/windmill-test' }}
 
 name: Build windmill:main
 on:
@@ -434,6 +434,7 @@ jobs:
   build_ee_nsjail:
     needs: [build_ee]
     runs-on: ubicloud
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -482,6 +483,7 @@ jobs:
   build_ee_reports_privately:
     needs: [build_ee_nsjail]
     runs-on: ubicloud
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
