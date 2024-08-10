@@ -82,7 +82,9 @@
 			$workspaceStore = queryWorkspace
 		}
 
-		menuHidden = $page.url.searchParams.get('nomenubar') === 'true'
+		menuHidden =
+			$page.url.searchParams.get('nomenubar') === 'true' ||
+			$page.url.pathname.startsWith('/oauth/callback/')
 	}
 
 	$: updateUserStore($workspaceStore)
