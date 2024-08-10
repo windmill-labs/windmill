@@ -354,6 +354,7 @@ jobs:
   tag_latest:
     runs-on: ubicloud
     needs: [run_integration_test, build]
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -372,6 +373,7 @@ jobs:
   tag_latest_ee:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
