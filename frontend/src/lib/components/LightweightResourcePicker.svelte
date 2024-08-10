@@ -10,6 +10,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import { Plus } from 'lucide-svelte'
 	import type { AppViewerContext } from './apps/types'
+	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 
@@ -17,7 +18,11 @@
 	export let value: string | undefined = initialValue
 	export let resourceType: string | undefined = undefined
 	export let disablePortal = false
+	export let expressOAuthSetup = false
+	export let disabled = false
 
+	let open = false
+	let refreshCount = 0
 	const appViewerContext = getContext<AppViewerContext>('AppViewerContext')
 
 	let valueSelect =
@@ -56,40 +61,64 @@
 
 	let drawer: Drawer | undefined = undefined
 
+	export function askNewResource() {
+		refreshCount += 1
+		open = true
+	}
+
 	function processEvent(event: MessageEvent) {
 		if (event.origin !== window.location.origin) {
 			return
 		}
 
+		if (event.data.type === 'error') {
+			sendUserToast(event.data.error, true)
+		}
 		if (event.data.type === 'refresh') {
+			window.removeEventListener('message', processEvent)
 			value = event.data.detail
 			valueSelect = { value, label: value }
 			drawer?.closeDrawer?.()
+			open = false
 		}
 	}
 </script>
 
 <DarkModeObserver bind:darkMode />
 
-<Drawer bind:this={drawer} size="800px">
-	<DrawerContent
-		title="Add a Resource"
-		on:close={drawer.closeDrawer}
-		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
-		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
-	>
-		<iframe
-			title="App connection"
-			class="w-full h-full"
-			src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
-				$workspaceStore}"
-		/>
-	</DrawerContent>
-</Drawer>
+{#if expressOAuthSetup}
+	{#if open}
+		{#key refreshCount}
+			<iframe
+				title="App connection"
+				class="w-full h-full hidden"
+				src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
+					$workspaceStore}&express=true"
+			/>
+		{/key}
+	{/if}
+{:else}
+	<Drawer bind:this={drawer} size="800px">
+		<DrawerContent
+			title="Add a Resource"
+			on:close={drawer.closeDrawer}
+			tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
+			documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
+		>
+			<iframe
+				title="App connection"
+				class="w-full h-full"
+				src="{base}/embed_connect?resource_type={resourceType}&workspace={appViewerContext?.workspace ??
+					$workspaceStore}&express=false"
+			/>
+		</DrawerContent>
+	</Drawer>
+{/if}
 
 <div class="flex flex-col w-full items-start">
 	<div class="flex flex-row gap-x-1 w-full">
 		<Select
+			{disabled}
 			portal={!disablePortal}
 			value={valueSelect}
 			on:change={(e) => {
@@ -111,14 +140,14 @@
 
 		{#if resourceType}
 			<Button
+				{disabled}
 				color="light"
 				variant="border"
 				size="xs"
 				on:click={() => {
+					open = true
 					window.removeEventListener('message', processEvent)
-					window.addEventListener('message', processEvent, {
-						once: true
-					})
+					window.addEventListener('message', processEvent)
 
 					drawer?.openDrawer?.()
 				}}

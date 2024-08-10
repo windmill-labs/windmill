@@ -63,7 +63,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -114,7 +113,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -177,7 +175,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -455,8 +452,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short
@@ -508,8 +503,6 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short
@@ -594,7 +587,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -641,7 +633,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 

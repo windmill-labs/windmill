@@ -18,6 +18,7 @@
 
 	let darkMode: boolean = false
 	const workspace = $page.url.searchParams.get('workspace')
+	const express = $page.url.searchParams.get('express') == 'true'
 
 	if (workspace) {
 		$workspaceStore = workspace
@@ -25,7 +26,7 @@
 
 	onMount(async () => {
 		if (resourceType) {
-			appConnect?.open(resourceType)
+			appConnect?.open(resourceType, express)
 		}
 	})
 </script>
@@ -67,6 +68,9 @@
 		bind:isGoogleSignin
 		bind:disabled
 		bind:manual
+		on:error={(e) => {
+			window?.parent?.postMessage({ type: 'error', error: e.detail }, '*')
+		}}
 		on:refresh={(e) => {
 			window?.parent?.postMessage({ type: 'refresh', detail: e.detail }, '*')
 		}}

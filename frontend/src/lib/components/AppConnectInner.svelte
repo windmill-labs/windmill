@@ -89,6 +89,10 @@
 		valueToken = undefined
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
+		if (manual && expressOAuthSetup) {
+			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
+			return
+		}
 		if (rt) {
 			if (!manual && expressOAuthSetup) {
 				await getScopesAndParams()

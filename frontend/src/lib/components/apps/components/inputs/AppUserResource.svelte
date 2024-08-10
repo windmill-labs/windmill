@@ -14,8 +14,8 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import LightweightResourcePicker from '$lib/components/LightweightResourcePicker.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -76,7 +76,7 @@
 		}
 	}
 
-	let resourcePicker: ResourcePicker | undefined = undefined
+	let resourcePicker: LightweightResourcePicker | undefined = undefined
 </script>
 
 {#each Object.keys(components['userresourcecomponent'].initialData.configuration) as key (key)}
@@ -105,7 +105,7 @@
 			class="relative w-full {classInput}',
 "
 		>
-			<ResourcePicker
+			<LightweightResourcePicker
 				expressOAuthSetup={resolvedConfig.expressOauthSetup}
 				bind:this={resourcePicker}
 				{value}
