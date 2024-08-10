@@ -14,6 +14,7 @@ use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
 use windmill_common::db::Authed;
+use windmill_common::ee::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
@@ -31,6 +32,13 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     schedule: &Schedule,
     authed: Option<&Authed>,
 ) -> Result<QueueTransaction<'c, R>> {
+    if !*LICENSE_KEY_VALID.read().await {
+        return Err(error::Error::BadRequest(
+            "License key is not valid. Go to your superadmin settings to update your license key."
+                .to_string(),
+        ));
+    }
+
     let sched = cron::Schedule::from_str(schedule.schedule.as_ref())
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
