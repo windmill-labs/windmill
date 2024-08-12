@@ -7,7 +7,7 @@
 
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { AppService, type AppWithLastVersion } from '$lib/gen'
+	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
@@ -25,11 +25,21 @@
 	let noPermission = false
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
+	function parseSecret(secret: string): { secret: string; jwt: string } {
+		const parts = secret.split('/')
+		return {
+			secret: parts[0],
+			jwt: parts[1]
+		}
+	}
+
+	const parsedSecret = parseSecret($page.params.secret)
+
 	async function loadApp() {
 		try {
 			app = await AppService.getPublicAppBySecret({
 				workspace: $page.params.workspace,
-				path: $page.params.secret
+				path: parsedSecret.secret
 			})
 			noPermission = false
 			notExists = false
@@ -50,6 +60,9 @@
 	}
 
 	async function loadUser() {
+		if (parsedSecret.jwt) {
+			OpenAPI.TOKEN = 'jwt_ext_' + parsedSecret.jwt
+		}
 		try {
 			userStore.set(await getUserExt($page.params.workspace))
 		} catch (e) {

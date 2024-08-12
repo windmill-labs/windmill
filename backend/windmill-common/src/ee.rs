@@ -34,11 +34,7 @@ pub async fn schedule_key_renewal(_http_client: &reqwest::Client, _db: &crate::d
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn renew_license_key(
-    _http_client: &reqwest::Client,
-    _db: &crate::db::DB,
-    _key: Option<String>,
-) -> String {
+pub async fn renew_license_key(_http_client: &reqwest::Client, _db: &crate::db::DB) -> String {
     // Implementation is not open source
     "".to_string()
 }
@@ -46,7 +42,6 @@ pub async fn renew_license_key(
 #[cfg(feature = "enterprise")]
 pub async fn create_customer_portal_session(
     _http_client: &reqwest::Client,
-    _key: Option<String>,
 ) -> error::Result<String> {
     // Implementation is not open source
     Ok("".to_string())

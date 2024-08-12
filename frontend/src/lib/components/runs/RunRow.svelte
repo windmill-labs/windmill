@@ -22,7 +22,8 @@
 	import TimeAgo from '../TimeAgo.svelte'
 	import { forLater } from '$lib/forLater'
 	import { twMerge } from 'tailwind-merge'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 
 	const dispatch = createEventDispatcher()

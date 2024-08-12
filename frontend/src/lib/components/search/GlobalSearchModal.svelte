@@ -27,7 +27,8 @@
 		SearchCode
 	} from 'lucide-svelte'
 	import JobPreview from '../runs/JobPreview.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
@@ -333,9 +334,8 @@
 	}
 
 	let mouseMoved: boolean = false
-	function handleMouseMove () {
+	function handleMouseMove() {
 		mouseMoved = true
-
 	}
 
 	onMount(() => {
@@ -531,7 +531,8 @@
 						<Popover notClickable placement="bottom-start">
 							<AlertTriangle size={16} class="text-yellow-500" />
 							<svelte:fragment slot="text">
-								Some of your search terms have been ignored because one or more parse errors:<br/><br/>
+								Some of your search terms have been ignored because one or more parse errors:<br
+								/><br />
 								<ul>
 									{#each queryParseErrors as msg}
 										<li>- {msg}</li>
@@ -545,7 +546,7 @@
 					{#if tab === 'default' || tab === 'switch-mode'}
 						{@const items = (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e))}
 						{#if items.length > 0}
-							<div class={tab === 'switch-mode' ? "p-2" : "p-2 border-b"}>
+							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
 								{#each items as el}
 									<QuickMenuItem
 										on:select={el?.action}
