@@ -32,6 +32,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
+	import { encodeState } from '$lib/utils'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -169,9 +170,12 @@
 	const nodes = writable<Node[]>([])
 	const edges = writable<Edge[]>([])
 
+	let height = 0
 	function updateStores() {
 		$nodes = layoutNodes(graph?.nodes)
 		$edges = graph.edges
+
+		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height), minHeight)
 	}
 
 	$: graph && updateStores()
@@ -209,11 +213,8 @@
 </script>
 
 <div
-	style={`min-height: ${minHeight}px; max-height: ${
-		maxHeight ? maxHeight + 'px' : 'none'
-	}; height:100%;`}
+	style={`height: ${height}px; max-height: ${maxHeight ? maxHeight + 'px' : 'none'};`}
 	bind:clientWidth={width}
-	class="h-full"
 >
 	<SvelteFlow
 		{nodes}
@@ -224,6 +225,7 @@
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		fitView
+		preventScrolling={scroll}
 		{proOptions}
 		nodesDraggable={false}
 		on:nodeclick={(e) => handleNodeClick(e)}
@@ -231,7 +233,17 @@
 		<Background class="!bg-surface-secondary" />
 		<Controls position="top-right" orientation="horizontal" showLock={false}>
 			{#if download}
-				<ControlButton on:click={() => dispatch('expand')} class="!bg-surface">
+				<ControlButton
+					on:click={() => {
+						try {
+							localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+						} catch (e) {
+							console.error('error interacting with local storage', e)
+						}
+						window.open('/view_graph', '_blank')
+					}}
+					class="!bg-surface"
+				>
 					<Expand size="14" />
 				</ControlButton>
 			{/if}

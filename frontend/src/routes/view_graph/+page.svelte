@@ -1,5 +1,5 @@
 <script lang="ts">
-	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
+	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { decodeState } from '$lib/utils'
 
 	let content = localStorage.getItem('svelvet')
@@ -8,7 +8,7 @@
 		: { modules: [], failureModule: undefined }
 </script>
 
-<FlowGraph fullSize {modules} {failureModule} />
+<FlowGraphV2 fullSize {modules} {failureModule} />
 <a
 	download="flow.json"
 	href={'data:text/json;charset=utf-8,' +
