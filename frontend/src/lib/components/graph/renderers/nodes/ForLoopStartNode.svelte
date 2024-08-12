@@ -23,6 +23,7 @@
 		insertable={false}
 		selected={false}
 		id={data.id}
+		hideId
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={getStateColor(data.flowModuleStates?.[data.id]?.type, darkMode)}
 		on:select={(e) => {

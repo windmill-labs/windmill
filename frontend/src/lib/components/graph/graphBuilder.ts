@@ -58,25 +58,29 @@ export default function graphBuilder(
 	function addEdge(
 		sourceId: string,
 		targetId: string,
-		customId?: string,
-		type?: string,
-		offset?: number
+		options?: {
+			customId?: string
+			type?: string
+			offset?: number
+			index?: number
+		}
 	) {
 		parents[targetId] = [...(parents[targetId] ?? []), sourceId]
 
 		edges.push({
-			id: customId || `edge:${sourceId}->${targetId}`,
+			id: options?.customId || `edge:${sourceId}->${targetId}`,
 			source: sourceId,
 			target: targetId,
-			type: type ?? 'edge',
+			type: options?.type ?? 'edge',
 			data: {
 				insertable: extra.insertable,
 				modules,
 				sourceId,
 				targetId,
-				offset,
+				offset: options?.offset,
 				moving,
-				eventHandlers
+				eventHandlers,
+				index: options?.index
 			}
 		})
 	}
@@ -118,7 +122,7 @@ export default function graphBuilder(
 		modules.forEach((module, index) => {
 			// Add the edge between the previous node and the current one
 			if (index > 0 && previousId) {
-				addEdge(previousId, module.id)
+				addEdge(previousId, module.id, { index })
 			}
 
 			if (module.value.type === 'rawscript') {
@@ -164,10 +168,10 @@ export default function graphBuilder(
 
 					nodes.push(startNode)
 
-					addEdge(module.id, startNode.id, undefined, 'empty')
+					addEdge(module.id, startNode.id, { type: 'empty' })
 
 					if (branch.modules.length === 0) {
-						addEdge(startNode.id, endNode.id, undefined, 'empty')
+						addEdge(startNode.id, endNode.id, { type: 'empty' })
 					} else {
 						processModules(branch.modules, startNode, endNode)
 					}
@@ -191,7 +195,7 @@ export default function graphBuilder(
 					type: 'forLoopStart'
 				}
 
-				addEdge(module.id, startNode.id, undefined, 'empty')
+				addEdge(module.id, startNode.id, { type: 'empty' })
 
 				const endNode = {
 					id: `${module.id}-end`,
@@ -210,8 +214,11 @@ export default function graphBuilder(
 				nodes.push(startNode)
 				nodes.push(endNode)
 
-				processModules(module.value.modules, startNode, endNode, currentOffset + 50)
-
+				if (module.value.modules.length > 0) {
+					processModules(module.value.modules, startNode, endNode, currentOffset + 50)
+				} else {
+					addEdge(startNode.id, endNode.id)
+				}
 				previousId = endNode.id
 			} else if (module.value.type === 'whileloopflow') {
 				addNode(module, currentOffset, 'module')
@@ -228,7 +235,7 @@ export default function graphBuilder(
 					position: { x: -1, y: -1 },
 					type: 'whileLoopStart'
 				}
-				addEdge(module.id, startNode.id, undefined, 'empty')
+				addEdge(module.id, startNode.id, { type: 'empty' })
 
 				const endNode = {
 					id: `${module.id}-end`,
@@ -271,6 +278,10 @@ export default function graphBuilder(
 
 					processModules(branch.modules, startNode, endNode)
 				})
+			} else if (module.value.type === 'identity') {
+				addNode(module, currentOffset, 'module')
+
+				previousId = module.id
 			}
 
 			if (index === 0) {
@@ -287,6 +298,10 @@ export default function graphBuilder(
 
 	if (failureModule) {
 		addNode(failureModule, 0, 'module')
+	}
+
+	if (modules.length === 0) {
+		addEdge(inputNode.id, resultNode.id)
 	}
 
 	Object.keys(parents).forEach((key) => {
@@ -316,22 +331,22 @@ export default function graphBuilder(
 						}
 					}
 
-					addEdge(
-						pid,
-						selectedId!,
-						`dep-${pid}-${selectedId}-${input}-${index}`,
-						'dataflowedge',
-						i * 20
-					)
+					addEdge(pid, selectedId!, {
+						customId: `dep-${pid}-${selectedId}-${input}-${index}`,
+						type: 'dataflowedge',
+						offset: i * 20
+					})
 				})
 			})
 
 			Object.entries(deps.dependents).forEach((x, i) => {
 				let pid = x[0]
 
-				console.log('offset', i * 10)
-
-				addEdge(selectedId!, pid, `dep-${selectedId}-${pid}-${i}`, 'dataflowedge', i * 10)
+				addEdge(selectedId!, pid, {
+					customId: `dep-${selectedId}-${pid}-${i}`,
+					type: 'dataflowedge',
+					offset: i * 10
+				})
 			})
 		}
 	}

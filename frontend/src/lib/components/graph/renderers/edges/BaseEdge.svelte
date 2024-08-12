@@ -20,6 +20,7 @@
 		modules: FlowModule[]
 		moving: string | undefined
 		eventHandlers: GraphEventHandlers
+		index: number
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -28,8 +29,7 @@
 		sourcePosition,
 		targetX,
 		targetY,
-		targetPosition,
-		curvature: 0.1
+		targetPosition
 	})
 
 	function getStraightLinePath({ sourceX, sourceY, targetX, targetY }) {
@@ -53,11 +53,10 @@
 			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
 		>
 			<InsertModuleButton
-				index={0}
+				index={data.index ?? 0}
 				modules={data?.modules ?? []}
-				funcDesc=""
 				on:new={(e) => {
-					data?.eventHandlers.insert({ modules: data.modules, index: 0, detail: e.detail })
+					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
 				}}
 			/>
 		</div>
