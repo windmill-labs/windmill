@@ -99,6 +99,7 @@
 	let initializing: boolean | undefined = undefined
 	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0
+	let componentContainerWidth: number = 0
 
 	let inlineEditorOpened: boolean = false
 
@@ -158,6 +159,7 @@
 				inlineEditorOpened = !inlineEditorOpened
 			}}
 			{errorHandledByComponent}
+			{componentContainerWidth}
 		/>
 	{/if}
 
@@ -191,6 +193,7 @@
 		)}
 		style={$app.css?.['app']?.['component']?.style}
 		bind:clientHeight={componentContainerHeight}
+		bind:clientWidth={componentContainerWidth}
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent
