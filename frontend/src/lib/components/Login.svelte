@@ -7,7 +7,7 @@
 	import Okta from '$lib/components/icons/brands/Okta.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	import { usersWorkspaceStore, workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
@@ -22,6 +22,7 @@
 	export let password: string | undefined = undefined
 	export let error: string | undefined = undefined
 	export let popup: boolean = false
+	export let loginPasswordRequireEEOnPublicApps: boolean = false
 
 	const providers = [
 		{
@@ -262,68 +263,74 @@
 	{/if}
 
 	{#if showPassword}
-		<div>
-			<div class="space-y-6">
-				{#if isCloudHosted()}
-					<p class="text-xs text-tertiary italic pb-6">
-						To get credentials without the OAuth providers above, send an email at
-						contact@windmill.dev
-					</p>
-				{/if}
-				<div>
-					<label for="email" class="block text-sm font-medium leading-6 text-primary">
-						Email
-					</label>
+		{#if loginPasswordRequireEEOnPublicApps && !$enterpriseLicense}
+			<p class="text-xs text-red-400 italic p-6">
+				To log in with email and password on a public app, Windmill requires an enterprise license
+			</p>
+		{:else}
+			<div>
+				<div class="space-y-6">
+					{#if isCloudHosted()}
+						<p class="text-xs text-tertiary italic pb-6">
+							To get credentials without the OAuth providers above, send an email at
+							contact@windmill.dev
+						</p>
+					{/if}
 					<div>
-						<input
-							type="email"
-							bind:value={email}
-							id="email"
-							autocomplete="email"
-							class="block w-full rounded-md border-0 py-1.5 text-primary shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
-						/>
+						<label for="email" class="block text-sm font-medium leading-6 text-primary">
+							Email
+						</label>
+						<div>
+							<input
+								type="email"
+								bind:value={email}
+								id="email"
+								autocomplete="email"
+								class="block w-full rounded-md border-0 py-1.5 text-primary shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
+							/>
+						</div>
 					</div>
-				</div>
 
-				<div>
-					<label for="password" class="block text-sm font-medium leading-6 text-primary">
-						Password
-					</label>
 					<div>
-						<input
-							on:keyup={handleKeyUp}
-							bind:value={password}
-							id="password"
-							type="password"
-							autocomplete="current-password"
-							class="block w-full rounded-md border-0 py-1.5 text-shadow shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
-						/>
+						<label for="password" class="block text-sm font-medium leading-6 text-primary">
+							Password
+						</label>
+						<div>
+							<input
+								on:keyup={handleKeyUp}
+								bind:value={password}
+								id="password"
+								type="password"
+								autocomplete="current-password"
+								class="block w-full rounded-md border-0 py-1.5 text-shadow shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
+							/>
+						</div>
 					</div>
-				</div>
 
-				<div class="pt-2">
-					<button
-						on:click={login}
-						disabled={!email || !password}
-						class="flex w-full justify-center rounded-md bg-frost-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-frost-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost-600"
-					>
-						Sign in
-					</button>
+					<div class="pt-2">
+						<button
+							on:click={login}
+							disabled={!email || !password}
+							class="flex w-full justify-center rounded-md bg-frost-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-frost-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost-600"
+						>
+							Sign in
+						</button>
+					</div>
 				</div>
 			</div>
+		{/if}
+	{/if}
 
-			{#if isCloudHosted()}
-				<p class="text-2xs text-tertiary italic mt-10 text-center">
-					By logging in, you agree to our
-					<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
-						Terms of Service
-					</a>
-					and
-					<a href="https://windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
-						Privacy Policy
-					</a>
-				</p>
-			{/if}
-		</div>
+	{#if isCloudHosted()}
+		<p class="text-2xs text-tertiary italic mt-10 text-center">
+			By logging in, you agree to our
+			<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
+				Terms of Service
+			</a>
+			and
+			<a href="https://windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
+				Privacy Policy
+			</a>
+		</p>
 	{/if}
 </div>

@@ -21,7 +21,7 @@
 	export let render: boolean
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 
-	const { app, worldStore, policy } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['recomputeallcomponent'].initialData.configuration,
@@ -59,7 +59,7 @@
 <InitializeComponent {id} />
 
 <AlignWrapper {horizontalAlignment}>
-	{#if render && policy}
+	{#if render}
 		<RecomputeAllWrapper
 			containerClass={css?.container?.class}
 			containerStyle={css?.container?.style}

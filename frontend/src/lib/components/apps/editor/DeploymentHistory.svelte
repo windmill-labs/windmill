@@ -179,7 +179,7 @@
 							</Button>
 						</div>
 					</div>
-					<AppPreview noBackend app={selected.value} context={{}} />
+					<AppPreview author="" noBackend app={selected.value} />
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}

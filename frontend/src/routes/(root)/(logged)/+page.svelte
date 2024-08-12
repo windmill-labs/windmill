@@ -189,14 +189,9 @@
 					app={appViewerApp?.app?.value}
 					appPath="''"
 					{breakpoint}
-					policy={{}}
+					author=""
 					workspace="hub"
 					isEditor={false}
-					context={{
-						username: $userStore?.username ?? 'anonymous',
-						email: $userStore?.email ?? 'anonymous',
-						groups: $userStore?.groups ?? []
-					}}
 					summary={appViewerApp?.app.summary ?? ''}
 					noBackend
 					replaceStateFn={(path) => replaceState(path, $page.state)}

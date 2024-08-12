@@ -119,8 +119,8 @@
 		email: $userStore?.email,
 		groups: $userStore?.groups,
 		username: $userStore?.username,
-		query: Object.fromEntries($page.url.searchParams.entries()),
-		hash: $page.url.hash,
+		query: Object.fromEntries(new URLSearchParams(window.location.search).entries()),
+		hash: window.location.hash,
 		workspace: $workspaceStore,
 		mode: 'editor',
 		summary: $summaryStore,
@@ -168,7 +168,6 @@
 		previewTheme,
 		debuggingComponents: writable({}),
 		replaceStateFn: (path) => replaceState(path, $page.state),
-		policy: policy,
 		recomputeAllContext: writable({
 			loading: false,
 			componentNumber: 0,
@@ -218,6 +217,10 @@
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]
 		context = context
+		worldStore.update((x) => {
+			x.outputsById?.['ctx']?.['hash'].set(context.hash, true)
+			return x
+		})
 	}
 
 	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
@@ -570,7 +573,7 @@
 						app={$appStore}
 						appPath={path}
 						{breakpoint}
-						{policy}
+						author={policy.on_behalf_of_email ?? ''}
 						isEditor
 						{context}
 						noBackend={false}

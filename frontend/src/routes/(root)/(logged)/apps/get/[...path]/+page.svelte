@@ -46,19 +46,12 @@
 			style={app?.value.css?.['app']?.['viewer']?.style}
 		>
 			<AppPreview
-				context={{
-					email: $userStore?.email,
-					username: $userStore?.username,
-					groups: $userStore?.groups,
-					query: Object.fromEntries($page.url.searchParams.entries()),
-					hash: $page.url.hash
-				}}
 				workspace={$workspaceStore ?? ''}
 				summary={app.summary}
 				app={app.value}
 				appPath={app.path}
 				{breakpoint}
-				policy={app.policy}
+				author={app.policy.on_behalf_of_email ?? ''}
 				isEditor={false}
 				noBackend={false}
 				{hideRefreshBar}

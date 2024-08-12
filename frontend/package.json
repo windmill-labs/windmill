@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.377.1",
+	"version": "1.377.3",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -326,6 +326,11 @@
 			"types": "./package/components/DropdownV2.svelte.d.ts",
 			"svelte": "./package/components/DropdownV2.svelte",
 			"default": "./package/components/DropdownV2.svelte"
+		},
+		"./components/AppEmbed.svelte": {
+			"types": "./package/components/apps/AppEmbed.svelte.d.ts",
+			"svelte": "./package/components/apps/AppEmbed.svelte",
+			"default": "./package/components/apps/AppEmbed.svelte"
 		}
 	},
 	"files": [
@@ -443,6 +448,9 @@
 			],
 			"components/DropdownV2.svelte": [
 				"./package/components/DropdownV2.svelte.d.ts"
+			],
+			"components/AppEmbed.svelte": [
+				"./package/components/AppEmbed.svelte.d.ts"
 			]
 		}
 	},

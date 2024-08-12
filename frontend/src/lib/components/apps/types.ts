@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Policy, Preview } from '$lib/gen'
+import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
@@ -274,7 +274,6 @@ export type AppViewerContext = {
 	debuggingComponents: Writable<Record<string, number>>
 	replaceStateFn?: ((url: string) => void) | undefined
 	gotoFn?: ((url: string, opt?: Record<string, any> | undefined) => void) | undefined
-	policy: Policy
 
 	recomputeAllContext: Writable<{
 		onClick?: () => void

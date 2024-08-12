@@ -9,7 +9,6 @@
 		EditorBreakpoint,
 		EditorMode
 	} from '../types'
-	import type { Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
 	import GridViewer from './GridViewer.svelte'
@@ -19,7 +18,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { dfs, maxHeight } from './appUtils'
 	import { BG_PREFIX, migrateApp } from '../utils'
-	import { workspaceStore, enterpriseLicense } from '$lib/stores'
+	import { workspaceStore, enterpriseLicense, userStore } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
@@ -28,11 +27,11 @@
 	export let app: App
 	export let appPath: string = ''
 	export let breakpoint: Writable<EditorBreakpoint> = writable('lg')
-	export let policy: Policy = {}
+	export let author: string
 	export let summary: string = ''
 	export let workspace: string = $workspaceStore!
 	export let isEditor: boolean = false
-	export let context: Record<string, any>
+
 	export let noBackend: boolean = false
 	export let isLocked = false
 	export let hideRefreshBar = false
@@ -45,6 +44,10 @@
 	) => window.history.pushState(null, '', path)
 
 	migrateApp(app)
+
+	let email: string = $userStore?.email ?? 'anonymous'
+	let groups: string[] = $userStore?.groups ?? []
+	let username: string = $userStore?.username ?? 'anonymous'
 
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)
@@ -59,11 +62,15 @@
 	const allIdsInPath = writable<string[]>([])
 
 	let ncontext: any = {
-		...context,
+		email,
+		groups,
+		username,
+		query: Object.fromEntries(new URLSearchParams(window.location.search).entries()),
+		hash: window.location.hash,
 		workspace,
 		mode: 'viewer',
 		summary: summary,
-		author: policy.on_behalf_of_email
+		author
 	}
 
 	function resizeWindow() {
@@ -80,7 +87,15 @@
 	let parentContext = getContext<AppViewerContext>('AppViewerContext')
 
 	let worldStore = buildWorld(ncontext)
-	$: onContextChange(context)
+
+	$: onContextChange({
+		email,
+		groups,
+		username,
+		workspace,
+		summary: summary,
+		author
+	})
 
 	function onContextChange(context: any) {
 		Object.assign(ncontext, context)
@@ -136,7 +151,6 @@
 		debuggingComponents: writable({}),
 		replaceStateFn,
 		gotoFn,
-		policy,
 		recomputeAllContext: writable({
 			loading: false,
 			componentNumber: 0,
@@ -239,7 +253,7 @@
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
 					<div class="text-2xs text-secondary">
-						{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+						{author != '' ? `on behalf of ${author}` : ''}
 					</div>
 				</div>
 			</div>
