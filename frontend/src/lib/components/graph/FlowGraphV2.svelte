@@ -21,7 +21,7 @@
 	import graphBuilder from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
-	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
+	import BranchAllStart from './renderers/nodes/BranchOneStart.svelte'
 	import BranchAllEndNode from './renderers/nodes/branchAllEndNode.svelte'
 	import ForLoopEndNode from './renderers/nodes/ForLoopEndNode.svelte'
 	import ForLoopStartNode from './renderers/nodes/ForLoopStartNode.svelte'
@@ -33,6 +33,7 @@
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState } from '$lib/utils'
+	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -189,7 +190,9 @@
 		forLoopStart: ForLoopStartNode,
 		result: ResultNode,
 		whileLoopStart: ForLoopStartNode,
-		whileLoopEnd: ForLoopEndNode
+		whileLoopEnd: ForLoopEndNode,
+		branchOneStart: BranchOneStart,
+		branchOneEnd: BranchAllEndNode
 	} as any
 
 	const edgeTypes = {

@@ -119,189 +119,189 @@ export default function graphBuilder(
 	) {
 		let previousId: string | undefined = undefined
 
-		modules.forEach((module, index) => {
-			// Add the edge between the previous node and the current one
-			if (index > 0 && previousId) {
-				addEdge(previousId, module.id)
-			}
-
-			if (module.value.type === 'rawscript') {
-				addNode(module, currentOffset, 'module')
-
-				previousId = module.id
-			} else if (module.value.type === 'branchall') {
-				// Start
-				addNode(module, currentOffset, 'module')
-
-				// "Collect result of each branch" node
-				const endNode = {
-					id: `${module.id}-end`,
-					data: {
-						offset: currentOffset,
-						id: module.id,
-						module: module,
-						modules: modules,
-						...extra
-					},
-					position: { x: -1, y: -1 },
-					type: 'branchAllEnd'
+		if (modules.length === 0) {
+			addEdge(beforeNode.id, nextNode.id, { subModules: modules })
+		} else {
+			modules.forEach((module, index) => {
+				// Add the edge between the previous node and the current one
+				if (index > 0 && previousId) {
+					addEdge(previousId, module.id)
 				}
-				nodes.push(endNode)
 
-				module.value.branches.forEach((branch, branchIndex) => {
-					// Start node by branch
+				if (module.value.type === 'branchall') {
+					// Start
+					addNode(module, currentOffset, 'module')
 
-					const startNode = {
-						id: `${module.id}-branch-${branchIndex}`,
+					// "Collect result of each branch" node
+					const endNode = {
+						id: `${module.id}-end`,
 						data: {
 							offset: currentOffset,
-							label: `Branch ${branchIndex + 1}`,
 							id: module.id,
-							branchIndex: branchIndex,
+							module: module,
+							modules: modules,
+							...extra
+						},
+						position: { x: -1, y: -1 },
+						type: 'branchAllEnd'
+					}
+					nodes.push(endNode)
+
+					module.value.branches.forEach((branch, branchIndex) => {
+						// Start node by branch
+
+						const startNode = {
+							id: `${module.id}-branch-${branchIndex}`,
+							data: {
+								offset: currentOffset,
+								label: `Branch ${branchIndex + 1}`,
+								id: module.id,
+								branchIndex: branchIndex,
+								modules: modules,
+								eventHandlers: eventHandlers,
+								...extra
+							},
+							position: { x: -1, y: -1 },
+							type: 'branchAllStart'
+						}
+
+						nodes.push(startNode)
+
+						addEdge(module.id, startNode.id, { type: 'empty' })
+
+						processModules(branch.modules, startNode, endNode)
+					})
+
+					previousId = endNode.id
+				} else if (module.value.type === 'forloopflow') {
+					addNode(module, currentOffset, 'module')
+
+					const startNode = {
+						id: `${module.id}-start`,
+						data: {
+							offset: currentOffset + 50,
+							id: module.id,
+							module: module,
 							modules: modules,
 							eventHandlers: eventHandlers,
 							...extra
 						},
 						position: { x: -1, y: -1 },
-						type: 'branchAllStart'
+						type: 'forLoopStart'
 					}
-
-					nodes.push(startNode)
 
 					addEdge(module.id, startNode.id, { type: 'empty' })
 
-					if (branch.modules.length === 0) {
-						addEdge(startNode.id, endNode.id, { type: 'empty' })
-					} else {
-						processModules(branch.modules, startNode, endNode)
-					}
-				})
-
-				previousId = endNode.id
-			} else if (module.value.type === 'forloopflow') {
-				addNode(module, currentOffset, 'module')
-
-				const startNode = {
-					id: `${module.id}-start`,
-					data: {
-						offset: currentOffset + 50,
-						id: module.id,
-						module: module,
-						modules: modules,
-						eventHandlers: eventHandlers,
-						...extra
-					},
-					position: { x: -1, y: -1 },
-					type: 'forLoopStart'
-				}
-
-				addEdge(module.id, startNode.id, { type: 'empty' })
-
-				const endNode = {
-					id: `${module.id}-end`,
-					data: {
-						offset: currentOffset,
-						id: module.id,
-						module: module,
-						modules: modules,
-						eventHandlers: eventHandlers,
-						...extra
-					},
-					position: { x: -1, y: -1 },
-					type: 'forLoopEnd'
-				}
-
-				nodes.push(startNode)
-				nodes.push(endNode)
-
-				if (module.value.modules.length > 0) {
-					processModules(module.value.modules, startNode, endNode, currentOffset + 50)
-				} else {
-					addEdge(startNode.id, endNode.id, { subModules: module.value.modules })
-				}
-				previousId = endNode.id
-			} else if (module.value.type === 'whileloopflow') {
-				addNode(module, currentOffset, 'module')
-
-				const startNode = {
-					id: `${module.id}-start`,
-					data: {
-						offset: currentOffset + 50,
-						module: module,
-						modules: modules,
-						eventHandlers: eventHandlers,
-						...extra
-					},
-					position: { x: -1, y: -1 },
-					type: 'whileLoopStart'
-				}
-				addEdge(module.id, startNode.id, { type: 'empty' })
-
-				const endNode = {
-					id: `${module.id}-end`,
-					data: { offset: currentOffset, module: module, modules: modules, ...extra },
-					position: { x: -1, y: -1 },
-					type: 'whileLoopEnd'
-				}
-
-				nodes.push(startNode)
-				nodes.push(endNode)
-
-				processModules(module.value.modules, startNode, endNode, currentOffset + 50)
-				previousId = endNode.id
-			} else if (module.value.type === 'branchone') {
-				// Start
-				addNode(module, currentOffset, 'module')
-
-				// "Collect result of each branch" node
-				const endNode = {
-					id: `${module.id}-end`,
-					data: { offset: currentOffset },
-					position: { x: -1, y: -1 },
-					type: 'branchOneEnd'
-				}
-				nodes.push(endNode)
-
-				module.value.branches.forEach((branch, branchIndex) => {
-					// Start node by branch
-
-					const startNode = {
-						id: `${module.id}-branch-${branchIndex}`,
-						data: { offset: currentOffset },
+					const endNode = {
+						id: `${module.id}-end`,
+						data: {
+							offset: currentOffset,
+							id: module.id,
+							module: module,
+							modules: modules,
+							eventHandlers: eventHandlers,
+							...extra
+						},
 						position: { x: -1, y: -1 },
-						type: 'branchOneStart'
+						type: 'forLoopEnd'
 					}
 
 					nodes.push(startNode)
+					nodes.push(endNode)
 
-					addEdge(module.id, startNode.id)
+					processModules(module.value.modules, startNode, endNode, currentOffset + 50)
 
-					processModules(branch.modules, startNode, endNode)
-				})
-			} else if (module.value.type === 'identity') {
-				addNode(module, currentOffset, 'module')
+					previousId = endNode.id
+				} else if (module.value.type === 'whileloopflow') {
+					addNode(module, currentOffset, 'module')
 
-				previousId = module.id
-			}
+					const startNode = {
+						id: `${module.id}-start`,
+						data: {
+							offset: currentOffset + 50,
+							module: module,
+							modules: modules,
+							eventHandlers: eventHandlers,
+							...extra
+						},
+						position: { x: -1, y: -1 },
+						type: 'whileLoopStart'
+					}
+					addEdge(module.id, startNode.id, { type: 'empty' })
 
-			if (index === 0) {
-				addEdge(beforeNode.id, module.id)
-			}
+					const endNode = {
+						id: `${module.id}-end`,
+						data: { offset: currentOffset, module: module, modules: modules, ...extra },
+						position: { x: -1, y: -1 },
+						type: 'whileLoopEnd'
+					}
 
-			if (index === modules.length - 1 && previousId) {
-				addEdge(previousId, nextNode.id)
-			}
-		})
+					nodes.push(startNode)
+					nodes.push(endNode)
+
+					processModules(module.value.modules, startNode, endNode, currentOffset + 50)
+
+					previousId = endNode.id
+				} else if (module.value.type === 'branchone') {
+					// Start
+					addNode(module, currentOffset, 'module')
+
+					// "Collect result of each branch" node
+					const endNode = {
+						id: `${module.id}-end`,
+						data: { offset: currentOffset },
+						position: { x: -1, y: -1 },
+						type: 'branchOneEnd'
+					}
+					nodes.push(endNode)
+
+					module.value.branches.forEach((branch, branchIndex) => {
+						// Start node by branch
+
+						const startNode = {
+							id: `${module.id}-branch-${branchIndex}`,
+							data: {
+								offset: currentOffset,
+								label: `Branch ${branchIndex + 1}`,
+								id: module.id,
+								branchIndex: branchIndex,
+								modules: modules,
+								eventHandlers: eventHandlers,
+								...extra
+							},
+							position: { x: -1, y: -1 },
+							type: 'branchOneStart'
+						}
+
+						nodes.push(startNode)
+
+						addEdge(module.id, startNode.id)
+
+						processModules(branch.modules, startNode, endNode)
+					})
+
+					previousId = endNode.id
+				} else {
+					addNode(module, currentOffset, 'module')
+
+					previousId = module.id
+				}
+
+				if (index === 0) {
+					addEdge(beforeNode.id, module.id)
+				}
+
+				if (index === modules.length - 1 && previousId) {
+					addEdge(previousId, nextNode.id)
+				}
+			})
+		}
 	}
 
 	processModules(modules, inputNode, resultNode)
 
 	if (failureModule) {
 		addNode(failureModule, 0, 'module')
-	}
-
-	if (modules.length === 0) {
-		addEdge(inputNode.id, resultNode.id)
 	}
 
 	Object.keys(parents).forEach((key) => {
@@ -312,7 +312,6 @@ export default function graphBuilder(
 		}
 	})
 
-	// DATAFLOW
 	if (useDataflow && selectedId) {
 		let deps = getDependeeAndDependentComponents(selectedId, modules ?? [], failureModule)
 
