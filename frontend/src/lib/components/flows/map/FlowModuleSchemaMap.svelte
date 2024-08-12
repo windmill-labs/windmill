@@ -306,6 +306,8 @@
 							$selectedId = $moving.module.id
 							$moving = undefined
 						} else {
+							console.log('inserting', detail.detail, detail.index, detail.modules)
+
 							await insertNewModuleAtIndex(
 								detail.modules,
 								detail.index ?? 0,

@@ -62,7 +62,7 @@ export default function graphBuilder(
 			customId?: string
 			type?: string
 			offset?: number
-			index?: number
+			subModules?: FlowModule[]
 		}
 	) {
 		parents[targetId] = [...(parents[targetId] ?? []), sourceId]
@@ -74,13 +74,13 @@ export default function graphBuilder(
 			type: options?.type ?? 'edge',
 			data: {
 				insertable: extra.insertable,
-				modules,
+				modules: options?.subModules ?? modules,
 				sourceId,
 				targetId,
 				offset: options?.offset,
 				moving,
 				eventHandlers,
-				index: options?.index
+				index: options?.subModules?.length ?? modules?.length
 			}
 		})
 	}
@@ -122,7 +122,7 @@ export default function graphBuilder(
 		modules.forEach((module, index) => {
 			// Add the edge between the previous node and the current one
 			if (index > 0 && previousId) {
-				addEdge(previousId, module.id, { index })
+				addEdge(previousId, module.id)
 			}
 
 			if (module.value.type === 'rawscript') {
@@ -217,7 +217,7 @@ export default function graphBuilder(
 				if (module.value.modules.length > 0) {
 					processModules(module.value.modules, startNode, endNode, currentOffset + 50)
 				} else {
-					addEdge(startNode.id, endNode.id)
+					addEdge(startNode.id, endNode.id, { subModules: module.value.modules })
 				}
 				previousId = endNode.id
 			} else if (module.value.type === 'whileloopflow') {
