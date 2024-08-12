@@ -249,7 +249,7 @@ export default function graphBuilder(
 					// "Collect result of each branch" node
 					const endNode = {
 						id: `${module.id}-end`,
-						data: { offset: currentOffset },
+						data: { offset: currentOffset, eventHandlers: eventHandlers },
 						position: { x: -1, y: -1 },
 						type: 'branchOneEnd'
 					}

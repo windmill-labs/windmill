@@ -134,6 +134,7 @@
 		{
 			deleteBranch: (detail, label) => {
 				$selectedId = label
+
 				dispatch('deleteBranch', detail)
 			},
 			insert: (detail) => {
@@ -153,7 +154,7 @@
 				dispatch('delete', detail)
 			},
 			newBranch: (module) => {
-				dispatch('newBranch', module)
+				dispatch('newBranch', { module })
 			},
 			move: (module, modules) => {
 				dispatch('move', { module, modules })

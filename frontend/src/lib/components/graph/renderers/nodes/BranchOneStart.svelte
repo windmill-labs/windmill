@@ -3,7 +3,6 @@
 	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { FlowStatusModule } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
@@ -13,16 +12,14 @@
 
 	export let data: {
 		label: string
-		branchIndex: number
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		id: string
 		modules: FlowModule[]
 		selected: boolean
 		eventHandlers: GraphEventHandlers
+		branchIndex: number
 	}
-
-	const dispatch = createEventDispatcher()
 
 	let borderStatus: FlowStatusModule['type'] | undefined = undefined
 
@@ -44,8 +41,14 @@
 		<Popover>
 			<button
 				class="rounded-full border p-1 hover:bg-surface-hover bg-surface"
-				on:click={() => {
-					dispatch('deleteBranch', { branchIndex: data.branchIndex })
+				on:click={(e) => {
+					data.eventHandlers.deleteBranch(
+						{
+							module: data.modules.find((m) => m.id === data.id),
+							index: data.branchIndex
+						},
+						data.label
+					)
 				}}
 			>
 				<X size={16} />
@@ -69,12 +72,6 @@
 			: undefined}
 		on:select={() => {
 			data.eventHandlers.select(data.id)
-		}}
-		on:deleteBranch={(e) => {
-			data.eventHandlers.deleteBranch(e.detail, data.label)
-		}}
-		on:insert={(e) => {
-			data.eventHandlers.insert(e.detail)
 		}}
 	/>
 </NodeWrapper>

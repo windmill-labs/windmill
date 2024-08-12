@@ -3,7 +3,6 @@
 	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { FlowStatusModule } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
@@ -21,8 +20,6 @@
 		selected: boolean
 		eventHandlers: GraphEventHandlers
 	}
-
-	const dispatch = createEventDispatcher()
 
 	let borderStatus: FlowStatusModule['type'] | undefined = undefined
 
@@ -45,7 +42,13 @@
 			<button
 				class="rounded-full border p-1 hover:bg-surface-hover bg-surface"
 				on:click={() => {
-					dispatch('deleteBranch', { branchIndex: data.branchIndex })
+					data.eventHandlers.deleteBranch(
+						{
+							module: data.modules.find((m) => m.id === data.id),
+							index: data.branchIndex
+						},
+						data.label
+					)
 				}}
 			>
 				<X size={16} />
