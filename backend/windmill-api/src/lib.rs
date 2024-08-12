@@ -334,7 +334,7 @@ pub async fn run_server(
                 )
                 .nest(
                     "/w/:workspace_id/capture_u",
-                    capture::global_service().layer(cors),
+                    capture::global_service().layer(cors.clone()),
                 )
                 .nest(
                     "/auth",
@@ -346,7 +346,7 @@ pub async fn run_server(
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))
-                .route("/ee_license", get(ee_license))
+                .route("/ee_license", get(ee_license).layer(cors.clone()))
                 .route("/openapi.yaml", get(openapi))
                 .route("/openapi.json", get(openapi_json)),
         )

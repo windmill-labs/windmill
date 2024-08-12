@@ -1,6 +1,6 @@
 <script lang="ts">
 	// @ts-ignore
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'

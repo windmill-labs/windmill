@@ -20,7 +20,7 @@
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'

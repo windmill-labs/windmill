@@ -21,6 +21,8 @@ use crate::{
     webhook_util::WebhookShared,
 };
 
+use tower_http::cors::{Any, CorsLayer};
+
 use axum::{
     extract::{Extension, Path, Query},
     response::IntoResponse,
@@ -124,10 +126,15 @@ pub fn workspaced_service() -> Router {
     router
 }
 pub fn global_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
     Router::new()
         .route("/list_as_superadmin", get(list_workspaces_as_super_admin))
         .route("/list", get(list_workspaces))
-        .route("/users", get(user_workspaces))
+        .route("/users", get(user_workspaces).layer(cors.clone()))
         .route("/create", post(create_workspace))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
@@ -168,9 +175,9 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
-    pub large_file_storage: Option<serde_json::Value>,  // effectively: DatasetsStorage
-    pub git_sync: Option<serde_json::Value>,            // effectively: WorkspaceGitSyncSettings
-    pub deploy_ui: Option<serde_json::Value>,           // effectively: WorkspaceDeploymentUISettings
+    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
+    pub git_sync: Option<serde_json::Value>,           // effectively: WorkspaceGitSyncSettings
+    pub deploy_ui: Option<serde_json::Value>,          // effectively: WorkspaceDeploymentUISettings
     pub default_app: Option<String>,
     pub automatic_billing: bool,
     pub default_scripts: Option<serde_json::Value>,
@@ -1071,7 +1078,6 @@ async fn edit_deploy_ui_config(
     ));
 }
 
-
 #[cfg(feature = "enterprise")]
 async fn edit_deploy_ui_config(
     authed: ApiAuthed,
@@ -1097,8 +1103,9 @@ async fn edit_deploy_ui_config(
     .await?;
 
     if let Some(deploy_ui_settings) = new_config.deploy_ui_settings {
-        let serialized_config = serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
-            .map_err(|err| Error::InternalErr(err.to_string()))?;
+        let serialized_config =
+            serde_json::to_value::<WorkspaceDeploymentUISettings>(deploy_ui_settings)
+                .map_err(|err| Error::InternalErr(err.to_string()))?;
 
         sqlx::query!(
             "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
@@ -1119,8 +1126,6 @@ async fn edit_deploy_ui_config(
 
     Ok(format!("Edit deployment UI config for workspace {}", &w_id))
 }
-
-
 
 #[derive(Deserialize)]
 pub struct EditDefaultApp {

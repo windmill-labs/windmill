@@ -29,6 +29,7 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
+use tower_http::cors::{Any, CorsLayer};
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
@@ -65,10 +66,24 @@ pub fn workspaced_service() -> Router {
 }
 
 pub fn unauthed_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
     Router::new()
-        .route("/execute_component/*path", post(execute_component))
-        .route("/public_app/:secret", get(get_public_app_by_secret))
-        .route("/public_resource/*path", get(get_public_resource))
+        .route(
+            "/execute_component/*path",
+            post(execute_component).layer(cors.clone()),
+        )
+        .route(
+            "/public_app/:secret",
+            get(get_public_app_by_secret).layer(cors.clone()),
+        )
+        .route(
+            "/public_resource/*path",
+            get(get_public_resource).layer(cors.clone()),
+        )
 }
 
 pub fn global_service() -> Router {

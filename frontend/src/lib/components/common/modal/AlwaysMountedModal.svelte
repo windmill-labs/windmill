@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { clickOutside } from '$lib/utils'
 	import { X } from 'lucide-svelte'

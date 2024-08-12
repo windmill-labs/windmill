@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
-	import AppEmbed from '$lib/components/apps/editor/AppEmbed.svelte'
+	import AppEmbed from '$lib/components/AppEmbed.svelte'
 </script>
 
 <AppEmbed

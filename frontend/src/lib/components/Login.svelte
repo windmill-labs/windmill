@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
 	import Github from '$lib/components/icons/brands/Github.svelte'
 	import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
 	import Google from '$lib/components/icons/brands/Google.svelte'
@@ -23,6 +22,9 @@
 	export let error: string | undefined = undefined
 	export let popup: boolean = false
 	export let loginPasswordRequireEEOnPublicApps: boolean = false
+	export let gotoFn: ((path: string, opt?: Record<string, any> | undefined) => void) | undefined =
+		undefined
+	export let baseApiUrl: string | undefined = undefined
 
 	const providers = [
 		{
@@ -84,15 +86,19 @@
 		}
 
 		// Finally, we check whether the user is a superadmin
-		refreshSuperadmin()
-		redirectUser()
+		refreshSuperadmin(gotoFn)
+		if (gotoFn) {
+			redirectUser()
+		} else {
+			dispatch('login')
+		}
 	}
 
 	async function redirectUser() {
 		const firstTimeCookie =
 			document.cookie.match('(^|;)\\s*first_time\\s*=\\s*([^;]+)')?.pop() || '0'
 		if (Number(firstTimeCookie) > 0 && email === 'admin@windmill.dev') {
-			goto('/user/first-time')
+			gotoFn?.('/user/first-time')
 			return
 		}
 
@@ -101,12 +107,12 @@
 			return
 		}
 		if ($workspaceStore) {
-			goto(rd ?? '/')
+			gotoFn?.(rd ?? '/')
 		} else {
 			let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
 			if (rd && workspaceTarget) {
 				$workspaceStore = workspaceTarget
-				goto(rd)
+				gotoFn?.(rd)
 				return
 			}
 
@@ -127,19 +133,19 @@
 						workspace: $workspaceStore!
 					})
 					if (!emptyString(defaultApp.default_app_path)) {
-						goto(`/apps/get/${defaultApp.default_app_path}`)
+						gotoFn?.(`/apps/get/${defaultApp.default_app_path}`)
 					} else {
-						goto(rd ?? '/')
+						gotoFn?.(rd ?? '/')
 					}
 				} else {
-					goto(rd ?? '/')
+					gotoFn?.(rd ?? '/')
 				}
 			} else if (rd?.startsWith('/user/workspaces')) {
-				goto(rd)
+				gotoFn?.(rd)
 			} else if (rd == '/#user-settings') {
-				goto(`/user/workspaces#user-settings`)
+				gotoFn?.(`/user/workspaces#user-settings`)
 			} else {
-				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
+				gotoFn?.(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
 			}
 		}
 	}

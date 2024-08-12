@@ -32,7 +32,7 @@
 
 	async function loadUser() {
 		try {
-			await refreshSuperadmin()
+			await refreshSuperadmin((path, opt) => goto(path, opt))
 
 			if ($workspaceStore) {
 				if ($userStore) {

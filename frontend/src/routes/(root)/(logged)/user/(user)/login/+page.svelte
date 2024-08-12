@@ -113,6 +113,6 @@
 		<div class="flex justify-end">
 			<DarkModeToggle forcedDarkMode={false} />
 		</div>
-		<Login {rd} {error} {password} {email} />
+		<Login gotoFn={(path, opt) => goto(path, opt)} {rd} {error} {password} {email} />
 	</div>
 </div>

@@ -1,9 +1,10 @@
 import { get } from 'svelte/store'
 import { UserService } from '$lib/gen'
 import { superadmin } from './stores.js'
-import { goto } from '$lib/navigation'
 
-export async function refreshSuperadmin(): Promise<void> {
+export async function refreshSuperadmin(
+	gotoFn: ((path: string, opt?: Record<string, any> | undefined) => void) | undefined
+): Promise<void> {
 	if (get(superadmin) == undefined) {
 		try {
 			const me = await UserService.globalWhoami()
@@ -14,7 +15,7 @@ export async function refreshSuperadmin(): Promise<void> {
 			}
 		} catch {
 			superadmin.set(false)
-			goto('/user/logout')
+			gotoFn?.('/user/logout')
 		}
 	}
 }

@@ -30,7 +30,7 @@
 	import DeleteComponent from './settingsPanel/DeleteComponent.svelte'
 	import { secondaryMenuLeft } from './settingsPanel/secondaryMenu'
 	import { clickOutside } from '$lib/utils'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	let contextMenuVisible = false

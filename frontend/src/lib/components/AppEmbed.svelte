@@ -90,76 +90,78 @@
 	}
 </script>
 
-<div
-	class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
-		? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
-		: ''}"
->
-	<a href="https://windmill.dev" class="whitespace-nowrap text-tertiary inline-flex items-center"
-		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
+<div class="windmil-app relative h-full w-full">
+	<div
+		class="z-50 text-xs fixed bottom-1 right-2 {$enterpriseLicense && !isCloudHosted()
+			? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
+			: ''}"
 	>
-</div>
-
-{#if !hideUser}
-	<div class="z-50 text-2xs text-tertiary absolute top-3 left-2"
-		>{#if $userStore}
-			<div class="flex gap-1 items-center"><User size={14} />{$userStore.username}</div>
-		{:else}<UserRoundX size={14} />{/if}
-	</div>
-{/if}
-
-{#if notExists}
-	<div class="px-4 mt-20"
-		><Alert type="error" title="Not found"
-			>There was an error loading the app, is the url correct? <a href={base}>Go to Windmill</a>
-		</Alert></div
-	>
-{:else if noPermission}
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl"
-		>{#if $userStore}You are logged in but have no read access for this app{:else}You must be logged
-			in and have read access for this app{/if}</div
-	>
-	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
-		<Login
-			loginPasswordRequireEEOnPublicApps
-			on:login={() => {
-				// window.location.reload()
-				loadUser().then(() => {
-					loadApp()
-				})
-				app = app
-			}}
-			popup
-			rd={window.location.href}
-		/>
-	</div>
-{:else if app}
-	{#key app}
-		<div
-			class={twMerge(
-				'min-h-screen h-full w-full',
-				app?.value?.['css']?.['app']?.['viewer']?.class,
-				'wm-app-viewer'
-			)}
-			style={app?.value?.['css']?.['app']?.['viewer']?.style}
+		<a href="https://windmill.dev" class="whitespace-nowrap text-tertiary inline-flex items-center"
+			>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 		>
-			<AppPreview
-				noBackend={false}
-				username={$userStore?.username ?? 'anonymous'}
-				email={$userStore?.email ?? 'anonymous'}
-				groups={$userStore?.groups ?? []}
-				{workspace}
-				summary={app.summary}
-				app={app.value}
-				appPath={app.path}
-				{breakpoint}
-				author={app.policy.on_behalf_of_email ?? ''}
-				isEditor={false}
-				{replaceStateFn}
-				{gotoFn}
+	</div>
+
+	{#if !hideUser}
+		<div class="z-50 text-2xs text-tertiary absolute top-3 left-2"
+			>{#if $userStore}
+				<div class="flex gap-1 items-center"><User size={14} />{$userStore.username}</div>
+			{:else}<UserRoundX size={14} />{/if}
+		</div>
+	{/if}
+
+	{#if notExists}
+		<div class="px-4 mt-20"
+			><Alert type="error" title="Not found"
+				>There was an error loading the app, is the url correct? <a href={base}>Go to Windmill</a>
+			</Alert></div
+		>
+	{:else if noPermission}
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl"
+			>{#if $userStore}You are logged in but have no read access for this app{:else}You must be
+				logged in and have read access for this app{/if}</div
+		>
+		<div class="px-2 mx-auto mt-20 max-w-xl w-full">
+			<Login
+				loginPasswordRequireEEOnPublicApps
+				on:login={() => {
+					// window.location.reload()
+					loadUser().then(() => {
+						loadApp()
+					})
+					app = app
+				}}
+				popup
+				rd={window.location.href}
 			/>
 		</div>
-	{/key}
-{:else}
-	<Skeleton layout={[[4], 0.5, [50]]} />
-{/if}
+	{:else if app}
+		{#key app}
+			<div
+				class={twMerge(
+					'min-h-screen h-full w-full',
+					app?.value?.['css']?.['app']?.['viewer']?.class,
+					'wm-app-viewer'
+				)}
+				style={app?.value?.['css']?.['app']?.['viewer']?.style}
+			>
+				<AppPreview
+					noBackend={false}
+					username={$userStore?.username ?? 'anonymous'}
+					email={$userStore?.email ?? 'anonymous'}
+					groups={$userStore?.groups ?? []}
+					{workspace}
+					summary={app.summary}
+					app={app.value}
+					appPath={app.path}
+					{breakpoint}
+					author={app.policy.on_behalf_of_email ?? ''}
+					isEditor={false}
+					{replaceStateFn}
+					{gotoFn}
+				/>
+			</div>
+		{/key}
+	{:else}
+		<Skeleton layout={[[4], 0.5, [50]]} />
+	{/if}
+</div>

@@ -44,6 +44,7 @@ use time::OffsetDateTime;
 #[cfg(feature = "enterprise")]
 use tokio::sync::RwLock;
 use tower_cookies::{Cookie, Cookies};
+use tower_http::cors::{Any, CorsLayer};
 use tracing::{Instrument, Span};
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
@@ -66,6 +67,11 @@ const COOKIE_NAME: &str = "token";
 const COOKIE_PATH: &str = "/";
 
 pub fn workspaced_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
     Router::new()
         .route("/list", get(list_users))
         .route("/list_usage", get(list_user_usage))
@@ -76,16 +82,21 @@ pub fn workspaced_service() -> Router {
         .route("/delete/:user", delete(delete_workspace_user))
         .route("/is_owner/*path", get(is_owner_of_path))
         .route("/whois/:username", get(whois))
-        .route("/whoami", get(whoami))
+        .route("/whoami", get(whoami).layer(cors))
         .route("/leave", post(leave_workspace))
         .route("/username_to_email/:username", get(username_to_email))
 }
 
 pub fn global_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
     Router::new()
         .route("/exists/:email", get(exists_email))
         .route("/email", get(get_email))
-        .route("/whoami", get(global_whoami))
+        .route("/whoami", get(global_whoami).layer(cors))
         .route("/list_invites", get(list_invites))
         .route("/decline_invite", post(decline_invite))
         .route("/accept_invite", post(accept_invite))
@@ -118,8 +129,13 @@ pub fn global_service() -> Router {
 }
 
 pub fn make_unauthed_service() -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+        .allow_origin(Any);
+
     Router::new()
-        .route("/login", post(login))
+        .route("/login", post(login).layer(cors))
         .route("/logout", post(logout))
         .route("/logout", get(logout))
 }
