@@ -52,7 +52,14 @@
 			class="edgeButtonContainer nodrag nopan"
 			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
 		>
-			<InsertModuleButton index={0} modules={data?.modules ?? []} funcDesc="" />
+			<InsertModuleButton
+				index={0}
+				modules={data?.modules ?? []}
+				funcDesc=""
+				on:new={(e) => {
+					data?.eventHandlers.insert({ modules: data.modules, index: 0, detail: e.detail })
+				}}
+			/>
 		</div>
 	{/if}
 
@@ -67,8 +74,7 @@
 					on:click={() => {
 						data.eventHandlers.insert({
 							modules: data.modules,
-							module: undefined,
-							type: 'move'
+							module: undefined
 						})
 					}}
 					type="button"

@@ -4,12 +4,14 @@
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStateColor } from '../../util'
+	import type { GraphModuleState } from '../../model'
 
 	export let data: {
 		id: string
 		insertable: boolean
 		modules: FlowModule[]
 		eventHandlers: GraphEventHandlers
+		flowModuleStates: Record<string, GraphModuleState> | undefined
 	}
 </script>
 
@@ -22,6 +24,7 @@
 		selected={false}
 		insertable={false}
 		bgColor={getStateColor(undefined, darkMode)}
+		borderColor={getStateColor(data?.flowModuleStates?.[data?.id]?.type, darkMode)}
 		on:select={(e) => {
 			data?.eventHandlers?.select(e.detail)
 		}}

@@ -203,7 +203,6 @@
 			if ($selectedId != mod.id) {
 				$selectedId = mod.id
 			}
-			console.log('selected', mod)
 			dispatch('select', mod)
 		}
 	}

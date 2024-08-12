@@ -289,8 +289,6 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
-				console.log('insert', detail)
-
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
