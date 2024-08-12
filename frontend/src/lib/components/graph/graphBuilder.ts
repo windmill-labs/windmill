@@ -255,6 +255,28 @@ export default function graphBuilder(
 					}
 					nodes.push(endNode)
 
+					// Add default branch
+					const defaultBranch = {
+						id: `${module.id}-default`,
+						data: {
+							offset: currentOffset,
+							label: 'Default',
+							id: module.id,
+							branchIndex: -1,
+							modules: module.value.default,
+							eventHandlers: eventHandlers,
+							...extra
+						},
+						position: { x: -1, y: -1 },
+						type: 'branchOneStart'
+					}
+
+					nodes.push(defaultBranch)
+
+					addEdge(module.id, defaultBranch.id, { type: 'empty' })
+
+					processModules(module.value.default, defaultBranch, endNode)
+
 					module.value.branches.forEach((branch, branchIndex) => {
 						// Start node by branch
 
@@ -275,7 +297,7 @@ export default function graphBuilder(
 
 						nodes.push(startNode)
 
-						addEdge(module.id, startNode.id)
+						addEdge(module.id, startNode.id, { type: 'empty' })
 
 						processModules(branch.modules, startNode, endNode)
 					})
