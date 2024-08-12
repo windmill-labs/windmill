@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.378.0](https://github.com/windmill-labs/windmill/compare/v1.377.1...v1.378.0) (2024-08-12)
+
+
+### Features
+
+* **cli:** add customerBundler support ([70d1e6c](https://github.com/windmill-labs/windmill/commit/70d1e6c7208b59890ad4d15cad28b1f32d7970d2))
+* windmill embed ([d56a956](https://github.com/windmill-labs/windmill/commit/d56a956b9a471cca4042f43ba4e3922e42f121f1))
+
+
+### Bug Fixes
+
+* allow user resources in app to work within iframes ([6272c9f](https://github.com/windmill-labs/windmill/commit/6272c9ff41e5359f38ae13e879aa615da0fb0d09))
+* **frontend:** improve default id of the components of the topbar ([#4222](https://github.com/windmill-labs/windmill/issues/4222)) ([7115a35](https://github.com/windmill-labs/windmill/commit/7115a3577947c52aa72edcc134dcb8e739208df0))
+* **frontend:** support plus sign in emails format fields [#4223](https://github.com/windmill-labs/windmill/issues/4223) ([c0853ea](https://github.com/windmill-labs/windmill/commit/c0853eafc9f9bf6d454c6a70800c98c75c9d8ba3))
+* **frontend:** user resource picker for app use lightweight component ([c03c0f6](https://github.com/windmill-labs/windmill/commit/c03c0f61726e7b6196fe5222c44d4d635e907b20))
+* improve default value handling for date & date-time in apps ([e779f96](https://github.com/windmill-labs/windmill/commit/e779f963869fcb22d73f02b6a806e3fdac978959))
+* improve license key ui ([#4220](https://github.com/windmill-labs/windmill/issues/4220)) ([0655803](https://github.com/windmill-labs/windmill/commit/06558038601d6f78b234519d4b48f229a2bf9fc8))
+
 ## [1.377.1](https://github.com/windmill-labs/windmill/compare/v1.377.0...v1.377.1) (2024-08-08)
 
 
