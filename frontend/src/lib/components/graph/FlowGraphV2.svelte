@@ -228,9 +228,6 @@
 		{proOptions}
 		nodesDraggable={false}
 		on:nodeclick={(e) => handleNodeClick(e)}
-		on:delete={(e) => {
-			console.log('delete', e.detail)
-		}}
 	>
 		<Background class="!bg-surface-secondary" />
 		<Controls position="top-right" orientation="horizontal" showLock={false}>

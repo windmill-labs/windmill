@@ -75,7 +75,8 @@ export default function graphBuilder(
 				sourceId,
 				targetId,
 				offset,
-				moving
+				moving,
+				eventHandlers
 			}
 		})
 	}

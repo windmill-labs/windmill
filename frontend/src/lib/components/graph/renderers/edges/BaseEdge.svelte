@@ -5,6 +5,7 @@
 	import { ClipboardCopy } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
+	import type { GraphEventHandlers } from '../../graphBuilder'
 
 	export let sourceX: number
 	export let sourceY: number
@@ -18,6 +19,7 @@
 		insertable: boolean
 		modules: FlowModule[]
 		moving: string | undefined
+		eventHandlers: GraphEventHandlers
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -62,7 +64,13 @@
 			{#if data.moving}
 				<button
 					title="Paste module"
-					on:click={() => {}}
+					on:click={() => {
+						data.eventHandlers.insert({
+							modules: data.modules,
+							module: undefined,
+							type: 'move'
+						})
+					}}
 					type="button"
 					class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
