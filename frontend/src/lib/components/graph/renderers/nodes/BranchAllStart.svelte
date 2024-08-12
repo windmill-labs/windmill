@@ -36,7 +36,7 @@
 	}
 </script>
 
-<NodeToolbar isVisible position={Position.Top}>
+<NodeToolbar isVisible position={Position.Top} align="center">
 	{#if data.insertable}
 		<Popover>
 			<button
@@ -59,7 +59,8 @@
 	{/if}
 </NodeToolbar>
 
-<NodeWrapper let:darkMode>
+<NodeWrapper let:darkMode
+	>s
 	<VirtualItem
 		label={data.label}
 		modules={data.modules}

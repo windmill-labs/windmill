@@ -18,7 +18,6 @@
 		bgColor: string
 		modules: FlowModule[]
 		moving: string | undefined
-		duration_ms: number | undefined
 		disableAi: boolean
 		wrapperId: string | undefined
 		retries: number | undefined
@@ -35,8 +34,8 @@
 		type = 'InProgress'
 	}
 
-	const state = data.flowModuleStates?.[data.module.id]
-	const flowJobs = state?.flow_jobs
+	$: state = data.flowModuleStates?.[data.module.id]
+	$: flowJobs = state?.flow_jobs
 		? {
 				flowJobs: state?.flow_jobs,
 				selected: state?.selectedForloopIndex ?? -1,
@@ -50,12 +49,12 @@
 		mod={data.module}
 		insertable={data.insertable}
 		annotation={state?.flow_jobs
-			? 'ierations ' + state?.flow_jobs?.length + '/' + (state?.iteration_total ?? '?')
+			? 'Iterations ' + state?.flow_jobs?.length + '/' + (state?.iteration_total ?? '?')
 			: ''}
 		bgColor={getStateColor(type, darkMode)}
 		modules={data.modules ?? []}
 		moving={data.moving}
-		duration_ms={data.duration_ms}
+		duration_ms={state?.duration_ms}
 		retries={data.retries}
 		{flowJobs}
 		on:delete={(e) => {
@@ -74,7 +73,7 @@
 			data.eventHandlers.select(e.detail)
 		}}
 		on:selectedIteration={(e) => {
-			data.eventHandlers.selectIteration(e.detail, data.module.id)
+			data.eventHandlers.selectedIteration(e.detail, data.module.id)
 		}}
 	/>
 </NodeWrapper>

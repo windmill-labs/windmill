@@ -79,7 +79,7 @@
 			</div>
 		{/if}
 		{#if flowJobs && !insertable}
-			<div class="absolute z-10 right-8 -top-5">
+			<div class="absolute z-50 right-8 -top-5">
 				<FlowJobsMenu
 					on:selectedIteration={(e) => {
 						dispatch('selectedIteration', e.detail)

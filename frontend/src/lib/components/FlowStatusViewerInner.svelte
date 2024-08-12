@@ -939,6 +939,7 @@
 							}}
 							on:selectedIteration={(e) => {
 								let detail = e.detail
+
 								setModuleState(detail.moduleId, {
 									selectedForloop: detail.id,
 									selectedForloopIndex: detail.index

@@ -159,8 +159,8 @@
 			move: (module, modules) => {
 				dispatch('move', { module, modules })
 			},
-			selectIteration: (detail, moduleId) => {
-				dispatch('selectIteration', { ...detail, moduleId: moduleId })
+			selectedIteration: (detail, moduleId) => {
+				dispatch('selectedIteration', { ...detail, moduleId: moduleId })
 			}
 		},
 		success,

@@ -10,7 +10,7 @@ export type GraphEventHandlers = {
 	delete: (detail, label: string) => void
 	newBranch: (module: FlowModule) => void
 	move: (module: FlowModule, modules: FlowModule[]) => void
-	selectIteration: (detail, moduleId: string) => void
+	selectedIteration: (detail, moduleId: string) => void
 }
 
 export default function graphBuilder(
