@@ -76,7 +76,8 @@
 	import { forLater } from '$lib/forLater'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import MemoryFootprintViewer from '$lib/components/MemoryFootprintViewer.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import { Highlight } from 'svelte-highlight'

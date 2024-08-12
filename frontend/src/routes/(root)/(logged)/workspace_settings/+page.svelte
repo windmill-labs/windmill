@@ -44,7 +44,8 @@
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { fade } from 'svelte/transition'
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -494,7 +495,7 @@
 					apps: (settings.deploy_ui.include_type?.indexOf('app') ?? -1) >= 0,
 					resources: (settings.deploy_ui.include_type?.indexOf('resource') ?? -1) >= 0,
 					variables: (settings.deploy_ui.include_type?.indexOf('variable') ?? -1) >= 0,
-					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0,
+					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0
 				}
 			}
 		}
@@ -506,7 +507,7 @@
 		})
 	}
 
-	let deployUiSettings:  {
+	let deployUiSettings: {
 		include_path: string[]
 		include_type: {
 			scripts: boolean
