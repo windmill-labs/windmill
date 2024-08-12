@@ -29,7 +29,6 @@
 	<VirtualItem
 		label={'Collect result of each iteration'}
 		modules={data.modules}
-		index={data.modules.findIndex((m) => m.id == data.id) + 1}
 		selectable={true}
 		selected={false}
 		insertable={data.insertable}

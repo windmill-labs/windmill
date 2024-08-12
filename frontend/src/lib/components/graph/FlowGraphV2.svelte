@@ -162,7 +162,8 @@
 		},
 		success,
 		$useDataflow,
-		$selectedId
+		$selectedId,
+		moving
 	)
 
 	const nodes = writable<Node[]>([])
@@ -220,13 +221,12 @@
 		{edges}
 		{edgeTypes}
 		{nodeTypes}
-		minZoom={1}
+		minZoom={0.5}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		fitView
 		{proOptions}
 		nodesDraggable={false}
-		preventScrolling={!scroll}
 		on:nodeclick={(e) => handleNodeClick(e)}
 		on:delete={(e) => {
 			console.log('delete', e.detail)

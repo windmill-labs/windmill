@@ -21,7 +21,6 @@
 	<VirtualItem
 		label={'Do one iteration'}
 		modules={data.modules}
-		index={0}
 		selectable={false}
 		insertable={false}
 		selected={false}

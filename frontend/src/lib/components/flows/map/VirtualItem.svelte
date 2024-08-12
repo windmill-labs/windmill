@@ -3,7 +3,7 @@
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import { ClipboardCopy, ExternalLink, Wand2, X } from 'lucide-svelte'
+	import { ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { copilotInfo } from '$lib/stores'
@@ -12,17 +12,14 @@
 
 	export let label: string
 	export let modules: FlowModule[] | undefined
-	export let index: number
 	export let insertable: boolean
 	export let bgColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
 	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
-	export let moving: string | undefined = undefined
 	export let center = true
 	export let disableAi: boolean = false
-	export let wrapperNode: FlowModule | undefined = undefined
 	export let borderColor: string | undefined = undefined
 	export let hideId: boolean = false
 
@@ -36,7 +33,6 @@
 		select: string
 		deleteBranch: { module: FlowModule; index: number }
 	}>()
-	let openMenu = false
 	let triggerOpenMenu = false
 	let openNoCopilot = false
 
@@ -101,34 +97,6 @@
 		</div>
 	</div>
 </div>
-
-{#if modules && (label != 'Input' || modules.length == 0)}
-	<div
-		class="{openMenu
-			? 'z-20'
-			: ''} w-[27px] absolute top-[49px] left-[50%] right-[50%] -translate-x-1/2"
-	>
-		{#if moving}
-			<button
-				title="Add branch"
-				on:click={() => {
-					if (modules) {
-						dispatch('insert', {
-							modules,
-							index,
-							detail: 'move'
-						})
-					}
-				}}
-				type="button"
-				disabled={wrapperNode?.id === moving}
-				class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-			>
-				<ClipboardCopy size={12} />
-			</button>
-		{/if}
-	</div>
-{/if}
 
 {#if insertable && modules && label == 'Input'}
 	{#if !disableAi}

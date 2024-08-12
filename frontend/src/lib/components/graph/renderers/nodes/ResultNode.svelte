@@ -25,7 +25,6 @@
 		id={'Result'}
 		label={'Result'}
 		modules={undefined}
-		index={data.modules.length}
 		selectable={true}
 		selected={$selectedId === 'Result'}
 		insertable={false}

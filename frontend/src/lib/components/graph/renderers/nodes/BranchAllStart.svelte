@@ -1,7 +1,6 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	// @ts-ignore
-	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
+	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -61,7 +60,6 @@
 	<VirtualItem
 		label={data.label}
 		modules={data.modules}
-		index={data.branchIndex}
 		selectable
 		selected={data.selected}
 		insertable={data.insertable}

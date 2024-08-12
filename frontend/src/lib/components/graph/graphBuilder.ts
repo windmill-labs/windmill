@@ -20,7 +20,8 @@ export default function graphBuilder(
 	eventHandlers: GraphEventHandlers,
 	success: boolean | undefined,
 	useDataflow: boolean | undefined,
-	selectedId: string | undefined
+	selectedId: string | undefined,
+	moving: string | undefined
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -42,6 +43,7 @@ export default function graphBuilder(
 				modules: modules,
 				parentIds: [],
 				eventHandlers: eventHandlers,
+				moving: moving,
 				...extra
 			},
 			position: { x: -1, y: -1 },
@@ -72,7 +74,8 @@ export default function graphBuilder(
 				modules,
 				sourceId,
 				targetId,
-				offset
+				offset,
+				moving
 			}
 		})
 	}

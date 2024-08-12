@@ -289,6 +289,8 @@
 				}
 			}}
 			on:insert={async ({ detail }) => {
+				console.log('insert', detail)
+
 				if (shouldRunTutorial('forloop', detail.detail, 1)) {
 					flowTutorials?.runTutorialById('forloop', detail.index)
 				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
@@ -338,6 +340,8 @@
 				}
 			}}
 			on:move={async ({ detail }) => {
+				console.log('move', detail, $moving)
+
 				if (!$moving || $moving.module.id !== detail.module.id) {
 					if (detail.module && detail.modules) {
 						$moving = { module: detail.module, modules: detail.modules }

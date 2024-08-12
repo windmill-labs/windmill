@@ -2,6 +2,7 @@
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { getBezierPath, BaseEdge, type Position, EdgeLabelRenderer } from '@xyflow/svelte'
+	import { ClipboardCopy } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 
@@ -16,6 +17,7 @@
 	export let data: {
 		insertable: boolean
 		modules: FlowModule[]
+		moving: string | undefined
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -43,12 +45,30 @@
 </script>
 
 <EdgeLabelRenderer>
-	{#if data?.insertable && !$useDataflow}
+	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
 			class="edgeButtonContainer nodrag nopan"
 			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
 		>
 			<InsertModuleButton index={0} modules={data?.modules ?? []} funcDesc="" />
+		</div>
+	{/if}
+
+	{#if data?.moving}
+		<div
+			class="edgeButtonContainer nodrag nopan"
+			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+		>
+			{#if data.moving}
+				<button
+					title="Paste module"
+					on:click={() => {}}
+					type="button"
+					class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+				>
+					<ClipboardCopy class="m-[5px]" size={15} />
+				</button>
+			{/if}
 		</div>
 	{/if}
 </EdgeLabelRenderer>

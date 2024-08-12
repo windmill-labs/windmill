@@ -81,7 +81,6 @@
 	<VirtualItem
 		label="Input"
 		modules={data.modules}
-		index={0}
 		selectable
 		selected={$selectedId === 'Input'}
 		insertable={false}
