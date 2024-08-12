@@ -2,20 +2,23 @@
 	import {
 		getBezierPath,
 		BaseEdge,
-		type EdgeProps
+		type Position
 		// @ts-ignore
 	} from '@xyflow/svelte'
+	import { getContext } from 'svelte'
+	import type { Writable } from 'svelte/store'
 
-	type $$Props = EdgeProps
+	export let sourceX: number
+	export let sourceY: number
+	export let sourcePosition: Position
+	export let targetX: number
+	export let targetY: number
+	export let targetPosition: Position
+	export let markerEnd: string | undefined = undefined
 
-	export let sourceX: $$Props['sourceX']
-	export let sourceY: $$Props['sourceY']
-	export let sourcePosition: $$Props['sourcePosition']
-	export let targetX: $$Props['targetX']
-	export let targetY: $$Props['targetY']
-	export let targetPosition: $$Props['targetPosition']
-	export let markerEnd: $$Props['markerEnd'] = undefined
-	export let style: $$Props['style'] = undefined
+	const { useDataflow } = getContext<{
+		useDataflow: Writable<boolean | undefined>
+	}>('FlowGraphContext')
 
 	$: [edgePath] = getBezierPath({
 		sourceX,
@@ -27,4 +30,4 @@
 	})
 </script>
 
-<BaseEdge path={edgePath} {markerEnd} {style} />
+<BaseEdge path={edgePath} {markerEnd} class={$useDataflow ? 'hidden' : ''} />

@@ -1,9 +1,6 @@
 <script lang="ts">
-	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { getBezierPath, BaseEdge, type Position, EdgeLabelRenderer } from '@xyflow/svelte'
-	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 
 	export let sourceX: number
 	export let sourceY: number
@@ -16,6 +13,9 @@
 	export let data: {
 		insertable: boolean
 		modules: FlowModule[]
+		sourceId: string
+		targetId: string
+		offset: number
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -36,24 +36,24 @@
 		targetY - sourceY > 100
 			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetX, targetY })}`
 			: edgePath
-
-	const { useDataflow } = getContext<{
-		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext')
 </script>
 
 <EdgeLabelRenderer>
-	{#if data?.insertable && !$useDataflow}
+	{#if data?.insertable}
 		<div
-			class="edgeButtonContainer nodrag nopan"
+			class="edgeButtonContainer nodrag nopan bg-surface-selected p-1 border text-xs"
 			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
 		>
-			<InsertModuleButton index={0} modules={data?.modules ?? []} funcDesc="" />
+			{data.sourceId} -> {data.targetId}
 		</div>
 	{/if}
 </EdgeLabelRenderer>
 
-<BaseEdge path={completeEdge} {markerEnd} class={$useDataflow ? 'hidden' : ''} />
+<BaseEdge
+	path={completeEdge}
+	{markerEnd}
+	style={`animation:dashdraw 0.5s linear infinite; stroke-dasharray: 5px;`}
+/>
 
 <style>
 	.edgeButtonContainer {

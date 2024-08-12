@@ -1,5 +1,7 @@
 import type { FlowModule } from '$lib/gen'
 import { type Node, type Edge } from '@xyflow/svelte'
+import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
+import { dfsByModule } from '../flows/previousResults'
 
 export type GraphEventHandlers = {
 	insert: (detail) => void
@@ -16,7 +18,9 @@ export default function graphBuilder(
 	extra: Record<string, any>,
 	failureModule: FlowModule | undefined,
 	eventHandlers: GraphEventHandlers,
-	success: boolean | undefined
+	success: boolean | undefined,
+	useDataflow: boolean | undefined,
+	selectedId: string | undefined
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -49,7 +53,13 @@ export default function graphBuilder(
 
 	const parents: { [key: string]: string[] } = {}
 
-	function addEdge(sourceId: string, targetId: string, customId?: string, type?: string) {
+	function addEdge(
+		sourceId: string,
+		targetId: string,
+		customId?: string,
+		type?: string,
+		offset?: number
+	) {
 		parents[targetId] = [...(parents[targetId] ?? []), sourceId]
 
 		edges.push({
@@ -59,13 +69,16 @@ export default function graphBuilder(
 			type: type ?? 'edge',
 			data: {
 				insertable: extra.insertable,
-				modules
+				modules,
+				sourceId,
+				targetId,
+				offset
 			}
 		})
 	}
 
 	const inputNode: Node = {
-		id: 'input',
+		id: 'Input',
 		position: { x: -1, y: -1 },
 		type: 'input2',
 		data: {
@@ -279,6 +292,45 @@ export default function graphBuilder(
 			node.data.parentIds = parents[key]
 		}
 	})
+
+	// DATAFLOW
+	if (useDataflow && selectedId) {
+		let deps = getDependeeAndDependentComponents(selectedId, modules ?? [], failureModule)
+
+		if (deps) {
+			Object.entries(deps.dependees).forEach((x, i) => {
+				const inputs = x[1]
+
+				inputs?.forEach((input, index) => {
+					let pid = x[0]
+
+					if (input?.startsWith('flow_input.iter')) {
+						const parent = dfsByModule(selectedId!, modules ?? [])?.pop()
+
+						if (parent?.id) {
+							pid = parent.id
+						}
+					}
+
+					addEdge(
+						pid,
+						selectedId!,
+						`dep-${pid}-${selectedId}-${input}-${index}`,
+						'dataflowedge',
+						i * 20
+					)
+				})
+			})
+
+			Object.entries(deps.dependents).forEach((x, i) => {
+				let pid = x[0]
+
+				console.log('offset', i * 10)
+
+				addEdge(selectedId!, pid, `dep-${selectedId}-${pid}-${i}`, 'dataflowedge', i * 10)
+			})
+		}
+	}
 
 	return { nodes, edges }
 }

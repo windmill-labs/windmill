@@ -104,6 +104,7 @@
 					title="Add branch"
 					on:click={() => {
 						dispatch('insert', { modules: data.modules, index: idx, detail: 'move' })
+						//data?.eventHandlers?.insert()
 					}}
 					type="button"
 					disabled={data.wrapperId === data.moving}
@@ -121,7 +122,7 @@
 		<button
 			class="rounded-full border hover:bg-surface-hover bg-surface p-1"
 			on:click={() => {
-				dispatch('addBranch')
+				data?.eventHandlers?.newBranch(data.module)
 			}}
 		>
 			<GitBranchPlus size={16} />

@@ -30,6 +30,8 @@
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
 	import { Expand } from 'lucide-svelte'
+	import Toggle from '../Toggle.svelte'
+	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -54,10 +56,13 @@
 		undefined
 	)
 
+	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
+
 	setContext<{
 		selectedId: Writable<string | undefined>
 		flowInputsStore: Writable<FlowInput | undefined>
-	}>('FlowGraphContext', { selectedId, flowInputsStore })
+		useDataflow: Writable<boolean | undefined>
+	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
 
 	const dispatch = createEventDispatcher()
 
@@ -155,7 +160,9 @@
 				dispatch('selectIteration', { ...detail, moduleId: moduleId })
 			}
 		},
-		success
+		success,
+		$useDataflow,
+		$selectedId
 	)
 
 	const nodes = writable<Node[]>([])
@@ -182,7 +189,8 @@
 
 	const edgeTypes = {
 		edge: BaseEdge,
-		empty: EmptyEdge
+		empty: EmptyEdge,
+		dataflowedge: DataflowEdge
 	} as any
 
 	const proOptions = { hideAttribution: true }
@@ -231,6 +239,25 @@
 					<Expand size="14" />
 				</ControlButton>
 			{/if}
+		</Controls>
+
+		<Controls
+			position="top-left"
+			orientation="horizontal"
+			showLock={false}
+			showZoom={false}
+			showFitView={false}
+		>
+			<Toggle
+				value={$useDataflow}
+				on:change={() => {
+					$useDataflow = !$useDataflow
+				}}
+				size="xs"
+				options={{
+					right: 'Dataflow'
+				}}
+			/>
 		</Controls>
 	</SvelteFlow>
 </div>
