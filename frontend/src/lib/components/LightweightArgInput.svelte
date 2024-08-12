@@ -181,9 +181,17 @@
 	}
 
 	let prevDefaultValue: any = undefined
+	let defaultChange = 0
+
 	async function changeDefaultValue(inputCat, defaultValue) {
-		if (value == null || value == undefined || deepEqual(value, prevDefaultValue)) {
+		if (
+			value == null ||
+			value == undefined ||
+			deepEqual(value, prevDefaultValue) ||
+			(prevDefaultValue != undefined && !deepEqual(defaultValue, prevDefaultValue))
+		) {
 			value = defaultValue
+			defaultChange += 1
 		}
 		prevDefaultValue = structuredClone(defaultValue)
 
@@ -498,11 +506,13 @@
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}
-					{#if format === 'date'}
-						<DateInput bind:value dateFormat={extra['dateFormat']} />
-					{:else}
-						<DateTimeInput useDropdown bind:value />
-					{/if}
+					{#key defaultChange}
+						{#if format === 'date'}
+							<DateInput bind:value dateFormat={extra['dateFormat']} />
+						{:else}
+							<DateTimeInput useDropdown bind:value />
+						{/if}
+					{/key}
 				{:else if inputCat == 'base64'}
 					<div class="flex flex-col my-6 w-full">
 						<input
