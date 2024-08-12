@@ -173,6 +173,7 @@
 	const edges = writable<Edge[]>([])
 
 	let height = 0
+
 	function updateStores() {
 		$nodes = layoutNodes(graph?.nodes)
 		$edges = graph.edges
@@ -223,10 +224,7 @@
 		$selectedId !== 'Result'
 </script>
 
-<div
-	style={`height: ${height}px; max-height: ${maxHeight ? maxHeight + 'px' : 'none'};`}
-	bind:clientWidth={width}
->
+<div style={`height: ${height}px; `} bind:clientWidth={width} class="w-full overflow-hidden">
 	<SvelteFlow
 		{nodes}
 		{edges}

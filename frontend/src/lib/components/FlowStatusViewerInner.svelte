@@ -586,6 +586,7 @@
 	let stepDetail: FlowModule | string | undefined = undefined
 
 	let storedListJobs: Record<number, Job> = {}
+	let wrapperHeight: number = 0
 </script>
 
 {#if notAnonynmous}
@@ -894,7 +895,7 @@
 	{#if render}
 		{#if job.raw_flow && !isListJob}
 			<div class="{selected != 'graph' ? 'hidden' : ''} grow mt-4">
-				<div class="grid grid-cols-3 border h-full">
+				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
 							{#each Object.values($retryStatus) as count}
@@ -915,6 +916,7 @@
 
 						<FlowGraphV2
 							download
+							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
 							on:select={(e) => {
