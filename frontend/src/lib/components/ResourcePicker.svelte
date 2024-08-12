@@ -39,7 +39,7 @@
 	let collection = valueSelect ? [valueSelect] : []
 
 	export async function askNewResource() {
-		appConnect?.open?.(resourceType)
+		appConnect?.open?.(resourceType, expressOAuthSetup)
 	}
 
 	async function loadResources(resourceType: string | undefined) {

@@ -935,7 +935,7 @@
 
 			<div class="mt-10" />
 
-			<h2>Secret public URL</h2>
+			<h2>Public URL</h2>
 			<div class="mt-4" />
 
 			<Toggle
@@ -951,7 +951,7 @@
 			/>
 
 			<div class="my-6 box">
-				Secret public url:
+				Public url:
 				{#if secretUrl}
 					{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
 					{@const href = $page.url.protocol + '//' + url}
@@ -971,7 +971,8 @@
 				{:else}<Loader2 class="animate-spin" />
 				{/if}
 				<div class="text-xs text-secondary"
-					>You may share this url directly or embed it using an iframe (if not requiring login)</div
+					>Share this url directly or embed it using an iframe (if requiring login, top-level domain
+					of embedding app must be the same as the one of Windmill)</div
 				>
 			</div>
 

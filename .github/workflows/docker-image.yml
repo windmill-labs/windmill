@@ -1,6 +1,7 @@
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.event_name != 'pull_request' && github.repository || 'windmill-labs/windmill-test' }}
+  DEV_SHA: ${{ github.event_name != 'pull_request' && 'dev' || format('pr-{0}', github.event.number) }}
 
 name: Build windmill:main
 on:
@@ -62,7 +63,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -75,7 +75,7 @@ jobs:
           build-args: |
             features=embedding,parquet,openidconnect,jemalloc
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
@@ -113,7 +113,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -137,7 +136,7 @@ jobs:
           build-args: |
             features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
@@ -176,7 +175,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -250,25 +248,25 @@ jobs:
 
       - run: |
           # pulling docker image with desired arch so that actions-docker-extract doesn't do it
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
 
       - run: |
           # Checks the image is in docker prior to running actions-docker-extract. It fails if not
           # Also useful to visually check that the arch is the right opencontainers
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
 
       - uses: shrink/actions-docker-extract@v3
         id: extract
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
           path: "/usr/src/app/windmill"
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
           path: "/usr/src/app/windmill"
 
       - name: Rename binary with corresponding architecture
@@ -294,25 +292,25 @@ jobs:
 
   #     - run: |
   #         # pulling docker image with desired arch so that actions-docker-extract doesn't do it
-  #         docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-  #         docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+  #         docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+  #         docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
 
   #     - run: |
   #         # Checks the image is in docker prior to running actions-docker-extract. It fails if not
   #         # Also useful to visually check that the arch is the right opencontainers
-  #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
-  #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+  #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
+  #         docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
 
   #     - uses: shrink/actions-docker-extract@v3
   #       id: extract
   #       with:
-  #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+  #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
   #         path: "/usr/src/app/windmill"
 
   #     - uses: shrink/actions-docker-extract@v3
   #       id: extract-ee
   #       with:
-  #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev
+  #         image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
   #         path: "/usr/src/app/windmill"
 
   #     - name: Rename binary with corresponding architecture
@@ -354,6 +352,7 @@ jobs:
   tag_latest:
     runs-on: ubicloud
     needs: [run_integration_test, build]
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -366,12 +365,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Tag main and latest
         run: |
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
 
   tag_latest_ee:
     runs-on: ubicloud
     needs: [run_integration_test, build_ee]
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -384,8 +384,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Tag main and latest for ee
         run: |
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
-          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:dev --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          docker buildx imagetools create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }} --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
 
   verify_ee_image_vulnerabilities:
     runs-on: ubicloud
@@ -432,6 +432,7 @@ jobs:
   build_ee_nsjail:
     needs: [build_ee]
     runs-on: ubicloud
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -451,8 +452,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short
@@ -480,6 +479,7 @@ jobs:
   build_ee_reports_privately:
     needs: [build_ee_nsjail]
     runs-on: ubicloud
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -503,8 +503,6 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-reports
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short
@@ -589,7 +587,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -636,7 +633,6 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 

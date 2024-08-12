@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { format, isValid } from 'date-fns'
+	import { format, isValid, parse } from 'date-fns'
 
 	export let value: string | undefined = undefined
 	export let autofocus: boolean | null = false
@@ -8,9 +8,21 @@
 	export let maxDate: string | undefined = undefined
 	export let dateFormat: string | undefined = 'dd-MM-yyyy'
 
-	let date: string | undefined = undefined
+	let date: string | undefined = computeDate(value)
 
 	const dispatch = createEventDispatcher()
+
+	function computeDate(value: string | undefined) {
+		if (dateFormat === undefined) {
+			dateFormat = 'dd-MM-yyyy'
+		}
+		if (value) {
+			const res = format(parse(value, dateFormat, new Date()), 'yyyy-MM-dd')
+			return res
+		} else {
+			return undefined
+		}
+	}
 
 	function updateValue(newDate: string | undefined) {
 		if (newDate && isValid(new Date(newDate))) {

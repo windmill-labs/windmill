@@ -130,12 +130,14 @@
 				}) as (id: string) => AppComponent,
 				undefined,
 				undefined,
-				undefined,
+				'topbar',
 				{ x: 0, y: 0 },
 				{
 					3: processDimension(preset.dims, 3),
 					12: processDimension(preset.dims, 12)
-				}
+				},
+				true,
+				true
 			)
 
 			setUpTopBarComponentContent(id, value)
