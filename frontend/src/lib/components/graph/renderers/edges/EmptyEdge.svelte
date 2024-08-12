@@ -1,10 +1,5 @@
 <script lang="ts">
-	import {
-		getBezierPath,
-		BaseEdge,
-		type Position
-		// @ts-ignore
-	} from '@xyflow/svelte'
+	import { getBezierPath, BaseEdge, type Position } from '@xyflow/svelte'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 

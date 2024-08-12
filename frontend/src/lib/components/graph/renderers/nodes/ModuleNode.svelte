@@ -1,5 +1,4 @@
 <script lang="ts">
-	// @ts-ignore
 	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import type { FlowModule, FlowModuleValue } from '$lib/gen/types.gen'

@@ -1,12 +1,11 @@
 <script lang="ts">
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-
-	// @ts-ignore
-	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
+	import { Handle, Position } from '@xyflow/svelte'
 
 	export let enableSourceHandle: boolean = true
 	export let enableTargetHandle: boolean = true
 	export let offset: number = 0
+
 	let darkMode: boolean = false
 </script>
 

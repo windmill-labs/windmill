@@ -1,7 +1,6 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	// @ts-ignore
-	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
+	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import Popover from '$lib/components/Popover.svelte'

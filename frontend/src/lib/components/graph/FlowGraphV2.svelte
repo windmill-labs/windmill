@@ -210,6 +210,13 @@
 			dispatch('select', mod)
 		}
 	}
+
+	$: showDataflow =
+		$selectedId != undefined &&
+		!$selectedId.startsWith('constants') &&
+		!$selectedId.startsWith('settings') &&
+		$selectedId !== 'failure' &&
+		$selectedId !== 'Result'
 </script>
 
 <div
@@ -256,16 +263,18 @@
 			showZoom={false}
 			showFitView={false}
 		>
-			<Toggle
-				value={$useDataflow}
-				on:change={() => {
-					$useDataflow = !$useDataflow
-				}}
-				size="xs"
-				options={{
-					right: 'Dataflow'
-				}}
-			/>
+			{#if showDataflow}
+				<Toggle
+					value={$useDataflow}
+					on:change={() => {
+						$useDataflow = !$useDataflow
+					}}
+					size="xs"
+					options={{
+						right: 'Dataflow'
+					}}
+				/>
+			{/if}
 		</Controls>
 	</SvelteFlow>
 </div>

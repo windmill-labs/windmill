@@ -11,11 +11,9 @@
 	export let markerEnd: string | undefined = undefined
 
 	export let data: {
-		insertable: boolean
 		modules: FlowModule[]
 		sourceId: string
 		targetId: string
-		offset: number
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -39,14 +37,12 @@
 </script>
 
 <EdgeLabelRenderer>
-	{#if data?.insertable}
-		<div
-			class="edgeButtonContainer nodrag nopan bg-surface-selected p-1 border text-xs"
-			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
-		>
-			{data.sourceId} -> {data.targetId}
-		</div>
-	{/if}
+	<div
+		class="edgeButtonContainer nodrag nopan bg-surface-selected p-1 border text-xs"
+		style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+	>
+		{data.sourceId} -> {data.targetId}
+	</div>
 </EdgeLabelRenderer>
 
 <BaseEdge
