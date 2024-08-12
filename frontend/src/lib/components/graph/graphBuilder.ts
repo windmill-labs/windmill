@@ -6,8 +6,8 @@ export type GraphEventHandlers = {
 	deleteBranch: (detail, label: string) => void
 	select: (modId: string) => void
 	delete: (detail, label: string) => void
-	newBranch: (detail, label: string) => void
-	move: (module: FlowModule, modules: FlowModule[], index: number) => void
+	newBranch: (module: FlowModule) => void
+	move: (module: FlowModule, modules: FlowModule[]) => void
 	selectIteration: (detail, moduleId: string) => void
 }
 
@@ -15,7 +15,8 @@ export default function graphBuilder(
 	modules: FlowModule[] | undefined,
 	extra: Record<string, any>,
 	failureModule: FlowModule | undefined,
-	eventHandlers: GraphEventHandlers
+	eventHandlers: GraphEventHandlers,
+	success: boolean | undefined
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -68,14 +69,19 @@ export default function graphBuilder(
 		position: { x: -1, y: -1 },
 		type: 'input2',
 		data: {
-			parentIds: []
+			eventHandlers: eventHandlers,
+			modules: modules,
+			...extra
 		}
 	}
 
 	const resultNode: Node = {
 		id: 'result',
 		data: {
-			parentIds: []
+			eventHandlers: eventHandlers,
+			modules: modules,
+			success: success,
+			...extra
 		},
 		position: { x: -1, y: -1 },
 		type: 'result'

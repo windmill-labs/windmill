@@ -17,7 +17,6 @@
 		trigger: boolean
 		insertable: boolean
 		insertableEnd: boolean
-		annotation: string | undefined
 		branchable: boolean
 		bgColor: string
 		modules: FlowModule[]
@@ -39,10 +38,19 @@
 	const dispatch = createEventDispatcher()
 	let openMenu: boolean | undefined = undefined
 
-	let type = data.flowModuleStates?.[data.module.id]?.type
+	$: type = data.flowModuleStates?.[data.module.id]?.type
 	if (!type && data.flowJobs) {
 		type = 'InProgress'
 	}
+
+	const state = data.flowModuleStates?.[data.module.id]
+	const flowJobs = state?.flow_jobs
+		? {
+				flowJobs: state?.flow_jobs,
+				selected: state?.selectedForloopIndex ?? -1,
+				flowJobsSuccess: state?.flow_jobs_success
+		  }
+		: (undefined as any)
 </script>
 
 <NodeWrapper offset={data.offset} let:darkMode>
@@ -51,7 +59,9 @@
 		trigger={data.trigger}
 		insertable={data.insertable}
 		insertableEnd={data.insertableEnd}
-		annotation={data.annotation}
+		annotation={state?.flow_jobs
+			? 'ierations ' + state?.flow_jobs?.length + '/' + (state?.iteration_total ?? '?')
+			: ''}
 		branchable={data.branchable}
 		bgColor={getStateColor(type, darkMode)}
 		modules={data.modules ?? []}
@@ -60,17 +70,25 @@
 		disableAi={data.disableAi}
 		wrapperId={data.wrapperId}
 		retries={data.retries}
-		flowJobs={data.flowJobs}
+		{flowJobs}
 		on:delete={(e) => {
 			data.eventHandlers.delete(e.detail, '')
 		}}
 		on:insert={(e) => {
 			data.eventHandlers.insert(e.detail)
 		}}
-		on:move
-		on:newBranch
-		on:select
-		on:selectedIteration
+		on:move={(e) => {
+			data.eventHandlers.move(data.module, data.modules)
+		}}
+		on:newBranch={(e) => {
+			data.eventHandlers.newBranch(data.module)
+		}}
+		on:select={(e) => {
+			data.eventHandlers.select(e.detail)
+		}}
+		on:selectedIteration={(e) => {
+			data.eventHandlers.selectIteration(e.detail, data.module.id)
+		}}
 	/>
 </NodeWrapper>
 

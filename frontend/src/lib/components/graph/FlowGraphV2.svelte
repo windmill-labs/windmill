@@ -145,8 +145,8 @@
 
 				dispatch('delete', detail)
 			},
-			newBranch: (detail, label) => {
-				dispatch('newBranch', detail)
+			newBranch: (module) => {
+				dispatch('newBranch', module)
 			},
 			move: (module, modules) => {
 				dispatch('move', { module, modules })
@@ -154,7 +154,8 @@
 			selectIteration: (detail, moduleId) => {
 				dispatch('selectIteration', { ...detail, moduleId: moduleId })
 			}
-		}
+		},
+		success
 	)
 
 	const nodes = writable<Node[]>([])
@@ -163,13 +164,9 @@
 	function updateStores() {
 		$nodes = layoutNodes(graph?.nodes)
 		$edges = graph.edges
-
-		renderCount++
 	}
 
 	$: graph && updateStores()
-
-	let renderCount: number = 0
 
 	const nodeTypes = {
 		input2: InputNode,
@@ -210,34 +207,32 @@
 	bind:clientWidth={width}
 	class="h-full"
 >
-	{#key renderCount}
-		<SvelteFlow
-			{nodes}
-			{edges}
-			{edgeTypes}
-			{nodeTypes}
-			minZoom={1}
-			connectionLineType={ConnectionLineType.SmoothStep}
-			defaultEdgeOptions={{ type: 'smoothstep' }}
-			fitView
-			{proOptions}
-			nodesDraggable={false}
-			preventScrolling={!scroll}
-			on:nodeclick={(e) => handleNodeClick(e)}
-			on:delete={(e) => {
-				console.log('delete', e.detail)
-			}}
-		>
-			<Background class="!bg-surface-secondary" />
-			<Controls position="top-right" orientation="horizontal" showLock={false}>
-				{#if download}
-					<ControlButton on:click={() => dispatch('expand')} class="!bg-surface">
-						<Expand size="14" />
-					</ControlButton>
-				{/if}
-			</Controls>
-		</SvelteFlow>
-	{/key}
+	<SvelteFlow
+		{nodes}
+		{edges}
+		{edgeTypes}
+		{nodeTypes}
+		minZoom={1}
+		connectionLineType={ConnectionLineType.SmoothStep}
+		defaultEdgeOptions={{ type: 'smoothstep' }}
+		fitView
+		{proOptions}
+		nodesDraggable={false}
+		preventScrolling={!scroll}
+		on:nodeclick={(e) => handleNodeClick(e)}
+		on:delete={(e) => {
+			console.log('delete', e.detail)
+		}}
+	>
+		<Background class="!bg-surface-secondary" />
+		<Controls position="top-right" orientation="horizontal" showLock={false}>
+			{#if download}
+				<ControlButton on:click={() => dispatch('expand')} class="!bg-surface">
+					<Expand size="14" />
+				</ControlButton>
+			{/if}
+		</Controls>
+	</SvelteFlow>
 </div>
 
 <style>

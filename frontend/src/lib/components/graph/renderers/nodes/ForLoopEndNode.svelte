@@ -4,6 +4,9 @@
 	import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
+	import type { GraphModuleState } from '../../model'
+	import { getStateColor } from '../../util'
+	import type { GraphEventHandlers } from '../../graphBuilder'
 
 	export let data: {
 		offset: number
@@ -11,6 +14,8 @@
 		time: number | undefined
 		insertable: boolean
 		modules: FlowModule[]
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+		eventHandlers: GraphEventHandlers
 	}
 </script>
 
@@ -20,13 +25,19 @@
 	</NodeToolbar>
 {/if}
 
-<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle>
+<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle let:darkMode>
 	<VirtualItem
 		label={'Collect result of each iteration'}
 		modules={data.modules}
-		index={1}
-		selectable
+		index={data.modules.findIndex((m) => m.id == data.id) + 1}
+		selectable={true}
 		selected={false}
 		insertable={data.insertable}
+		id={data.id}
+		bgColor={getStateColor(undefined, darkMode)}
+		borderColor={getStateColor(data.flowModuleStates?.[data.id]?.type, darkMode)}
+		on:select={(e) => {
+			data?.eventHandlers?.select(e.detail)
+		}}
 	/>
 </NodeWrapper>
