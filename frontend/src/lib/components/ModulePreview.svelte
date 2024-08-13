@@ -138,7 +138,7 @@
 					duration={testJob?.['duration_ms']}
 					mem={testJob?.['mem_peak']}
 					content={testJob?.logs}
-					isLoading={testIsLoading}
+					isLoading={testIsLoading && testJob?.['running'] == false}
 					tag={testJob?.tag}
 				/>
 			</Pane>

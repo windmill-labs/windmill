@@ -48,7 +48,7 @@
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
-{#if ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen}
+{#if true || ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen}
 	{@const frontendJob = $runnableJobEditorPanel?.frontendJobs[$selectedComponentInEditor ?? '']}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
@@ -70,27 +70,27 @@
 						duration={testJob?.['duration_ms']}
 						mem={testJob?.['mem_peak']}
 						content={testJob?.logs}
-						isLoading={testIsLoading}
+						isLoading={testIsLoading && testJob?.['running'] == false}
 						tag={testJob?.tag}
 					/>
 				{/if}
 			</Pane>
 			<Pane size={frontendJob ? 70 : 50} minSize={10} class="text-sm text-tertiary">
 				{#if frontendJob}
-					<pre class="overflow-x-auto break-words relative h-full px-2 pt-2"
-						><DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} /></pre
-					>
+					<div class="break-words relative h-full px-1">
+						<DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} />
+					</div>
 				{:else if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<pre class="overflow-x-auto break-words relative h-full px-2 pt-2"
-						><DisplayResult
+					<div class="break-words relative h-full px-1">
+						<DisplayResult
 							bind:drawerOpen={resultDrawerOpen}
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
 							result={testJob.result}
-						/></pre
+						/></div
 					>
 				{:else}
-					<div class="p-2">
+					<div class="px-1 pt-1">
 						{#if testIsLoading}
 							<Loader2 class="animate-spin" />
 						{:else}
