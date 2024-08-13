@@ -1,5 +1,7 @@
 //  https://github.com/jsdelivr/data.jsdelivr.com
 
+import pLimit from 'p-limit'
+
 export const getNPMVersionsForModule = (moduleName: string, resLimit: ResLimit) => {
 	const url = `https://data.jsdelivr.com/v1/package/npm/${moduleName}`
 	return api<{ tags: Record<string, string>; versions: string[] }>(url, resLimit, {
@@ -51,7 +53,7 @@ export const getDTSFileForModuleWithVersion = async (
 ) => {
 	// file comes with a prefix /
 	const url = `https://cdn.jsdelivr.net/npm/${moduleName}@${version}${file}`
-	const res = await fetch(url)
+	const res = await limit(() => fetch(url))
 	if (res.ok) {
 		return res.text()
 	} else {
@@ -67,6 +69,8 @@ export function isOverlimit(resLimit: ResLimit) {
 	return resLimit.usage > 5000000
 }
 
+export const limit = pLimit(6)
+
 function api<T>(url: string, resLimit: ResLimit, init?: RequestInit): Promise<T | Error> {
 	if (isOverlimit(resLimit)) {
 		console.warn(
@@ -75,16 +79,18 @@ function api<T>(url: string, resLimit: ResLimit, init?: RequestInit): Promise<T 
 		return new Promise(() => new Error('Exceeded limit of 100MB of data downloaded.'))
 	}
 
-	return fetch(url, init).then((res) => {
-		if (res.ok) {
-			return res.text().then((text) => {
-				resLimit.usage += text.length
-				console.log('resLimit', url, resLimit.usage)
+	return limit(() =>
+		fetch(url, init).then((res) => {
+			if (res.ok) {
+				return res.text().then((text) => {
+					resLimit.usage += text.length
+					console.log('resLimit', url, resLimit.usage)
 
-				return JSON.parse(text) as T
-			}) as Promise<T | Error>
-		} else {
-			return new Error('OK')
-		}
-	})
+					return JSON.parse(text) as T
+				}) as Promise<T | Error>
+			} else {
+				return new Error('OK')
+			}
+		})
+	)
 }
