@@ -78,6 +78,11 @@ lazy_static::lazy_static! {
 
     static ref CUSTOM_TAG_REGEX: Regex =  Regex::new(r"^(\w+)\(((?:\w+)\+?)+\)$").unwrap();
 
+    pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
@@ -232,7 +237,8 @@ pub fn get_annotation(inner_content: &str) -> Annotations {
     let native_mode: bool = annotations.contains(&"native".to_string());
 
     //TODO: remove || npm_mode when bun build is more powerful
-    let nobundling: bool = annotations.contains(&"nobundling".to_string()) || nodejs_mode;
+    let nobundling: bool =
+        annotations.contains(&"nobundling".to_string()) || nodejs_mode || *DISABLE_BUNDLING;
 
     Annotations { npm_mode, nodejs_mode, native_mode, nobundling }
 }
