@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FlowModule } from '$lib/gen/models/FlowModule'
+	import type { FlowModule } from '$lib/gen'
 	import { getBezierPath, BaseEdge, type Position, EdgeLabelRenderer } from '@xyflow/svelte'
 	import { getStraightLinePath } from '../utils'
 

@@ -237,6 +237,7 @@
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		fitView
 		preventScrolling={scroll}
+		width={200}
 		{proOptions}
 		nodesDraggable={false}
 		on:nodeclick={(e) => handleNodeClick(e)}

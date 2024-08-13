@@ -1,6 +1,6 @@
 <script lang="ts">
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
-	import type { FlowModule } from '$lib/gen/models/FlowModule'
+	import type { FlowModule } from '$lib/gen'
 	import { getBezierPath, BaseEdge, type Position, EdgeLabelRenderer } from '@xyflow/svelte'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import { getContext } from 'svelte'

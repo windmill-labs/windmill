@@ -5,7 +5,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
-	import type { FlowModule } from '$lib/gen/models/FlowModule'
+	import type { FlowModule } from '$lib/gen'
 	import { getStateColor } from '../../util'
 	import Menu from '$lib/components/common/menu/Menu.svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'

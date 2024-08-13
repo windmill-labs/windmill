@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import type { FlowModule, FlowModuleValue } from '$lib/gen/types.gen'
+	import type { FlowModule, FlowModuleValue } from '$lib/gen'
 	import { GitBranchPlus } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'

@@ -1,4 +1,4 @@
-import type { FlowStatusModule } from '$lib/gen/types.gen'
+import type { FlowStatusModule } from '$lib/gen'
 import type { GraphModuleState } from '../model'
 
 export function getStraightLinePath({ sourceX, sourceY, targetY }) {

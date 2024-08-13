@@ -4,7 +4,7 @@
 	import { X } from 'lucide-svelte'
 	import type { GraphModuleState } from '../../model'
 	import { getStateColor } from '../../util'
-	import type { FlowModule } from '$lib/gen/models/FlowModule'
+	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { computeBorderStatus } from '../utils'
 
