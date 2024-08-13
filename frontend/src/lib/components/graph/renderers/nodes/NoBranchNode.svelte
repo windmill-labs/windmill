@@ -13,12 +13,13 @@
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		offset: number
+		label: string | undefined
 	}
 </script>
 
 <NodeWrapper offset={data.offset} let:darkMode enableSourceHandle enableTargetHandle>
 	<VirtualItem
-		label={'No branches'}
+		label={data.label ?? 'No branches'}
 		modules={data.modules}
 		id={data.id}
 		hideId={true}

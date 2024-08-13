@@ -300,7 +300,7 @@ export default function graphBuilder(
 							...extra
 						},
 						position: { x: -1, y: -1 },
-						type: 'branchOneStart'
+						type: 'noBranch'
 					}
 
 					nodes.push(defaultBranch)
