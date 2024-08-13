@@ -2,6 +2,7 @@ import type { FlowModule } from '$lib/gen'
 import { type Node, type Edge } from '@xyflow/svelte'
 import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
+import { defaultIfEmptyString } from '$lib/utils'
 
 export type GraphEventHandlers = {
 	insert: (detail) => void
@@ -185,7 +186,7 @@ export default function graphBuilder(
 								id: `${module.id}-branch-${branchIndex}`,
 								data: {
 									offset: currentOffset,
-									label: `Branch ${branchIndex + 1}`,
+									label: defaultIfEmptyString(branch.summary, `Branch ${branchIndex + 1}`),
 									id: module.id,
 									branchIndex: branchIndex,
 									modules: modules,
@@ -211,7 +212,7 @@ export default function graphBuilder(
 					const startNode = {
 						id: `${module.id}-start`,
 						data: {
-							offset: currentOffset + 50,
+							offset: currentOffset + 25,
 							id: module.id,
 							module: module,
 							modules: modules,
@@ -241,7 +242,7 @@ export default function graphBuilder(
 					nodes.push(startNode)
 					nodes.push(endNode)
 
-					processModules(module.value.modules, startNode, endNode, currentOffset + 50)
+					processModules(module.value.modules, startNode, endNode, currentOffset + 25)
 
 					previousId = endNode.id
 				} else if (module.value.type === 'whileloopflow') {
@@ -250,7 +251,7 @@ export default function graphBuilder(
 					const startNode = {
 						id: `${module.id}-start`,
 						data: {
-							offset: currentOffset + 50,
+							offset: currentOffset + 25,
 							module: module,
 							modules: modules,
 							eventHandlers: eventHandlers,
@@ -271,7 +272,7 @@ export default function graphBuilder(
 					nodes.push(startNode)
 					nodes.push(endNode)
 
-					processModules(module.value.modules, startNode, endNode, currentOffset + 50)
+					processModules(module.value.modules, startNode, endNode, currentOffset + 25)
 
 					previousId = endNode.id
 				} else if (module.value.type === 'branchone') {
@@ -307,7 +308,7 @@ export default function graphBuilder(
 
 					addEdge(module.id, defaultBranch.id, { type: 'empty' })
 
-					processModules(module.value.default, defaultBranch, endNode)
+					processModules(module.value.default, defaultBranch, endNode, currentOffset)
 
 					module.value.branches.forEach((branch, branchIndex) => {
 						// Start node by branch
@@ -316,7 +317,11 @@ export default function graphBuilder(
 							id: `${module.id}-branch-${branchIndex}`,
 							data: {
 								offset: currentOffset,
-								label: `Branch ${branchIndex + 1}`,
+								label:
+									defaultIfEmptyString(branch.summary, 'Branch ' + (branchIndex + 1)) +
+									'\n`' +
+									branch.expr +
+									'`',
 								id: module.id,
 								branchIndex: branchIndex,
 								modules: modules,
@@ -331,7 +336,7 @@ export default function graphBuilder(
 
 						addEdge(module.id, startNode.id, { type: 'empty' })
 
-						processModules(branch.modules, startNode, endNode)
+						processModules(branch.modules, startNode, endNode, currentOffset)
 					})
 
 					previousId = endNode.id
