@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.379.2](https://github.com/windmill-labs/windmill/compare/v1.379.1...v1.379.2) (2024-08-13)
+
+
+### Bug Fixes
+
+* add fetch connection limits to bun type fetcher ([b9924d0](https://github.com/windmill-labs/windmill/commit/b9924d01d54f6dfaf5d719c13a38bb3dccbfe3b9))
+* extend step_id being returned as part of the error of every languages ([bcc94ba](https://github.com/windmill-labs/windmill/commit/bcc94badbd848b6838dd0e353c3a30e7a1889ff8))
+* **frontend:** date input is more flexible and accept default html format as a fallback ([b424c61](https://github.com/windmill-labs/windmill/commit/b424c61e95e3cc9213d4d3efbe4173857d4e80fd))
+* improve logviewer behavior when job is loading ([7a68cc7](https://github.com/windmill-labs/windmill/commit/7a68cc76c2d5d7a66f080afdfcb6c5cd09fc25b5))
+
 ## [1.379.1](https://github.com/windmill-labs/windmill/compare/v1.379.0...v1.379.1) (2024-08-13)
 
 
