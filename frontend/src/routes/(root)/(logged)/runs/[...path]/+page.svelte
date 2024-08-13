@@ -51,7 +51,7 @@
 	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 	let tag: string | null = $page.url.searchParams.get('tag')
 	// Rest of filters handled by RunsFilter
-	let success: 'running' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
+	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
 		'success'
 	) ?? undefined) as 'running' | 'success' | 'failure' | undefined
 	let isSkipped: boolean | undefined =
@@ -87,6 +87,8 @@
 	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
 
 	let queue_count: Tweened<number> | undefined = undefined
+	let suspended_count: Tweened<number> | undefined = undefined
+		
 	let jobKinds: string | undefined = undefined
 	let loading: boolean = false
 	let paths: string[] = []
@@ -255,8 +257,6 @@
 	function reset() {
 		minTs = undefined
 		maxTs = undefined
-
-		autoRefresh = true
 		jobs = undefined
 		completedJobs = undefined
 		selectedManualDate = 0
@@ -296,6 +296,8 @@
 		label = null
 		concurrencyKey = null
 		tag = null
+		schedulePath = undefined
+
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -305,6 +307,7 @@
 		label = null
 		concurrencyKey = null
 		tag = null
+		schedulePath = undefined
 	}
 
 	function filterByFolder(e: CustomEvent<string>) {
@@ -314,6 +317,7 @@
 		label = null
 		concurrencyKey = null
 		tag = null
+		schedulePath = undefined
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -323,6 +327,7 @@
 		label = e.detail
 		concurrencyKey = null
 		tag = null
+		schedulePath = undefined
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -332,6 +337,7 @@
 		label = null
 		concurrencyKey = e.detail
 		tag = null
+		schedulePath = undefined
 	}
 
 	function filterByTag(e: CustomEvent<string>) {
@@ -341,6 +347,17 @@
 		label = null
 		concurrencyKey = null
 		tag = e.detail
+		schedulePath = undefined
+	}
+
+	function filterBySchedule(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = null
+		schedulePath = e.detail
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
@@ -381,18 +398,27 @@
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
-			running: success == 'running' ? true : undefined,
+			running: (success == 'running' || success == 'suspended' ) ? true : (success == 'waiting' ) ? false : undefined,
+			isSkipped: isSkipped ? undefined : false,
+			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			hasNullParent:
+				path != undefined || path != undefined || jobKindsCat != 'all'
+					? true
+					: undefined,
+			label: label === null || label === '' ? undefined : label,
+			tag: tag === null || tag === '' ? undefined : tag,
 			isNotSchedule: showSchedules == false ? true : undefined,
-			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
+			scheduledForBeforeNow: showFutureJobs == false || (success == 'waiting' || success == 'suspended') ? true : undefined,
 			args:
-				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+				argFilter && argFilter != '{}' && argFilter != '' && argError == ''
+					? argFilter
+					: undefined,
 			result:
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
-			concurrencyKey: concurrencyKey ?? undefined,
-			tag: tag ?? undefined
 		}
 
 		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
@@ -424,6 +450,24 @@
 		graph === 'ConcurrencyChart' &&
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
+
+
+	function jobsFilter(f: 'waiting' | 'suspended') {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		schedulePath = undefined
+		path = null
+		tag = null
+		if (success == f) {
+			success = undefined
+		} else {
+			success = f
+		}
+		jobKindsCat = 'all'
+	}
 </script>
 
 <JobLoader
@@ -446,6 +490,7 @@
 	bind:maxTs
 	{jobKinds}
 	bind:queue_count
+	bind:suspended_count
 	{autoRefresh}
 	bind:completedJobs
 	bind:externalJobs
@@ -518,7 +563,7 @@
 
 <svelte:window bind:innerWidth />
 
-{#if innerWidth > 1280}
+{#if innerWidth > 900}
 	<div class="w-full h-screen">
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
@@ -556,6 +601,7 @@
 					bind:resultError
 					bind:jobKindsCat
 					bind:allWorkspaces
+					bind:schedulePath
 					on:change={reloadJobsWithoutFilterError}
 					{usernames}
 					{folders}
@@ -651,7 +697,11 @@
 		</div>
 		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 			<div class="flex gap-2 grow flex-row">
-				<RunsQueue {queue_count} {allWorkspaces} />
+				<RunsQueue {success} {queue_count} {suspended_count} on:jobs_waiting={() => {
+					jobsFilter('waiting')
+				}} on:jobs_suspended={() => {
+					jobsFilter('suspended')
+				}} />
 				<div class="flex flex-row">
 					{#if isSelectingJobsToCancel}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
@@ -724,7 +774,7 @@
 						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
 					}}
 				/>
-				<span class="text-xs absolute -top-4">CRON Schedules</span>
+				<span class="text-xs absolute -top-4"><span class="hidden xl:inline">CRON</span> Schedules</span>
 
 				<Calendar size={16} />
 			</div>
@@ -843,6 +893,7 @@
 							on:filterByLabel={filterByLabel}
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
 							on:filterByTag={filterByTag}
+							on:filterBySchedule={filterBySchedule}
 						/>
 					{:else}
 						<div class="gap-1 flex flex-col">
@@ -909,6 +960,7 @@
 					bind:argError
 					bind:resultError
 					bind:allWorkspaces
+					bind:schedulePath
 					mobile={true}
 					on:change={reloadJobsWithoutFilterError}
 				/>
@@ -992,10 +1044,14 @@
 				/>
 			{/if}
 		</div>
-		<div class="flex flex-col gap-4 md:flex-row w-full p-4">
+		<div class="flex flex-col gap-4 md:flex-row w-full p-4 overflow-x-auto">
 			<div class="flex items-center flex-row gap-2 grow">
 				{#if queue_count}
-					<RunsQueue {queue_count} {allWorkspaces} />
+					<RunsQueue {success} {queue_count} {suspended_count} on:jobs_waiting={() => {
+						jobsFilter('waiting')
+					}} on:jobs_suspended={() => {
+						jobsFilter('suspended')
+					}} />
 				{/if}
 				<div class="flex flex-row">
 					{#if isSelectingJobsToCancel}
@@ -1062,7 +1118,7 @@
 				</div>
 			</div>
 			<div class="flex gap-2 py-1">
-				<div class="relative flex gap-2 items-center pr-8 w-40">
+				<div class="relative flex gap-2 items-center pr-8 w-20">
 					<Toggle
 						size="xs"
 						bind:checked={showSchedules}
@@ -1074,7 +1130,7 @@
 
 					<Calendar size={16} />
 				</div>
-				<div class="relative flex gap-2 items-center pr-8 w-40">
+				<div class="relative flex gap-2 items-center pr-8 w-20">
 					<span class="text-xs absolute -top-4">Planned later</span>
 					<Toggle
 						size="xs"
@@ -1093,6 +1149,7 @@
 
 						<input
 							type="text"
+							class="min-w-10"
 							value={minTs
 								? new Date(minTs).toLocaleString()
 								: 'zoom x axis to set min (drag with ctrl)'}
@@ -1124,6 +1181,7 @@
 					<div class="flex gap-1 relative w-full">
 						<span class="text-xs absolute -top-4">Max datetime</span>
 						<input
+							class="min-w-10"
 							type="text"
 							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
 							disabled

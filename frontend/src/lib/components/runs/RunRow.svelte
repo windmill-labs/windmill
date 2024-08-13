@@ -152,6 +152,7 @@
 										{job.script_path}
 									</a>
 									<Button
+										title="Filter by path"
 										size="xs2"
 										color="light"
 										on:click={() => {
@@ -163,6 +164,7 @@
 								{/if}
 								{#if job.script_path?.startsWith('f/')}
 									<Button
+										title="Filter by folder"
 										size="xs2"
 										color="light"
 										on:click={() => {
@@ -254,6 +256,15 @@
 					>
 						{job.schedule_path}
 					</div>
+				</Button>
+				<Button
+					size="xs2"
+					color="light"
+					on:click={() => {
+						dispatch('filterBySchedule', job.schedule_path)
+					}}
+				>
+					<ListFilter size={10} />
 				</Button>
 			</div>
 		{:else}
