@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 
 	export let condition = false
 </script>

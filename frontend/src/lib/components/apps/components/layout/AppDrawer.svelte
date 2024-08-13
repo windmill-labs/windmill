@@ -2,7 +2,8 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { initCss } from '../../utils'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'

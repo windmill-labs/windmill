@@ -975,10 +975,12 @@
 					of embedding app must be the same as the one of Windmill)</div
 				>
 			</div>
-
 			<Alert type="info" title="Only latest deployed app is publicly available">
 				You will still need to deploy the app to make visible the latest changes
 			</Alert>
+
+			<a href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification" class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a>
+
 		{/if}
 	</DrawerContent>
 </Drawer>

@@ -20,7 +20,7 @@
 	export let label: string | null = null
 	export let folder: string | null
 	export let path: string | null
-	export let success: 'success' | 'failure' | 'running' | undefined = undefined
+	export let success: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined = undefined
 	export let isSkipped: boolean = false
 	export let showSchedules: boolean = true
 	export let showFutureJobs: boolean = true
@@ -32,6 +32,8 @@
 	export let maxTs: string | undefined = undefined
 	export let jobKinds: string = ''
 	export let queue_count: Tweened<number> | undefined = undefined
+	export let suspended_count: Tweened<number> | undefined = undefined
+
 	export let autoRefresh: boolean = true
 	export let completedJobs: CompletedJob[] | undefined = undefined
 	export let externalJobs: Job[] | undefined = undefined
@@ -63,6 +65,7 @@
 			lookback &&
 			user &&
 			folder &&
+			schedulePath != undefined &&
 			showFutureJobs != undefined &&
 			showSchedules != undefined &&
 			allWorkspaces != undefined &&
@@ -137,17 +140,18 @@
 				scriptPathStart: scriptPathStart,
 				jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
-				running: success == 'running' ? true : undefined,
+				running: (success == 'running' || success == 'suspended' ) ? true : (success == 'waiting' ) ? false : undefined,
 				isSkipped: isSkipped ? undefined : false,
 				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				hasNullParent:
-					scriptPathExact != undefined || scriptPathStart != undefined || jobKinds != 'all'
+					scriptPathExact != undefined || scriptPathStart != undefined || jobKindsCat != 'all'
 						? true
 						: undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,
 				isNotSchedule: showSchedules == false ? true : undefined,
-				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+				suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
+				scheduledForBeforeNow: showFutureJobs == false || (success == 'waiting' || success == 'suspended') ? true : undefined,
 				args:
 					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
 						? argFilter
@@ -292,16 +296,26 @@
 	}
 
 	async function getCount() {
-		const qc = (await JobService.getQueueCount({ workspace: $workspaceStore!, allWorkspaces }))
-			.database_length
+		const { database_length, suspended} = (await JobService.getQueueCount({ workspace: $workspaceStore!, allWorkspaces }))
+			
 		if (queue_count) {
-			queue_count.set(qc)
+			queue_count.set(database_length)
 		} else {
-			queue_count = tweened(qc, { duration: 1000 })
+			queue_count = tweened(database_length, { duration: 1000 })
+		}
+		if (suspended_count) {
+			suspended_count.set(suspended ?? 0)
+		} else {
+			suspended_count = tweened(suspended ?? 0, { duration: 1000 })
+
 		}
 	}
 
 	async function syncer() {
+		if (success == 'waiting') {
+			minTs = undefined
+			maxTs = undefined
+		}
 		if (loadingFetch) {
 			return
 		}

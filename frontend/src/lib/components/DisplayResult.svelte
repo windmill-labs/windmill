@@ -15,7 +15,8 @@
 		InfoIcon,
 		ArrowDownFromLine
 	} from 'lucide-svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'

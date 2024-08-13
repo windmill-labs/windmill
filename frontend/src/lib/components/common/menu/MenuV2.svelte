@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Menu, MenuButton, MenuItems, Transition } from '@rgossiaux/svelte-headlessui'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { twMerge } from 'tailwind-merge'

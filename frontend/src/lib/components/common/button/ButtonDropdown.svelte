@@ -3,7 +3,7 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 
 	export let hasPadding: boolean = true
 	export let target: string | undefined = 'body'
