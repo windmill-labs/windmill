@@ -23,6 +23,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/php/php.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/rust/rust.contribution'
 	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
 
@@ -90,6 +91,7 @@
 		| 'php'
 		| 'css'
 		| 'javascript'
+		| 'rust'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined

@@ -123,6 +123,14 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_powershell(code))
 		} else if (language == 'php') {
 			inferedSchema = JSON.parse(parse_php(code))
+		} else if (language == 'rust') {
+			inferedSchema = {
+				type: 'Valid',
+				error: "",
+				star_args: false,
+				args: [],
+				no_main_func: false,
+			} as MainArgSignature
 		} else {
 			return null
 		}

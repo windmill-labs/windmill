@@ -89,7 +89,8 @@
 		'bun',
 		'bunnative',
 		'nativets',
-		'php'
+		'php',
+		'rust'
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',

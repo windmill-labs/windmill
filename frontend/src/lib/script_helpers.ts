@@ -250,6 +250,19 @@ function main(
 }
 `
 
+export const RUST_INIT_CODE = `
+//! Add dependencies in the following partial Cargo.toml manifest
+//!
+//! \`\`\`cargo
+//! [dependencies]
+//! time = "0.1.25"
+//! \`\`\`
+
+fn main() {
+    println!("{}", time::now().rfc822z());
+}
+`
+
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -463,7 +476,8 @@ const ALL_INITIAL_CODE = [
 	BUN_INIT_CODE_APPROVAL,
 	BASH_INIT_CODE,
 	POWERSHELL_INIT_CODE,
-	PHP_INIT_CODE
+	PHP_INIT_CODE,
+	RUST_INIT_CODE,
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -550,6 +564,8 @@ export function initialCode(
 		return GRAPHQL_INIT_CODE
 	} else if (language == 'php') {
 		return PHP_INIT_CODE
+	} else if (language == 'rust') {
+		return RUST_INIT_CODE
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (language == 'bunnative' || subkind === 'bunnative') {
 			return BUNNATIVE_INIT_CODE

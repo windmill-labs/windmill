@@ -31,6 +31,8 @@ export function scriptLangToEditorLang(lang: Script['language'] | 'bunnative' | 
 		return 'powershell'
 	} else if (lang == 'php') {
 		return 'php'
+	} else if (lang == 'rust') {
+		return 'rust'
 	} else if (lang == 'graphql') {
 		return 'graphql'
 	} else if (lang == undefined) {
@@ -108,7 +110,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['graphql', 'GraphQL'],
 	['powershell', 'PowerShell'],
 	['php', 'PHP'],
-	['docker', 'Docker']
+	['rust', 'Rust'],
+	['docker', 'Docker'],
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {
