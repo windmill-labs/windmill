@@ -279,14 +279,15 @@
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
-						group: groupContext ? $groupContext : undefined
+						group: groupContext ? get(groupContext.context) : undefined
 					}),
 					$state,
 					isEditor,
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
-					true
+					true,
+					groupContext?.id
 				)
 
 				await setResult(r, job)
@@ -504,6 +505,7 @@
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
+						group: groupContext ? get(groupContext.context) : undefined,
 						result: res
 					}),
 					$state,
@@ -511,7 +513,8 @@
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
-					true
+					true,
+					groupContext?.id
 				)
 				return transformerResult
 			} catch (err) {

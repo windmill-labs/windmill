@@ -3,9 +3,10 @@
 	import type { Writable } from 'svelte/store'
 	import type { GroupContext } from '../types'
 
-	export let groupContext: Writable<Record<string, any>>
+	export let context: Writable<Record<string, any>>
+	export let id: string
 
-	setContext<GroupContext>('GroupContext', groupContext)
+	setContext<GroupContext>('GroupContext', { id, context })
 </script>
 
 <slot />
