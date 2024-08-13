@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.379.0](https://github.com/windmill-labs/windmill/compare/v1.378.0...v1.379.0) (2024-08-13)
+
+
+### Features
+
+* embeddable apps using jwt ([#4229](https://github.com/windmill-labs/windmill/issues/4229)) ([fd1c456](https://github.com/windmill-labs/windmill/commit/fd1c456fad16229112d9329e7c7eb9d60561efc0))
+* **frontend:** group fields are mutable ([955a980](https://github.com/windmill-labs/windmill/commit/955a980703362b78bf24a47ec348878d7aac94e3))
+* **frontend:** improve display of waiting jobs + schedule filter + suspended jobs on runs page ([2b99789](https://github.com/windmill-labs/windmill/commit/2b99789077b66991902819b26b140e2681a51344))
+
+
+### Bug Fixes
+
+* **apps:** type hints for results are automatically widened ([1719c26](https://github.com/windmill-labs/windmill/commit/1719c2689e2cdcbf4e88a5133e0d6c5626c8d6d9))
+* support NODE_PATH ([3c4b837](https://github.com/windmill-labs/windmill/commit/3c4b8377ed4689704cb7baaee13e8acaa91e8611))
+
 ## [1.378.0](https://github.com/windmill-labs/windmill/compare/v1.377.1...v1.378.0) (2024-08-12)
 
 
