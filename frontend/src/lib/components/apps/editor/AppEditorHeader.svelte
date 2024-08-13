@@ -938,17 +938,19 @@
 			<h2>Public URL</h2>
 			<div class="mt-4" />
 
-			<Toggle
-				options={{
-					left: `Require login and read-access`,
-					right: `No login required`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
-				}}
-			/>
+			<div class="flex gap-2 items-center">
+				<Toggle
+					options={{
+						left: `Require login and read-access`,
+						right: `No login required`
+					}}
+					checked={policy.execution_mode == 'anonymous'}
+					on:change={(e) => {
+						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
+						setPublishState()
+					}}
+				/>
+			</div>
 
 			<div class="my-6 box">
 				Public url:
