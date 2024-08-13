@@ -173,6 +173,7 @@
 							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 						on:keydown|stopPropagation
 						type="password"
+						autocomplete="new-password"
 						bind:value
 						placeholder={resolvedConfig.placeholder}
 						disabled={resolvedConfig.disabled}

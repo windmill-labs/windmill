@@ -718,6 +718,7 @@
 												/>
 											{:else if setting.fieldType == 'password'}
 												<input
+													autocomplete="new-password"
 													type="password"
 													placeholder={setting.placeholder}
 													bind:value={values[setting.key]}
