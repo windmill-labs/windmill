@@ -174,7 +174,7 @@ export function buildExtraLib(
 		.filter(([k, v]) => k != idToExclude && k != 'state')
 		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
 		.map(
-			([k, v]) => `declare const ${k}: Widen<${JSON.stringify(v)}>;
+			([k, v]) => `declare const ${k}: WidenRo<${JSON.stringify(v)}>;
 `
 		)
 		.join('\n')
@@ -190,8 +190,21 @@ type Widen<T> = T extends string
   : T extends Array<infer U>
   ? Array<Widen<U>>
   : T extends object
-  ? { [K in keyof T]: Widen<T[K]> }
+  ? Partial<{ [K in keyof T]: Widen<T[K]> } & {[key: string]: any}>
   : T;
+
+type WidenRo<T> = T extends string
+  ? string
+  : T extends number
+  ? number
+  : T extends boolean
+  ? boolean
+  : T extends Array<infer U>
+  ? Readonly<Array<WidenRo<U>>>
+  : T extends object
+  ? Readonly<{ [K in keyof T]: WidenRo<T[K]> }>
+  : T;
+
 
 /** The mutable state of the app */
 declare const state: Widen<${JSON.stringify(state)}> & {[key: string]: any};
