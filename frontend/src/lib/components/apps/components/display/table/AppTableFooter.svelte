@@ -28,8 +28,11 @@
 		for (let i = 0; i < objArray.length; i++) {
 			let line = ''
 			for (let j = 0; j < headers.length; j++) {
-				const value = objArray[i][headers[j]]
+				let value = objArray[i][headers[j]]
 				line += j ? ',' : ''
+				if (typeof value != 'string') {
+					value = JSON.stringify(value)
+				}
 				line += /[\",\n]/.test(value) ? '"' + value.replace(/"/g, '""') + '"' : value
 			}
 			str += line + '\r\n'

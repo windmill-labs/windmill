@@ -80,7 +80,11 @@
 	{:else}
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div on:dblclick={toggleEdit}>
-			{value}
+			{#if typeof value == 'object'}
+				{JSON.stringify(value)}
+			{:else}
+				{value}
+			{/if}
 		</div>
 	{/if}
 </td>
