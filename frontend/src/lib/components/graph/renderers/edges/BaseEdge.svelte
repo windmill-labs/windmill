@@ -22,6 +22,7 @@
 		moving: string | undefined
 		eventHandlers: GraphEventHandlers
 		index: number
+		enableTrigger: boolean
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -49,6 +50,18 @@
 		<div
 			class="edgeButtonContainer nodrag nopan"
 			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+		>
+			<InsertModuleButton
+				index={data.index ?? 0}
+				modules={data?.modules ?? []}
+				on:new={(e) => {
+					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
+				}}
+			/>
+		</div>
+		<div
+			class="edgeButtonContainer nodrag nopan"
+			style:transform="translate(100%, -50%) translate({labelX}px,{labelY}px)"
 		>
 			<InsertModuleButton
 				index={data.index ?? 0}

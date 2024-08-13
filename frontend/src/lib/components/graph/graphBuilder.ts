@@ -86,6 +86,7 @@ export default function graphBuilder(
 				offset: options?.offset,
 				moving,
 				eventHandlers,
+				enableTrigger: sourceId === 'Input',
 				// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 				index: index >= 0 ? index : mods?.length ?? 0
 			}
@@ -99,6 +100,7 @@ export default function graphBuilder(
 		data: {
 			eventHandlers: eventHandlers,
 			modules: modules,
+
 			...extra
 		}
 	}
@@ -154,30 +156,52 @@ export default function graphBuilder(
 					}
 					nodes.push(endNode)
 
-					module.value.branches.forEach((branch, branchIndex) => {
-						// Start node by branch
-
+					if (module.value.branches.length === 0) {
+						// Add a "No branches" node
 						const startNode = {
-							id: `${module.id}-branch-${branchIndex}`,
+							id: `${module.id}-branch-0`,
 							data: {
 								offset: currentOffset,
-								label: `Branch ${branchIndex + 1}`,
 								id: module.id,
-								branchIndex: branchIndex,
+								branchIndex: -1,
 								modules: modules,
 								eventHandlers: eventHandlers,
 								...extra
 							},
 							position: { x: -1, y: -1 },
-							type: 'branchAllStart'
+							type: 'noBranch'
 						}
 
 						nodes.push(startNode)
 
 						addEdge(module.id, startNode.id, { type: 'empty', offset: currentOffset })
+						addEdge(startNode.id, endNode.id, { type: 'empty', offset: currentOffset })
+					} else {
+						module.value.branches.forEach((branch, branchIndex) => {
+							// Start node by branch
 
-						processModules(branch.modules, startNode, endNode, currentOffset)
-					})
+							const startNode = {
+								id: `${module.id}-branch-${branchIndex}`,
+								data: {
+									offset: currentOffset,
+									label: `Branch ${branchIndex + 1}`,
+									id: module.id,
+									branchIndex: branchIndex,
+									modules: modules,
+									eventHandlers: eventHandlers,
+									...extra
+								},
+								position: { x: -1, y: -1 },
+								type: 'branchAllStart'
+							}
+
+							nodes.push(startNode)
+
+							addEdge(module.id, startNode.id, { type: 'empty', offset: currentOffset })
+
+							processModules(branch.modules, startNode, endNode, currentOffset)
+						})
+					}
 
 					previousId = endNode.id
 				} else if (module.value.type === 'forloopflow') {

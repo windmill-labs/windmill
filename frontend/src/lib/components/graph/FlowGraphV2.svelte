@@ -34,6 +34,7 @@
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
+	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -194,7 +195,8 @@
 		whileLoopStart: ForLoopStartNode,
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
-		branchOneEnd: BranchAllEndNode
+		branchOneEnd: BranchAllEndNode,
+		noBranch: NoBranchNode
 	} as any
 
 	const edgeTypes = {
