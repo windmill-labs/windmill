@@ -2170,9 +2170,20 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
-fn extract_error_value(log_lines: &str, i: i32) -> Box<RawValue> {
+#[derive(Debug, Serialize)]
+struct SerializedError {
+    message: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_id: Option<String>,
+}
+fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> Box<RawValue> {
     return to_raw_value(
-        &json!({"message": format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()), "name": "ExecutionErr"}),
+        &SerializedError {
+            message: format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()),
+            name: "ExecutionErr".to_string(),
+            step_id,
+        },
     );
 }
 
@@ -2640,11 +2651,15 @@ async fn process_result(
                             .last()
                             .unwrap_or(&last_10_log_lines);
 
-                        extract_error_value(log_lines, i)
+                        extract_error_value(log_lines, i, job.flow_step_id.clone())
                     }
                 }
                 err @ _ => to_raw_value(
-                    &json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"}),
+                    &SerializedError {
+                        message: format!("error during execution of the script:\n{}", err),
+                        name: "ExecutionErr".to_string(),
+                        step_id: job.flow_step_id.clone(),
+                    },
                 ),
             };
 
