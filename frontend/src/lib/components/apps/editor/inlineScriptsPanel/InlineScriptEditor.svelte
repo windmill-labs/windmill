@@ -298,7 +298,7 @@
 
 		<!-- {inlineScript.content} -->
 
-		<div class="border-y h-full">
+		<div class="border-y h-full w-full">
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
@@ -347,7 +347,7 @@
 				{:else}
 					<SimpleEditor
 						bind:this={simpleEditor}
-						class="h-full"
+						class="h-full max-w-full"
 						small
 						{extraLib}
 						bind:code={inlineScript.content}
