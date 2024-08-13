@@ -775,6 +775,7 @@
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}
 									result={job.result}
+									language={job.language}
 								/>
 							{:else if job}
 								No output is available yet
