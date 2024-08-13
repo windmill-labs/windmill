@@ -70,7 +70,8 @@
                 "powershell",
                 "mssql",
                 "php",
-                "bunnative"
+                "bunnative",
+                "rust"
               ]
             }
           }

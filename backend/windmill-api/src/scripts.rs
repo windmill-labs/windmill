@@ -578,6 +578,7 @@ async fn create_script_internal<'c>(
         || ns.language == ScriptLang::Bun
         || ns.language == ScriptLang::Bunnative
         || ns.language == ScriptLang::Deno
+        || ns.language == ScriptLang::Rust
         || ns.language == ScriptLang::Php)
     {
         Some(String::new())

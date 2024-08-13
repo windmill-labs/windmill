@@ -1406,6 +1406,10 @@ async fn capture_dependency_job(
             )
             .await
         }
+        ScriptLang::Rust => {
+            tracing::error!("woops");
+            Ok("No logs elemao".to_string())
+        },
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),

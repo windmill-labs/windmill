@@ -1733,6 +1733,41 @@ func main(derp string) (string, error) {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_rust_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+fn main(world: String) -> Result<String, String> {
+    println!("Which world to greet today?");
+    Ok(format!("Hello {}!", world))
+}
+        "#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Rust,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("world", json!("Hyrule"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(result, serde_json::json!("Hello Hyrule!"));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_bash_job(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;

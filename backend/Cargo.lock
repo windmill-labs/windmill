@@ -6333,6 +6333,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57206b407293d2bcd3af849ce869d52068623f19e1b5ff8e8778e3309439682b"
+dependencies = [
+ "bitflags 2.6.0",
+ "getopts",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "pulp"
 version = "0.18.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9663,6 +9675,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter"
+version = "0.22.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df7cc499ceadd4dcdf7ec6d4cbc34ece92c3fa07821e287aedecd4416c516dca"
+dependencies = [
+ "cc",
+ "regex",
+]
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "277690f420bf90741dea984f3da038ace46c4fe6047cba57a66822226cde1c93"
+dependencies = [
+ "cc",
+ "tree-sitter",
+]
+
+[[package]]
 name = "triomphe"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10693,6 +10725,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-rust"
+version = "1.375.0"
+dependencies = [
+ "anyhow",
+ "convert_case 0.6.0",
+ "itertools 0.13.0",
+ "lazy_static",
+ "pulldown-cmark",
+ "regex",
+ "serde_json",
+ "toml 0.7.8",
+ "tree-sitter",
+ "tree-sitter-rust",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-sql"
 version = "1.375.0"
 dependencies = [
@@ -10851,6 +10900,7 @@ dependencies = [
  "windmill-parser-php",
  "windmill-parser-py",
  "windmill-parser-py-imports",
+ "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",
