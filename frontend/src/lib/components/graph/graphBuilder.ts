@@ -88,7 +88,8 @@ export default function graphBuilder(
 				eventHandlers,
 				enableTrigger: sourceId === 'Input',
 				// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
-				index: index >= 0 ? index : mods?.length ?? 0
+				index: index >= 0 ? index : mods?.length ?? 0,
+				...extra
 			}
 		})
 	}

@@ -7,6 +7,7 @@
 	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStraightLinePath } from '../utils'
+	import InsertTriggerButton from '$lib/components/flows/map/InsertTriggerButton.svelte'
 
 	export let sourceX: number
 	export let sourceY: number
@@ -23,6 +24,7 @@
 		eventHandlers: GraphEventHandlers
 		index: number
 		enableTrigger: boolean
+		disableAi: boolean
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -52,25 +54,34 @@
 			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
 		>
 			<InsertModuleButton
+				disableAi={data.disableAi}
 				index={data.index ?? 0}
+				trigger={data.enableTrigger}
 				modules={data?.modules ?? []}
 				on:new={(e) => {
 					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
 				}}
 			/>
 		</div>
-		<div
-			class="edgeButtonContainer nodrag nopan"
-			style:transform="translate(100%, -50%) translate({labelX}px,{labelY}px)"
-		>
-			<InsertModuleButton
-				index={data.index ?? 0}
-				modules={data?.modules ?? []}
-				on:new={(e) => {
-					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
-				}}
-			/>
-		</div>
+		{#if data.enableTrigger}
+			<div
+				class="edgeButtonContainer nodrag nopan"
+				style:transform="translate(100%, -50%) translate({labelX}px,{labelY}px)"
+			>
+				<InsertTriggerButton
+					disableAi={data.disableAi}
+					on:new={(e) => {
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							detail: e.detail
+						})
+					}}
+					index={data?.index ?? 0}
+					modules={data?.modules ?? []}
+				/>
+			</div>
+		{/if}
 	{/if}
 
 	{#if data?.moving}
