@@ -95,7 +95,7 @@
 					on:click={() => {
 						data.eventHandlers.insert({
 							modules: data.modules,
-							module: undefined
+							index: data.index
 						})
 					}}
 					type="button"
