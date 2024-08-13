@@ -5631,6 +5631,8 @@ paths:
                 properties:
                   database_length:
                     type: integer
+                  suspended:
+                    type: integer
                 required:
                   - database_length
 
@@ -5812,6 +5814,7 @@ paths:
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
+        - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"

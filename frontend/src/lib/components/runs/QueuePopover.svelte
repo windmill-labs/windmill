@@ -33,7 +33,7 @@
 			<div class="text-secondary text-xs">Only showing the first 100 jobs</div>
 		{/if}
 
-		{#each jobs.slice(0, 100) as job}
+		{#each jobs.slice(0, 1000) as job}
 			<div class="flex">
 				<a
 					target="_blank"

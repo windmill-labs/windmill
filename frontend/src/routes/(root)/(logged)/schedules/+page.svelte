@@ -373,7 +373,7 @@
 							/>
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									href={`${base}/runs/?schedule_path=${path}`}
+									href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
 									size="xs"
 									startIcon={{ icon: List }}
 									color="light"
