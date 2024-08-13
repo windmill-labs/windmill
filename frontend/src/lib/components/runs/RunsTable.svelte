@@ -240,6 +240,7 @@
 			height={tableHeight - header}
 			itemCount={flatJobs?.length ?? 3}
 			itemSize={42}
+			overscanCount={20}
 			{stickyIndices}
 		>
 			<div slot="item" let:index let:style {style} class="w-full">
