@@ -43,10 +43,12 @@
 
 	let previousConnectedValues: Record<string, any> = {}
 
+	let groupStore = groupContext?.context
+
 	$: fullContext = {
 		iter: iterContext ? $iterContext : undefined,
 		row: rowContext ? $rowContext : undefined,
-		group: groupContext ? $groupContext : undefined
+		group: groupStore ? $groupStore : undefined
 	}
 
 	$: lastInput?.type == 'evalv2' &&
@@ -272,7 +274,8 @@
 				$componentControl,
 				$worldStore,
 				$runnableComponents,
-				false
+				false,
+				groupContext?.id
 			)
 			error = ''
 			return r
@@ -297,7 +300,8 @@
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
-					false
+					false,
+					groupContext?.id
 				)
 				error = ''
 				return r

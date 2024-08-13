@@ -186,7 +186,7 @@ export type ListInputs = {
 	remove: (id: string) => void
 }
 
-export type GroupContext = Writable<Record<string, any>>
+export type GroupContext = { id: string; context: Writable<Record<string, any>> }
 
 export type AppViewerContext = {
 	worldStore: Writable<World>
@@ -263,6 +263,7 @@ export type AppViewerContext = {
 				showToast?: (message: string, error?: boolean) => void
 				recompute?: () => void
 				askNewResource?: () => void
+				setGroupValue?: (key: string, value: any) => void
 			}
 		>
 	>
