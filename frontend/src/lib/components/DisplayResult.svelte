@@ -45,6 +45,7 @@
 	export let noControls: boolean = false
 	export let drawerOpen = false
 	export let nodeId: string | undefined = undefined
+	export let language: string | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -544,6 +545,15 @@
 						>
 						<slot />
 					</div>
+					{#if language == 'bun'}
+						<div class="pt-20" />
+						<Alert size="xs" type="info" title="Seeing an odd error?">
+							Bun script are bundled for performance reasons. If you see an odd error that doesn't
+							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code
+							> at the top of your script to disable bundling and feel free to mention it to the Windmill's
+							team.
+						</Alert>
+					{/if}
 				{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-2 mx-4">
 						<Button
 							color="green"
