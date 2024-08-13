@@ -39,8 +39,6 @@
 
 	$: isExternal = job && job.id === '-'
 
-	let triggeredByWidth: number = 0
-
 	function isJobCancelable(j: Job): boolean {
 		return j.type === 'QueuedJob' && !j.schedule_path
 	}
@@ -240,7 +238,7 @@
 			{/if}
 		</div>
 	{/if}
-	<div class="w-3/12 flex justify-start" bind:clientWidth={triggeredByWidth}>
+	<div class="w-3/12 flex justify-start">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1">
 				<Calendar size={14} />
@@ -250,11 +248,8 @@
 					btnClasses="font-normal"
 					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 				>
-					<div
-						class="truncate text-ellipsis text-left"
-						style="max-width: {triggeredByWidth - 48}px"
-					>
-						{job.schedule_path}
+					<div class="truncate text-ellipsis text-left">
+						{truncateRev(job.schedule_path, 20)}
 					</div>
 				</Button>
 				<Button
