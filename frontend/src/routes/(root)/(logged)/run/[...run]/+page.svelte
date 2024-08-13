@@ -751,7 +751,7 @@
 										jobId={job.id}
 										duration={job?.['duration_ms']}
 										mem={job?.['mem_peak']}
-										isLoading={!(job && 'logs' in job && job.logs)}
+										isLoading={job?.['running'] == false}
 										content={job?.logs}
 										tag={job?.tag}
 									/>
