@@ -79,7 +79,7 @@
 </NodeWrapper>
 
 <NodeToolbar isVisible position={Position.Bottom} align="center">
-	{#if data.value.type === 'branchall' && data.insertable}
+	{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
 		<button
 			class="rounded-full border hover:bg-surface-hover bg-surface p-1"
 			on:click={() => {

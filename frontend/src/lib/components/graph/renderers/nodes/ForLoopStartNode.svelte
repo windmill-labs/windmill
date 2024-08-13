@@ -15,7 +15,7 @@
 	}
 </script>
 
-<NodeWrapper let:darkMode offset={data.offset} enableSourceHandle enableTargetHandle>
+<NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
 		label={'Do one iteration'}
 		modules={data.modules}

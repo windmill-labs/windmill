@@ -12,10 +12,11 @@
 		modules: FlowModule[]
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
+		offset: number
 	}
 </script>
 
-<NodeWrapper let:darkMode enableSourceHandle enableTargetHandle>
+<NodeWrapper offset={data.offset} let:darkMode enableSourceHandle enableTargetHandle>
 	<VirtualItem
 		label={'Collect result from all branches'}
 		modules={data.modules}

@@ -67,6 +67,12 @@ export default function graphBuilder(
 	) {
 		parents[targetId] = [...(parents[targetId] ?? []), sourceId]
 
+		// Find the index of the target module in the modules array
+		const mods = options?.subModules ?? modules
+
+		// Index of the target module in the modules array
+		let index = mods?.findIndex((m) => m.id === targetId) ?? -1
+
 		edges.push({
 			id: options?.customId || `edge:${sourceId}->${targetId}`,
 			source: sourceId,
@@ -80,7 +86,8 @@ export default function graphBuilder(
 				offset: options?.offset,
 				moving,
 				eventHandlers,
-				index: options?.subModules?.length ?? modules?.length
+				// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
+				index: index >= 0 ? index : mods?.length ?? 0
 			}
 		})
 	}
@@ -120,12 +127,12 @@ export default function graphBuilder(
 		let previousId: string | undefined = undefined
 
 		if (modules.length === 0) {
-			addEdge(beforeNode.id, nextNode.id, { subModules: modules })
+			addEdge(beforeNode.id, nextNode.id, { subModules: modules, offset: currentOffset })
 		} else {
 			modules.forEach((module, index) => {
 				// Add the edge between the previous node and the current one
 				if (index > 0 && previousId) {
-					addEdge(previousId, module.id)
+					addEdge(previousId, module.id, { subModules: modules, offset: currentOffset })
 				}
 
 				if (module.value.type === 'branchall') {
@@ -167,9 +174,9 @@ export default function graphBuilder(
 
 						nodes.push(startNode)
 
-						addEdge(module.id, startNode.id, { type: 'empty' })
+						addEdge(module.id, startNode.id, { type: 'empty', offset: currentOffset })
 
-						processModules(branch.modules, startNode, endNode)
+						processModules(branch.modules, startNode, endNode, currentOffset)
 					})
 
 					previousId = endNode.id
@@ -190,7 +197,7 @@ export default function graphBuilder(
 						type: 'forLoopStart'
 					}
 
-					addEdge(module.id, startNode.id, { type: 'empty' })
+					addEdge(module.id, startNode.id, { type: 'empty', offset: currentOffset })
 
 					const endNode = {
 						id: `${module.id}-end`,
@@ -310,11 +317,11 @@ export default function graphBuilder(
 				}
 
 				if (index === 0) {
-					addEdge(beforeNode.id, module.id)
+					addEdge(beforeNode.id, module.id, { subModules: modules })
 				}
 
 				if (index === modules.length - 1 && previousId) {
-					addEdge(previousId, nextNode.id)
+					addEdge(previousId, nextNode.id, { subModules: modules })
 				}
 			})
 		}

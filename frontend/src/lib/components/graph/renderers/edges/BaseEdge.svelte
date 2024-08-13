@@ -6,6 +6,7 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder'
+	import { getStraightLinePath } from '../utils'
 
 	export let sourceX: number
 	export let sourceY: number
@@ -29,16 +30,13 @@
 		sourcePosition,
 		targetX,
 		targetY,
-		targetPosition
+		targetPosition,
+		curvature: 0.25
 	})
-
-	function getStraightLinePath({ sourceX, sourceY, targetX, targetY }) {
-		return `M${sourceX},${sourceY} L${sourceX},${targetY - 100}`
-	}
 
 	$: completeEdge =
 		targetY - sourceY > 100
-			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetX, targetY })}`
+			? `${edgePath} ${getStraightLinePath({ sourceX, sourceY, targetY })}`
 			: edgePath
 
 	const { useDataflow } = getContext<{

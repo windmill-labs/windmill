@@ -1,14 +1,12 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
-	import Popover from '$lib/components/Popover.svelte'
-	import type { FlowStatusModule } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
 	import { getStateColor } from '../../util'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import type { GraphEventHandlers } from '../../graphBuilder'
+	import { computeBorderStatus } from '../utils'
 
 	export let data: {
 		label: string
@@ -19,48 +17,13 @@
 		modules: FlowModule[]
 		selected: boolean
 		eventHandlers: GraphEventHandlers
+		offset: number
 	}
 
-	let borderStatus: FlowStatusModule['type'] | undefined = undefined
-
-	let flow_jobs_success = data?.flowModuleStates?.[data?.id]?.flow_jobs_success
-	if (!flow_jobs_success) {
-		borderStatus = 'WaitingForPriorSteps'
-	} else {
-		let status = flow_jobs_success?.[data.branchIndex]
-		if (status == undefined) {
-			borderStatus = 'WaitingForExecutor'
-		} else {
-			borderStatus = status ? 'Success' : 'Failure'
-		}
-	}
+	$: borderStatus = computeBorderStatus(data.branchIndex, data.flowModuleStates?.[data.id])
 </script>
 
-<NodeToolbar isVisible position={Position.Top} align="center">
-	{#if data.insertable}
-		<Popover>
-			<button
-				class="rounded-full border p-1 hover:bg-surface-hover bg-surface"
-				on:click={() => {
-					data.eventHandlers.deleteBranch(
-						{
-							module: data.modules.find((m) => m.id === data.id),
-							index: data.branchIndex
-						},
-						data.label
-					)
-				}}
-			>
-				<X size={16} />
-			</button>
-
-			<svelte:fragment slot="text">Delete branch</svelte:fragment>
-		</Popover>
-	{/if}
-</NodeToolbar>
-
-<NodeWrapper let:darkMode
-	>s
+<NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
 		label={data.label}
 		modules={data.modules}
@@ -81,4 +44,20 @@
 			data.eventHandlers.insert(e.detail)
 		}}
 	/>
+	<button
+		class="z-50 absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] center-center text-primary
+border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
+hover:border-red-700"
+		on:click|preventDefault|stopPropagation={() => {
+			data.eventHandlers.deleteBranch(
+				{
+					module: data.modules.find((m) => m.id === data.id),
+					index: data.branchIndex
+				},
+				data.label
+			)
+		}}
+	>
+		<X size={12} />
+	</button>
 </NodeWrapper>

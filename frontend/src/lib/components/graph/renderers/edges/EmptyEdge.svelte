@@ -21,7 +21,8 @@
 		sourcePosition,
 		targetX,
 		targetY,
-		targetPosition
+		targetPosition,
+		curvature: 0.25
 	})
 </script>
 

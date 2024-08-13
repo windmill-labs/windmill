@@ -1,6 +1,5 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import type { GraphModuleState } from '../../model'
@@ -10,7 +9,6 @@
 	export let data: {
 		offset: number
 		id: string
-		time: number | undefined
 		insertable: boolean
 		modules: FlowModule[]
 		flowModuleStates: Record<string, GraphModuleState> | undefined
@@ -18,13 +16,7 @@
 	}
 </script>
 
-{#if data.time}
-	<NodeToolbar isVisible position={Position.Top} align="end">
-		<span class="text-xs">0.01s</span>
-	</NodeToolbar>
-{/if}
-
-<NodeWrapper offset={data.offset} enableSourceHandle enableTargetHandle let:darkMode>
+<NodeWrapper offset={data.offset} let:darkMode>
 	<VirtualItem
 		label={'Collect result of each iteration'}
 		modules={data.modules}

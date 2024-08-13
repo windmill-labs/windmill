@@ -12,10 +12,6 @@
 <DarkModeObserver bind:darkMode />
 
 <div class="relative shadow-md" style={`margin-left: ${offset}px;`}>
-	<div class="absolute -top-6 z-50">
-		<slot name="header" />
-	</div>
-
 	<slot {darkMode} />
 </div>
 
