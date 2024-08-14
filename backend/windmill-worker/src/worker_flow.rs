@@ -760,6 +760,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         // tracing::error!(
         //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler}", flow_job.canceled
         // );
+
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.canceled => false,
@@ -1749,6 +1750,8 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 tx.commit().await?;
 
             /* not enough messages to do this job, "park"/suspend until there are */
+            } else if suspend.continue_on_disapprove_timeout.unwrap_or(false) {
+                todo!()
             } else if matches!(
                 &status_module,
                 FlowStatusModule::WaitingForPriorSteps { .. }
