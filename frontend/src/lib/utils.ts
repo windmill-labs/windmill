@@ -11,7 +11,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import type { UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Script, WorkspaceDeployUISettings } from './gen'
+import type { Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
