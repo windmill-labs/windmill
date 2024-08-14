@@ -138,9 +138,9 @@ mod inner;
 fn main() -> Result<(), Box<dyn Error>> {
     let args_file = File::open("args.json")?;
     let reader = BufReader::new(args_file);
-    let args: inner::__ARGS__ = serde_json::from_reader(reader)?;
+    let args: inner::__WINDMILL_ARGS__ = serde_json::from_reader(reader)?;
 
-    let result = inner::run(args);
+    let result = inner::__WINDMILL_RUN__(args)?;
 
     let mut result_file = File::create("result.json")?;
     result_file.write_all(serde_json::to_string(&result)?.into_bytes().as_ref())?;
@@ -173,13 +173,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 {inner_content}
 
 #[derive(serde::Deserialize)]
-#[allow(non_snake_case)]
-pub struct __ARGS__ {{
+#[allow(non_camel_case_types)]
+pub struct __WINDMILL_ARGS__ {{
     {arg_struct_body}
 }}
 
-pub fn run(_args: __ARGS__) {{
-    main({spread})
+
+#[allow(non_snake_case)]
+pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std::error::Error>> {{
+    fn windmill_runner<T, E>(f: impl core::ops::FnOnce() -> core::result::Result<T,E>) -> Result<String, E>
+    where
+        T: serde::Serialize,
+        E: std::fmt::Display,
+    {{
+        Ok(serde_json::to_string(&f()?).unwrap())
+    }}
+    Ok(windmill_runner(|| main({spread}))?)
 }}
 "#
         );
@@ -188,9 +197,6 @@ pub fn run(_args: __ARGS__) {{
 
         write_file(job_dir, "inner.rs", &mod_content).await?;
 
-        list_files_in_directory(job_dir)
-            .await
-            .map_err(|e| tracing::error!("juejue: {}", e));
         let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
         build_rust_cmd
             .current_dir(job_dir)
@@ -219,28 +225,16 @@ pub fn run(_args: __ARGS__) {{
         .await?;
         append_logs(&job.id, &job.workspace_id, "\n\n", db).await;
 
-        // std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
-
-        std::os::unix::fs::symlink(
+        tokio::fs::copy(
             &format!("{job_dir}/target/release/main"),
             format! {"{job_dir}/main"},
         )
+        .await
         .map_err(|e| {
             Error::ExecutionErr(format!(
                 "could not copy built binary from [...]/target/release/main to {job_dir}/main: {e:?}"
             ))
         })?;
-        list_files_in_directory(job_dir)
-            .await
-            .map_err(|e| tracing::error!("juejue: {}", e));
-        println!("");
-        list_files_in_directory(&format!("{job_dir}/target"))
-            .await
-            .map_err(|e| tracing::error!("juejue: {}", e));
-        println!("");
-        list_files_in_directory(&format!("{job_dir}/target/release"))
-            .await
-            .map_err(|e| tracing::error!("juejue: {}", e));
 
         match save_cache(
             &bin_path,
