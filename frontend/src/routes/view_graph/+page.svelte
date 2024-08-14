@@ -8,7 +8,7 @@
 		: { modules: [], failureModule: undefined }
 </script>
 
-<FlowGraphV2 fullSize {modules} {failureModule} />
+<FlowGraphV2 {modules} {failureModule} />
 <a
 	download="flow.json"
 	href={'data:text/json;charset=utf-8,' +
