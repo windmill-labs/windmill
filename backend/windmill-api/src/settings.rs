@@ -21,6 +21,9 @@ use axum::{
     Json, Router,
 };
 
+#[cfg(feature = "enterprise")]
+use axum::extract::Query;
+
 use serde::Deserialize;
 use windmill_common::{
     error::{self, JsonResult, Result},
@@ -237,12 +240,12 @@ pub async fn set_global_setting_internal(
         }
         v => {
             sqlx::query!(
-                "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
-                key,
-                v
-            )
-            .execute(db)
-            .await?;
+                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+                 key,
+                 v
+             )
+             .execute(db)
+             .await?;
             tracing::info!("Set global setting {} to {}", key, v);
         }
     };
@@ -339,6 +342,12 @@ pub async fn get_latest_key_renewal_attempt(
     }
 }
 
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct LicenseQuery {
+    license_key: Option<String>,
+}
+
 #[cfg(not(feature = "enterprise"))]
 pub async fn renew_license_key() -> Result<String> {
     return Err(error::Error::BadRequest(
@@ -347,15 +356,23 @@ pub async fn renew_license_key() -> Result<String> {
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn renew_license_key(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+pub async fn renew_license_key(
+    Extension(db): Extension<DB>,
+    Query(LicenseQuery { license_key }): Query<LicenseQuery>,
+    authed: ApiAuthed,
+) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     windmill_common::stats_ee::send_stats(&"manual".to_string(), &HTTP_CLIENT, &db).await?;
-    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, None).await;
+    let result = windmill_common::ee::renew_license_key(&HTTP_CLIENT, &db, license_key).await;
 
     if result != "success" {
         return Err(error::Error::BadRequest(format!(
             "Failed to renew license key: {}",
-            result
+            if result == "Unauthorized" {
+                "Invalid key".to_string()
+            } else {
+                result
+            }
         )));
     } else {
         return Ok("Renewed license key".to_string());
@@ -370,8 +387,11 @@ pub async fn create_customer_portal_session() -> Result<String> {
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn create_customer_portal_session() -> Result<String> {
-    let url = windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, None).await?;
+pub async fn create_customer_portal_session(
+    Query(LicenseQuery { license_key }): Query<LicenseQuery>,
+) -> Result<String> {
+    let url =
+        windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
 
     return Ok(url);
 }
