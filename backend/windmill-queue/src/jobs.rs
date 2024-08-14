@@ -111,6 +111,11 @@ lazy_static::lazy_static! {
 
 
     pub static ref JOB_TOKEN: Option<String> = std::env::var("JOB_TOKEN").ok();
+
+    static ref JOB_ARGS_AUDIT_LOGS: bool = std::env::var("JOB_ARGS_AUDIT_LOGS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(false);
 }
 
 #[cfg(feature = "cloud")]
@@ -3690,6 +3695,16 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
         .map_err(|e| Error::InternalErr(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
     }
 
+    let stringified_args = if *JOB_ARGS_AUDIT_LOGS {
+        Some(serde_json::to_string(&args).map_err(|e| {
+            Error::InternalErr(format!(
+                "Could not serialize args for audit log of job {job_id}: {e:#}"
+            ))
+        })?)
+    } else {
+        None
+    };
+
     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
@@ -3830,6 +3845,10 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                 username_override: None,
             }
         };
+
+        if let Some(ref stringified_args) = stringified_args {
+            hm.insert("args", stringified_args);
+        }
 
         audit_log(
             &mut tx,
