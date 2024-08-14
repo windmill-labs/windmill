@@ -8,18 +8,13 @@
 	import type { FlowInput } from '../flows/types'
 	import {
 		SvelteFlow,
-		Background,
 		type Node,
 		type Edge,
 		ConnectionLineType,
 		Controls,
 		ControlButton,
 		type Viewport
-
-		// @ts-ignore
 	} from '@xyflow/svelte'
-	// @ts-ignore
-	import dagre from '@dagrejs/dagre'
 	import graphBuilder from './graphBuilder'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
@@ -261,7 +256,7 @@
 		nodesDraggable={false}
 		on:nodeclick={(e) => handleNodeClick(e)}
 	>
-		<Background class="!bg-surface-secondary" />
+		<div class="absolute inset-0 !bg-surface-secondary" />
 		<Controls position="top-right" orientation="horizontal" showLock={false}>
 			{#if download}
 				<ControlButton

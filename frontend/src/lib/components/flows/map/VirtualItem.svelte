@@ -89,7 +89,7 @@
 			<span class="mr-2" />
 		{/if}
 		<div />
-		<div class="flex-1 truncate"><pre>{label}</pre></div>
+		<div class="truncate"><pre>{label}</pre></div>
 		<div class="flex items-center space-x-2">
 			{#if id && !hideId}
 				<Badge color="indigo">{id}</Badge>
