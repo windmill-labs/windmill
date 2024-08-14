@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.380.0](https://github.com/windmill-labs/windmill/compare/v1.379.4...v1.380.0) (2024-08-14)
+
+
+### Features
+
+* opt-in job args in audit logs ([#4241](https://github.com/windmill-labs/windmill/issues/4241)) ([0cce276](https://github.com/windmill-labs/windmill/commit/0cce27636d128972730427a33b7be954d00210dc))
+* recoverable error handlers ([e0857c7](https://github.com/windmill-labs/windmill/commit/e0857c7178ac9657173e9ed597d072130e41fe47))
+* togglable continue on disapproval/timeout of approvals ([be90b3e](https://github.com/windmill-labs/windmill/commit/be90b3e2192cdae88e38fd7e269ad8abc8f7c054))
+
 ## [1.379.4](https://github.com/windmill-labs/windmill/compare/v1.379.3...v1.379.4) (2024-08-14)
 
 
