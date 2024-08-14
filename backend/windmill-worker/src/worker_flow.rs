@@ -1716,7 +1716,26 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             }
 
             let is_disapproved = resumes.iter().find(|x| !x.approved);
-            if is_disapproved.is_none() && resume_messages.len() >= required_events as usize {
+            let can_be_resumed =
+                is_disapproved.is_none() && resume_messages.len() >= required_events as usize;
+            let disapproved_or_timeout_but_continue = !can_be_resumed
+                && (is_disapproved.is_some()
+                    || !matches!(
+                        &status_module,
+                        FlowStatusModule::WaitingForPriorSteps { .. }
+                    ))
+                && suspend.continue_on_disapprove_timeout.unwrap_or(false);
+
+            if can_be_resumed || disapproved_or_timeout_but_continue {
+                if disapproved_or_timeout_but_continue {
+                    let js = if let Some(disapproved) = is_disapproved.as_ref() {
+                        json!({"error": {"message": format!("Disapproved by {}", disapproved.approver.clone().unwrap_or_else( || "unknown".to_string())), "name": "SuspendedDisapproved"}})
+                    } else {
+                        json!({"error": {"message": "Timed out waiting to be resumed", "name": "SuspendedTimedOut"}})
+                    };
+
+                    resume_messages.push(to_raw_value(&js));
+                }
                 sqlx::query(
                     "UPDATE queue
                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
@@ -1750,8 +1769,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 tx.commit().await?;
 
             /* not enough messages to do this job, "park"/suspend until there are */
-            } else if suspend.continue_on_disapprove_timeout.unwrap_or(false) {
-                todo!()
             } else if matches!(
                 &status_module,
                 FlowStatusModule::WaitingForPriorSteps { .. }
@@ -1790,7 +1807,13 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 let (logs, error_name) = if let Some(disapprover) = is_disapproved {
                     (
-                        format!("Disapproved by {:?}", disapprover.approver),
+                        format!(
+                            "Disapproved by {}",
+                            disapprover
+                                .approver
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string())
+                        ),
                         "SuspendedDisapproved",
                     )
                 } else {
