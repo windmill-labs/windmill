@@ -69,6 +69,7 @@
 	export let reducedPolling = false
 
 	export let wideResults = false
+	export let hideFlowResult = false
 
 	let jobResults: any[] =
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -642,16 +643,18 @@
 						<Loader2 class="animate-spin" />
 					</div>
 				{:else if `result` in job}
-					<div class="w-full h-full">
-						<FlowJobResult
-							workspaceId={job?.workspace_id}
-							jobId={job?.id}
-							loading={job['running'] == true}
-							result={job.result}
-							logs={job.logs}
-							durationStates={localDurationStatuses}
-						/>
-					</div>
+					{#if !hideFlowResult}
+						<div class="w-full h-full">
+							<FlowJobResult
+								workspaceId={job?.workspace_id}
+								jobId={job?.id}
+								loading={job['running'] == true}
+								result={job.result}
+								logs={job.logs}
+								durationStates={localDurationStatuses}
+							/>
+						</div>
+					{/if}
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
 					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
 				{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}

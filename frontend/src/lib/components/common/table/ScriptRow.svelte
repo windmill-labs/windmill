@@ -21,7 +21,9 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, DELETE, isDeployable, isOwner } from '$lib/utils'
+	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { isDeployable } from '$lib/utils_deployable'
+
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
 	import {

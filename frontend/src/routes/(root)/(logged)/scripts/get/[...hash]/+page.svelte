@@ -1,20 +1,19 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { base } from '$lib/base'
-	import { JobService, ScriptService, WorkspaceService, type Script, type WorkspaceDeployUISettings } from '$lib/gen'
 	import {
-		defaultIfEmptyString,
-		emptyString,
-		canWrite,
-		truncateHash,
-		isDeployable,
-
-		ALL_DEPLOYABLE
-
-	} from '$lib/utils'
+		JobService,
+		ScriptService,
+		WorkspaceService,
+		type Script,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
+	import { defaultIfEmptyString, emptyString, canWrite, truncateHash } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
+
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'

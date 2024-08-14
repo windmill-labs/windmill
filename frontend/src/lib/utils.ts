@@ -14,7 +14,6 @@ import { sendUserToast } from './toast'
 import type { Script, WorkspaceDeployUISettings } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
-import { minimatch } from 'minimatch'
 export { sendUserToast }
 
 export function validateUsername(username: string): string {
@@ -940,35 +939,4 @@ export function getSchemaFromProperties(properties: { [name: string]: SchemaProp
 		type: 'object',
 		order: Object.keys(properties).filter((k) => k !== 'label')
 	}
-}
-
-type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret'
-
-export function isDeployable(
-	type: DeployUIType,
-	path: string,
-	deployUiSettings: WorkspaceDeployUISettings | undefined
-) {
-	if (deployUiSettings == undefined) {
-		return false
-	}
-
-	if (deployUiSettings.include_type != undefined && !deployUiSettings.include_type.includes(type)) {
-		return false
-	}
-
-	if (
-		deployUiSettings.include_path != undefined &&
-		deployUiSettings.include_path.length != 0 &&
-		deployUiSettings.include_path.every((x) => !minimatch(path, x))
-	) {
-		return false
-	}
-
-	return true
-}
-
-export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
-	include_path: [],
-	include_type: ['script', 'flow', 'app', 'resource', 'variable', 'secret']
 }

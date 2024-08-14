@@ -8,7 +8,8 @@
 		type FlowModule,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { ALL_DEPLOYABLE, canWrite, defaultIfEmptyString, emptyString, isDeployable } from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
