@@ -119,7 +119,7 @@
 				{/if}
 			</Label>
 
-			<Toggle
+			<!-- <Toggle
 				options={{
 					right: 'Continue on disapproval/timeout',
 					rightTooltip:
@@ -132,7 +132,7 @@
 						flowModule.suspend.continue_on_disapprove_timeout = e.detail
 					}
 				}}
-			/>
+			/> -->
 		</div>
 	{:else if suspendTabSelected === 'permissions'}
 		<div class="flex flex-col mt-4 gap-4">
