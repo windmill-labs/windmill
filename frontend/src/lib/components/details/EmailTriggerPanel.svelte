@@ -1,0 +1,115 @@
+<script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { Button } from '$lib/components/common'
+	import { SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON } from '$lib/consts'
+	import UserSettings from '../UserSettings.svelte'
+	import ClipboardPanel from './ClipboardPanel.svelte'
+	import { generateRandomString } from '$lib/utils'
+	import HighlightTheme from '../HighlightTheme.svelte'
+	import Alert from '../common/alert/Alert.svelte'
+	import { SettingService } from '$lib/gen'
+	import { base32 } from 'rfc4648'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+
+	let userSettings: UserSettings
+
+	export let token: string
+	export let scopes: string[] = []
+	export let isFlow: boolean = false
+	export let hash: string | undefined = undefined
+	export let path: string
+
+	let emailDomain: string | null = null
+	async function getEmailDomain() {
+		emailDomain =
+			((await SettingService.getGlobal({
+				key: 'email_domain'
+			})) as any) ?? null
+	}
+	getEmailDomain()
+
+	let requestType: 'hash' | 'path' = 'path'
+
+	function emailAddress() {
+		const pathOrHash = requestType === 'hash' ? hash : path.replaceAll('/', '.')
+		const plainPrefix = `${$workspaceStore}+${
+			(requestType === 'hash' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
+		}+${token}`
+		const encodedPrefix = base32
+			.stringify(new TextEncoder().encode(plainPrefix), {
+				pad: false
+			})
+			.toLowerCase()
+		return `${pathOrHash}+${encodedPrefix}@${emailDomain}`
+	}
+</script>
+
+<HighlightTheme />
+
+<UserSettings
+	bind:this={userSettings}
+	on:tokenCreated={(e) => {
+		token = e.detail
+	}}
+	newTokenLabel={`${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+	{scopes}
+/>
+
+<div class="p-2 flex flex-col w-full gap-4">
+	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
+		<div class="flex flex-row justify-between my-2 gap-2">
+			<input
+				bind:value={token}
+				placeholder="paste your token here once created to alter examples below"
+				class="!text-xs"
+			/>
+			<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
+				Create an Email-specific Token
+				<Tooltip light>
+					The token will have a scope such that it can only be used to trigger this script. It is
+					safe to share as it cannot be used to impersonate you.
+				</Tooltip>
+			</Button>
+		</div>
+	{/if}
+
+	{#if !isFlow}
+		<div class="flex flex-col gap-2">
+			<div class="flex flex-row justify-between">
+				<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+					<ToggleButton label="By path" value="path" />
+					<ToggleButton label="By hash" value="hash" />
+				</ToggleButtonGroup>
+			</div>
+		</div>
+	{/if}
+
+	{#if emailDomain}
+		<div class="flex flex-col gap-4">
+			{#key requestType}
+				{#key token}
+					<div class="flex flex-col gap-2">
+						<ClipboardPanel title="Email address" content={emailAddress()} />
+					</div>
+				{/key}
+			{/key}
+			<Alert title="Email trigger" size="xs">
+				To trigger the job by email, send an email to the address above. The job will receive two
+				arguments: `raw_email` containing the raw email as string, and `parsed_email` containing the
+				parsed email as an object.
+			</Alert>
+		</div>
+	{:else}
+		<div>
+			<Alert title="Email triggers are disabled" size="xs" kind="danger">
+				Ask an instance superadmin to setup the instance for email triggering (<a
+					target="_blank"
+					href="https://windmill.dev/docs/advanced/email_triggers">docs</a
+				>) and to set the email domain in the instance settings.
+			</Alert>
+		</div>
+	{/if}
+</div>
