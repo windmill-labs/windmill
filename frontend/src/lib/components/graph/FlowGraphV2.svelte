@@ -13,7 +13,9 @@
 		type Edge,
 		ConnectionLineType,
 		Controls,
-		ControlButton
+		ControlButton,
+		type Viewport
+
 		// @ts-ignore
 	} from '@xyflow/svelte'
 	// @ts-ignore
@@ -224,14 +226,31 @@
 		!$selectedId.startsWith('settings') &&
 		$selectedId !== 'failure' &&
 		$selectedId !== 'Result'
+
+	const viewport = writable<Viewport>({
+		x: 0,
+		y: 1000,
+		zoom: 1
+	})
+
+	function centerViewport(width: number) {
+		viewport.update((vp) => ({
+			...vp,
+			x: (width - fullWidth) / 2,
+			y: vp.y
+		}))
+	}
+
+	$: width && centerViewport(width)
 </script>
 
-<div style={`height: ${height}px; `} bind:clientWidth={width} class="w-full overflow-hidden">
+<div style={`height: ${height}px; `} bind:clientWidth={width}>
 	<SvelteFlow
 		{nodes}
 		{edges}
 		{edgeTypes}
 		{nodeTypes}
+		{viewport}
 		minZoom={0.5}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
