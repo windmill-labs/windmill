@@ -15,7 +15,7 @@
 	import { goto } from '$lib/navigation'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { FileUp, Globe, Pen, Share, Trash } from 'lucide-svelte'
-	import { isDeployable } from '$lib/utils'
+	import { isDeployable } from '$lib/utils_deployable'
 
 	export let app: ListableRawApp & { canWrite: boolean }
 	export let marked: string | undefined

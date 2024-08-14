@@ -31,7 +31,9 @@
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { ALL_DEPLOYABLE, canWrite, classNames, emptySchema, isDeployable, removeMarkdown, truncate } from '$lib/utils'
+	import { canWrite, classNames, emptySchema, removeMarkdown, truncate } from '$lib/utils'
+	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
+
 	import { convert } from '@redocly/json-to-json-schema'
 	import {
 		Braces,
