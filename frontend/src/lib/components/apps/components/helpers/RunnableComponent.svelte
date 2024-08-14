@@ -659,6 +659,18 @@
 			bgRuns.update((runs) => runs.filter((r) => r !== id))
 		}
 	}
+
+	function getError(obj: any) {
+		try {
+			if (obj?.error) {
+				return obj.error
+			}
+			return undefined
+		} catch (e) {
+			console.error('Error accessing error from result', e)
+			return undefined
+		}
+	}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
@@ -753,7 +765,7 @@
 			<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 				Please select a runnable
 			</Alert>
-		{:else if result?.error && $mode === 'preview' && !errorHandledByComponent}
+		{:else if getError(result) && $mode === 'preview' && !errorHandledByComponent}
 			<div
 				title="Error"
 				class={classNames(

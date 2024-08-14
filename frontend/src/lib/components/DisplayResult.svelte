@@ -70,6 +70,7 @@
 		| 'plain'
 		| 'markdown'
 		| 'map'
+		| 'nondisplayable'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -121,9 +122,13 @@
 	let is_render_all = false
 	let download_as_csv = false
 	function inferResultKind(result: any) {
-		if (result == 'WINDMILL_TOO_BIG') {
-			largeObject = true
-			return 'json'
+		try {
+			if (result == 'WINDMILL_TOO_BIG') {
+				largeObject = true
+				return 'json'
+			}
+		} catch (err) {
+			return 'nondisplayable'
 		}
 
 		if (result !== undefined) {
@@ -245,7 +250,12 @@
 	let s3FileViewer: S3FilePicker
 
 	function toJsonStr(result: any) {
-		return JSON.stringify(result ?? null, null, 4) ?? 'null'
+		try {
+			// console.log(result)
+			return JSON.stringify(result ?? null, null, 4) ?? 'null'
+		} catch (e) {
+			return 'error stringifying object: ' + e.toString()
+		}
 	}
 
 	function contentOrRootString(obj: string | { filename: string; content: string }) {
@@ -379,7 +389,8 @@
 			/>
 		{/each}</div
 	>
-{:else}<div
+{:else if resultKind == 'nondisplayable'}<div class="text-red-400">Non displayable object</div
+	>{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
 			: 'min-h-[200px]'}"

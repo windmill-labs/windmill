@@ -29,7 +29,7 @@ return async function (context, state, createProxy, goto, setTab, recompute, get
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
-		? `let ${contextKeys.map((key) => ` ${key} = createProxy('${key}', context['${key}'] ?? {})`)};`
+		? `let ${contextKeys.map((key) => ` ${key} = createProxy('${key}', context['${key}'])`)};`
 		: ``
 }
 ${
@@ -123,33 +123,38 @@ export async function eval_like(
 	groupContextId: string | undefined
 ) {
 	const createProxy = (name: string, obj: any) => {
-		if (name == 'group' && groupContextId) {
-			return createGroupProxy(groupContextId, obj)
-		}
-		return new Proxy(obj, {
-			set(target, key, value) {
-				if (name != 'state') {
-					throw new Error(
-						'Cannot set value on objects that are neither the global state or a container group field'
-					)
-				}
-				if (typeof key !== 'string') {
-					throw new Error('Invalid key')
-				}
-				target[key] = value
-				let o = worldStore?.newOutput(name, key, value)
-				o?.set(value, true)
-
-				return true
-			},
-			get(obj, prop) {
-				if (name != 'state' && prop == 'group') {
-					return createGroupProxy(name, obj[prop])
-				} else {
-					return obj[prop]
-				}
+		// console.log('Creating proxy', name, obj)
+		if (obj != null && obj != undefined && typeof obj == 'object') {
+			if (name == 'group' && groupContextId) {
+				return createGroupProxy(groupContextId, obj)
 			}
-		})
+			return new Proxy(obj, {
+				set(target, key, value) {
+					if (name != 'state') {
+						throw new Error(
+							'Cannot set value on objects that are neither the global state or a container group field'
+						)
+					}
+					if (typeof key !== 'string') {
+						throw new Error('Invalid key')
+					}
+					target[key] = value
+					let o = worldStore?.newOutput(name, key, value)
+					o?.set(value, true)
+
+					return true
+				},
+				get(obj, prop) {
+					if (name != 'state' && prop == 'group') {
+						return createGroupProxy(name, obj[prop])
+					} else {
+						return obj[prop]
+					}
+				}
+			})
+		} else {
+			return obj
+		}
 	}
 
 	const createGroupProxy = (name: string, obj: any) => {
