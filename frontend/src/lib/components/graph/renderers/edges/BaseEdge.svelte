@@ -25,6 +25,7 @@
 		index: number
 		enableTrigger: boolean
 		disableAi: boolean
+		disableMoveIds: string[]
 	}
 
 	$: [edgePath, labelX, labelY] = getBezierPath({
@@ -89,7 +90,7 @@
 			class="edgeButtonContainer nodrag nopan"
 			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
 		>
-			{#if data.moving}
+			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
 				<button
 					title="Paste module"
 					on:click={() => {

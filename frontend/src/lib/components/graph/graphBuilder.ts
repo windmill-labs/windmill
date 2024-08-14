@@ -34,14 +34,14 @@ export default function graphBuilder(
 		return { nodes, edges }
 	}
 
-	function addNode(module: FlowModule, offset: number, type: string) {
+	function addNode(module: FlowModule, offset: number, type: string, subModules?: FlowModule[]) {
 		nodes.push({
 			id: module.id,
 			data: {
 				value: module.value,
 				offset: offset,
 				module: module,
-				modules: modules,
+				modules: subModules ?? modules,
 				parentIds: [],
 				eventHandlers: eventHandlers,
 				moving: moving,
@@ -62,8 +62,8 @@ export default function graphBuilder(
 		options?: {
 			customId?: string
 			type?: string
-			offset?: number
 			subModules?: FlowModule[]
+			disableMoveIds?: string[]
 		}
 	) {
 		parents[targetId] = [...(parents[targetId] ?? []), sourceId]
@@ -73,6 +73,8 @@ export default function graphBuilder(
 
 		// Index of the target module in the modules array
 		let index = mods?.findIndex((m) => m.id === targetId) ?? -1
+
+		console.log('addEdge', sourceId, targetId, options?.disableMoveIds)
 
 		edges.push({
 			id: options?.customId || `edge:${sourceId}->${targetId}`,
@@ -84,9 +86,9 @@ export default function graphBuilder(
 				modules: options?.subModules ?? modules,
 				sourceId,
 				targetId,
-				offset: options?.offset,
 				moving,
 				eventHandlers,
+				disableMoveIds: options?.disableMoveIds,
 				enableTrigger: sourceId === 'Input',
 				// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 				index: index >= 0 ? index : mods?.length ?? 0,
@@ -126,22 +128,31 @@ export default function graphBuilder(
 		modules: FlowModule[],
 		beforeNode: Node,
 		nextNode: Node,
-		currentOffset = 0
+		currentOffset = 0,
+		disableMoveIds: string[] = []
 	) {
 		let previousId: string | undefined = undefined
 
 		if (modules.length === 0) {
-			addEdge(beforeNode.id, nextNode.id, { subModules: modules, offset: currentOffset })
+			addEdge(beforeNode.id, nextNode.id, {
+				subModules: modules,
+				disableMoveIds
+			})
 		} else {
 			modules.forEach((module, index) => {
+				const localDisableMoveIds = [...disableMoveIds, module.id]
+
 				// Add the edge between the previous node and the current one
 				if (index > 0 && previousId) {
-					addEdge(previousId, module.id, { subModules: modules, offset: currentOffset })
+					addEdge(previousId, module.id, {
+						subModules: modules,
+						disableMoveIds
+					})
 				}
 
 				if (module.value.type === 'branchall') {
 					// Start
-					addNode(module, currentOffset, 'module')
+					addNode(module, currentOffset, 'module', modules)
 
 					// "Collect result of each branch" node
 					const endNode = {
@@ -156,6 +167,7 @@ export default function graphBuilder(
 						position: { x: -1, y: -1 },
 						type: 'branchAllEnd'
 					}
+
 					nodes.push(endNode)
 
 					if (module.value.branches.length === 0) {
@@ -176,8 +188,12 @@ export default function graphBuilder(
 
 						nodes.push(startNode)
 
-						addEdge(module.id, startNode.id, { type: 'empty', offset: currentOffset })
-						addEdge(startNode.id, endNode.id, { type: 'empty', offset: currentOffset })
+						addEdge(module.id, startNode.id, {
+							type: 'empty'
+						})
+						addEdge(startNode.id, endNode.id, {
+							type: 'empty'
+						})
 					} else {
 						module.value.branches.forEach((branch, branchIndex) => {
 							// Start node by branch
@@ -199,15 +215,17 @@ export default function graphBuilder(
 
 							nodes.push(startNode)
 
-							addEdge(module.id, startNode.id, { type: 'empty', offset: currentOffset })
+							addEdge(module.id, startNode.id, {
+								type: 'empty'
+							})
 
-							processModules(branch.modules, startNode, endNode, currentOffset)
+							processModules(branch.modules, startNode, endNode, currentOffset, localDisableMoveIds)
 						})
 					}
 
 					previousId = endNode.id
 				} else if (module.value.type === 'forloopflow') {
-					addNode(module, currentOffset, 'module')
+					addNode(module, currentOffset, 'module', modules)
 
 					const startNode = {
 						id: `${module.id}-start`,
@@ -223,7 +241,9 @@ export default function graphBuilder(
 						type: 'forLoopStart'
 					}
 
-					addEdge(module.id, startNode.id, { type: 'empty', offset: currentOffset })
+					addEdge(module.id, startNode.id, {
+						type: 'empty'
+					})
 
 					const endNode = {
 						id: `${module.id}-end`,
@@ -242,11 +262,17 @@ export default function graphBuilder(
 					nodes.push(startNode)
 					nodes.push(endNode)
 
-					processModules(module.value.modules, startNode, endNode, currentOffset + 25)
+					processModules(
+						module.value.modules,
+						startNode,
+						endNode,
+						currentOffset + 25,
+						localDisableMoveIds
+					)
 
 					previousId = endNode.id
 				} else if (module.value.type === 'whileloopflow') {
-					addNode(module, currentOffset, 'module')
+					addNode(module, currentOffset, 'module', modules)
 
 					const startNode = {
 						id: `${module.id}-start`,
@@ -260,7 +286,9 @@ export default function graphBuilder(
 						position: { x: -1, y: -1 },
 						type: 'whileLoopStart'
 					}
-					addEdge(module.id, startNode.id, { type: 'empty' })
+					addEdge(module.id, startNode.id, {
+						type: 'empty'
+					})
 
 					const endNode = {
 						id: `${module.id}-end`,
@@ -272,14 +300,18 @@ export default function graphBuilder(
 					nodes.push(startNode)
 					nodes.push(endNode)
 
-					processModules(module.value.modules, startNode, endNode, currentOffset + 25)
+					processModules(
+						module.value.modules,
+						startNode,
+						endNode,
+						currentOffset + 25,
+						localDisableMoveIds
+					)
 
 					previousId = endNode.id
 				} else if (module.value.type === 'branchone') {
-					// Start
-					addNode(module, currentOffset, 'module')
+					addNode(module, currentOffset, 'module', modules)
 
-					// "Collect result of each branch" node
 					const endNode = {
 						id: `${module.id}-end`,
 						data: { offset: currentOffset, eventHandlers: eventHandlers },
@@ -308,7 +340,13 @@ export default function graphBuilder(
 
 					addEdge(module.id, defaultBranch.id, { type: 'empty' })
 
-					processModules(module.value.default, defaultBranch, endNode, currentOffset)
+					processModules(
+						module.value.default,
+						defaultBranch,
+						endNode,
+						currentOffset,
+						localDisableMoveIds
+					)
 
 					module.value.branches.forEach((branch, branchIndex) => {
 						// Start node by branch
@@ -336,22 +374,28 @@ export default function graphBuilder(
 
 						addEdge(module.id, startNode.id, { type: 'empty' })
 
-						processModules(branch.modules, startNode, endNode, currentOffset)
+						processModules(branch.modules, startNode, endNode, currentOffset, localDisableMoveIds)
 					})
 
 					previousId = endNode.id
 				} else {
-					addNode(module, currentOffset, 'module')
+					addNode(module, currentOffset, 'module', modules)
 
 					previousId = module.id
 				}
 
 				if (index === 0) {
-					addEdge(beforeNode.id, module.id, { subModules: modules })
+					addEdge(beforeNode.id, module.id, {
+						subModules: modules,
+						disableMoveIds
+					})
 				}
 
 				if (index === modules.length - 1 && previousId) {
-					addEdge(previousId, nextNode.id, { subModules: modules })
+					addEdge(previousId, nextNode.id, {
+						subModules: modules,
+						disableMoveIds
+					})
 				}
 			})
 		}
@@ -391,8 +435,7 @@ export default function graphBuilder(
 
 					addEdge(pid, selectedId!, {
 						customId: `dep-${pid}-${selectedId}-${input}-${index}`,
-						type: 'dataflowedge',
-						offset: i * 20
+						type: 'dataflowedge'
 					})
 				})
 			})
@@ -402,8 +445,7 @@ export default function graphBuilder(
 
 				addEdge(selectedId!, pid, {
 					customId: `dep-${selectedId}-${pid}-${i}`,
-					type: 'dataflowedge',
-					offset: i * 10
+					type: 'dataflowedge'
 				})
 			})
 		}
