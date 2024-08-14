@@ -45,6 +45,7 @@
 	export let noControls: boolean = false
 	export let drawerOpen = false
 	export let nodeId: string | undefined = undefined
+	export let language: string | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -378,17 +379,14 @@
 			/>
 		{/each}</div
 	>
-{:else}
-	<div
+{:else}<div
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
 			: 'min-h-[200px]'}"
-	>
-		{#if result != undefined && length != undefined && largeObject != undefined}
-			<div class="flex justify-between items-center w-full">
-				<div class="text-tertiary text-sm">
-					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}
-						<ToggleButtonGroup
+		>{#if result != undefined && length != undefined && largeObject != undefined}<div
+				class="flex justify-between items-center w-full"
+				><div class="text-tertiary text-sm">
+					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
@@ -538,13 +536,24 @@
 					</div>
 				{:else if !forceJson && resultKind == 'error' && result?.error}
 					<div class="flex flex-col items-start">
-						<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
+						<span class="text-red-500 pt-2 font-semibold !text-xs whitespace-pre-wrap"
 							>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 									.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 						>
-						<pre class="text-sm whitespace-pre-wrap text-primary">{result.error.stack ?? ''}</pre>
+						<pre class="text-xs pt-2 whitespace-pre-wrap text-primary"
+							>{result.error.stack ?? ''}</pre
+						>
 						<slot />
 					</div>
+					{#if language == 'bun'}
+						<div class="pt-20" />
+						<Alert size="xs" type="info" title="Seeing an odd error?">
+							Bun script are bundled for performance reasons. If you see an odd error that doesn't
+							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code
+							> at the top of your script to disable bundling and feel free to mention it to the Windmill's
+							team.
+						</Alert>
+					{/if}
 				{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-3 mt-2 mx-4">
 						<Button
 							color="green"

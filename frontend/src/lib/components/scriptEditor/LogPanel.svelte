@@ -113,7 +113,7 @@
 							duration={previewJob?.['duration_ms']}
 							mem={previewJob?.['mem_peak']}
 							content={previewJob?.logs}
-							isLoading={previewIsLoading}
+							isLoading={previewJob?.['running'] == false && previewIsLoading}
 							tag={previewJob?.tag}
 						/>
 					</Pane>

@@ -48,7 +48,7 @@
 		type="password"
 		bind:value={password}
 		on:keydown
-		autocomplete="off"
+		autocomplete="new-password"
 		{placeholder}
 		{disabled}
 	/>

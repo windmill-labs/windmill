@@ -33,9 +33,10 @@
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { DELETE, copyToClipboard, isDeployable } from '$lib/utils'
+	import { DELETE, copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
+	import { isDeployable } from '$lib/utils_deployable'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined

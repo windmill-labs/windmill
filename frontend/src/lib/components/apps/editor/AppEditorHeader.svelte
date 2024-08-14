@@ -938,17 +938,19 @@
 			<h2>Public URL</h2>
 			<div class="mt-4" />
 
-			<Toggle
-				options={{
-					left: `Require login and read-access`,
-					right: `No login required`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
-				}}
-			/>
+			<div class="flex gap-2 items-center">
+				<Toggle
+					options={{
+						left: `Require login and read-access`,
+						right: `No login required`
+					}}
+					checked={policy.execution_mode == 'anonymous'}
+					on:change={(e) => {
+						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
+						setPublishState()
+					}}
+				/>
+			</div>
 
 			<div class="my-6 box">
 				Public url:
@@ -979,8 +981,10 @@
 				You will still need to deploy the app to make visible the latest changes
 			</Alert>
 
-			<a href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification" class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a>
-
+			<a
+				href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
+				class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
+			>
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -1149,14 +1153,14 @@
 														duration={job?.['duration_ms']}
 														jobId={job?.id}
 														content={job?.logs}
-														isLoading={testIsLoading}
+														isLoading={testIsLoading && job?.['running'] == false}
 														tag={job?.tag}
 													/>
 												</Pane>
 												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}
-														<div class="relative h-full px-2">
-															<DisplayResult
+													{#if job != undefined && 'result' in job && job.result != undefined}<div
+															class="relative h-full px-2"
+															><DisplayResult
 																workspaceId={$workspaceStore}
 																jobId={selectedJobId}
 																result={job.result}

@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.379.3](https://github.com/windmill-labs/windmill/compare/v1.379.2...v1.379.3) (2024-08-13)
+
+
+### Bug Fixes
+
+* improve scrolling performance of the runs page ([0be8982](https://github.com/windmill-labs/windmill/commit/0be8982ddc263b76dab2c87cb6fa63e21effd58c))
+
+## [1.379.2](https://github.com/windmill-labs/windmill/compare/v1.379.1...v1.379.2) (2024-08-13)
+
+
+### Bug Fixes
+
+* add fetch connection limits to bun type fetcher ([b9924d0](https://github.com/windmill-labs/windmill/commit/b9924d01d54f6dfaf5d719c13a38bb3dccbfe3b9))
+* extend step_id being returned as part of the error of every languages ([bcc94ba](https://github.com/windmill-labs/windmill/commit/bcc94badbd848b6838dd0e353c3a30e7a1889ff8))
+* **frontend:** date input is more flexible and accept default html format as a fallback ([b424c61](https://github.com/windmill-labs/windmill/commit/b424c61e95e3cc9213d4d3efbe4173857d4e80fd))
+* improve logviewer behavior when job is loading ([7a68cc7](https://github.com/windmill-labs/windmill/commit/7a68cc76c2d5d7a66f080afdfcb6c5cd09fc25b5))
+
+## [1.379.1](https://github.com/windmill-labs/windmill/compare/v1.379.0...v1.379.1) (2024-08-13)
+
+
+### Bug Fixes
+
+* add an option to disable bundling globally ([f00545f](https://github.com/windmill-labs/windmill/commit/f00545f1691c5107d1103f89bf68fdc3915ddd82))
+* **apps:** improve tanstack table handling of objects ([1d0807f](https://github.com/windmill-labs/windmill/commit/1d0807f54238c8d8d242e3e5534c6d0868b3172b))
+
 ## [1.379.0](https://github.com/windmill-labs/windmill/compare/v1.378.0...v1.379.0) (2024-08-13)
 
 

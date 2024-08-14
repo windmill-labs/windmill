@@ -561,6 +561,9 @@ pub fn pg_cell_to_json_value(
         Type::TIME => get_basic(row, column, column_i, |a: chrono::NaiveTime| {
             Ok(JSONValue::String(a.to_string()))
         })?,
+        Type::TIMETZ => get_basic(row, column, column_i, |a: TimeTZStr| {
+            Ok(JSONValue::String(a.0))
+        })?,
         Type::TIMESTAMPTZ => get_basic(row, column, column_i, |a: chrono::DateTime<Utc>| {
             Ok(JSONValue::String(a.to_string()))
         })?,
@@ -633,6 +636,9 @@ pub fn pg_cell_to_json_value(
         Type::TIME_ARRAY => get_array(row, column, column_i, |a: chrono::NaiveTime| {
             Ok(JSONValue::String(a.to_string()))
         })?,
+        Type::TIMETZ_ARRAY => get_array(row, column, column_i, |a: TimeTZStr| {
+            Ok(JSONValue::String(a.0))
+        })?,
         Type::TIMESTAMPTZ_ARRAY => get_array(row, column, column_i, |a: chrono::DateTime<Utc>| {
             Ok(JSONValue::String(a.to_string()))
         })?,
@@ -696,6 +702,28 @@ impl<'a> FromSql<'a> for IntervalStr {
 
     fn accepts(ty: &Type) -> bool {
         matches!(ty, &Type::INTERVAL)
+    }
+}
+
+struct TimeTZStr(String);
+impl<'a> FromSql<'a> for TimeTZStr {
+    fn from_sql(
+        _: &Type,
+        mut raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let microsecond = raw.get_i64();
+        let offset = raw.get_i32();
+        let utc_sec = (microsecond / 1_000_000) + offset as i64;
+        let utc = chrono::NaiveTime::from_num_seconds_from_midnight_opt(
+            ((utc_sec + 3600 * 24) % (3600 * 24)) as u32,
+            ((microsecond % 1_000_000) * 1_000) as u32,
+        )
+        .ok_or_else(|| anyhow::anyhow!("Invalid time value"))?;
+        Ok(TimeTZStr(format!("{:?} UTC", utc)))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        matches!(ty, &Type::TIMETZ)
     }
 }
 

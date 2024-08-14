@@ -96,10 +96,6 @@
 		return content
 	}
 
-	$: if (content != undefined && isLoading) {
-		isLoading = false
-	}
-
 	$: truncatedContent && scrollToBottom()
 
 	$: html = ansi_up.ansi_to_html(

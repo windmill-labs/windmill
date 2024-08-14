@@ -155,6 +155,7 @@ declare const error: {
 	message: string
 	name: string
 	stack: string
+	step_id: string
 }
 
 /**

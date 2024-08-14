@@ -144,7 +144,7 @@
 						duration={job?.['duration_ms']}
 						mem={job?.['mem_peak']}
 						content={job?.logs}
-						isLoading
+						isLoading={job?.['running'] == false}
 						tag={job?.tag}
 					/>
 				{/if}
