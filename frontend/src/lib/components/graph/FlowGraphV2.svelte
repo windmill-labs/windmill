@@ -116,7 +116,8 @@
 					  des.x +
 					  (fullSize ? fullWidth : width) / 2 -
 					  boxSize.width / 2 -
-					  NODE.width / 2
+					  NODE.width / 2 -
+					  (width - fullWidth) / 2
 					: 0,
 				y: des.y || 0
 			}
@@ -229,7 +230,7 @@
 
 	const viewport = writable<Viewport>({
 		x: 0,
-		y: 1000,
+		y: 0,
 		zoom: 1
 	})
 
@@ -251,10 +252,10 @@
 		{edgeTypes}
 		{nodeTypes}
 		{viewport}
+		{height}
 		minZoom={0.5}
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
-		fitView
 		preventScrolling={scroll}
 		{proOptions}
 		nodesDraggable={false}
