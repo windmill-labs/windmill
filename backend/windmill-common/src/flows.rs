@@ -213,6 +213,12 @@ pub struct Suspend {
     pub self_approval_disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hide_cancel: Option<bool>,
+    #[serde(skip_serializing_if = "false_or_empty")]
+    pub continue_on_disapprove_timeout: Option<bool>,
+}
+
+fn false_or_empty(v: &Option<bool>) -> bool {
+    v.is_none() || v.as_ref().is_some_and(|x| !x)
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

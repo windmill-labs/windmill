@@ -139,6 +139,8 @@ components:
               type: boolean
             hide_cancel:
               type: boolean
+            continue_on_disapprove_timeout:
+              type: boolean
         priority:
           type: number
         continue_on_error:
