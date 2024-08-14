@@ -17,7 +17,7 @@ use windmill_queue::{CanceledBy, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::run_future_with_polling_update_job_poller;
+use crate::common::{resolve_job_timeout, run_future_with_polling_update_job_poller};
 use crate::{common::build_args_values, AuthedClientBackgroundTask};
 
 #[derive(Serialize)]
@@ -304,7 +304,11 @@ pub async fn do_snowflake(
             json!(database.database.unwrap().to_uppercase()),
         );
     }
-    body.insert("timeout".to_string(), json!(10)); // in seconds
+    let timeout = resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
+        .await
+        .0
+        .as_secs();
+    body.insert("timeout".to_string(), json!(timeout));
 
     let queries = parse_sql_blocks(query);
 
