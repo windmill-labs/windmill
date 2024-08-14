@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Menu } from '$lib/components/common'
+	import Menu from '$lib/components/common/menu/MenuV2.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
 
@@ -26,28 +26,23 @@
 	}
 </script>
 
-<Menu
-	transitionDuration={0}
-	pointerDown
-	bind:show={open}
-	noMinW
-	placement="bottom-center"
-	let:close
->
-	<button
-		title="Pick an iteration"
-		slot="trigger"
-		id={`flow-editor-iteration picker-${index}`}
-		type="button"
-		class=" text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-none
+<Menu>
+	<div slot="trigger">
+		<button
+			title="Pick an iteration"
+			id={`flow-editor-iteration picker-${index}`}
+			type="button"
+			class=" text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-none
 		hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-sm w-[40px] gap-1 h-[20px]
 		flex items-center justify-center {flowJobsSuccess?.[selected] == false
-			? 'text-red-400'
-			: 'text-secondary'}"
-	>
-		#{selected == -1 ? '?' : selected + 1}
-		<ListFilter size={15} />
-	</button>
+				? 'text-red-400'
+				: 'text-secondary'}"
+		>
+			#{selected == -1 ? '?' : selected + 1}
+			<ListFilter size={15} />
+		</button>
+	</div>
+
 	<div id="flow-editor-insert-module">
 		<div class="font-mono divide-y text-xs w-full text-secondary max-h-[200px] overflow-auto">
 			<input autofocus type="number" bind:value={filter} on:keydown={onKeydown} />
