@@ -162,6 +162,11 @@ pub struct SkipIfStopped {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
+#[derive(Deserialize)]
+struct RecoveryObject {
+    recover: Option<bool>,
+}
+
 #[derive(sqlx::FromRow, Deserialize)]
 pub struct RowFlowStatus {
     pub flow_status: sqlx::types::Json<Box<serde_json::value::RawValue>>,
@@ -758,7 +763,7 @@ pub async fn update_flow_status_after_job_completion_internal<
         let module = get_module(&flow_job, module_index);
 
         // tracing::error!(
-        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler}", flow_job.canceled
+        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler} is_failure_step {is_failure_step}", flow_job.canceled
         // );
 
         let should_continue_flow = match success {
@@ -874,7 +879,13 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                 save_in_cache(db, client, &flow_job, cached_res_path, &nresult).await;
             }
-            let success = success && !is_failure_step && !skip_error_handler;
+            fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
+                let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
+                return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
+            }
+            let success = success
+                && (!is_failure_step || result_has_recover_true(nresult.clone()))
+                && !skip_error_handler;
             if success {
                 add_completed_job(
                     db,

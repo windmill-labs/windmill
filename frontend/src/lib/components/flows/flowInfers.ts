@@ -34,7 +34,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			input_transforms = keys.reduce((accu, key) => {
 				let nv =
 					input_transforms[key] ??
-					(module.id == 'failure' && ['message', 'name'].includes(key)
+					(module.id == 'failure' && ['message', 'name', 'step_id'].includes(key)
 						? { type: 'javascript', expr: `error.${key}` }
 						: {
 								type: 'static',
