@@ -16,16 +16,18 @@
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { connectOutput } from '$lib/components/apps/editor/appUtils'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
+	import type { ICellRendererParams } from 'ag-grid-community'
 
+	export let p: ICellRendererParams<any>
 	export let id: string
 	export let render: boolean
 	export let actions: TableAction[] = []
 	export let rowIndex: number
 	export let row: { original: Record<string, any> }
-	export let onSet: (id: string, value: any) => void
-	export let onRemove: (id: string) => void
+	export let onSet: (id: string, value: any, rowIndex: number) => void
+	export let onRemove: (id: string, rowIndex: number) => void
 	export let wrapActions: boolean | undefined = undefined
-	export let selectRow: () => void
+	export let selectRow: (params: ICellRendererParams<any>) => void
 
 	const dispatch = createEventDispatcher()
 	const { selectedComponent, hoverStore, mode, connectingInput } =
@@ -39,12 +41,25 @@
 			const parent = rowDiv.parentElement?.parentElement?.parentElement
 			if (parent) {
 				parent.classList.add('w-full')
+			} else {
+				//sometimes the parent is not available immediately
+				setTimeout(() => {
+					const parent = rowDiv?.parentElement?.parentElement?.parentElement
+					if (parent) {
+						parent.classList.add('w-full')
+					}
+				}, 10)
 			}
 		}
 	})
 </script>
 
-<RowWrapper value={row} index={rowIndex} {onSet} {onRemove}>
+<RowWrapper
+	value={row}
+	index={rowIndex}
+	onSet={(id, value) => onSet(id, value, rowIndex)}
+	onRemove={(id) => onRemove(id, rowIndex)}
+>
 	<div
 		class={twMerge(
 			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full',
@@ -68,7 +83,7 @@
 					}
 				}}
 				on:pointerdown|stopPropagation={(e) => {
-					selectRow()
+					selectRow(p)
 
 					if (!$connectingInput.opened) {
 						$selectedComponent = [action.id]
@@ -170,7 +185,7 @@
 							noWFull
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow()
+								selectRow(p)
 							}}
 							id={action.id}
 							customCss={action.customCss}
@@ -196,7 +211,7 @@
 							onToggle={action.onToggle}
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow()
+								selectRow(p)
 							}}
 							verticalAlignment="center"
 							{controls}
@@ -215,7 +230,7 @@
 							onSelect={action.onSelect}
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow()
+								selectRow(p)
 							}}
 							{controls}
 						/>
@@ -227,7 +242,7 @@
 						{render}
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow()
+							selectRow(p)
 						}}
 						noWFull
 						id={action.id}
@@ -252,7 +267,7 @@
 						onToggle={action.onToggle}
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow()
+							selectRow(p)
 						}}
 					/>
 				{:else if action.type == 'selectcomponent'}
@@ -269,7 +284,7 @@
 						onSelect={action.onSelect}
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow()
+							selectRow(p)
 						}}
 					/>
 				{/if}
