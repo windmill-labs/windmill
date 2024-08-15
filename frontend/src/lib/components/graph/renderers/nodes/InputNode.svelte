@@ -1,6 +1,6 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	import { ExternalLink, Wand2 } from 'lucide-svelte'
+	import { Calendar, ExternalLink, Split, Wand2, Webhook } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
@@ -12,6 +12,7 @@
 	import { copilotInfo } from '$lib/stores'
 	import { base } from '$lib/base'
 	import type { Writable } from 'svelte/store'
+	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
 
 	export let data: {
 		insertable: boolean
@@ -30,6 +31,10 @@
 </script>
 
 <NodeWrapper enableTargetHandle={false} let:darkMode>
+	<div class="absolute -top-32 left-1/2 transform -translate-x-1/2 z-10">
+		<TriggersWrapper />
+	</div>
+
 	{#if data.insertable && !data.disableAi}
 		<div class="absolute -top-10 left-1/2 transform -translate-x-1/2 z-10">
 			<Popover>
