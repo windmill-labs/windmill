@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    fs::{DirBuilder, File},
+    fs::{create_dir_all, DirBuilder, File},
     io::AsyncReadExt,
 };
 use windmill_api::HTTP_CLIENT;
@@ -130,6 +130,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             &file_path
         )
     })?;
+
+    create_dir_all(HUB_CACHE_DIR).await?;
 
     for path in paths.values() {
         get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
