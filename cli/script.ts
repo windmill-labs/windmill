@@ -173,6 +173,8 @@ export async function handleFile(
           bundle: true,
           write: false,
           external: codebase.external,
+          inject: codebase.inject,
+          define: codebase.define,
           platform: "node",
           packages: "bundle",
           target: "node20.15.1",
