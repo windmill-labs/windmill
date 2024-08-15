@@ -119,14 +119,18 @@ pub fn main() -> anyhow::Result<()> {
 
 async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     // read file:
-    let mut file = File::open(file_path.unwrap_or("./hubPaths.json".to_string())).await.context(
-        "Could not open hubPaths.json, make sure it exists and is in the same directory as the binary",
-    )?;
+    let file_path = file_path.unwrap_or("./hubPaths.json".to_string());
+    let mut file = File::open(&file_path)
+        .await
+        .with_context(|| format!("Could not open {}, make sure it exists", &file_path))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents).await?;
-    let paths = serde_json::from_str::<HashMap<String, String>>(&contents).context(
-        "Could not parse hubPaths.json, make sure it is a valid JSON object with string keys and values",
-    )?;
+    let paths = serde_json::from_str::<HashMap<String, String>>(&contents).with_context(|| {
+        format!(
+            "Could not parse {}, make sure it is a valid JSON object with string keys and values",
+            &file_path
+        )
+    })?;
 
     for path in paths.values() {
         get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
