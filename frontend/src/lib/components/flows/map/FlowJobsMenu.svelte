@@ -2,6 +2,7 @@
 	import Menu from '$lib/components/common/menu/MenuV2.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { ListFilter } from 'lucide-svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	const dispatch = createEventDispatcher()
 
@@ -42,29 +43,28 @@
 			<ListFilter size={15} />
 		</button>
 	</div>
-
-	<div id="flow-editor-insert-module">
-		<div class="font-mono divide-y text-xs w-full text-secondary max-h-[200px] overflow-auto">
-			<input autofocus type="number" bind:value={filter} on:keydown={onKeydown} />
-			{#each flowJobs ?? [] as id, idx (id)}
-				{#if filter == undefined || (idx + 1).toString().includes(filter.toString())}
-					<button
-						class="w-full text-left py-1 pl-2 min-w-20 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center {flowJobsSuccess?.[
-							idx
-						] == false
-							? 'text-red-400'
-							: ''}"
-						on:pointerdown={() => {
-							close()
-							dispatch('selectedIteration', { index: idx, id })
-						}}
-						role="menuitem"
-						tabindex="-1"
-					>
-						#{idx + 1}
-					</button>
-				{/if}
-			{/each}
-		</div>
-	</div>
+	<MenuItem disabled>
+		<input type="number" bind:value={filter} on:keydown={onKeydown} />
+	</MenuItem>
+	{#each flowJobs ?? [] as id, idx (id)}
+		{#if filter == undefined || (idx + 1).toString().includes(filter.toString())}
+			<MenuItem>
+				<button
+					class="text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center {flowJobsSuccess?.[
+						idx
+					] == false
+						? 'text-red-400'
+						: ''}"
+					on:pointerdown={() => {
+						//close()
+						dispatch('selectedIteration', { index: idx, id })
+					}}
+					role="menuitem"
+					tabindex="-1"
+				>
+					#{idx + 1}
+				</button>
+			</MenuItem>
+		{/if}
+	{/each}
 </Menu>

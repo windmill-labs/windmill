@@ -252,6 +252,7 @@
 		connectionLineType={ConnectionLineType.SmoothStep}
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		preventScrolling={scroll}
+		zoomOnDoubleClick={false}
 		{proOptions}
 		nodesDraggable={false}
 		on:nodeclick={(e) => handleNodeClick(e)}

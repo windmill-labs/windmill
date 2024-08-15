@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { NodeToolbar, Position } from '@xyflow/svelte'
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import type { FlowModule, FlowModuleValue } from '$lib/gen'
 	import { GitBranchPlus } from 'lucide-svelte'
@@ -82,17 +81,17 @@
 			data.eventHandlers.selectedIteration(e.detail, data.module.id)
 		}}
 	/>
-</NodeWrapper>
 
-<NodeToolbar isVisible position={Position.Bottom} align="center">
-	{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
-		<button
-			class="rounded-full border hover:bg-surface-hover bg-surface p-1"
-			on:click={() => {
-				data?.eventHandlers?.newBranch(data.module)
-			}}
-		>
-			<GitBranchPlus size={16} />
-		</button>
-	{/if}
-</NodeToolbar>
+	<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">
+		{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
+			<button
+				class="rounded-full border hover:bg-surface-hover bg-surface p-1"
+				on:click={() => {
+					data?.eventHandlers?.newBranch(data.module)
+				}}
+			>
+				<GitBranchPlus size={16} />
+			</button>
+		{/if}
+	</div>
+</NodeWrapper>
