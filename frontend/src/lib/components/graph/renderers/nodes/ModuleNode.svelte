@@ -49,7 +49,8 @@
 	<MapItem
 		mod={data.module}
 		insertable={data.insertable}
-		annotation={state?.flow_jobs
+		annotation={flowJobs &&
+		(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 			? 'Iteration: ' +
 			  (selectedIteration >= 0 ? selectedIteration : state?.flow_jobs?.length) +
 			  '/' +

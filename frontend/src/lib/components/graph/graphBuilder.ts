@@ -74,8 +74,6 @@ export default function graphBuilder(
 		// Index of the target module in the modules array
 		let index = mods?.findIndex((m) => m.id === targetId) ?? -1
 
-		console.log('addEdge', sourceId, targetId, options?.disableMoveIds)
-
 		edges.push({
 			id: options?.customId || `edge:${sourceId}->${targetId}`,
 			source: sourceId,

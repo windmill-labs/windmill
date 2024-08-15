@@ -78,7 +78,7 @@
 				{annotation}
 			</div>
 		{/if}
-		{#if flowJobs && !insertable}
+		{#if flowJobs && !insertable && (mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow')}
 			<div class="absolute right-8 z-50 -top-5">
 				<FlowJobsMenu
 					on:selectedIteration={(e) => {

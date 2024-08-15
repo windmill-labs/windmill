@@ -225,7 +225,7 @@
 
 	const viewport = writable<Viewport>({
 		x: 0,
-		y: 0,
+		y: 5,
 		zoom: 1
 	})
 
