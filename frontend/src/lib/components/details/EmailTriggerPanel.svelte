@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { Button } from '$lib/components/common'
 	import { SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON } from '$lib/consts'
 	import UserSettings from '../UserSettings.svelte'
@@ -12,6 +12,7 @@
 	import { base32 } from 'rfc4648'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	let userSettings: UserSettings
 
@@ -58,36 +59,43 @@
 />
 
 <div class="p-2 flex flex-col w-full gap-4">
-	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-		<div class="flex flex-row justify-between my-2 gap-2">
-			<input
-				bind:value={token}
-				placeholder="paste your token here once created to alter examples below"
-				class="!text-xs"
-			/>
-			<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
-				Create an Email-specific Token
-				<Tooltip light>
-					The token will have a scope such that it can only be used to trigger this script. It is
-					safe to share as it cannot be used to impersonate you.
-				</Tooltip>
-			</Button>
-		</div>
-	{/if}
-
-	{#if !isFlow}
-		<div class="flex flex-col gap-2">
-			<div class="flex flex-row justify-between">
-				<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
-					<ToggleButton label="By path" value="path" />
-					<ToggleButton label="By hash" value="hash" />
-				</ToggleButtonGroup>
-			</div>
-		</div>
-	{/if}
-
 	{#if emailDomain}
+		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
+			<div class="my-2">
+				<div class="flex flex-row justify-between gap-2">
+					<input
+						bind:value={token}
+						placeholder="paste your token here once created to alter examples below"
+						class="!text-xs"
+					/>
+					<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
+						Create an Email-specific Token
+						<Tooltip light>
+							The token will have a scope such that it can only be used to trigger this script. It
+							is safe to share as it cannot be used to impersonate you.
+						</Tooltip>
+					</Button>
+				</div>
+				{#if token === 'TOKEN_TO_CREATE'}
+					<div class="flex flex-row gap-1 text-xs text-red-500 items-center mt-1">
+						<AlertTriangle size="12" />
+						Create/input a valid token before copying the email address below
+					</div>
+				{/if}
+			</div>
+		{/if}
+
+		{#if !isFlow}
+			<div class="flex flex-col gap-2">
+				<div class="flex flex-row justify-between">
+					<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
+					<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+						<ToggleButton label="By path" value="path" />
+						<ToggleButton label="By hash" value="hash" />
+					</ToggleButtonGroup>
+				</div>
+			</div>
+		{/if}
 		<div class="flex flex-col gap-4">
 			{#key requestType}
 				{#key token}
@@ -104,12 +112,18 @@
 		</div>
 	{:else}
 		<div>
-			<Alert title="Email triggers are disabled" size="xs" kind="danger">
+			<Alert title="Email triggers are disabled" size="xs" type="warning">
 				Ask an instance superadmin to setup the instance for email triggering (<a
 					target="_blank"
 					href="https://windmill.dev/docs/advanced/email_triggers">docs</a
 				>) and to set the email domain in the instance settings.
 			</Alert>
 		</div>
+	{/if}
+
+	{#if !$enterpriseLicense}
+		<Alert title="Community Edition limitations" type="warning" size="xs">
+			Email triggers on Windmill Community Edition are limited to 100 emails per day.
+		</Alert>
 	{/if}
 </div>

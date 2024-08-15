@@ -60,16 +60,16 @@
 											Webhooks
 										</span>
 									</Tab>
-									<Tab value="email">
-										<span class="flex flex-row gap-2 items-center">
-											<MailIcon size={14} />
-											Email
-										</span>
-									</Tab>
 									<Tab value="schedule">
 										<span class="flex flex-row gap-2 items-center">
 											<CalendarCheck2 size={14} />
 											Schedules
+										</span>
+									</Tab>
+									<Tab value="email">
+										<span class="flex flex-row gap-2 items-center">
+											<MailIcon size={14} />
+											Email
 										</span>
 									</Tab>
 									<Tab value="cli">
