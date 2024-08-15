@@ -14,7 +14,9 @@
 		openedDrawers.push(id)
 	}
 
-	let offset = 0
+	export let initialOffset = 0
+
+	let offset = initialOffset
 
 	export function toggleDrawer() {
 		if (!open) {
@@ -37,7 +39,7 @@
 
 	export function closeDrawer() {
 		open = false
-		offset = 0
+		offset = initialOffset
 		// remove the last opened drawer
 		openedDrawers = openedDrawers.filter((drawer) => drawer !== id)
 	}

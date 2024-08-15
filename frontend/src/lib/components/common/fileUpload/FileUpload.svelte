@@ -120,8 +120,8 @@
 			// 		duplex: 'half'
 			// 	}
 			// )
-
 			let xhr = new XMLHttpRequest()
+
 			activeUploads.push({ xhr, fileName: fileToUpload.name })
 
 			const response = (await new Promise((resolve, reject) => {
@@ -136,20 +136,21 @@
 						$fileUploads = $fileUploads
 					}
 				})
+
 				xhr?.addEventListener('loadend', () => {
+					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 					let response = xhr?.responseText
 					if (xhr?.readyState === 4 && xhr?.status === 200 && response) {
 						uploadData.progress = 100
 						resolve(JSON.parse(response))
 					} else {
+						xhr?.abort()
 						if (response) {
-							reject('An error occurred while uploading the file, see server logs')
-						} else {
 							reject(response)
+						} else {
+							reject('An error occurred while uploading the file, see server logs')
 						}
 					}
-
-					activeUploads = activeUploads.filter((x) => x.fileName !== fileToUpload.name)
 				})
 				xhr?.open(
 					'POST',

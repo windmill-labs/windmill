@@ -7,6 +7,7 @@
 	import json from 'svelte-highlight/languages/json'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import YAML from 'yaml'
+	import HighlightTheme from '../HighlightTheme.svelte'
 
 	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
 	export let flow_json: any | undefined = undefined
@@ -25,6 +26,8 @@
 	// When we no longer have a selected flow step, switch to saved inputs
 	$: !hasStepDetails && selected === 'flow_step' && (selected = 'saved_inputs')
 </script>
+
+<HighlightTheme />
 
 <Splitpanes horizontal class="h-full">
 	<Pane size={100}>

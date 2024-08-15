@@ -9,11 +9,9 @@
 		EditorBreakpoint,
 		EditorMode
 	} from '../types'
-	import { classNames } from '$lib/utils'
 	import type { Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
-	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import GridViewer from './GridViewer.svelte'
 	import Component from './component/Component.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -25,6 +23,7 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
+	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 
 	export let app: App
 	export let appPath: string = ''
@@ -37,6 +36,13 @@
 	export let noBackend: boolean = false
 	export let isLocked = false
 	export let hideRefreshBar = false
+
+	export let replaceStateFn: (path: string) => void = (path: string) =>
+		window.history.replaceState(null, '', path)
+	export let gotoFn: (path: string, opt?: Record<string, any> | undefined) => void = (
+		path: string,
+		opt?: Record<string, any>
+	) => window.history.pushState(null, '', path)
 
 	migrateApp(app)
 
@@ -52,11 +58,12 @@
 
 	const allIdsInPath = writable<string[]>([])
 
-	let ncontext: any = { ...context, workspace, mode: 'viewer' }
-
-	function hashchange(e: HashChangeEvent) {
-		ncontext.hash = e.newURL.split('#')[1]
-		ncontext = ncontext
+	let ncontext: any = {
+		...context,
+		workspace,
+		mode: 'viewer',
+		summary: summary,
+		author: policy.on_behalf_of_email
 	}
 
 	function resizeWindow() {
@@ -72,8 +79,31 @@
 
 	let parentContext = getContext<AppViewerContext>('AppViewerContext')
 
+	let worldStore = buildWorld(ncontext)
+	$: onContextChange(context)
+
+	function onContextChange(context: any) {
+		Object.assign(ncontext, context)
+		ncontext = ncontext
+		worldStore.update((x) => {
+			Object.entries(context).forEach(([key, value]) => {
+				x.outputsById?.['ctx']?.[key].set(value, true)
+			})
+			return x
+		})
+	}
+
+	function hashchange(e: HashChangeEvent) {
+		ncontext.hash = e.newURL.split('#')[1]
+		ncontext = ncontext
+		worldStore.update((x) => {
+			x.outputsById?.['ctx']?.['hash'].set(ncontext.hash, true)
+			return x
+		})
+	}
+
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore: buildWorld(ncontext),
+		worldStore: worldStore,
 		initialized: writable({ initialized: false, initializedComponents: [] }),
 		app: appStore,
 		summary: writable(summary),
@@ -103,7 +133,16 @@
 		darkMode,
 		cssEditorOpen: writable(false),
 		previewTheme: writable(undefined),
-		debuggingComponents: writable({})
+		debuggingComponents: writable({}),
+		replaceStateFn,
+		gotoFn,
+		policy,
+		recomputeAllContext: writable({
+			loading: false,
+			componentNumber: 0,
+			refreshing: [],
+			progress: 100
+		})
 	})
 
 	let previousSelectedIds: string[] | undefined = undefined
@@ -156,8 +195,12 @@
 				link.id = cssId
 				link.innerHTML = cssString
 				head.appendChild(link)
-			} else if (existingElement && cssString) {
-				existingElement.innerHTML = cssString
+			} else if (existingElement) {
+				if (cssString) {
+					existingElement.innerHTML = cssString
+				} else {
+					existingElement.innerHTML = ''
+				}
 			}
 		}
 	}
@@ -171,7 +214,7 @@
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
 
-<div class="relative min-h-screen h-full" bind:clientHeight={appHeight}>
+<div class="relative h-full grow" bind:clientHeight={appHeight}>
 	<div id="app-editor-top-level-drawer" />
 	<div id="app-editor-select" />
 
@@ -183,9 +226,11 @@
 	>
 		{#if $appStore.grid}
 			<div
-				class={classNames(
+				class={twMerge(
 					'mx-auto',
-					hideRefreshBar || $appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
+					hideRefreshBar || $appStore?.norefreshbar || $appStore.hideLegacyTopBar === true
+						? 'invisible h-0 overflow-hidden'
+						: ''
 				)}
 			>
 				<div

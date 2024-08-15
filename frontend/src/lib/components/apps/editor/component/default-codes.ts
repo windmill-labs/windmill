@@ -115,9 +115,9 @@ export async function main(db: Postgresql) {
     email: string;
     created_at: string;
     };
-    const GLOBAL_COUNT = 25000;
+const GLOBAL_COUNT = 25000;
 
-    function getUsers(limit: number, offset: number): User[] {
+function getUsers(limit: number, offset: number): User[] {
 
     if (offset > GLOBAL_COUNT) {
         return []
@@ -130,28 +130,28 @@ export async function main(db: Postgresql) {
         email: \`user\${offset + index}@example.com\`,
         created_at: new Date().toISOString(),
     }));
-    }
+}
 
-    export async function main(offset: number, limit: number, orderBy: string, isDesc: boolean, search: string): Promise<User[]> {
+export async function main(offset: number, limit: number, orderBy: string, isDesc: boolean, search: string): Promise<User[]> {
     let users = getUsers(limit, offset);
 
     if (orderBy && Object.keys(users[0]).includes(orderBy)) {
         users.sort((a, b) => {
-        const aValue = a[orderBy as keyof User];
-        const bValue = b[orderBy as keyof User];
+            const aValue = a[orderBy as keyof User];
+            const bValue = b[orderBy as keyof User];
 
-        if (typeof aValue === 'string' && typeof bValue === 'string') {
-            return isDesc ? bValue.localeCompare(aValue) : aValue.localeCompare(bValue);
-        }
-        return 0;
+            if (typeof aValue === 'string' && typeof bValue === 'string') {
+                return isDesc ? bValue.localeCompare(aValue) : aValue.localeCompare(bValue);
+            }
+            return 0;
         });
     }
 
     if (search) {
         return users.filter(user =>
-        Object.values(user).some(value =>
-            typeof value === 'string' && value.toLowerCase().includes(search.toLowerCase())
-        )
+            Object.values(user).some(value =>
+                typeof value === 'string' && value.toLowerCase().includes(search.toLowerCase())
+            )
         );
     }
 

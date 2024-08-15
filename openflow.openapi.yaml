@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.347.0
+  version: 1.379.4
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -138,6 +138,8 @@ components:
             self_approval_disabled:
               type: boolean
             hide_cancel:
+              type: boolean
+            continue_on_disapprove_timeout:
               type: boolean
         priority:
           type: number
@@ -481,6 +483,10 @@ components:
           type: array
           items:
             type: string
+        flow_jobs_success:
+          type: array
+          items:
+            type: boolean
         branch_chosen:
           type: object
           properties:

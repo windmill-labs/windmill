@@ -39,7 +39,7 @@ import {
   newPathAssigner,
   yamlOptions,
 } from "./sync.ts";
-import { generateHash } from "./utils.ts";
+import { generateHash, readInlinePathSync } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile, replaceInlineScripts } from "./flow.ts";
 
@@ -100,11 +100,11 @@ export async function generateFlowLockInternal(
   workspace: Workspace,
   justUpdateMetadataLock?: boolean
 ): Promise<string | undefined> {
-  if (folder.endsWith("/")) {
+  if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
   const remote_path = folder
-    .replaceAll("\\", "/")
+    .replaceAll(SEP, "/")
     .substring(0, folder.length - ".flow".length);
   if (!justUpdateMetadataLock) {
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
@@ -128,7 +128,7 @@ export async function generateFlowLockInternal(
 
   if (!justUpdateMetadataLock) {
     const changedScripts = [];
-    //find hashes that do not correspond to preivous hashes
+    //find hashes that do not correspond to previous hashes
     for (const [path, hash] of Object.entries(hashes)) {
       if (path == TOP_HASH) {
         continue;
@@ -146,23 +146,25 @@ export async function generateFlowLockInternal(
     );
     //removeChangedLocks
     flowValue.value = await updateFlow(workspace, flowValue.value, remote_path);
+
+    const inlineScripts = extractInlineScriptsForFlows(
+      flowValue.value.modules,
+      newPathAssigner("bun")
+    );
+    inlineScripts
+      .filter((s) => s.path.endsWith(".lock"))
+      .forEach((s) => {
+        Deno.writeTextFileSync(
+          Deno.cwd() + SEP + folder + SEP + s.path,
+          s.content
+        );
+      });
   }
-  const inlineScripts = extractInlineScriptsForFlows(
-    flowValue.value.modules,
-    newPathAssigner("bun")
-  );
-  inlineScripts
-    .filter((s) => s.path.endsWith(".lock"))
-    .forEach((s) => {
-      Deno.writeTextFileSync(
-        Deno.cwd() + SEP + folder + SEP + s.path,
-        s.content
-      );
-    });
+
   hashes = await generateFlowHash(folder);
 
   for (const [path, hash] of Object.entries(hashes)) {
-    await updateMetadataLock(folder, hash, path);
+    await updateMetadataGlobalLock(folder, hash, path);
   }
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
 }
@@ -183,7 +185,7 @@ export async function generateScriptMetadataInternal(
 ): Promise<string | undefined> {
   const remotePath = scriptPath
     .substring(0, scriptPath.indexOf("."))
-    .replaceAll("\\", "/");
+    .replaceAll(SEP, "/");
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
@@ -208,8 +210,15 @@ export async function generateScriptMetadataInternal(
 
   // read script content
   const scriptContent = await Deno.readTextFile(scriptPath);
-  const metadataContent = await Deno.readTextFile(metadataWithType.path);
+  let metadataContent = await Deno.readTextFile(metadataWithType.path);
+  const c = findCodebase(scriptPath, codebases);
+
+  if (c) {
+    metadataContent += c.digest ?? "";
+  }
+
   let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
+
   if (await checkifMetadataUptodate(remotePath, hash, undefined)) {
     if (!noStaleMessage) {
       log.info(
@@ -240,7 +249,6 @@ export async function generateScriptMetadataInternal(
   }
 
   if (!opts.schemaOnly && !justUpdateMetadataLock) {
-    const c = findCodebase(scriptPath, codebases);
     if (!c) {
       await updateScriptLock(
         workspace,
@@ -250,11 +258,14 @@ export async function generateScriptMetadataInternal(
         metadataParsedContent,
         rawReqs
       );
+      metadataParsedContent.codebase = undefined;
     } else {
+      metadataParsedContent.codebase = c.digest;
       metadataParsedContent.lock = "";
     }
   } else {
-    metadataParsedContent.lock = "!inline " + remotePath + ".script.lock";
+    metadataParsedContent.lock =
+      "!inline " + remotePath.replaceAll(SEP, "/") + ".script.lock";
   }
 
   let metaPath = remotePath + ".script.yaml";
@@ -263,8 +274,17 @@ export async function generateScriptMetadataInternal(
     metaPath = remotePath + ".script.json";
     newMetadataContent = JSON.stringify(metadataParsedContent);
   }
-  hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
-  await updateMetadataLock(remotePath, hash);
+
+  let metadataContentUsedForHash = newMetadataContent;
+  if (c) {
+    metadataContentUsedForHash += c.digest ?? "";
+  }
+  hash = await generateScriptHash(
+    rawReqs,
+    scriptContent,
+    metadataContentUsedForHash
+  );
+  await updateMetadataGlobalLock(remotePath, hash);
   if (!justUpdateMetadataLock) {
     await Deno.writeTextFile(metaPath, newMetadataContent);
   }
@@ -344,8 +364,17 @@ async function updateScriptLock(
       );
     }
     const lockPath = remotePath + ".script.lock";
-    await Deno.writeTextFile(lockPath, lock);
-    metadataContent.lock = "!inline " + lockPath;
+    if (lock != "") {
+      await Deno.writeTextFile(lockPath, lock);
+      metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+    } else {
+      try {
+        if (await Deno.stat(lockPath)) {
+          await Deno.remove(lockPath);
+        }
+      } catch {}
+      metadataContent.lock = "";
+    }
   } catch (e) {
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
@@ -511,10 +540,18 @@ export function argSigToJsonSchemaType(
           | null;
       }
     | { str: string[] | null }
-    | { object: { key: string; typ: any }[] },
+    | { object: { key: string; typ: any }[] }
+    | {
+        oneof: [
+          {
+            label: string;
+            properties: { key: string; typ: any }[];
+          }
+        ];
+      },
   oldS: SchemaProperty
 ): void {
-  const newS: SchemaProperty = { type: "" };
+  let newS: SchemaProperty = { type: "" };
   if (t === "int") {
     newS.type = "integer";
   } else if (t === "float") {
@@ -533,15 +570,43 @@ export function argSigToJsonSchemaType(
   } else if (t === "bytes") {
     newS.type = "string";
     newS.contentEncoding = "base64";
+    newS.originalType = "bytes";
   } else if (t === "datetime") {
     newS.type = "string";
     newS.format = "date-time";
+  } else if (typeof t !== "string" && "oneof" in t) {
+    newS.type = "object";
+    if (t.oneof) {
+      newS.oneOf = t.oneof.map((obj) => {
+        const oldObjS =
+          oldS.oneOf?.find((o) => o?.title === obj.label) ?? undefined;
+        const properties: Record<string, any> = {};
+        for (const prop of obj.properties) {
+          if (oldObjS?.properties && prop.key in oldObjS?.properties) {
+            properties[prop.key] = oldObjS?.properties[prop.key];
+          } else {
+            properties[prop.key] = { description: "", type: "" };
+          }
+          argSigToJsonSchemaType(prop.typ, properties[prop.key]);
+        }
+        return {
+          type: "object",
+          title: obj.label,
+          properties,
+          order: oldObjS?.order ?? undefined,
+        };
+      });
+    }
   } else if (typeof t !== "string" && `object` in t) {
     newS.type = "object";
     if (t.object) {
       const properties: Record<string, any> = {};
       for (const prop of t.object) {
-        properties[prop.key] = {};
+        if (oldS.properties && prop.key in oldS.properties) {
+          properties[prop.key] = oldS.properties[prop.key];
+        } else {
+          properties[prop.key] = { description: "", type: "" };
+        }
         argSigToJsonSchemaType(prop.typ, properties[prop.key]);
       }
       newS.properties = properties;
@@ -549,7 +614,11 @@ export function argSigToJsonSchemaType(
   } else if (typeof t !== "string" && `str` in t) {
     newS.type = "string";
     if (t.str) {
+      newS.originalType = "enum";
       newS.enum = t.str;
+    } else {
+      newS.originalType = "string";
+      newS.enum = undefined;
     }
   } else if (typeof t !== "string" && `resource` in t) {
     newS.type = "object";
@@ -570,6 +639,32 @@ export function argSigToJsonSchemaType(
   } else {
     newS.type = "object";
   }
+
+  const preservedFields = [
+    "description",
+    "pattern",
+    "min",
+    "max",
+    "currency",
+    "currencyLocale",
+    "multiselect",
+    "customErrorMessage",
+    "required",
+    "showExpr",
+    "password",
+    "order",
+    "dateFormat",
+    "title",
+    "placeholder",
+  ];
+
+  preservedFields.forEach((field) => {
+    // @ts-ignore
+    if (oldS[field] !== undefined) {
+      // @ts-ignore
+      newS[field] = oldS[field];
+    }
+  });
 
   if (oldS.type != newS.type) {
     for (const prop of Object.getOwnPropertyNames(newS)) {
@@ -600,18 +695,19 @@ export function argSigToJsonSchemaType(
     oldS.format = undefined;
   }
 }
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // end of refactoring TODO                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-export async function replaceLock(o?: { lock?: string | string[] }) {
+export function replaceLock(o?: { lock?: string | string[] }) {
   if (Array.isArray(o?.lock)) {
     o.lock = o.lock.join("\n");
   }
   if (o?.lock?.startsWith("!inline ")) {
     try {
       const lockPath = o?.lock?.split(" ")[1];
-      o.lock = await Deno.readTextFile(lockPath);
+      o.lock = readInlinePathSync(lockPath);
     } catch (e) {
       log.info(
         colors.yellow(`Failed to read lockfile, doing as if it was empty: ${e}`)
@@ -645,7 +741,7 @@ export async function parseMetadataFile(
       metadataFilePath = scriptPath + ".script.yaml";
       await Deno.stat(metadataFilePath);
       const payload: any = yamlParse(await Deno.readTextFile(metadataFilePath));
-      await replaceLock(payload);
+      replaceLock(payload);
 
       return {
         path: metadataFilePath,
@@ -685,7 +781,7 @@ export async function parseMetadataFile(
           scriptInitialMetadata = yamlParse(
             await Deno.readTextFile(metadataFilePath)
           ) as ScriptMetadata;
-          await replaceLock(scriptInitialMetadata);
+          replaceLock(scriptInitialMetadata);
         } catch (e) {
           log.info(
             colors.yellow(
@@ -751,7 +847,7 @@ export async function generateScriptHash(
   );
 }
 
-export async function updateMetadataLock(
+export async function updateMetadataGlobalLock(
   path: string,
   hash: string,
   subpath?: string

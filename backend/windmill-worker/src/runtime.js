@@ -29,6 +29,7 @@ globalThis.atob = base64.atob;
 globalThis.btoa = base64.btoa;
 globalThis.fetch = fetch.fetch;
 globalThis.Request = request.Request;
+globalThis.Response = response.Response;
 globalThis.Blob = file.Blob;
 globalThis.URL = url.URL;
 globalThis.FormData = formData.FormData;
@@ -40,16 +41,20 @@ globalThis.console = new console.Console((msg, level) =>
 );
 globalThis.AbortController = abortSignal.AbortController;
 globalThis.AbortSignal = abortSignal.AbortSignal;
+
+Object.assign(globalThis, {
+  clearInterval: timers.clearInterval,
+  clearTimeout: timers.clearTimeout,
+  setInterval: timers.setInterval,
+  setTimeout: timers.setTimeout,
+});
+
 // Object.assign(globalThis, {
 //   console: nonEnumerable(
 //     new console.Console((msg, level) => core.print(msg, level > 1))
 //   ),
 
 //   // timers
-//   clearInterval: writable(timers.clearInterval),
-//   clearTimeout: writable(timers.clearTimeout),
-//   setInterval: writable(timers.setInterval),
-//   setTimeout: writable(timers.setTimeout),
 
 //   // fetch
 //   Request: nonEnumerable(request.Request),
@@ -146,32 +151,32 @@ globalThis.AbortSignal = abortSignal.AbortSignal;
 //   [webidl.brand]: nonEnumerable(webidl.brand),
 // });
 
-function nonEnumerable(value) {
-  return {
-    value,
-    writable: true,
-    enumerable: false,
-    configurable: true,
-  };
-}
+// function nonEnumerable(value) {
+//   return {
+//     value,
+//     writable: true,
+//     enumerable: false,
+//     configurable: true,
+//   };
+// }
 
-function writable(value) {
-  return {
-    value,
-    writable: true,
-    enumerable: true,
-    configurable: true,
-  };
-}
+// function writable(value) {
+//   return {
+//     value,
+//     writable: true,
+//     enumerable: true,
+//     configurable: true,
+//   };
+// }
 
-function readOnly(value) {
-  return {
-    value,
-    enumerable: true,
-    writable: false,
-    configurable: true,
-  };
-}
+// function readOnly(value) {
+//   return {
+//     value,
+//     enumerable: true,
+//     writable: false,
+//     configurable: true,
+//   };
+// }
 
 // function getterOnly(getter) {
 //   return {

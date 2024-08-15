@@ -12,6 +12,7 @@ import {
   log,
   Resource,
   ResourceService,
+  SEP,
   Table,
 } from "./deps.ts";
 
@@ -32,7 +33,7 @@ export async function pushResource(
   try {
     resource = await ResourceService.getResource({
       workspace: workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
     });
   } catch {
     // flow doesn't exist
@@ -45,7 +46,7 @@ export async function pushResource(
 
     await ResourceService.updateResource({
       workspace: workspace,
-      path: remotePath.replaceAll("\\", "/"),
+      path: remotePath.replaceAll(SEP, "/"),
       requestBody: { ...localResource },
     });
   } else {
@@ -61,7 +62,7 @@ export async function pushResource(
     await ResourceService.createResource({
       workspace: workspace,
       requestBody: {
-        path: remotePath.replaceAll("\\", "/"),
+        path: remotePath.replaceAll(SEP, "/"),
         ...localResource,
       },
     });

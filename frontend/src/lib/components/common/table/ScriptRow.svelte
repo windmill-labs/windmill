@@ -1,12 +1,18 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
-	import { ScriptService, type Script, DraftService } from '$lib/gen'
+	import {
+		ScriptService,
+		type Script,
+		DraftService,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 
 	import { createEventDispatcher } from 'svelte'
@@ -16,6 +22,8 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { isDeployable } from '$lib/utils_deployable'
+
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { LanguageIcon } from '../languageIcons'
 	import {
@@ -48,6 +56,7 @@
 	export let showCode: (path: string, summary: string) => void
 	export let depth: number = 0
 	export let menuOpen: boolean = false
+	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -88,8 +97,8 @@
 
 <Row
 	href={script.draft_only
-		? `/scripts/edit/${script.path}`
-		: `/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
+		? `${base}/scripts/edit/${script.path}`
+		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
 	path={script.path}
@@ -136,7 +145,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/scripts/edit/{script.path}"
+							href="{base}/scripts/edit/{script.path}"
 						>
 							Edit
 						</Button>
@@ -148,7 +157,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/scripts/add?template={script.path}"
+							href="{base}/scripts/add?template={script.path}"
 						>
 							Fork
 						</Button>
@@ -198,7 +207,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/scripts/add?template=${script.path}`,
+						href: `${base}/scripts/add?template=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -210,19 +219,23 @@
 						disabled: !owner || script.archived,
 						hide: $userStore?.operator
 					},
-					{
-						displayName: 'Deploy to staging/prod',
-						icon: FileUp,
-						action: () => {
-							deploymentDrawer.openDrawer(script.path, 'script')
-						},
-						disabled: script.archived,
-						hide: $userStore?.operator
-					},
+					...(isDeployable('script', script.path, deployUiSettings)
+						? [
+								{
+									displayName: 'Deploy to staging/prod',
+									icon: FileUp,
+									action: () => {
+										deploymentDrawer.openDrawer(script.path, 'script')
+									},
+									disabled: script.archived,
+									hide: $userStore?.operator
+								}
+						  ]
+						: []),
 					{
 						displayName: 'View runs',
 						icon: List,
-						href: `/runs/${script.path}`
+						href: `${base}/runs/${script.path}`
 					},
 					{
 						displayName: 'Versions',
@@ -234,7 +247,7 @@
 					{
 						displayName: 'Audit logs',
 						icon: Eye,
-						href: `/audit_logs?resource=${script.path}`,
+						href: `${base}/audit_logs?resource=${script.path}`,
 						hide: $userStore?.operator
 					},
 					{

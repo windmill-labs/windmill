@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { Alert, Badge, Drawer, DrawerContent, Tab, Tabs, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -82,6 +82,7 @@
 	import { getUpdateInput } from '../components/display/dbtable/queries/update'
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
+	import Summary from '$lib/components/Summary.svelte'
 
 	async function hash(message) {
 		try {
@@ -934,23 +935,25 @@
 
 			<div class="mt-10" />
 
-			<h2>Secret public URL</h2>
+			<h2>Public URL</h2>
 			<div class="mt-4" />
 
-			<Toggle
-				options={{
-					left: `Require login and read-access`,
-					right: `No login required`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
-				}}
-			/>
+			<div class="flex gap-2 items-center">
+				<Toggle
+					options={{
+						left: `Require login and read-access`,
+						right: `No login required`
+					}}
+					checked={policy.execution_mode == 'anonymous'}
+					on:change={(e) => {
+						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
+						setPublishState()
+					}}
+				/>
+			</div>
 
 			<div class="my-6 box">
-				Secret public url:
+				Public url:
 				{#if secretUrl}
 					{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
 					{@const href = $page.url.protocol + '//' + url}
@@ -970,13 +973,18 @@
 				{:else}<Loader2 class="animate-spin" />
 				{/if}
 				<div class="text-xs text-secondary"
-					>You may share this url directly or embed it using an iframe (if not requiring login)</div
+					>Share this url directly or embed it using an iframe (if requiring login, top-level domain
+					of embedding app must be the same as the one of Windmill)</div
 				>
 			</div>
-
 			<Alert type="info" title="Only latest deployed app is publicly available">
 				You will still need to deploy the app to make visible the latest changes
 			</Alert>
+
+			<a
+				href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
+				class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
+			>
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -1124,7 +1132,11 @@
 										{/if}
 										{#if job?.args}
 											<div class="p-2">
-												<JobArgs args={job?.args} />
+												<JobArgs
+													id={job.id}
+													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													args={job?.args}
+												/>
 											</div>
 										{/if}
 										{#if job?.raw_code}
@@ -1141,14 +1153,14 @@
 														duration={job?.['duration_ms']}
 														jobId={job?.id}
 														content={job?.logs}
-														isLoading={testIsLoading}
+														isLoading={testIsLoading && job?.['running'] == false}
 														tag={job?.tag}
 													/>
 												</Pane>
 												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}
-														<div class="relative h-full px-2">
-															<DisplayResult
+													{#if job != undefined && 'result' in job && job.result != undefined}<div
+															class="relative h-full px-2"
+															><DisplayResult
 																workspaceId={$workspaceStore}
 																jobId={selectedJobId}
 																result={job.result}
@@ -1247,15 +1259,7 @@
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
 >
 	<div class="flex flex-row gap-2 items-center">
-		<div class="min-w-64 w-64">
-			<input
-				type="text"
-				placeholder="App summary"
-				class="text-sm w-full font-semibold"
-				bind:value={$summary}
-				on:keydown|stopPropagation
-			/>
-		</div>
+		<Summary bind:value={$summary} />
 		<div class="flex gap-2">
 			<UndoRedo
 				undoProps={{ disabled: $history?.index === 0 }}

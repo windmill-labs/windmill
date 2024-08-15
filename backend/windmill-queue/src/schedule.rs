@@ -9,10 +9,12 @@
 use crate::push;
 use crate::PushIsolationLevel;
 use crate::QueueTransaction;
+use anyhow::Context;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
 use windmill_common::db::Authed;
+use windmill_common::ee::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
@@ -30,16 +32,40 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     schedule: &Schedule,
     authed: Option<&Authed>,
 ) -> Result<QueueTransaction<'c, R>> {
+    if !*LICENSE_KEY_VALID.read().await {
+        return Err(error::Error::BadRequest(
+            "License key is not valid. Go to your superadmin settings to update your license key."
+                .to_string(),
+        ));
+    }
+
     let sched = cron::Schedule::from_str(schedule.schedule.as_ref())
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
-    let now = now_from_db(&mut tx).await?.with_timezone(&tz);
+    let now = now_from_db(&mut tx).await?;
+
+    let starting_from = match schedule.paused_until {
+        Some(paused_until) if paused_until > now => paused_until.with_timezone(&tz),
+        paused_until_o => {
+            if paused_until_o.is_some() {
+                sqlx::query!(
+                    "UPDATE schedule SET paused_until = NULL WHERE workspace_id = $1 AND path = $2",
+                    &schedule.workspace_id,
+                    &schedule.path
+                )
+                .execute(&mut tx)
+                .await
+                .context("Failed to clear paused_until for schedule")?;
+            }
+            now.with_timezone(&tz)
+        }
+    };
 
     let next = sched
-        .after(&now)
+        .after(&starting_from)
         .next()
         .expect("a schedule should have a next event");
 
@@ -136,14 +162,18 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
                     hash: hash,
                     retry: parsed_retry,
                     args: static_args,
-                    custom_concurrency_key,
-                    concurrent_limit: concurrent_limit,
-                    concurrency_time_window_s: concurrency_time_window_s,
+                    custom_concurrency_key: None,
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
                     cache_ttl: cache_ttl,
                     priority: priority,
                     tag_override: schedule.tag.clone(),
                 },
-                Some("flow".to_string()),
+                if schedule.tag.as_ref().is_some_and(|x| x != "") {
+                    schedule.tag.clone()
+                } else {
+                    tag
+                },
                 timeout,
             )
         } else {
@@ -190,7 +220,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         tx,
         &schedule.workspace_id,
         payload,
-        crate::PushArgs { args, extra: HashMap::new() },
+        crate::PushArgs { args: &args, extra: None },
         &schedule_to_user(&schedule.path),
         &schedule.email,
         username_to_permissioned_as(&schedule.edited_by),
@@ -210,6 +240,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         authed,
     )
     .await?;
+
     Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.347.0"
+version = "1.379.4"
 authors.workspace = true
 edition.workspace = true
 
@@ -13,6 +13,7 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-git-sync",
+    "./windmill-indexer",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -24,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.347.0"
+version = "1.379.4"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -38,7 +39,7 @@ incremental = true
 
 [features]
 default = []
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-indexer/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark"]
@@ -46,12 +47,14 @@ flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 pg_embed = ["dep:pg-embed"]
 embedding = ["windmill-api/embedding"]
-parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-indexer/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
+tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
+sqlx = ["windmill-worker/sqlx"]
 
 [dependencies]
 anyhow.workspace = true
@@ -62,6 +65,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-worker.workspace = true
+windmill-indexer = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
@@ -80,8 +84,8 @@ gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
-pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']} 
-object_store.workspace = true
+pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
+
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -104,6 +108,7 @@ windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common", default-features = false }
 windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
+windmill-indexer = {path = "./windmill-indexer"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
@@ -115,7 +120,7 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
-axum = { version = "^0.7", features = ["multipart"] } 
+axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
@@ -152,7 +157,7 @@ mail-send = { version = "0.4.0", features = ["builder"], default-features=false 
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
-reqwest = { version = "^0.12", features = ["json", "stream"] }
+reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
 time = "0.3.16"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
@@ -161,24 +166,25 @@ tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
-deno_fetch = "0.179.0"
-deno_tls = "0.142.0"
-deno_console = "0.155.0"
-deno_url = "0.155.0"
-deno_webidl = "0.155.0"
-deno_web = "0.186.0"
-deno_net = "0.147.0"
-deno_core = "0.284.0"
-deno_ast = { version = "0.39.0", features = ["transpiling"] }
+deno_fetch = "0.187.0"
+deno_tls = "0.150.0"
+deno_console = "0.163.0"
+deno_url = "0.163.0"
+deno_webidl = "0.163.0"
+deno_web = "0.194.0"
+deno_net = "0.155.0"
+deno_core = "0.299.0"
+deno_ast = { version = "=0.40.0", features = ["transpiling"] }
 async-recursion = "^1"
 swc_common = "=0.33.26"
-swc_ecma_parser = "=0.144.1"
-swc_ecma_ast = "=0.113.4"
+swc_ecma_parser = "=0.144.3"
+swc_ecma_ast = "=0.113.7"
 swc_ecma_visit = "=0.99.1"
 base64 = "0.21.0"
+base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-sqlx = { version = "0.7.3", features = [
+sqlx = { version = "0.8.0", features = [
     "macros",
     "migrate",
     "uuid",
@@ -209,18 +215,19 @@ rsmq_async = { version = "5.1.5" }
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "=0.2.89"
-serde-wasm-bindgen = "0.4"
-wasm-bindgen-test = "0.3.0"
+wasm-bindgen = "0.2.92"
+serde-wasm-bindgen = "0.6.5"
+wasm-bindgen-test = "0.3.42"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
-bit-vec = "0.6.3"
+bit-vec = "=0.6.3"
+mappable-rc = "^0"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls"]}
 postgres-native-tls = "^0"
 native-tls = "^0"
 # samael will break compilation on MacOS. Use this fork instead to make it work
-# samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
+# samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
 samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres"]}
@@ -236,9 +243,12 @@ candle-nn = "0.3.0"
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7b5f736c7e94f92c945453c9e", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
+tokio-native-tls = "^0"
+openssl = "=0.10"
+mail-parser = "^0"
 
-datafusion = "38.0.0"
-object_store = { version = "0.9.1", features = ["aws", "azure"] }
+datafusion = "39.0.0"
+object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "3.4.0" }
 zstd = "=0.12.4"
 aws-config = "^1"
@@ -255,3 +265,5 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 
 # 0.1.12 broken (nested dependency of swc_common) 
 triomphe = "<0.1.12"
+
+tantivy = "0.22.0"

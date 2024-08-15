@@ -20,7 +20,7 @@
 	const name = getComponentNameById(gridItem.id)
 
 	$: nameOverrides =
-		gridItem.data.type === 'decisiontreecomponent'
+		gridItem?.data?.type === 'decisiontreecomponent'
 			? gridItem.data.nodes.map((n, i) => `${n.label} (Tab index ${i})`)
 			: undefined
 
@@ -36,7 +36,7 @@
 		}
 	}
 
-	$: subGrids = Array.from({ length: gridItem.data.numberOfSubgrids ?? 0 }).map(
+	$: subGrids = Array.from({ length: gridItem.data?.numberOfSubgrids ?? 0 }).map(
 		(_, i) => `${gridItem.id}-${i}`
 	)
 </script>

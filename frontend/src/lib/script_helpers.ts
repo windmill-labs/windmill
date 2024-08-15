@@ -25,6 +25,23 @@ export async function main(example_input: number = 3) {
 }
 `
 
+export const BUNNATIVE_INIT_CODE = `//native
+//you can add proxy support using //proxy http(s)://host:port
+
+// native scripts are bun scripts that are executed on native workers and can be parallelized
+// only fetch is allowed, but imports will work as long as they also use only fetch and the standard lib
+
+//import * as wmill from "windmill-client"
+
+export async function main(example_input: number = 3) {
+  // "3" is the default value of example_input, it can be overriden with code or using the UI
+  const res = await fetch(\`https://jsonplaceholder.typicode.com/todos/\${example_input}\`, {
+    headers: { "Content-Type": "application/json" },
+  });
+  return res.json();
+}
+`
+
 export const NATIVETS_INIT_CODE_CLEAR = `// Fetch-only script, no imports allowed (except windmill) but benefits from a dedicated highly efficient runtime
 //import * as wmill from './windmill.ts'
 
@@ -57,19 +74,31 @@ export async function main(
 }
 `
 
-export const BUN_INIT_CODE = `// import { toWords } from "number-to-words@1"
+export const BUN_INIT_CODE = `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+// https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
+
+// import { toWords } from "number-to-words@1"
 import * as wmill from "windmill-client"
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 // type Postgresql = object
 
+
 export async function main(
   a: number,
   b: "my" | "enum",
   //c: Postgresql,
-  //d: wmill.S3Object, // for large files backed by S3 (https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files)
+  //d: wmill.S3Object, // https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files 
+  //d: DynSelect_foo, // https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing#dynamic-select
   e = "inferred type string from default arg",
   f = { nested: "object" },
+  g: {
+    label: "Variant 1",
+    foo: string
+  } | {
+    label: "Variant 2",
+    bar: number
+  }
 ) {
   // let x = await wmill.getVariable('u/user/foo')
   return { foo: a };
@@ -132,20 +161,22 @@ export async function main(x: string) {
 `
 
 export const DENO_FAILURE_MODULE_CODE = `
-export async function main(message: string, name: string) {
-  const flow_id = Deno.env.get("WM_FLOW_JOB_ID")
+export async function main(message: string, name: string, step_id: string) {
+  const flow_id = Deno.env.get("WM_ROOT_FLOW_JOB_ID")
   console.log("message", message)
   console.log("name",name)
-  return { message, flow_id }
+  console.log("step_id", step_id)
+  return { message, flow_id, step_id, recover: false }
 }
 `
 
 export const BUN_FAILURE_MODULE_CODE = `
-export async function main(message: string, name: string) {
-  const flow_id = process.env.WM_FLOW_JOB_ID
+export async function main(message: string, name: string, step_id: string) {
+  const flow_id = process.env.WM_ROOT_FLOW_JOB_ID
   console.log("message", message)
   console.log("name",name)
-  return { message, flow_id }
+  console.log("step_id", step_id)
+  return { message, flow_id, step_id, recover: false }
 }
 `
 
@@ -153,32 +184,43 @@ export const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/you
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
-INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *
+-- $4 name4
+INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
+UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
 export const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- :name1 (text) = default arg
 -- :name2 (int)
-INSERT INTO demo VALUES (:name1, :name2)
+-- :name3 (int)
+INSERT INTO demo VALUES (:name1, :name2);
+UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 export const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
-INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3)
+-- @name4 (integer)
+INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
+UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
 export const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
-INSERT INTO demo VALUES (?, ?)
+INSERT INTO demo VALUES (?, ?);
+-- ? name3 (int)
+-- ? name2 (int)
+UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
 export const MSSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
 -- @p1 name1 (varchar) = default arg
 -- @p2 name2 (int)
-INSERT INTO demo VALUES (@p1, @p2)
+-- @p3 name3 (int)
+INSERT INTO demo VALUES (@p1, @p2);
+UPDATE demo SET col2 = @p3 WHERE col2 = @p2;
 `
 
 export const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -302,30 +344,16 @@ export async function main(approver?: string) {
   const urls = await wmill.getResumeUrls(approver)
   // send the urls to their intended recipients
 
-
-  // if the resumeUrls are part of the response, they will be available to any persons having access
-  // to the run page and allowed to be approved from there, even from non owners of the flow
-  // self-approval is disablable in the suspend options
   return {
-	 ...urls,
-	 default_args: {},
-	 enums: {},
-	 description: undefined
-  }
-}`
-
-export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
-
-export async function main(approver?: string) {
-  const urls = await wmill.getResumeUrls(approver)
-  // send the urls to their intended recipients
-
-
-  // if the resumeUrls are part of the response, they will be available to any persons having access
-  // to the run page and allowed to be approved from there, even from non owners of the flow
-  // self-approval is disablable in the suspend options
-  return {
+    // if the resumeUrls are part of the response, they will be available to any persons having access
+    // to the run page and allowed to be approved from there, even from non owners of the flow
+    // self-approval is disableable in the suspend options
     	...urls,
+
+    // to have prompts (self-approvable steps), clude instead the resume url in the returned payload of the step
+    // the UX will automatically adapt and show the prompt to the operator when running the flow. e.g:
+    // resume: urls['resume'],
+
 		default_args: {},
 		enums: {},
 		description: undefined
@@ -333,7 +361,38 @@ export async function main(approver?: string) {
 		// but also markdown, html, images, tables, maps, render_all, etc...
 		// https://www.windmill.dev/docs/core_concepts/rich_display_rendering
   }
-}`
+}
+
+// add a form in Advanced - Suspend
+// all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
+
+export const BUN_INIT_CODE_APPROVAL = `import * as wmill from "windmill-client@^1.158.2"
+
+export async function main(approver?: string) {
+  const urls = await wmill.getResumeUrls(approver)
+  // send the urls to their intended recipients
+
+  return {
+    // if the resumeUrls are part of the response, they will be available to any persons having access
+    // to the run page and allowed to be approved from there, even from non owners of the flow
+    // self-approval is disableable in the suspend options
+    	...urls,
+
+    // to have prompts (self-approvable steps), clude instead the resume url in the returned payload of the step
+    // the UX will automatically adapt and show the prompt to the operator when running the flow. e.g:
+    // resume: urls['resume'],
+
+		default_args: {},
+		enums: {},
+		description: undefined
+		// supports all formats from rich display rendering such as simple strings,
+		// but also markdown, html, images, tables, maps, render_all, etc...
+		// https://www.windmill.dev/docs/core_concepts/rich_display_rendering
+  }
+}
+
+// add a form in Advanced - Suspend
+// all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
 export const PYTHON_INIT_CODE_APPROVAL = `import wmill
 
@@ -341,19 +400,26 @@ def main():
   urls = wmill.get_resume_urls()
   # send the urls to their intended recipients
 
-  # if the get_resume_urls are part of the response, they will be available to any persons having access
-  # to the run page and allowed to be approved from there, even from non owners of the flow
-  # self-approval is disablable in the suspend options
-  return { 
-    **urls, 
-    "default_args": {}, 
-    "enums": {}, 
+  return {
+    # if the get_resume_urls are part of the response, they will be available to any persons having access
+    # to the run page and allowed to be approved from there, even from non owners of the flow
+    # self-approval is disableable in the suspend options
+    **urls,
+
+    # to have prompts (self-approvable steps), clude instead the resume url in the returned payload of the step
+    # the UX will automatically adapt and show the prompt to the operator when running the flow. e.g:
+    # "resume": urls["resume"],
+
+    "default_args": {},
+    "enums": {},
     "description": None,
     # supports all formats from rich display rendering such as simple strings,
     # but also markdown, html, images, tables, maps, render_all, etc...
     # https://www.windmill.dev/docs/core_concepts/rich_display_rendering
   }
-`
+
+# add a form in Advanced - Suspend
+# all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
 export const DOCKER_INIT_CODE = `# shellcheck shell=bash
 # Bash script that calls docker as a client to the host daemon
@@ -412,9 +478,18 @@ export function isInitialCode(content: string): boolean {
 }
 
 export function initialCode(
-	language: SupportedLanguage | undefined,
+	language: SupportedLanguage | 'bunnative' | undefined,
 	kind: Script['kind'] | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
+	subkind:
+		| 'pgsql'
+		| 'mysql'
+		| 'flow'
+		| 'script'
+		| 'fetch'
+		| 'docker'
+		| 'powershell'
+		| 'bunnative'
+		| undefined
 ): string {
 	if (!kind) {
 		kind = 'script'
@@ -446,10 +521,10 @@ export function initialCode(
 			return PYTHON_INIT_CODE_TRIGGER
 		} else if (kind === 'approval') {
 			return PYTHON_INIT_CODE_APPROVAL
-		} else if (subkind === 'flow') {
-			return PYTHON_INIT_CODE_CLEAR
 		} else if (kind === 'failure') {
 			return PYTHON_FAILURE_MODULE_CODE
+		} else if (subkind === 'flow') {
+			return PYTHON_INIT_CODE_CLEAR
 		} else {
 			return PYTHON_INIT_CODE
 		}
@@ -477,8 +552,10 @@ export function initialCode(
 		return GRAPHQL_INIT_CODE
 	} else if (language == 'php') {
 		return PHP_INIT_CODE
-	} else if (language == 'bun') {
-		if (kind === 'approval') {
+	} else if (language == 'bun' || language == 'bunnative') {
+		if (language == 'bunnative' || subkind === 'bunnative') {
+			return BUNNATIVE_INIT_CODE
+		} else if (kind === 'approval') {
 			return BUN_INIT_CODE_APPROVAL
 		} else if (kind === 'failure') {
 			return BUN_FAILURE_MODULE_CODE
@@ -500,9 +577,18 @@ export function initialCode(
 }
 
 export function getResetCode(
-	language: SupportedLanguage | undefined,
+	language: SupportedLanguage | 'bunnative' | undefined,
 	kind: Script['kind'] | undefined,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | 'docker' | 'powershell' | undefined
+	subkind:
+		| 'pgsql'
+		| 'mysql'
+		| 'flow'
+		| 'script'
+		| 'fetch'
+		| 'docker'
+		| 'powershell'
+		| 'bunnative'
+		| undefined
 ) {
 	if (language === 'deno') {
 		return DENO_INIT_CODE_CLEAR
@@ -512,6 +598,8 @@ export function getResetCode(
 		return NATIVETS_INIT_CODE_CLEAR
 	} else if (language === 'bun') {
 		return BUN_INIT_CODE_CLEAR
+	} else if (language === 'bunnative') {
+		return BUNNATIVE_INIT_CODE
 	} else {
 		return initialCode(language, kind, subkind)
 	}

@@ -4,7 +4,14 @@ export function argSigToJsonSchemaType(
 	t:
 		| string
 		| { resource: string | null }
-		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
+		| {
+				list:
+					| (string | { object: { key: string; typ: any }[] })
+					| { str: any }
+					| { object: { key: string; typ: any }[] }
+					| null
+		  }
+		| { dynselect: string }
 		| { str: string[] | null }
 		| { object: { key: string; typ: any }[] }
 		| {
@@ -36,6 +43,7 @@ export function argSigToJsonSchemaType(
 	} else if (t === 'bytes') {
 		newS.type = 'string'
 		newS.contentEncoding = 'base64'
+		newS.originalType = 'bytes'
 	} else if (t === 'datetime') {
 		newS.type = 'string'
 		newS.format = 'date-time'
@@ -78,13 +86,21 @@ export function argSigToJsonSchemaType(
 	} else if (typeof t !== 'string' && `str` in t) {
 		newS.type = 'string'
 		if (t.str) {
+			newS.originalType = 'enum'
 			newS.enum = t.str
+		} else if (oldS.originalType == 'string' && oldS.enum) {
+			newS.originalType = 'string'
+			newS.enum = oldS.enum
 		} else {
+			newS.originalType = 'string'
 			newS.enum = undefined
 		}
 	} else if (typeof t !== 'string' && `resource` in t) {
 		newS.type = 'object'
 		newS.format = `resource-${t.resource}`
+	} else if (typeof t !== 'string' && `dynselect` in t) {
+		newS.type = 'object'
+		newS.format = `dynselect-${t.dynselect}`
 	} else if (typeof t !== 'string' && `list` in t) {
 		newS.type = 'array'
 		if (t.list === 'int' || t.list === 'float') {
@@ -95,6 +111,23 @@ export function argSigToJsonSchemaType(
 			newS.items = { type: 'string' }
 		} else if (t.list && typeof t.list == 'object' && 'str' in t.list) {
 			newS.items = { type: 'string', enum: t.list.str }
+		} else if (t.list && typeof t.list == 'object' && 'resource' in t.list && t.list.resource) {
+			newS.items = { type: 'resource', resourceType: t.list.resource as string }
+		} else if (
+			t.list &&
+			typeof t.list == 'object' &&
+			'object' in t.list &&
+			t.list.object &&
+			t.list.object.length > 0
+		) {
+			const properties = {}
+			for (const prop of t.list.object) {
+				properties[prop.key] = { description: '', type: '' }
+
+				argSigToJsonSchemaType(prop.typ, properties[prop.key])
+			}
+
+			newS.items = { type: 'object', properties: properties }
 		} else {
 			newS.items = { type: 'object' }
 		}

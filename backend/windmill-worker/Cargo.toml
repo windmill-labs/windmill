@@ -17,6 +17,7 @@ flamegraph = []
 parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []
+sqlx = []
 
 [dependencies]
 windmill-queue.workspace = true
@@ -49,6 +50,7 @@ chrono.workspace = true
 dotenv.workspace = true
 rand.workspace = true # TODO: Remove. only used by token creation hack.
 const_format.workspace = true
+mappable-rc.workspace = true
 git-version.workspace = true
 dyn-iter.workspace = true
 once_cell.workspace = true

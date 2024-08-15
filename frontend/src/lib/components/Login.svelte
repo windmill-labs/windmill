@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import Github from '$lib/components/icons/brands/Github.svelte'
 	import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
 	import Google from '$lib/components/icons/brands/Google.svelte'
@@ -9,16 +9,19 @@
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { createEventDispatcher } from 'svelte'
 
 	export let rd: string | undefined = undefined
 	export let email: string | undefined = undefined
 	export let password: string | undefined = undefined
 	export let error: string | undefined = undefined
+	export let popup: boolean = false
 
 	const providers = [
 		{
@@ -159,6 +162,21 @@
 		}
 	}
 
+	const dispatch = createEventDispatcher()
+
+	function popupListener(event) {
+		let data = event.data
+		if (event.origin !== window.location.origin) {
+			return
+		}
+
+		if (data.type === 'error') {
+			sendUserToast(event.data.error, true)
+		} else if (data.type === 'success') {
+			window.removeEventListener('message', popupListener)
+			dispatch('login')
+		}
+	}
 	function storeRedirect(provider: string) {
 		if (rd) {
 			try {
@@ -167,7 +185,14 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
-		window.location.href = window.location.origin + '/api/oauth/login/' + provider
+		let url = base + '/api/oauth/login/' + provider
+		if (popup) {
+			localStorage.setItem('closeUponLogin', 'true')
+			window.addEventListener('message', popupListener)
+			window.open(url, '_blank', 'popup')
+		} else {
+			window.location.href = url
+		}
 	}
 
 	$: error && sendUserToast(error, true)

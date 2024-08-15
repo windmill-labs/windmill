@@ -11,7 +11,7 @@
 		pickScript
 	} from '$lib/components/flows/flowStateUtils'
 	import type { FlowModule } from '$lib/gen'
-	import { emptyFlowModuleState } from '../utils'
+	import { emptyFlowModuleState, initFlowStepWarnings } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
@@ -20,7 +20,8 @@
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { getDependentComponents } from '../flowExplorer'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import { fade } from 'svelte/transition'
@@ -35,11 +36,13 @@
 	export let disableStaticInputs = false
 	export let disableTutorials = false
 	export let disableAi = false
+	export let disableSettings = false
+
 	export let smallErrorHandler = false
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	const { selectedId, moving, history, flowStateStore, flowStore } =
+	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
@@ -175,6 +178,30 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	async function updateFlowInputsStore() {
+		const keys = Object.keys(dependents ?? {})
+
+		for (const key of keys) {
+			const module = $flowStore.value.modules.find((m) => m.id === key)
+
+			if (!module) {
+				continue
+			}
+
+			if (!$flowInputsStore) {
+				$flowInputsStore = {}
+			}
+
+			$flowInputsStore[module.id] = {
+				flowStepWarnings: await initFlowStepWarnings(
+					module.value,
+					$flowStateStore?.[module.id]?.schema ?? {},
+					dfs($flowStore.value.modules, (fm) => fm.id)
+				)
+			}
+		}
+	}
 </script>
 
 <Portal>
@@ -216,7 +243,9 @@
 		{#if $copilotCurrentStepStore !== undefined}
 			<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
 		{/if}
-		<FlowSettingsItem />
+		{#if !disableSettings}
+			<FlowSettingsItem />
+		{/if}
 		{#if !disableStaticInputs}
 			<FlowConstantsItem />
 		{/if}
@@ -233,6 +262,7 @@
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
 			{selectedId}
+			{flowInputsStore}
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)
@@ -240,7 +270,13 @@
 					push(history, $flowStore)
 					selectNextId(e.id)
 					removeAtId($flowStore.value.modules, e.id)
+
+					if ($flowInputsStore) {
+						delete $flowInputsStore[e.id]
+					}
 					$flowStore = $flowStore
+
+					updateFlowInputsStore()
 				}
 
 				if (Object.keys(dependents).length > 0) {

@@ -23,6 +23,7 @@
 	}
 
 	function applyConnection(connection: InputConnection) {
+		console.log(connection)
 		const expr = `${connection.componentId}.${connection.path}`
 		//@ts-ignore
 		componentInput = {
@@ -30,7 +31,10 @@
 			type: 'evalv2',
 			expr: expr,
 			connections: [
-				{ componentId: connection.componentId, id: connection.path.split('.')[0].split('[')[0] }
+				{
+					componentId: connection.componentId,
+					id: connection?.path?.split('.')?.[0]?.split('[')?.[0]
+				}
 			]
 		}
 		evalV2editor?.setCode(expr)

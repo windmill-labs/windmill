@@ -25,7 +25,8 @@
 	import { Plus } from 'lucide-svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import InsertRow from './InsertRow.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { sendUserToast } from '$lib/toast'
 	import type { AppInput, StaticInput } from '$lib/components/apps/inputType'
 	import DbExplorerCount from './DbExplorerCount.svelte'
@@ -64,6 +65,10 @@
 			lastTable = undefined
 		}
 
+		clearColumnDefs()
+	}
+
+	function clearColumnDefs() {
 		const gridItem = findGridItem($app, id)
 
 		if (!gridItem) {
@@ -286,6 +291,11 @@
 				return
 			}
 
+			if (!runnableComponent) {
+				params.successCallback([], 0)
+				return
+			}
+
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
 				done: (items) => {
 					let lastRow = -1
@@ -444,6 +454,11 @@
 		})
 
 		state = undefined
+
+		// If in the mean time the table has changed, we don't want to update the columnDefs
+		if (lastTable !== table) {
+			return
+		}
 
 		//@ts-ignore
 		gridItem.data.configuration.columnDefs = { value: ncols, type: 'static', loading: false }
@@ -669,6 +684,11 @@
 					on:update={onUpdate}
 					on:delete={onDelete}
 					allowColumnDefsActions={false}
+					on:recompute={() => {
+						lastTable = undefined
+						clearColumnDefs()
+						listColumnsIfAvailable()
+					}}
 					{actions}
 				/>
 			{/key}

@@ -4,12 +4,14 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { buildExtraLib } from '$lib/components/apps/utils'
+	import { buildExtraLib, ctxRegex } from '$lib/components/apps/utils'
 	import { inferDeps } from '../../appUtilsInfer'
-	import { Maximize2, X } from 'lucide-svelte'
+	import { Maximize2, Shield, X } from 'lucide-svelte'
 	import { Drawer } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let componentInput: EvalV2AppInput | undefined
 	export let id: string
@@ -18,6 +20,7 @@
 	export let acceptSelf: boolean = false
 	export let recomputeOnInputChanged = true
 	export let showOnDemandOnlyToggle = false
+	export let securedContext = false
 
 	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
@@ -56,7 +59,12 @@
 
 {#if componentInput?.type === 'evalv2'}
 	{#if fullscreen}
-		<Drawer placement="bottom" on:close={() => (fullscreen = false)} open>
+		<Drawer
+			placement="bottom"
+			on:close={() => (fullscreen = false)}
+			open
+			offset={zIndexes.monacoEditor}
+		>
 			<Splitpanes horizontal class="h-full">
 				<Pane size={50}>
 					<SimpleEditor
@@ -113,6 +121,17 @@
 					inferDepsFromCode(e.detail.code)
 				}}
 			/>
+			{#if securedContext && componentInput?.expr?.match(ctxRegex)}
+				<div class="border bg-surface absolute top-0.5 right-8 p-0.5">
+					<Popover notClickable>
+						<Shield size={12} />
+						<svelte:fragment slot="text">
+							This context variable is securely provided by the backend and cannot be altered by
+							users
+						</svelte:fragment>
+					</Popover>
+				</div>
+			{/if}
 			<button
 				class="border bg-surface absolute top-0.5 right-2 p-0.5"
 				on:click={() => (fullscreen = true)}><Maximize2 size={12} /></button

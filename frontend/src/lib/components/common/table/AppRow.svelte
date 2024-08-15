@@ -1,9 +1,15 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, type AppWithLastVersion, DraftService, type ListableApp } from '$lib/gen'
+	import {
+		AppService,
+		DraftService,
+		type ListableApp,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -24,12 +30,13 @@
 		Trash,
 		Clipboard
 	} from 'lucide-svelte'
-	import { goto } from '$app/navigation'
+	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE, copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
+	import { isDeployable } from '$lib/utils_deployable'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -40,33 +47,25 @@
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let depth: number = 0
 	export let menuOpen: boolean = false
+	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
 	let appExport: AppJsonEditor
-	let appDeploymentHistory: AppDeploymentHistory
+	let appDeploymentHistory: AppDeploymentHistory | undefined = undefined
 
 	async function loadAppJson() {
 		appExport.open(app.path)
-	}
-
-	async function loadDeployements() {
-		const napp: AppWithLastVersion = (await AppService.getAppByPath({
-			workspace: $workspaceStore!,
-			path: app.path
-		})) as unknown as AppWithLastVersion
-
-		appDeploymentHistory.open(napp.path)
 	}
 </script>
 
 {#if menuOpen}
 	<AppJsonEditor on:change bind:this={appExport} />
-	<AppDeploymentHistory bind:this={appDeploymentHistory} />
+	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}
 
 <Row
-	href={`/apps/get/${app.path}`}
+	href={`${base}/apps/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={app.path}
@@ -100,7 +99,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="/apps/edit/{app.path}?nodraft=true"
+							href="{base}/apps/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -112,7 +111,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="/apps/add?template={app.path}"
+							href="{base}/apps/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -159,7 +158,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `/apps/add?template=${path}`,
+						href: `${base}/apps/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{
@@ -171,14 +170,18 @@
 						disabled: !canWrite,
 						hide: $userStore?.operator
 					},
-					{
-						displayName: 'Deploy to staging/prod',
-						icon: Globe,
-						action: () => {
-							deploymentDrawer.openDrawer(path, 'app')
-						},
-						hide: $userStore?.operator
-					},
+					...(isDeployable('app', path, deployUiSettings)
+						? [
+								{
+									displayName: 'Deploy to staging/prod',
+									icon: Globe,
+									action: () => {
+										deploymentDrawer.openDrawer(path, 'app')
+									},
+									hide: $userStore?.operator
+								}
+						  ]
+						: []),
 					{
 						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
 						icon: FileJson,
@@ -189,7 +192,7 @@
 					{
 						displayName: 'Deployments',
 						icon: History,
-						action: () => loadDeployements(),
+						action: () => appDeploymentHistory?.open(),
 						hide: $userStore?.operator
 					},
 					{
@@ -221,7 +224,7 @@
 											$page.url.protocol +
 											'//' +
 											`${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
-										goto(url)
+										gotoUrl(url)
 									}
 								}
 						  ]

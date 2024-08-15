@@ -23,6 +23,7 @@
 	export let minTimeSet: string | undefined = undefined
 	export let maxTimeSet: string | undefined = undefined
 	export let selectedIds: string[] = []
+	export let canSelect: boolean = true
 
 	const dispatch = createEventDispatcher()
 	const SUCCESS_COLOR = '#4ade80'
@@ -103,10 +104,15 @@
 		}
 	}
 
-	function getBackgorundColor(): string {
-		const isDark = document.documentElement.classList.contains('dark')
+	function isDark(): boolean {
+		return document.documentElement.classList.contains('dark')
+	}
 
-		return isDark ? '#2e3440' : '#ffffff'
+	ChartJS.defaults.color = isDark() ? '#ccc' : '#666'
+	ChartJS.defaults.borderColor = isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+
+	function getBackgorundColor(): string {
+		return isDark() ? '#2e3440' : '#ffffff'
 	}
 	function hexToRgb(hexColor: string): number[] {
 		hexColor = hexColor.replace(/^#/, '')
@@ -142,7 +148,7 @@
 	}
 
 	function highlightSelectedPoints(ids: string[]) {
-		if (ids.length === 0) {
+		if (!canSelect || ids.length === 0) {
 			data.datasets[0].backgroundColor = FAIL_COLOR
 			data.datasets[1].backgroundColor = SUCCESS_COLOR
 		} else {
@@ -237,8 +243,10 @@
 			}
 		},
 		onClick: (e, u) => {
-			const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
-			selectedIds = ids
+			if (canSelect) {
+				const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
+				selectedIds = ids
+			}
 		},
 
 		scales: {
@@ -265,7 +273,6 @@
 	} as any
 
 	$: data && scatterOptions && highlightSelectedPoints(selectedIds)
-
 </script>
 
 <!-- {JSON.stringify(minTime)}

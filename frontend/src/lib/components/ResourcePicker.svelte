@@ -6,10 +6,10 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import { Button } from './common'
-	import ResourceEditor from './ResourceEditor.svelte'
 	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
+	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -17,9 +17,11 @@
 	export let value: string | undefined = initialValue
 	export let valueType: string | undefined = undefined
 	export let resourceType: string | undefined = undefined
+	export let disabled = false
 	export let disablePortal = false
 	export let showSchemaExplorer = false
 	export let selectFirst = false
+	export let expressOAuthSetup = false
 
 	let valueSelect =
 		initialValue || value
@@ -35,6 +37,10 @@
 	}
 
 	let collection = valueSelect ? [valueSelect] : []
+
+	export async function askNewResource() {
+		appConnect?.open?.(resourceType, expressOAuthSetup)
+	}
 
 	async function loadResources(resourceType: string | undefined) {
 		const nc = (
@@ -67,7 +73,7 @@
 	$: dispatch('change', value)
 
 	let appConnect: AppConnect
-	let resourceEditor: ResourceEditor
+	let resourceEditor: ResourceEditorDrawer
 
 	let darkMode: boolean = false
 </script>
@@ -88,7 +94,7 @@
 	bind:this={appConnect}
 />
 
-<ResourceEditor
+<ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
@@ -101,31 +107,38 @@
 />
 
 <div class="flex flex-col w-full items-start">
-	<div class="flex flex-row gap-x-1 w-full">
-		<Select
-			portal={!disablePortal}
-			value={valueSelect}
-			on:change={(e) => {
-				value = e.detail.value
-				valueType = e.detail.type
-				valueSelect = e.detail
-			}}
-			on:clear={() => {
-				value = undefined
-				valueType = undefined
-				valueSelect = undefined
-			}}
-			items={collection}
-			class="text-clip grow min-w-0"
-			placeholder="{resourceType ?? 'any'} resource"
-			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={darkMode
-				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-				: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		/>
+	<div class="flex flex-row gap-x-1 w-full items-center">
+		{#if collection?.length > 0}
+			<Select
+				{disabled}
+				portal={!disablePortal}
+				value={valueSelect}
+				on:change={(e) => {
+					value = e.detail.value
+					valueType = e.detail.type
+					valueSelect = e.detail
+				}}
+				on:clear={() => {
+					value = undefined
+					valueType = undefined
+					valueSelect = undefined
+				}}
+				items={collection}
+				class="text-clip grow min-w-0"
+				placeholder="{resourceType ?? 'any'} resource"
+				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+				containerStyles={darkMode
+					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+			/>
+		{:else}
+			<div class="text-2xs text-tertiary mr-2">0 found</div>
+		{/if}
 
 		{#if value && value != ''}
 			<Button
+				{disabled}
+				color="light"
 				variant="border"
 				size="xs"
 				on:click={() => resourceEditor?.initEdit?.(value ?? '')}
@@ -137,6 +150,7 @@
 		{#if resourceType?.includes(',')}
 			{#each resourceType.split(',') as rt}
 				<Button
+					{disabled}
 					color="light"
 					variant="border"
 					size="xs"
@@ -146,13 +160,17 @@
 			{/each}
 		{:else}
 			<Button
+				{disabled}
 				color="light"
 				variant="border"
 				size="xs"
-				on:click={() => appConnect?.open?.(resourceType)}
+				on:click={() => appConnect?.open?.(resourceType, expressOAuthSetup)}
 				startIcon={{ icon: Plus }}
-				iconOnly
-			/>
+				iconOnly={collection?.length > 0}
+				>{#if collection?.length == 0}
+					Add a {resourceType} resource
+				{/if}</Button
+			>
 		{/if}
 
 		<Button

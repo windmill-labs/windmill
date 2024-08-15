@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -18,7 +18,7 @@
 	export let render: boolean
 	export let groupFields: RichConfigurations | undefined = undefined
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let groupContext = writable({})
@@ -33,6 +33,17 @@
 			subGridIndex: 0
 		}
 	}
+
+	onMount(() => {
+		$componentControl[id] = {
+			setGroupValue: (field: string, value: any) => {
+				groupContext.update((group) => {
+					group[field] = value
+					return group
+				})
+			}
+		}
+	})
 
 	let css = initCss($app.css?.containercomponent, customCss)
 </script>
@@ -57,7 +68,7 @@
 
 <div class="w-full h-full">
 	{#if $app.subgrids?.[`${id}-0`]}
-		<GroupWrapper {groupContext}>
+		<GroupWrapper {id} context={groupContext}>
 			<SubGridEditor
 				visible={render}
 				{id}

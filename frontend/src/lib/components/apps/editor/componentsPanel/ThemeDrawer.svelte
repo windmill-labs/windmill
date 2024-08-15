@@ -5,6 +5,7 @@
 	import css from 'svelte-highlight/languages/css'
 	import { resolveTheme } from './themeUtils'
 	import { workspaceStore } from '$lib/stores'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
 	export let theme: AppTheme
 
@@ -16,6 +17,8 @@
 		code = await resolveTheme(theme, $workspaceStore)
 	}
 </script>
+
+<HighlightTheme />
 
 <Drawer bind:this={codeDrawer}>
 	<DrawerContent title="Theme viewer" on:close={codeDrawer.closeDrawer}>

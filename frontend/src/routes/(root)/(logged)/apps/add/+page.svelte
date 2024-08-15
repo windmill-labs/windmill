@@ -7,9 +7,20 @@
 	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
-	import { goto } from '$app/navigation'
+	import { afterNavigate, replaceState } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
+	import {
+		presets,
+		processDimension,
+		type AppComponent
+	} from '$lib/components/apps/editor/component'
+	import {
+		appComponentFromType,
+		insertNewGridItem,
+		setUpTopBarComponentContent
+	} from '$lib/components/apps/editor/appUtils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')
@@ -34,11 +45,13 @@
 			path: DEFAULT_THEME
 		}
 	}
-
-	if (nodraft) {
-		goto('?', { replaceState: true })
-	}
-
+	afterNavigate(() => {
+		if (nodraft) {
+			let url = new URL($page.url.href)
+			url.search = ''
+			replaceState(url.toString(), $page.state)
+		}
+	})
 	let policy: Policy = {
 		on_behalf_of: $userStore?.username.includes('@')
 			? $userStore?.username
@@ -102,6 +115,36 @@
 				}
 			])
 			value = decodeState(state)
+		} else {
+			const preset = presets['topbarcomponent']
+
+			const id = insertNewGridItem(
+				value,
+				appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
+					customCss: {
+						container: {
+							class: '!p-0' as any,
+							style: ''
+						}
+					}
+				}) as (id: string) => AppComponent,
+				undefined,
+				undefined,
+				'topbar',
+				{ x: 0, y: 0 },
+				{
+					3: processDimension(preset.dims, 3),
+					12: processDimension(preset.dims, 12)
+				},
+				true,
+				true
+			)
+
+			setUpTopBarComponentContent(id, value)
+
+			value.hideLegacyTopBar = true
+
+			value = value
 		}
 	}
 </script>

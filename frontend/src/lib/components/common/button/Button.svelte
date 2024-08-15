@@ -18,6 +18,7 @@
 	export let href: string | undefined = undefined
 	export let target: '_self' | '_blank' | undefined = undefined
 	export let iconOnly: boolean = false
+	export let loadUntilNav: boolean = false
 
 	export let clickableWhileLoading = false
 
@@ -191,7 +192,9 @@
 			on:click={() => {
 				loading = true
 				dispatch('click', event)
-				loading = false
+				if (!loadUntilNav) {
+					loading = false
+				}
 			}}
 			{href}
 			{download}

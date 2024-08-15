@@ -20,7 +20,10 @@ const config = {
 						assets: 'build',
 						fallback: '200.html'
 				  }),
-		prerender: { entries: [] }
+		prerender: { entries: [] },
+		paths: {
+			base: process.env.VITE_BASE_URL ?? ''
+		}
 	}
 }
 

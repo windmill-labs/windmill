@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -41,6 +41,8 @@
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
+
+	const dispatch = createEventDispatcher()
 
 	$: inputCat = computeInputCat(
 		schema.properties[argName].type,
@@ -285,6 +287,7 @@
 												arg.value = undefined
 											}
 											arg.expr = undefined
+											arg.type = 'static'
 										}
 									} else {
 										if (arg) {
@@ -312,7 +315,7 @@
 							<ToggleButton
 								small
 								light
-								tooltip="Javascript expression ('flow_input' or 'results')."
+								tooltip="JavaScript expression ('flow_input' or 'results')."
 								value="javascript"
 								icon={FunctionSquare}
 							/>
@@ -327,6 +330,7 @@
 						on:click={() => {
 							focusProp(argName, 'connect', (path) => {
 								connectProperty(path)
+								dispatch('change', { argName })
 								return true
 							})
 						}}
@@ -372,6 +376,9 @@
 							}}
 							bind:code={arg.value}
 							fontSize={14}
+							on:change={() => {
+								dispatch('change', { argName })
+							}}
 						/>
 					{/if}
 				</div>
@@ -384,6 +391,10 @@
 					on:focus={onFocus}
 					on:blur={() => {
 						focused = false
+					}}
+					shouldDispatchChanges
+					on:change={() => {
+						dispatch('change', { argName })
 					}}
 					label={argName}
 					bind:editor={monaco}
@@ -416,6 +427,9 @@
 					<SimpleEditor
 						bind:this={monaco}
 						bind:code={arg.expr}
+						on:change={() => {
+							dispatch('change', { argName })
+						}}
 						{extraLib}
 						lang="javascript"
 						shouldBindKey={false}
@@ -425,6 +439,9 @@
 								monaco?.insertAtCursor(path)
 								return false
 							})
+						}}
+						on:change={() => {
+							dispatch('change', { argName })
 						}}
 						on:blur={() => {
 							focused = false

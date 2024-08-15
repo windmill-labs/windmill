@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Plus, X } from 'lucide-svelte'
+	import { Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -327,17 +327,17 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags.concat(nativeTags)
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags.concat(nativeTags)
 
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to all tags <Tooltip
-									>{(defaultTagPerWorkspace
+									>{(defaultTagPerWorkspace && workspaceTag
 										? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
 										: defaultTags.concat(nativeTags)
 									).join(', ')}</Tooltip
@@ -349,13 +349,13 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to all tags minus native ones <Tooltip
 									>{(defaultTagPerWorkspace
@@ -370,16 +370,16 @@
 								size="xs"
 								on:click={() => {
 									if (nconfig != undefined) {
-										nconfig.worker_tags = defaultTagPerWorkspace
-											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-											: nativeTags
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+												: nativeTags
 										dirty = true
 									}
 								}}
-								disabled={defaultTagPerWorkspace && !workspaceTag}
 							>
 								Reset to native tags <Tooltip
-									>{(defaultTagPerWorkspace
+									>{(defaultTagPerWorkspace && workspaceTag
 										? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
 										: nativeTags
 									).join(', ')}</Tooltip
@@ -392,8 +392,7 @@
 									noInputStyles
 									hideArrow={true}
 									items={workspaces.map((w) => w.id)}
-									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary ' +
-										(!workspaceTag ? '!border-red-600/60 !dark:border-red-400/70' : '')}
+									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
 									dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
 									className="!font-gray-600 !font-primary !bg-surface-primary"
 									create
@@ -801,8 +800,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex gap-2 items-center"
-	><h4 class="py-4 truncate w-40 text-primary">{name}</h4>
+<div class="flex gap-2 items-center justify-end flex-row my-2">
 	{#if $superadmin}
 		<Button
 			color="light"
@@ -812,9 +810,10 @@
 				loadNConfig()
 				drawer.openDrawer()
 			}}
+			startIcon={{ icon: config == undefined ? Plus : Settings }}
 		>
 			<div class="flex flex-row gap-1 items-center">
-				{config == undefined ? 'create' : 'edit'} config
+				{config == undefined ? 'Create' : 'Edit'} config
 			</div>
 		</Button>
 
@@ -830,8 +829,9 @@
 				)
 				sendUserToast('Worker config copied to clipboard as YAML')
 			}}
+			startIcon={{ icon: Copy }}
 		>
-			copy config
+			Copy config
 		</Button>
 
 		{#if config}
@@ -845,9 +845,10 @@
 						openDelete = true
 					}
 				}}
+				startIcon={{ icon: Trash }}
 				btnClasses="text-red-400"
 			>
-				delete config
+				Delete config
 			</Button>
 		{/if}
 
@@ -860,8 +861,9 @@
 				openClean = true
 			}}
 			btnClasses="text-red-400"
+			startIcon={{ icon: RefreshCcwIcon }}
 		>
-			clean cache
+			Clean cache
 		</Button>
 	{:else if config}
 		<Button
@@ -874,10 +876,5 @@
 		>
 			<div class="flex flex-row gap-1 items-center"> config </div>
 		</Button>
-	{/if}
-	{#if activeWorkers > 1}
-		<span class="ml-4 text-xs"
-			>{activeWorkers} Workers <Tooltip>Number of workers active in the last 10s</Tooltip></span
-		>
 	{/if}
 </div>

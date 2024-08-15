@@ -112,6 +112,11 @@
         "ordinal": 21,
         "name": "default_scripts",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 22,
+        "name": "deploy_ui",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -141,6 +146,7 @@
       true,
       true,
       false,
+      true,
       true
     ]
   },

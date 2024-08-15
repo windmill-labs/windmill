@@ -30,7 +30,8 @@
 	export let path: string | undefined
 	export let lang: Preview['language']
 	export let kind: string | undefined = undefined
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
+		'script'
 	export let tag: string | undefined
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true
@@ -41,6 +42,7 @@
 	export let edit = true
 	export let noHistory = false
 	export let saveToWorkspace = false
+	export let watchChanges = false
 
 	let websocketAlive = {
 		pyright: false,
@@ -49,6 +51,12 @@
 		ruff: false,
 		shellcheck: false
 	}
+
+	const dispatch = createEventDispatcher()
+
+	$: watchChanges &&
+		(code != undefined || schema != undefined) &&
+		dispatch('change', { code, schema })
 
 	let width = 1200
 
@@ -190,8 +198,6 @@
 	onDestroy(() => {
 		disableCollaboration()
 	})
-
-	const dispatch = createEventDispatcher()
 
 	function asKind(str: string | undefined) {
 		return str as 'script' | 'approval' | 'trigger' | undefined
@@ -357,7 +363,19 @@
 					<Pane size={33}>
 						<div class="px-2">
 							<div class="break-words relative font-sans">
-								<SchemaForm compact {schema} bind:args bind:isValid showSchemaExplorer />
+								<SchemaForm
+									helperScript={{
+										type: 'inline',
+										code,
+										//@ts-ignore
+										lang
+									}}
+									compact
+									{schema}
+									bind:args
+									bind:isValid
+									showSchemaExplorer
+								/>
 							</div>
 						</div>
 					</Pane>

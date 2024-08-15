@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -26,7 +27,7 @@
 		hubBaseUrlStore
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { setQueryWithoutLoad, emptyString, tryEvery } from '$lib/utils'
+	import { emptyString, tryEvery } from '$lib/utils'
 	import {
 		Code2,
 		Slack,
@@ -43,7 +44,8 @@
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestOpenaiKey from '$lib/components/copilot/TestOpenaiKey.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { fade } from 'svelte/transition'
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -52,6 +54,7 @@
 		convertFrontendToBackendSetting,
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
+	import { base } from '$lib/base'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -135,7 +138,7 @@
 			| 'error_handler') ?? 'users'
 	let usingOpenaiClientCredentialsOauth = false
 
-	const latestGitSyncHubScript = `hub/8855/sync-script-to-git-repo-windmill`
+	const latestGitSyncHubScript = `hub/8931/sync-script-to-git-repo-windmill`
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
 	// 		{
@@ -480,12 +483,40 @@
 			}
 			gitSyncTestJobs = []
 		}
+		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
+			deployUiSettings = {
+				include_path:
+					settings.deploy_ui.include_path?.length ?? 0 > 0
+						? settings.deploy_ui.include_path ?? []
+						: [],
+				include_type: {
+					scripts: (settings.deploy_ui.include_type?.indexOf('script') ?? -1) >= 0,
+					flows: (settings.deploy_ui.include_type?.indexOf('flow') ?? -1) >= 0,
+					apps: (settings.deploy_ui.include_type?.indexOf('app') ?? -1) >= 0,
+					resources: (settings.deploy_ui.include_type?.indexOf('resource') ?? -1) >= 0,
+					variables: (settings.deploy_ui.include_type?.indexOf('variable') ?? -1) >= 0,
+					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0
+				}
+			}
+		}
 
 		// check openai_client_credentials_oauth
 		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
 			workspace: $workspaceStore!,
 			path: 'openai_client_credentials_oauth'
 		})
+	}
+
+	let deployUiSettings: {
+		include_path: string[]
+		include_type: {
+			scripts: boolean
+			flows: boolean
+			apps: boolean
+			resources: boolean
+			variables: boolean
+			secrets: boolean
+		}
 	}
 
 	$: {
@@ -535,7 +566,7 @@
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
-			path: 'hub/7925/git-repo-test-read-write-windmill',
+			path: 'hub/8944/git-repo-test-read-write-windmill',
 			requestBody: {
 				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
 			}
@@ -568,6 +599,31 @@
 			interval: 500,
 			timeout: 5000
 		})
+	}
+
+	let debounced: NodeJS.Timeout | undefined = undefined
+	export function setQueryWithoutLoad(
+		url: URL,
+		args: { key: string; value: string | null | undefined }[],
+		bounceTime?: number
+	): void {
+		debounced && clearTimeout(debounced)
+		debounced = setTimeout(() => {
+			const nurl = new URL(url.toString())
+			for (const { key, value } of args) {
+				if (value) {
+					nurl.searchParams.set(key, value)
+				} else {
+					nurl.searchParams.delete(key)
+				}
+			}
+
+			try {
+				replaceState(nurl.toString(), $page.state)
+			} catch (e) {
+				console.error(e)
+			}
+		}, bounceTime ?? 200)
 	}
 </script>
 
@@ -661,7 +717,7 @@
 				</div>
 			</div>
 			{#if $enterpriseLicense}
-				<DeployToSetting bind:workspaceToDeployTo />
+				<DeployToSetting bind:workspaceToDeployTo bind:deployUiSettings />
 			{:else}
 				<div class="my-2"
 					><Alert type="error" title="Enterprise license required"
@@ -706,11 +762,11 @@
 						<Button
 							size="sm"
 							endIcon={{ icon: Code2 }}
-							href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+							href="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						>
 							Create a script to handle slack commands
 						</Button>
-						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="/flows/add?hub=28">
+						<Button size="sm" endIcon={{ icon: BarsStaggered }} href="{base}/flows/add?hub=28">
 							Create a flow to handle slack commands
 						</Button>
 					</div>
@@ -719,7 +775,7 @@
 						<Button
 							size="xs"
 							color="dark"
-							href="/api/oauth/connect_slack"
+							href="{base}/api/oauth/connect_slack"
 							startIcon={{ icon: Slack }}
 						>
 							Connect to Slack
@@ -787,7 +843,7 @@
 			<div class="flex justify-start">
 				<Button
 					size="sm"
-					href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+					href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
 					target="_blank"
 				>
 					Export workspace as zip file

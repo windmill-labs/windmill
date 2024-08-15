@@ -9,7 +9,7 @@ use std::{
 
 use chrono::{NaiveDateTime, Utc};
 use rsmq_async::MultiplexedRsmq;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -29,25 +29,24 @@ use windmill_common::{
     flow_status::FlowStatusModule,
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OAUTH_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, NPM_CONFIG_REGISTRY_SETTING, OAUTH_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
     jobs::QueuedJob,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
-    stats_ee::get_user_usage,
-    tracing_init::TMP_WINDMILL_LOGS_SERVICE,
     users::truncate_token,
     utils::{now_from_db, rd_string, Mode},
     worker::{
-        load_worker_config, reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, SERVER_CONFIG,
-        WORKER_CONFIG,
+        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
     },
-    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
     METRICS_DEBUG_ENABLED, METRICS_ENABLED,
 };
 use windmill_queue::cancel_job;
@@ -107,8 +106,6 @@ lazy_static::lazy_static! {
         "Number of jobs in the queue",
         &["tag"]
     ).unwrap();
-
-    static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
 }
 
 pub async fn initial_load(
@@ -128,6 +125,10 @@ pub async fn initial_load(
 
     if let Err(e) = load_tag_per_workspace_enabled(db).await {
         tracing::error!("Error loading default tag per workpsace: {e:#}");
+    }
+
+    if let Err(e) = load_tag_per_workspace_workspaces(db).await {
+        tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
     }
 
     if server_mode {
@@ -201,6 +202,28 @@ pub async fn load_tag_per_workspace_enabled(db: &DB) -> error::Result<()> {
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => {
             DEFAULT_TAGS_PER_WORKSPACE.store(t, Ordering::Relaxed)
+        }
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
+    let workspaces = load_value_from_global_settings(db, DEFAULT_TAGS_WORKSPACES_SETTING).await;
+
+    match workspaces {
+        Ok(Some(serde_json::Value::Array(t))) => {
+            let workspaces = t
+                .iter()
+                .filter_map(|x| x.as_str())
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>();
+            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
+            *w = Some(workspaces);
+        }
+        Ok(None) => {
+            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
+            *w = None;
         }
         _ => (),
     };
@@ -484,6 +507,21 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
+    let deleted_expired_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE expires_at IS NOT NULL AND expires_at > now() RETURNING path",
+    )
+    .fetch_all(db)
+    .await;
+
+    match deleted_expired_variables {
+        Ok(res) => {
+            if res.len() > 0 {
+                tracing::info!("deleted {} expired variables {:?}", res.len(), res)
+            }
+        }
+        Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {
@@ -753,6 +791,16 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     std_env_var: &str,
     lock: Arc<RwLock<Option<T>>>,
 ) -> error::Result<()> {
+    let force_value = std::env::var(format!("FORCE_{}", std_env_var))
+        .ok()
+        .and_then(|x| x.parse::<T>().ok());
+
+    if let Some(force_value) = force_value {
+        let mut l = lock.write().await;
+        *l = Some(force_value);
+        return Ok(());
+    }
+
     let q = load_value_from_global_settings(db, setting_name).await?;
 
     let mut value = std::env::var(std_env_var)
@@ -888,17 +936,10 @@ pub async fn monitor_db(
         }
     };
 
-    let save_usage_metrics_f = async {
-        if !initial_load && server_mode {
-            save_usage_metrics(&db).await;
-        }
-    };
-
     join!(
         expired_items_f,
         zombie_jobs_f,
         expose_queue_metrics_f,
-        save_usage_metrics_f,
         verify_license_key_f
     );
 }
@@ -973,89 +1014,6 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
     }
 }
 
-#[derive(Serialize)]
-struct WorkerUsage {
-    worker: String,
-    worker_instance: String,
-    vcpus: Option<i64>,
-    memory: Option<i64>,
-}
-
-pub async fn save_usage_metrics(db: &Pool<Postgres>) {
-    let tx = db.begin().await;
-
-    if let Ok(mut tx) = tx {
-        let last_check = sqlx::query_scalar!(
-            "SELECT created_at FROM metrics WHERE id = 'author_count' ORDER BY created_at DESC LIMIT 1"
-        )
-        .fetch_optional(db)
-        .await
-        .unwrap_or(Some(chrono::Utc::now()));
-
-        let random_nb = rand::random::<i64>();
-
-        // save author and operator count every ~24 hours
-        if last_check
-            .map(|last_check| {
-                chrono::Utc::now() - last_check
-                    > chrono::Duration::hours(24) - chrono::Duration::minutes(random_nb % 60)
-            })
-            .unwrap_or(true)
-        {
-            let user_usage = get_user_usage(&mut *tx).await.ok();
-
-            if let Some(user_usage) = user_usage {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ('author_count', $1), ('operator_count', $2)",
-                    serde_json::json!(user_usage.author_count.unwrap_or(0)),
-                    serde_json::json!(user_usage.operator_count.unwrap_or(0))
-                )
-                .execute(&mut *tx)
-                .await
-                .ok();
-            }
-
-            // clean metrics older than 6 months (including worker usage)
-            sqlx::query!(
-                "DELETE FROM metrics 
-                WHERE (id = 'author_count' OR id = 'operator_count' OR id = 'worker_usage') AND created_at < NOW() - INTERVAL '6 month'"
-            )
-            .execute(&mut *tx)
-            .await
-            .ok();
-        }
-
-        // save worker usage every ~60 minutes
-        if last_check
-            .map(|last_check| {
-                chrono::Utc::now() - last_check
-                    > chrono::Duration::minutes(60) - chrono::Duration::seconds(random_nb % 300)
-            })
-            .unwrap_or(true)
-        {
-            let worker_usage = sqlx::query_as!(
-                WorkerUsage,
-                "SELECT worker, worker_instance, vcpus, memory FROM worker_ping WHERE ping_at > NOW() - INTERVAL '2 minutes'"
-            )
-            .fetch_all(&mut *tx)
-            .await
-            .ok();
-
-            if let Some(worker_usage) = worker_usage {
-                sqlx::query!(
-                    "INSERT INTO metrics (id, value) VALUES ('worker_usage', $1)",
-                    serde_json::json!(worker_usage)
-                )
-                .execute(&mut *tx)
-                .await
-                .ok();
-            }
-        }
-
-        tx.commit().await.ok();
-    }
-}
-
 pub async fn reload_server_config(db: &Pool<Postgres>) {
     let config = load_server_config(&db).await;
     if let Err(e) = config {
@@ -1106,6 +1064,8 @@ pub async fn reload_worker_config(
 
             let mut wc = WORKER_CONFIG.write().await;
             tracing::info!("Reloading worker config...");
+            make_suspended_pull_query(&config).await;
+            make_pull_query(&config).await;
             *wc = config
         }
     }
@@ -1287,7 +1247,7 @@ async fn handle_zombie_flows(
         SELECT *
         FROM queue
         WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now() AND (job_kind = 'flow' OR job_kind = 'flowpreview')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
+            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval AND canceled = false
         "#,
     ).bind(FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str())
     .fetch_all(db)
@@ -1307,7 +1267,7 @@ async fn handle_zombie_flows(
             );
             // if the flow hasn't started and is a zombie, we can simply restart it
             sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null WHERE id = $1",
+                "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
                 flow.id
             )
             .execute(db)
@@ -1316,13 +1276,15 @@ async fn handle_zombie_flows(
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
-            cancel_zombie_flow_job(
-                db,
-                flow,
-                &rsmq,
-                format!("Flow {} cancelled as it was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})", id),
-            )
-            .await?;
+            let reason = format!(
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
+                if flow.is_flow_step && flow.parent_job.is_some() {
+                    format!("Flow was cancelled because subflow {id}")
+                } else {
+                    format!("Flow {id} was cancelled because it")
+                }
+            );
+            cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
         }
     }
 
@@ -1339,11 +1301,12 @@ async fn handle_zombie_flows(
     .await?;
 
     for flow in flows2 {
-        let in_queue =
-            sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1 AND running = true")
-                .bind(flow.parent_flow_id)
-                .fetch_optional(db)
-                .await?;
+        let in_queue = sqlx::query_as::<_, QueuedJob>(
+            "SELECT * FROM queue WHERE id = $1 AND running = true AND canceled = false",
+        )
+        .bind(flow.parent_flow_id)
+        .fetch_optional(db)
+        .await?;
         if let Some(job) = in_queue {
             tracing::error!(
                 "parallel Zombie flow detected: {} in workspace {}. Last ping was: {:?}.",
@@ -1373,7 +1336,7 @@ async fn cancel_zombie_flow_job(
         flow.id,
         flow.workspace_id
     );
-    let (mut ntx, _) = cancel_job(
+    let (ntx, _) = cancel_job(
         "monitor",
         Some(message),
         flow.id,
@@ -1381,15 +1344,9 @@ async fn cancel_zombie_flow_job(
         tx,
         db,
         rsmq.clone(),
-        false,
+        true,
         false,
     )
-    .await?;
-    sqlx::query!(
-        "UPDATE queue SET running = false, started_at = null WHERE id = $1",
-        flow.id
-    )
-    .execute(&mut *ntx)
     .await?;
     ntx.commit().await?;
     Ok(())

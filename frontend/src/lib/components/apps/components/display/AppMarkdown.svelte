@@ -10,7 +10,7 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-
+	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = undefined
@@ -67,7 +67,7 @@
 		e?.preventDefault()
 	}}
 	class={classNames(
-		'h-full w-full overflow-y-auto prose',
+		'h-full w-full overflow-y-auto prose max-w-full',
 		resolvedConfig?.size ? proseMapping[resolvedConfig.size] : '',
 		css?.container?.class,
 		' dark:prose-invert',
@@ -86,7 +86,7 @@
 	>
 		{#if result}
 			{#key result}
-				<Markdown md={result} />
+				<Markdown md={result} plugins={[gfmPlugin()]} />
 			{/key}
 		{/if}
 	</RunnableWrapper>

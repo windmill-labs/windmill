@@ -15,6 +15,7 @@ export interface SyncOptions {
   includeUsers?: boolean;
   includeGroups?: boolean;
   includeSettings?: boolean;
+  includeKey?: boolean;
   message?: string;
   includes?: string[];
   extraIncludes?: string[];
@@ -27,6 +28,12 @@ export interface Codebase {
   relative_path: string;
   includes?: string[];
   excludes?: string[];
+  assets?: {
+    from: string;
+    to: string;
+  }[];
+  customBundler?: string;
+  external?: string[];
 }
 
 export async function readConfigFile(): Promise<SyncOptions> {

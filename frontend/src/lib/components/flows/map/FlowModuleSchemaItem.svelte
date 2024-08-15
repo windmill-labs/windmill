@@ -4,6 +4,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
 	import {
+		AlertTriangle,
 		Bed,
 		Database,
 		Gauge,
@@ -16,6 +17,9 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import type { FlowInput } from '../types'
+	import type { Writable } from 'svelte/store'
+	import { twMerge } from 'tailwind-merge'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -32,7 +36,11 @@
 	export let bgColor: string = ''
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
+	export let warningMessage: string | undefined = undefined
 
+	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
+		'FlowGraphContext'
+	)
 	const dispatch = createEventDispatcher()
 
 	const { currentStepStore: copilotCurrentStepStore } =
@@ -44,7 +52,7 @@
 <div
 	class={classNames(
 		'w-full module flex rounded-sm cursor-pointer',
-		selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
+		selected ? 'outline outline-offset-1 outline-2  outline-gray-600 dark:outline-gray-400' : '',
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
@@ -132,9 +140,10 @@
 			</Popover>
 		{/if}
 	</div>
+
 	<div
 		class="flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-			border border-gray-400 p-2 text-2xs module text-primary"
+			border border-gray-400 dark:border-gray-600 p-2 text-2xs module text-primary"
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />
@@ -166,6 +175,37 @@ hover:border-blue-700 {selected ? '' : '!hidden'}"
 		>
 			<Move class="mx-[3px]" size={14} strokeWidth={2} />
 		</button>
+
+		{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
+			<div class="absolute -top-[10px] -left-[10px]">
+				<Popover>
+					<svelte:fragment slot="text">
+						<ul class="list-disc px-2">
+							{#if id}
+								{#each Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}) as m}
+									<li>
+										{m.message}
+									</li>
+								{/each}
+							{/if}
+						</ul>
+					</svelte:fragment>
+					<div
+						class={twMerge(
+							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-150 ',
+							id &&
+								Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
+									(x) => x.type === 'error'
+								)
+								? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
+								: 'border-yellow-600 text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
+						)}
+					>
+						<AlertTriangle size={14} strokeWidth={2} />
+					</div>
+				</Popover>
+			</div>
+		{/if}
 	{/if}
 </div>
 

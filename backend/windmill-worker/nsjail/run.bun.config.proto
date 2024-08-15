@@ -39,6 +39,7 @@ mount {
     src: "/lib64"
     dst: "/lib64"
 	is_bind: true
+    mandatory: false
 }
 
 
@@ -150,7 +151,7 @@ iface_no_lo: true
 
 mount {
     src: "{CACHE_DIR}"
-    dst: "/tmp/windmill/cache/bun"
+    dst: "/tmp/windmill/cache_nomount/bun"
     is_bind: true
     mandatory: false
     rw: true

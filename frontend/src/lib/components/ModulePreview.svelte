@@ -87,6 +87,8 @@
 			}
 		}
 	}
+
+	let forceJson = false
 </script>
 
 <TestJobLoader
@@ -136,7 +138,7 @@
 					duration={testJob?.['duration_ms']}
 					mem={testJob?.['mem_peak']}
 					content={testJob?.logs}
-					isLoading={testIsLoading}
+					isLoading={testIsLoading && testJob?.['running'] == false}
 					tag={testJob?.tag}
 				/>
 			</Pane>
@@ -144,6 +146,7 @@
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
 					<div class="break-words relative h-full p-2">
 						<DisplayResult
+							bind:forceJson
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
 							result={testJob.result}

@@ -13,6 +13,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
+	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -23,6 +24,7 @@
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
+	import { goto, replaceState } from '$app/navigation'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -96,7 +98,7 @@
 				</div>
 			</Button>
 			<Button
-				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				href="{base}/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
@@ -133,7 +135,7 @@
 			</Button>
 
 			<Button
-				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
+				href="{base}/flows/add?hub={flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				size="xs"
@@ -171,7 +173,7 @@
 			</Button>
 
 			<Button
-				href="/apps/add?hub={appViewerApp?.app?.id}"
+				href="{base}/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				color="dark"
 				disabled={appViewerApp == undefined}
@@ -197,6 +199,8 @@
 					}}
 					summary={appViewerApp?.app.summary ?? ''}
 					noBackend
+					replaceStateFn={(path) => replaceState(path, $page.state)}
+					gotoFn={(path, opt) => goto(path, opt)}
 				/>
 			</div>
 		{/if}

@@ -10,6 +10,9 @@
 	import ShareModal from '../ShareModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { WorkspaceService, type WorkspaceDeployUISettings } from '$lib/gen'
+	import { ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	export let item
 	export let depth: number = 0
@@ -23,6 +26,19 @@
 
 	let menuOpen: boolean = false
 	export let showCode: (path: string, summary: string) => void
+
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
+
 </script>
 
 {#if item.type == 'script'}
@@ -42,6 +58,7 @@
 		{depth}
 		bind:menuOpen
 		{showCode}
+		{deployUiSettings}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow
@@ -59,6 +76,7 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{deployUiSettings}
 	/>
 {:else if item.type == 'app'}
 	<AppRow
@@ -72,6 +90,7 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{deployUiSettings}
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow
@@ -85,6 +104,7 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{deployUiSettings}
 	/>
 {/if}
 

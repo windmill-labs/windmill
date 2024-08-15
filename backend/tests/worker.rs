@@ -22,7 +22,7 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 
 use serde::Serialize;
 use windmill_common::auth::JWT_SECRET;
-use windmill_common::worker::{PriorityTags, WORKER_CONFIG};
+use windmill_common::worker::WORKER_CONFIG;
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -124,10 +124,13 @@ impl ApiServer {
         let task = tokio::task::spawn(windmill_api::run_server(
             db.clone(),
             None,
+            None,
+            None,
             addr,
             rx,
             port_tx,
             false,
+            format!("http://localhost:{}", addr.port()),
         ));
 
         _port_rx.await.unwrap();
@@ -371,7 +374,7 @@ mod suspend_resume {
         server.close().await.unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by Some(\"ruben\")"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ruben"}}),
             result
         );
     }
@@ -432,7 +435,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.json_result().unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by None"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by unknown"}}),
             result
         );
     }
@@ -901,7 +904,7 @@ impl RunJob {
             tx,
             "test-workspace",
             payload,
-            hm_args.into(),
+            windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),
@@ -1007,8 +1010,12 @@ fn spawn_test_worker(
         {
             let mut wc = WORKER_CONFIG.write().await;
             (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
-            (*wc).priority_tags_sorted =
-                vec![PriorityTags { priority: 0, tags: (*wc).worker_tags.clone() }]
+            (*wc).priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
+                priority: 0,
+                tags: (*wc).worker_tags.clone(),
+            }];
+            windmill_common::worker::make_suspended_pull_query(&wc).await;
+            windmill_common::worker::make_pull_query(&wc).await;
         }
         windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
@@ -2940,6 +2947,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
         no_flow_overlap: None,
         summary: None,
         tag: None,
+        paused_until: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3004,6 +3012,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) {
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
+                paused_until: None,
             },
         )
         .await
@@ -3083,6 +3092,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
         no_flow_overlap: None,
         summary: None,
         tag: None,
+        paused_until: None,
     };
 
     let _ = client.create_schedule("test-workspace", &schedule).await;
@@ -3148,6 +3158,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) {
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
+                paused_until: None,
             },
         )
         .await

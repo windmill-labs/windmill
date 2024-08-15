@@ -11,6 +11,7 @@
 	export let workspaceId: string | undefined = undefined
 	export let flowStateStore: Writable<FlowState> = writable({})
 	export let selectedJobStep: string | undefined = undefined
+	export let hideFlowResult = false
 
 	export let isOwner = false
 	export let wideResults = false
@@ -45,12 +46,14 @@
 </script>
 
 <FlowStatusViewerInner
+	{hideFlowResult}
 	on:jobsLoaded={({ detail }) => {
-		if (detail.script_path != lastScriptPath && detail.script_path) {
-			lastScriptPath = detail.script_path
+		let { job } = detail
+		if (job.script_path != lastScriptPath && job.script_path) {
+			lastScriptPath = job.script_path
 			loadOwner(lastScriptPath ?? '')
 		}
-		dispatch('jobsLoaded', detail)
+		dispatch('jobsLoaded', job)
 	}}
 	globalDurationStatuses={[]}
 	globalModuleStates={[]}

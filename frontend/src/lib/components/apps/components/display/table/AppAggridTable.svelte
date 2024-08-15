@@ -6,6 +6,7 @@
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
+		ContextPanelContext,
 		ListContext,
 		ListInputs,
 		RichConfigurations
@@ -50,7 +51,7 @@
 	export let actions: TableAction[] | undefined = undefined
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
-
+	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
@@ -196,6 +197,11 @@
 		const rowIndex = p.node.rowIndex ?? 0
 		const row = p.data
 
+		const componentContext = new Map<string, any>([
+			['AppViewerContext', context],
+			['ContextPanel', contextPanel]
+		])
+
 		new AppAggridTableActions({
 			target: c.eGui,
 			props: {
@@ -231,7 +237,7 @@
 					outputs?.inputs.set(inputs, true)
 				}
 			},
-			context: new Map([['AppViewerContext', context]])
+			context: componentContext
 		})
 	})
 
@@ -246,7 +252,9 @@
 				// Add the action column if actions are defined
 				if (actions && actions.length > 0) {
 					columnDefs.push({
-						headerName: 'Actions',
+						headerName: resolvedConfig?.customActionsHeader
+							? resolvedConfig?.customActionsHeader
+							: 'Actions',
 						cellRenderer: tableActionsFactory,
 						autoHeight: true,
 						cellStyle: { textAlign: 'center' },
@@ -298,7 +306,12 @@
 						onGridReady: (e) => {
 							outputs?.ready.set(true)
 							value = value
-							if (result && result.length > 0 && resolvedConfig?.selectFirstRowByDefault === true) {
+							if (
+								result &&
+								result.length > 0 &&
+								resolvedConfig?.selectFirstRowByDefault === true &&
+								selectedRowIndex === -1
+							) {
 								e.api.getRowNode('0')?.setSelected(true)
 							}
 							$componentControl[id] = {
@@ -386,7 +399,9 @@
 			// Add the action column if actions are defined
 			if (actions && actions.length > 0) {
 				columnDefs.push({
-					headerName: 'Actions',
+					headerName: resolvedConfig?.customActionsHeader
+						? resolvedConfig?.customActionsHeader
+						: 'Actions',
 					cellRenderer: tableActionsFactory,
 					autoHeight: true,
 					cellStyle: { textAlign: 'center' },
@@ -586,7 +601,7 @@
 	</SyncColumnDefs>
 </RunnableWrapper>
 
-<style>
+<style global>
 	.ag-theme-alpine {
 		--ag-row-border-style: solid;
 		--ag-border-color: rgb(209 213 219);
@@ -598,5 +613,18 @@
 	.ag-theme-alpine-dark {
 		--ag-border-color: #4b5563;
 		--ag-alpine-active-color: #64748b;
+	}
+
+	.grid-cell-centered {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.grid-cell-centered .svelte-select {
+		height: 32px !important;
+	}
+
+	.grid-cell-centered .selected-item {
+		margin-top: -4px;
 	}
 </style>

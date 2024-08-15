@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
+import { SEP, colors, log, path, yamlParse, yamlStringify } from "./deps.ts";
 import { pushApp } from "./apps.ts";
 import { pushFolder } from "./folder.ts";
 import { pushFlow } from "./flow.ts";
@@ -14,7 +14,7 @@ import { deepEqual } from "./utils.ts";
 import { pushSchedule } from "./schedule.ts";
 import { pushWorkspaceUser } from "./user.ts";
 import { pushGroup } from "./user.ts";
-import { pushWorkspaceSettings } from "./settings.ts";
+import { pushWorkspaceSettings, pushWorkspaceKey } from "./settings.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -111,14 +111,14 @@ export async function pushObj(
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    const appName = p.split(".app" + path.sep)[0];
+    const appName = p.split(".app" + SEP)[0];
     await pushApp(workspace, appName, appName + ".app", message);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
     await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    const flowName = p.split(".flow" + path.sep)[0];
+    const flowName = p.split(".flow" + SEP)[0];
     await pushFlow(workspace, flowName, flowName + ".flow", message);
   } else if (typeEnding === "resource") {
     await pushResource(workspace, p, befObj, newObj);
@@ -132,6 +132,8 @@ export async function pushObj(
     await pushGroup(workspace, p, befObj, newObj);
   } else if (typeEnding === "settings") {
     await pushWorkspaceSettings(workspace, p, befObj, newObj);
+  } else if (typeEnding === "encryption_key") {
+    await pushWorkspaceKey(workspace, p, befObj, newObj);
   } else {
     throw new Error(
       `The item ${p} has an unrecognized type ending ${typeEnding}`
@@ -168,11 +170,12 @@ export function getTypeStrFromPath(
   | "schedule"
   | "user"
   | "group"
-  | "settings" {
-  if (p.includes(".flow" + path.sep)) {
+  | "settings"
+  | "encryption_key" {
+  if (p.includes(".flow" + SEP)) {
     return "flow";
   }
-  if (p.includes(".app" + path.sep)) {
+  if (p.includes(".app" + SEP)) {
     return "app";
   }
   const parsed = path.parse(p);
@@ -204,7 +207,8 @@ export function getTypeStrFromPath(
     typeEnding === "schedule" ||
     typeEnding === "user" ||
     typeEnding === "group" ||
-    typeEnding === "settings"
+    typeEnding === "settings" ||
+    typeEnding === "encryption_key"
   ) {
     return typeEnding;
   } else {

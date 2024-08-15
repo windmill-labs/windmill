@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.347.0",
+	"version": "1.379.4",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -65,6 +65,7 @@
 		"typescript": "^5.1.3",
 		"vite": "^5",
 		"vite-plugin-circular-dependency": "^0.2.1",
+		"vite-plugin-mkcert": "^1.17.5",
 		"yootils": "^0.3.1"
 	},
 	"overrides": {
@@ -114,25 +115,27 @@
 		"hash-sum": "^2.0.0",
 		"highlight.js": "^11.8.0",
 		"lucide-svelte": "^0.293.0",
+		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-editor-treemended@>=1.83.5 <1.84.0",
 		"monaco-graphql": "^1.5.1",
 		"monaco-languageclient": "~7.0.1",
 		"ol": "^7.4.0",
 		"openai": "^4.47.1",
+		"p-limit": "^6.1.0",
 		"pdfjs-dist": "^3.8.162",
 		"quill": "^1.3.7",
+		"rfc4648": "^1.5.3",
 		"svelte-carousel": "^1.0.25",
 		"svelte-chartjs": "^3.1.5",
-		"svelte-exmarkdown": "^3.0.3",
+		"svelte-exmarkdown": "^3.0.5",
 		"svelte-infinite-loading": "^1.3.8",
-		"svelte-portal": "^2.2.1",
 		"svelte-tiny-virtual-list": "^2.0.5",
 		"tailwind-merge": "^1.13.2",
 		"vscode": "npm:@codingame/monaco-vscode-api@>=1.83.5 <1.84.0",
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.0.8",
 		"vscode-ws-jsonrpc": "~3.1.0",
-		"windmill-parser-wasm": "^1.345.2",
+		"windmill-parser-wasm": "^1.367.2",
 		"windmill-sql-datatype-parser-wasm": "^1.318.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.0",
@@ -219,6 +222,11 @@
 			"svelte": "./package/components/FlowViewer.svelte",
 			"default": "./package/components/FlowViewer.svelte"
 		},
+		"./components/FlowStatusViewer.svelte": {
+			"types": "./package/components/FlowStatusViewer.svelte.d.ts",
+			"svelte": "./package/components/FlowStatusViewer.svelte",
+			"default": "./package/components/FlowStatusViewer.svelte"
+		},
 		"./components/FlowBuilder.svelte": {
 			"types": "./package/components/FlowBuilder.svelte.d.ts",
 			"svelte": "./package/components/FlowBuilder.svelte",
@@ -244,10 +252,25 @@
 			"svelte": "./package/components/SchemaForm.svelte",
 			"default": "./package/components/SchemaForm.svelte"
 		},
+		"./components/EditableSchemaWrapper.svelte": {
+			"types": "./package/components/schema/EditableSchemaWrapper.svelte.d.ts",
+			"svelte": "./package/components/schema/EditableSchemaWrapper.svelte",
+			"default": "./package/components/schema/EditableSchemaWrapper.svelte"
+		},
+		"./components/ResourceEditor.svelte": {
+			"types": "./package/components/ResourceEditor.svelte.d.ts",
+			"svelte": "./package/components/ResourceEditor.svelte",
+			"default": "./package/components/ResourceEditor.svelte"
+		},
 		"./components/SchemaEditor.svelte": {
 			"types": "./package/components/EditableSchemaForm.svelte.d.ts",
 			"svelte": "./package/components/EditableSchemaForm.svelte",
 			"default": "./package/components/EditableSchemaForm.svelte"
+		},
+		"./components/ScriptEditor.svelte": {
+			"types": "./package/components/ScriptEditor.svelte.d.ts",
+			"svelte": "./package/components/ScriptEditor.svelte",
+			"default": "./package/components/ScriptEditor.svelte"
 		},
 		"./components/scriptEditor/LogPanel.svelte": {
 			"types": "./package/components/scriptEditor/LogPanel.svelte.d.ts",
@@ -328,6 +351,9 @@
 			"components/scriptEditor/LogPanel.svelte": [
 				"./package/components/scriptEditor/LogPanel.svelte.d.ts"
 			],
+			"components/ScriptEditor.svelte": [
+				"./package/components/ScriptEditor.svelte.d.ts"
+			],
 			"components/common/kbd/Kbd.svelte": [
 				"./package/components/common/kbd/Kbd.svelte.d.ts"
 			],
@@ -361,6 +387,9 @@
 			"components/FlowViewer.svelte": [
 				"./package/components/FlowViewer.svelte.d.ts"
 			],
+			"components/FlowStatusViewer.svelte": [
+				"./package/components/FlowStatusViewer.svelte.d.ts"
+			],
 			"components/FlowBuilder.svelte": [
 				"./package/components/FlowBuilder.svelte.d.ts"
 			],
@@ -375,6 +404,9 @@
 			],
 			"components/SchemaEditor.svelte": [
 				"./package/components/SchemaEditor.svelte.d.ts"
+			],
+			"components/EditableSchemaWrapper.svelte": [
+				"./package/components/schema/EditableSchemaWrapper.svelte.d.ts"
 			],
 			"utils": [
 				"./package/utils.d.ts"

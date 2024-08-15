@@ -14,7 +14,7 @@ use std::{
 use crate::{
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB, HUB_BASE_URL,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
 use anyhow::Context;
 use serde::de::Error as _;
@@ -34,6 +34,7 @@ pub enum ScriptLang {
     Powershell,
     Postgresql,
     Bun,
+    Bunnative,
     Mysql,
     Bigquery,
     Snowflake,
@@ -46,6 +47,7 @@ impl ScriptLang {
     pub fn as_str(&self) -> &'static str {
         match self {
             ScriptLang::Bun => "bun",
+            ScriptLang::Bunnative => "bunnative",
             ScriptLang::Nativets => "nativets",
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
@@ -131,6 +133,7 @@ impl Display for ScriptKind {
 }
 
 pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
+pub const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Script {
@@ -148,6 +151,7 @@ pub struct Script {
     pub deleted: bool,
     pub is_template: bool,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
@@ -206,6 +210,9 @@ pub struct ListableScript {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "is_false")]
     pub use_codebase: bool,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_msg: Option<String>,
 }
 
 fn is_false(x: &bool) -> bool {
@@ -336,7 +343,9 @@ pub struct ListScriptQuery {
     pub is_template: Option<bool>,
     pub kinds: Option<String>,
     pub starred_only: Option<bool>,
-    pub hide_without_main: Option<bool>,
+    pub include_without_main: Option<bool>,
+    pub include_draft_only: Option<bool>,
+    pub with_deployment_msg: Option<bool>,
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
@@ -368,9 +377,11 @@ pub async fn get_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let content = http_get_from_hub(
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw/{}.ts", *HUB_BASE_URL.read().await, path),
+        &format!("{}/raw/{}.ts", hub_base_url, path),
         true,
         None,
         db,
@@ -378,8 +389,39 @@ pub async fn get_hub_script_by_path(
     .await?
     .text()
     .await
-    .map_err(to_anyhow)?;
-    Ok(content)
+    .map_err(to_anyhow);
+
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            if hub_base_url != DEFAULT_HUB_BASE_URL
+                && path
+                    .split("/")
+                    .next()
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+            {
+                tracing::info!(
+                    "Not found on private hub, fallback to default hub for {}",
+                    path
+                );
+                let content = http_get_from_hub(
+                    http_client,
+                    &format!("{}/raw/{}.ts", DEFAULT_HUB_BASE_URL, path),
+                    true,
+                    None,
+                    db,
+                )
+                .await?
+                .text()
+                .await
+                .map_err(to_anyhow)?;
+
+                Ok(content)
+            } else {
+                Err(e)?
+            }
+        }
+    }
 }
 
 pub async fn get_full_hub_script_by_path(
@@ -392,9 +434,11 @@ pub async fn get_full_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let value = http_get_from_hub(
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw2/{}", *HUB_BASE_URL.read().await, path),
+        &format!("{}/raw2/{}", hub_base_url, path),
         true,
         None,
         db,
@@ -402,8 +446,39 @@ pub async fn get_full_hub_script_by_path(
     .await?
     .json::<HubScript>()
     .await
-    .context("Decoding hub response to script")?;
-    Ok(value)
+    .context("Decoding hub response to script");
+
+    match result {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            if hub_base_url != DEFAULT_HUB_BASE_URL
+                && path
+                    .split("/")
+                    .next()
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+            {
+                tracing::info!(
+                    "Not found on private hub, fallback to default hub for {}",
+                    path
+                );
+                let value = http_get_from_hub(
+                    http_client,
+                    &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                    true,
+                    None,
+                    db,
+                )
+                .await?
+                .json::<HubScript>()
+                .await
+                .context("Decoding hub response to script")?;
+
+                Ok(value)
+            } else {
+                Err(e)?
+            }
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]

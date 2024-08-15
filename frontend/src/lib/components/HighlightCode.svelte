@@ -13,12 +13,13 @@
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { ClipboardCopy } from 'lucide-svelte'
+	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let code: string = ''
-	export let language: Script['language'] | 'frontend' | undefined
+	export let language: Script['language'] | 'bunnative' | 'frontend' | undefined
 	export let lines = false
 
-	function getLang(lang: Script['language'] | 'frontend' | undefined) {
+	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | undefined) {
 		switch (lang) {
 			case 'python3':
 				return python
@@ -27,6 +28,8 @@
 			case 'nativets':
 				return typescript
 			case 'bun':
+				return typescript
+			case 'bunnative':
 				return typescript
 			case 'go':
 				return go
@@ -56,6 +59,8 @@
 
 	$: lang = getLang(language)
 </script>
+
+<HighlightTheme />
 
 <div class="relative overflow-x-auto">
 	<Button

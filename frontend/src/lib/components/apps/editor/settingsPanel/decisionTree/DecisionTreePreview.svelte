@@ -23,6 +23,7 @@
 	import { createEdge, createNode } from './nodeHelpers'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { deleteGridItem } from '../../appUtils'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	export let nodes: DecisionTreeNode[]
 	export let rebuildOnChange: any = undefined
@@ -33,6 +34,8 @@
 	let displayedNodes: Node[] = []
 	let edges: UserEdgeType[] = []
 	let scroll = false
+
+	let darkMode = false
 
 	const dispatch = createEventDispatcher()
 
@@ -222,13 +225,18 @@
 			}
 
 			case 'delete': {
-				const graphhNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
+				const graphNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
 
-				if (graphhNodeIndex > -1) {
-					deleteSubgrid(graphhNodeIndex)
+				if (graphNodeIndex > -1) {
+					deleteSubgrid(graphNodeIndex)
 				}
 
 				nodes = removeNode(nodes, graphNode)
+
+				$debuggingComponents = Object.fromEntries(
+					Object.entries($debuggingComponents).filter(([key]) => key !== component.id)
+				)
+
 				break
 			}
 			case 'addBranch': {
@@ -299,7 +307,8 @@
 									node: graphNode,
 									canDelete: !(graphNode.next.length > 1 && parentIds.length > 1),
 									canAddBranch: !cannotAddBranch,
-									index
+									index,
+									darkMode
 								},
 								cb: (e: string, detail: any) =>
 									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
@@ -360,7 +369,8 @@
 										!cannotAddBranch &&
 										(graphNode.next.length == 1 || !parentIds.includes('start')),
 									canAddBranch: !cannotAddBranch,
-									index
+									index,
+									darkMode
 								},
 								cb: (e: string, detail: any) =>
 									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
@@ -467,6 +477,8 @@
 		$selectedNodeId = getFirstNode(nodes)?.id
 	}
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 {#if mounted}
 	<Svelvet

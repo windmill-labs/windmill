@@ -5,7 +5,8 @@ import {
 	type InputTransform,
 	type Job,
 	type RestartedFrom,
-	type OpenFlow
+	type OpenFlow,
+	type FlowModuleValue
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -14,6 +15,8 @@ import type { FlowModuleState } from './flowState'
 import type { PickableProperties } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
+import type { Schema } from '$lib/common'
+import { parseOutputs } from '$lib/infer'
 
 function create_context_function_template(eval_string: string, context: Record<string, any>) {
 	return `
@@ -156,4 +159,133 @@ export function emptyFlowModuleState(): FlowModuleState {
 		schema: emptySchema(),
 		previewResult: NEVER_TESTED_THIS_FAR
 	}
+}
+
+export function isInputFilled(
+	inputTransforms: Record<string, InputTransform>,
+	key: string,
+	schema: Schema
+): boolean {
+	const required = schema?.required?.includes(key) ?? false
+
+	if (!required) {
+		return true
+	}
+
+	if (inputTransforms.hasOwnProperty(key)) {
+		const transform = inputTransforms[key]
+		if (
+			transform?.type === 'static' &&
+			(transform?.value === undefined || transform?.value === '' || transform?.value === null)
+		) {
+			return false
+		} else if (
+			transform?.type === 'javascript' &&
+			(transform?.expr === undefined || transform?.expr === '' || transform?.expr === null)
+		) {
+			return false
+		}
+	}
+
+	return true
+}
+
+async function isConnectedToMissingModule(
+	argName: string,
+	flowModuleValue: FlowModuleValue,
+	moduleIds: string[]
+): Promise<string | undefined> {
+	const type = flowModuleValue.type
+
+	if (type === 'rawscript' || type === 'script' || type === 'flow') {
+		const input = flowModuleValue?.input_transforms[argName]
+		const val: string = input.type === 'static' ? String(input.value) : input.expr
+
+		try {
+			const outputs = await parseOutputs(val, true)
+			let error: string = ''
+
+			outputs?.forEach(([componentId, id]) => {
+				if (componentId === 'results') {
+					if (!moduleIds.includes(id)) {
+						error += `Input ${argName} is connected to a missing module with id ${id}\n`
+					}
+				}
+			})
+
+			return error
+		} catch (e) {
+			return `Input ${argName} expression is invalid`
+		}
+	}
+
+	return
+}
+
+export async function computeFlowStepWarning(
+	argName: string,
+	flowModuleValue: FlowModuleValue,
+	messages: Record<
+		string,
+		{
+			message: string
+			type: 'error' | 'warning'
+		}
+	>,
+	schema: Schema,
+	moduleIds: string[] = []
+) {
+	if (messages[argName]) {
+		delete messages[argName]
+	}
+
+	const type = flowModuleValue.type
+	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+		if (!isInputFilled(flowModuleValue.input_transforms, argName, schema ?? {})) {
+			messages[argName] = {
+				message: `Input ${argName} is required but not filled`,
+				type: 'warning'
+			}
+		}
+
+		const errorMessage = await isConnectedToMissingModule(argName, flowModuleValue, moduleIds)
+
+		if (errorMessage) {
+			messages[argName] = {
+				message: errorMessage,
+				type: 'error'
+			}
+		} else {
+			if (messages[argName]?.type === 'error') {
+				delete messages[argName]
+			}
+		}
+	}
+
+	return messages
+}
+
+export async function initFlowStepWarnings(
+	flowModuleValue: FlowModuleValue,
+	schema: Schema,
+	moduleIds: string[] = []
+) {
+	const messages: Record<
+		string,
+		{
+			message: string
+			type: 'error' | 'warning'
+		}
+	> = {}
+	const type = flowModuleValue.type
+
+	if (type == 'rawscript' || type == 'script' || type == 'flow') {
+		const keys = Object.keys(flowModuleValue.input_transforms ?? {})
+		const promises = keys.map(async (key) => {
+			await computeFlowStepWarning(key, flowModuleValue, messages, schema ?? {}, moduleIds)
+		})
+		await Promise.all(promises)
+	}
+
+	return messages
 }

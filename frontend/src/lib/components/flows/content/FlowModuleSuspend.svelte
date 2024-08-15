@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 
 	import { Alert, Tab, Tabs } from '$lib/components/common'
 	import { GroupService, type FlowModule } from '$lib/gen'
@@ -16,6 +16,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
+	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
@@ -37,7 +38,7 @@
 			type: 'array',
 			items: {
 				type: 'string',
-				multiselect: allUserGroups
+				enum: allUserGroups
 			}
 		}
 	}
@@ -47,6 +48,8 @@
 			loadGroups()
 		}
 	}
+
+	let jsonView: boolean = false
 </script>
 
 <Section label="Suspend/Approval/Prompt" class="w-full">
@@ -115,6 +118,21 @@
 					<SecondsInput disabled />
 				{/if}
 			</Label>
+
+			<Toggle
+				options={{
+					right: 'Continue on disapproval/timeout',
+					rightTooltip:
+						'Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. If any disapproval/timeout event is received, the resume payload will be similar to every error result in Winmdill, an object containing an `error` field which you can use to distinguish between approvals and disapproval/timeouts'
+				}}
+				checked={Boolean(flowModule.suspend?.continue_on_disapprove_timeout)}
+				disabled={!Boolean(flowModule.suspend)}
+				on:change={(e) => {
+					if (flowModule.suspend) {
+						flowModule.suspend.continue_on_disapprove_timeout = e.detail
+					}
+				}}
+			/>
 		</div>
 	{:else if suspendTabSelected === 'permissions'}
 		<div class="flex flex-col mt-4 gap-4">
@@ -190,33 +208,68 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="grid grid-cols-4 mt-4 gap-2">
-			<div class="col-span-2 flex flex-col gap-2">
+		<div class="grid grid-cols-4 mt-4 gap-8">
+			<div class="col-span-2">
+				{#if flowModule?.suspend?.resume_form}
+					<EditableSchemaDrawer
+						bind:schema={flowModule.suspend.resume_form.schema}
+						on:change={(e) => {
+							const schema = e.detail
+
+							// If the schema is empty, remove the form
+							if (Object.keys(schema?.properties ?? {}).length === 0) {
+								tick().then(() => {
+									if (!flowModule.suspend) return
+									flowModule.suspend.resume_form = undefined
+								})
+							}
+						}}
+						{jsonView}
+					/>
+				{:else if emptyString($enterpriseLicense)}
+					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
+				{:else}
+					<div class="flex flex-col items-end mb-2 w-full">
+						<Toggle
+							checked={false}
+							label="JSON View"
+							size="xs"
+							options={{
+								right: 'JSON Editor',
+								rightTooltip:
+									'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+							}}
+							lightMode
+							on:change={() => {
+								if (flowModule.suspend) {
+									flowModule.suspend.resume_form = {
+										schema: emptySchema()
+									}
+								}
+								jsonView = true
+							}}
+						/>
+					</div>
+					<AddProperty
+						on:change={(e) => {
+							jsonView = false
+							if (flowModule.suspend) {
+								flowModule.suspend.resume_form = {
+									schema: e.detail
+								}
+							}
+						}}
+						schema={{}}
+					/>
+				{/if}
+			</div>
+			<div class="col-span-2 flex flex-col gap-4">
 				{#if flowModule.suspend}
 					{#if emptyString($enterpriseLicense)}
 						<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
 					{/if}
 
 					<div class="flex flex-col gap-2">
-						<Toggle
-							checked={Boolean(flowModule.suspend.resume_form)}
-							size="xs"
-							options={{
-								right: 'Add a form to the approval page'
-							}}
-							disabled={emptyString($enterpriseLicense)}
-							on:change={(e) => {
-								if (flowModule.suspend) {
-									if (e.detail) {
-										flowModule.suspend.resume_form = {
-											schema: emptySchema()
-										}
-									} else {
-										flowModule.suspend.resume_form = undefined
-									}
-								}
-							}}
-						/>
 						<div class="flex">
 							<SuspendDrawer text="Default args & Dynamic enums help" />
 						</div>
@@ -231,17 +284,6 @@
 						}}
 						disabled={!Boolean(flowModule?.suspend?.resume_form)}
 					/>
-				{/if}
-			</div>
-			<div class="col-span-2">
-				{#if flowModule?.suspend?.resume_form}
-					<EditableSchemaDrawer bind:schema={flowModule.suspend.resume_form.schema} />
-				{:else}
-					<div
-						class="bg-gray-50 border-gray-200 border dark:bg-gray-900/40 dark:border-gray-700/40 rounded-md p-2 text-xs"
-					>
-						No form
-					</div>
 				{/if}
 			</div>
 		</div>

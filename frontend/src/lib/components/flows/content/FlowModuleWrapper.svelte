@@ -18,12 +18,14 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
+	import { initFlowStepWarnings } from '../utils'
+	import { dfs } from '../dfs'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
 	export let enableAi = false
 
-	const { selectedId, schedule, flowStateStore } =
+	const { selectedId, schedule, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
@@ -61,6 +63,16 @@
 
 		flowModule = module
 		$flowStateStore[module.id] = state
+
+		if ($flowInputsStore) {
+			$flowInputsStore[module?.id] = {
+				flowStepWarnings: await initFlowStepWarnings(
+					module?.value,
+					$flowStateStore[module?.id]?.schema,
+					dfs($flowStore.value.modules, (fm) => fm.id)
+				)
+			}
+		}
 	}
 </script>
 
@@ -134,6 +146,16 @@
 
 					flowModule = module
 					$flowStateStore[module.id] = state
+
+					if ($flowInputsStore) {
+						$flowInputsStore[module.id] = {
+							flowStepWarnings: await initFlowStepWarnings(
+								module.value,
+								$flowStateStore[module.id].schema,
+								dfs($flowStore.value.modules, (fm) => fm.id)
+							)
+						}
+					}
 				}}
 				failureModule={$selectedId === 'failure'}
 			/>

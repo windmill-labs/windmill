@@ -247,13 +247,13 @@ pub async fn handle_python_job(
     base_internal_url: &str,
     envs: HashMap<String, String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let script_path = job.script_path();
+    let script_path = crate::common::use_flow_root_path(job.script_path());
     let additional_python_paths = handle_python_deps(
         job_dir,
         requirements_o,
         inner_content,
         &job.workspace_id,
-        script_path,
+        &script_path,
         &job.id,
         db,
         worker_name,
@@ -281,18 +281,19 @@ pub async fn handle_python_job(
         transforms,
         spread,
         main_name,
-    ) = prepare_wrapper(job_dir, inner_content, script_path, job.args.as_ref()).await?;
+    ) = prepare_wrapper(job_dir, inner_content, &script_path, job.args.as_ref()).await?;
 
     create_args_and_out_file(&client, job, job_dir, db).await?;
 
     let os_main_override = if let Some(main_override) = main_name.as_ref() {
-        format!("import os\nos.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
+        format!("os.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
     } else {
         String::new()
     };
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let wrapper_content: String = format!(
         r#"
+import os
 import json
 {import_loader}
 {import_base64}
@@ -318,6 +319,9 @@ def to_b_64(v: bytes):
     return b64.decode('ascii')
 
 replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
+
+result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
+
 try:
     res = inner_script.{main_override}(**args)
     typ = type(res)
@@ -333,14 +337,13 @@ try:
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
     res_json = re.sub(replace_nan, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
-    with open("result.json", 'w') as f:
+    with open(result_json, 'w') as f:
         f.write(res_json)
 except BaseException as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    with open("result.json", 'w') as f:
+    with open(result_json, 'w') as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}
-        import os
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
@@ -1008,9 +1011,6 @@ pub async fn handle_python_reqs(
 }
 
 #[cfg(feature = "enterprise")]
-use std::sync::Arc;
-
-#[cfg(feature = "enterprise")]
 use crate::JobCompletedSender;
 #[cfg(feature = "enterprise")]
 use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
@@ -1032,7 +1032,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
     let mut mem_peak: i32 = 0;
@@ -1046,6 +1046,7 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
         None,
         None,
         None,
@@ -1164,6 +1165,7 @@ for line in sys.stdin:
         Uuid::nil().to_string().as_str(),
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
         None,
         None,
         None,

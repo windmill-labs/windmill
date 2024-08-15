@@ -25,6 +25,7 @@
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
+	import { ctxRegex } from '../../utils'
 
 	// Component props
 	export let id: string
@@ -278,14 +279,15 @@
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
-						group: groupContext ? $groupContext : undefined
+						group: groupContext ? get(groupContext.context) : undefined
 					}),
 					$state,
 					isEditor,
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
-					true
+					true,
+					groupContext?.id
 				)
 
 				await setResult(r, job)
@@ -341,7 +343,12 @@
 							allowUserResources.push(k)
 						}
 					} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
-						nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
+						const ctxMatch = field.expr.match(ctxRegex)
+						if (ctxMatch) {
+							nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
+						} else {
+							nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
+						}
 						if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
 							allowUserResources.push(k)
 						}
@@ -498,6 +505,7 @@
 					computeGlobalContext($worldStore, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
+						group: groupContext ? get(groupContext.context) : undefined,
 						result: res
 					}),
 					$state,
@@ -505,7 +513,8 @@
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
-					true
+					true,
+					groupContext?.id
 				)
 				return transformerResult
 			} catch (err) {
@@ -629,6 +638,7 @@
 	onDestroy(() => {
 		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 		delete $errorByComponent[id]
+
 		if ($runnableComponents[id]) {
 			$runnableComponents[id] = {
 				...$runnableComponents[id],
@@ -647,6 +657,18 @@
 			bgRuns.update((runs) => [...runs, id])
 		} else {
 			bgRuns.update((runs) => runs.filter((r) => r !== id))
+		}
+	}
+
+	function getError(obj: any) {
+		try {
+			if (obj?.error) {
+				return obj.error
+			}
+			return undefined
+		} catch (e) {
+			console.error('Error accessing error from result', e)
+			return undefined
 		}
 	}
 </script>
@@ -743,7 +765,7 @@
 			<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 				Please select a runnable
 			</Alert>
-		{:else if result?.error && $mode === 'preview' && !errorHandledByComponent}
+		{:else if getError(result) && $mode === 'preview' && !errorHandledByComponent}
 			<div
 				title="Error"
 				class={classNames(

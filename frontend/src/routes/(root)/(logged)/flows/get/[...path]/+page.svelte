@@ -1,15 +1,24 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, JobService, type Flow, type FlowModule } from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString, encodeState } from '$lib/utils'
+	import {
+		FlowService,
+		JobService,
+		WorkspaceService,
+		type Flow,
+		type FlowModule,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
+	import { canWrite, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import { Alert, Button, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { runFormStore, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputs from '$lib/components/SavedInputs.svelte'
@@ -26,7 +35,8 @@
 		Columns,
 		Pen,
 		Eye,
-		Calendar
+		Calendar,
+		HistoryIcon
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -42,6 +52,7 @@
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -55,9 +66,13 @@
 
 	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
 
+	let previousPath: string | undefined = undefined
 	$: {
 		if ($workspaceStore && $userStore && $page.params.path) {
-			loadFlow()
+			if (previousPath !== path) {
+				previousPath = path
+				loadFlow()
+			}
 		}
 	}
 
@@ -88,9 +103,6 @@
 		} catch {}
 	}
 
-	$: urlAsync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
-	$: urlSync = `${$page.url.origin}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
-
 	let isValid = true
 	let loading = false
 
@@ -102,22 +114,34 @@
 	) {
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
-		let run = await JobService.runFlowByPath({
-			workspace: $workspaceStore!,
-			path,
-			invisibleToOwner,
-			requestBody: args,
-			scheduledFor,
-			tag: overrideTag
-		})
-		await goto('/run/' + run + '?workspace=' + $workspaceStore)
+		try {
+			let run = await JobService.runFlowByPath({
+				workspace: $workspaceStore!,
+				path,
+				invisibleToOwner,
+				requestBody: args,
+				scheduledFor,
+				tag: overrideTag
+			})
+			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+		} catch (e) {
+			throw e
+		} finally {
+			loading = false
+		}
 	}
 
-	let args = undefined
+	let args: Record<string, any> | undefined = undefined
 
-	if ($runFormStore) {
-		args = $runFormStore
-		$runFormStore = undefined
+	let hash = window.location.hash
+	if (hash.length > 1) {
+		try {
+			let searchParams = new URLSearchParams(hash.slice(1))
+			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			args = Object.fromEntries(params)
+		} catch (e) {
+			console.error('Was not able to transform hash as args', e)
+		}
 	}
 
 	let moveDrawer: MoveDrawer
@@ -131,8 +155,7 @@
 			buttons.push({
 				label: 'Fork',
 				buttonProps: {
-					href: `/flows/add?template=${flow.path}`,
-					variant: 'border',
+					href: `${base}/flows/add?template=${flow.path}`,
 					color: 'light',
 					size: 'xs',
 					startIcon: GitFork
@@ -147,7 +170,7 @@
 		buttons.push({
 			label: `View runs`,
 			buttonProps: {
-				href: `/runs/${flow.path}`,
+				href: `${base}/runs/${flow.path}`,
 				size: 'xs',
 				color: 'light',
 				startIcon: History
@@ -177,7 +200,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `/flows/edit/${path}?nodraft=true&args=${encodeState(args)}`,
+					href: `${base}/flows/edit/${path}?nodraft=true`,
 					variant: 'contained',
 					size: 'xs',
 					color: 'dark',
@@ -191,7 +214,22 @@
 
 	$: mainButtons = getMainButtons(flow, args)
 
-	function getMenuItems(flow: Flow | undefined) {
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
+
+	function getMenuItems(
+		flow: Flow | undefined,
+		deployUiSettings: WorkspaceDeployUISettings | undefined
+	) {
 		if (!flow || $userStore?.operator) return []
 
 		const menuItems: any = []
@@ -217,13 +255,20 @@
 			}
 		})
 
-		menuItems.push({
-			label: 'Deploy to staging/prod',
-			onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Server
-		})
+		if (isDeployable('flow', flow?.path ?? '', deployUiSettings)) {
+			menuItems.push({
+				label: 'Deploy to staging/prod',
+				onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
+				Icon: Server
+			})
+		}
 
 		if (can_write) {
+			menuItems.push({
+				label: 'Deployments',
+				onclick: () => flowHistory?.open(),
+				Icon: HistoryIcon
+			})
 			menuItems.push({
 				label: flow.archived ? 'Unarchive' : 'Archive',
 				onclick: () => flow?.path && archiveFlow(),
@@ -259,6 +304,8 @@
 	let detailSelected = 'saved_inputs'
 
 	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+
+	let flowHistory: FlowHistory | undefined = undefined
 </script>
 
 <Skeleton
@@ -276,6 +323,9 @@
 		loadFlow()
 	}}
 />
+{#if flow}
+	<FlowHistory bind:this={flowHistory} path={flow.path} on:historyRestore={loadFlow} />
+{/if}
 
 {#if flow}
 	<DetailPageLayout
@@ -293,7 +343,7 @@
 		<svelte:fragment slot="header">
 			<DetailPageHeader
 				{mainButtons}
-				menuItems={getMenuItems(flow)}
+				menuItems={getMenuItems(flow, deployUiSettings)}
 				title={defaultIfEmptyString(flow.summary, flow.path)}
 				bind:errorHandlerMuted={flow.ws_error_handler_muted}
 				scriptOrFlowPath={flow.path}
@@ -359,7 +409,6 @@
 						runnable={flow}
 						runAction={runFlow}
 						bind:args
-						isFlow
 						bind:this={runForm}
 					/>
 					<div class="py-10" />
@@ -418,15 +467,7 @@
 			<WebhooksPanel
 				bind:token
 				scopes={[`run:flow/${flow?.path}`]}
-				webhooks={{
-					async: {
-						path: urlAsync
-					},
-					sync: {
-						path: urlSync,
-						get_path: urlSync
-					}
-				}}
+				path={flow?.path}
 				isFlow={true}
 				{args}
 			/>

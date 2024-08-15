@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -24,7 +25,7 @@
 		Share,
 		Trash
 	} from 'lucide-svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -122,11 +123,12 @@
 	let preFilteredItems: typeof filteredItems | undefined = []
 	let filter = ''
 	let ownerFilter: string | undefined = undefined
+	let nbDisplayed = 15
 
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = 'all'
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
-	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'
+	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind =
 		(getLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING) as 'schedule' | 'script_flow') ?? 'schedule'
 	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
@@ -202,20 +204,22 @@
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled) {
-		setQuery(new URL(window.location.href), 'scheduleFilterKind', selectedFilterKind).then(() => {
-			setQuery(new URL(window.location.href), 'filterUserFolders', String(filterUserFolders)).then(
-				() => {
-					setQuery(new URL(window.location.href), 'filterEnabledDisabled', filterEnabledDisabled)
-				}
-			)
+		setQuery(new URL(window.location.href), 'filter_kind', selectedFilterKind).then(() => {
+			setQuery(
+				new URL(window.location.href),
+				'user_and_folders_only',
+				String(filterUserFolders)
+			).then(() => {
+				setQuery(new URL(window.location.href), 'status', filterEnabledDisabled)
+			})
 		})
 	}
 
 	function loadQueryFilters() {
 		let url = new URL(window.location.href)
-		let queryFilterKind = url.searchParams.get('scheduleFilterKind')
-		let queryFilterUserFolders = url.searchParams.get('filterUserFolders')
-		let queryFilterEnabledDisabled = url.searchParams.get('filterEnabledDisabled')
+		let queryFilterKind = url.searchParams.get('filter_kind')
+		let queryFilterUserFolders = url.searchParams.get('user_and_folders_only')
+		let queryFilterEnabledDisabled = url.searchParams.get('status')
 		if (queryFilterKind) {
 			selectedFilterKind = queryFilterKind as 'schedule' | 'script_flow'
 		}
@@ -290,7 +294,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs, paused_until } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const avg_s = jobs
 						? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -321,6 +325,14 @@
 									schedule: {path}
 								</div>
 							</a>
+
+							{#if paused_until && new Date(paused_until) > new Date()}
+								<div class="pb-1">
+									<Badge color="yellow"
+										>Paused until {new Date(paused_until).toLocaleString()}</Badge
+									>
+								</div>
+							{/if}
 
 							<div class="gap-2 items-center hidden md:flex">
 								<Badge large color="blue">{schedule}</Badge>
@@ -361,7 +373,7 @@
 							/>
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									href={`/runs/?schedule_path=${path}`}
+									href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
 									size="xs"
 									startIcon={{ icon: List }}
 									color="light"
@@ -408,14 +420,18 @@
 											}
 										},
 										{
-											displayName: 'View Runs',
+											displayName: 'View runs',
 											icon: List,
-											href: '/runs/?schedule_path=' + path
+											href:
+												base +
+												'/runs/?schedule_path=' +
+												path +
+												'&show_schedules=true&show_future_jobs=true'
 										},
 										{
 											displayName: 'Audit logs',
 											icon: Eye,
-											href: `/audit_logs?resource=${path}`
+											href: `${base}/audit_logs?resource=${path}`
 										},
 										{
 											displayName: 'Run now',
@@ -448,7 +464,7 @@
 									{/if}
 									{#each jobs ?? [] as job}
 										{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-										<a href="/run/{job.id}?workspace={$workspaceStore}">
+										<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
 											<JobPreview id={job.id}>
 												<div>
 													<div
@@ -478,6 +494,12 @@
 			<NoItemFound />
 		{/if}
 	</div>
+	{#if items && items?.length > 15 && nbDisplayed < items.length}
+		<span class="text-xs"
+			>{nbDisplayed} items out of {items.length}
+			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+		>
+	{/if}
 </CenteredPage>
 
 <ShareModal

@@ -14,6 +14,7 @@
 	import { customisationByComponent } from '../componentsPanel/cssUtils'
 	import { sendUserToast } from '$lib/toast'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	export let component: AppComponent | undefined
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
@@ -125,6 +126,8 @@
 
 	let type: string | undefined = component?.type
 </script>
+
+<HighlightTheme />
 
 {#if migrationModalOpen}
 	<div

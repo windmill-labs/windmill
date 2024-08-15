@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { goto, replaceState } from '$app/navigation'
 	import { page } from '$app/stores'
+	import { base } from '$lib/base'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
@@ -20,7 +22,11 @@
 	}
 
 	$: if ($workspaceStore && $page.params.path) {
-		loadApp()
+		if (app && $page.params.path === app.path) {
+			console.log('App already loaded')
+		} else {
+			loadApp()
+		}
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
@@ -33,7 +39,7 @@
 	{#key app}
 		<div
 			class={twMerge(
-				'min-h-screen h-full w-full',
+				'min-h-screen h-full w-full flex flex-col',
 				app?.value.css?.['app']?.['viewer']?.class,
 				'wm-app-viewer'
 			)}
@@ -56,6 +62,8 @@
 				isEditor={false}
 				noBackend={false}
 				{hideRefreshBar}
+				replaceStateFn={(path) => replaceState(path, $page.state)}
+				gotoFn={(path, opt) => goto(path, opt)}
 			/>
 			{#if can_write && !hideEditBtn}
 				<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
@@ -63,7 +71,7 @@
 						size="sm"
 						startIcon={{ icon: Pen }}
 						variant="border"
-						href="/apps/edit/{app.path}?nodraft=true">Edit</Button
+						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
 					>
 				</div>
 			{/if}

@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned};
+use windmill_common::worker::{get_annotation, to_raw_value, to_raw_value_owned};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -187,14 +187,16 @@ fn parse_bun_relative_imports(raw_code: &str, script_path: &str) -> error::Resul
     Ok(relative_imports)
 }
 
-fn extract_relative_imports(
+pub fn extract_relative_imports(
     raw_code: &str,
     script_path: &str,
     language: &Option<ScriptLang>,
 ) -> Option<Vec<String>> {
     match language {
         Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
-        Some(ScriptLang::Bun) => parse_bun_relative_imports(&raw_code, script_path).ok(),
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
+            parse_bun_relative_imports(&raw_code, script_path).ok()
+        }
         _ => None,
     }
 }
@@ -232,6 +234,24 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
                 .is_some_and(|y| y.to_string().as_str() == "true")
         })
         .unwrap_or(false);
+    let npm_mode = if job
+        .language
+        .as_ref()
+        .map(|v| v == &ScriptLang::Bun)
+        .unwrap_or(false)
+    {
+        Some(
+            job.args
+                .as_ref()
+                .map(|x| {
+                    x.get("npm_mode")
+                        .is_some_and(|y| y.to_string().as_str() == "true")
+                })
+                .unwrap_or(false),
+        )
+    } else {
+        None
+    };
 
     let content = capture_dependency_job(
         &job.id,
@@ -252,6 +272,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
         token,
         script_path,
         raw_deps,
+        npm_mode,
     )
     .await;
 
@@ -267,7 +288,7 @@ pub async fn handle_dependency_job<R: rsmq_async::RsmqConnection + Send + Sync +
             let hash = job.script_hash.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
             sqlx::query!(
-                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                "UPDATE script SET lock = $1, created_at = now() WHERE hash = $2 AND workspace_id = $3",
                 &content,
                 &hash.0,
                 w_id
@@ -409,7 +430,34 @@ async fn trigger_dependents_to_recompute_dependencies<
                 "nodes_to_relock".to_string(),
                 to_raw_value(&s.importer_node_ids),
             );
-            JobPayload::FlowDependencies { path: s.importer_path.clone(), dedicated_worker: None }
+            let r = sqlx::query_scalar!(
+                "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
+                s.importer_path,
+                w_id,
+            ).fetch_one(db)
+            .await
+            .map_err(to_anyhow);
+            match r {
+                Ok(Some(version)) => JobPayload::FlowDependencies {
+                    path: s.importer_path.clone(),
+                    dedicated_worker: None,
+                    version: version,
+                },
+                Ok(None) => {
+                    tracing::error!(
+                        "no flow version found for path {path}",
+                        path = s.importer_path
+                    );
+                    continue;
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "error getting latest deployed flow version for path {path}: {err}",
+                        path = s.importer_path,
+                    );
+                    continue;
+                }
+            }
         } else {
             tracing::error!(
                 "unexpected importer kind: {kind} for path {path}",
@@ -424,7 +472,7 @@ async fn trigger_dependents_to_recompute_dependencies<
             tx,
             &w_id,
             job_payload,
-            windmill_queue::PushArgs { args, extra: HashMap::new() },
+            windmill_queue::PushArgs { args: &args, extra: None },
             &created_by,
             email,
             permissioned_as.to_string(),
@@ -470,6 +518,33 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
     })?;
+
+    let skip_flow_update = job
+        .args
+        .as_ref()
+        .map(|x| {
+            x.get("skip_flow_update")
+                .map(|v| serde_json::from_str::<bool>(v.get()).ok())
+                .flatten()
+        })
+        .flatten()
+        .unwrap_or(false);
+
+    let version = if skip_flow_update {
+        None
+    } else {
+        Some(
+            job.script_hash
+                .clone()
+                .ok_or_else(|| {
+                    Error::InternalErr(
+                        "Flow Dependency requires script hash (flow version)".to_owned(),
+                    )
+                })?
+                .0,
+        )
+    };
+
     let raw_flow = job.raw_flow.clone().map(|v| Ok(v)).unwrap_or_else(|| {
         Err(Error::InternalErr(
             "Flow Dependency requires raw flow".to_owned(),
@@ -528,29 +603,43 @@ pub async fn handle_flow_dependency_job<R: rsmq_async::RsmqConnection + Send + S
         })));
     }
 
-    sqlx::query!(
-        "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-        new_flow_value,
-        job_path,
-        job.workspace_id
-    )
-    .execute(db)
-    .await?;
-    tx.commit().await?;
+    if !skip_flow_update {
+        let version = version.ok_or_else(|| {
+            Error::InternalErr("Flow Dependency requires script hash (flow version)".to_owned())
+        })?;
 
-    if let Err(e) = handle_deployment_metadata(
-        &job.email,
-        &job.created_by,
-        &db,
-        &job.workspace_id,
-        DeployedObject::Flow { path: job_path, parent_path },
-        deployment_message,
-        rsmq.clone(),
-        false,
-    )
-    .await
-    {
-        tracing::error!(%e, "error handling deployment metadata");
+        sqlx::query!(
+            "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+            new_flow_value,
+            job_path,
+            job.workspace_id
+        )
+        .execute(db)
+        .await?;
+        sqlx::query!(
+            "UPDATE flow_version SET value = $1 WHERE id = $2",
+            new_flow_value,
+            version
+        )
+        .execute(db)
+        .await?;
+
+        tx.commit().await?;
+
+        if let Err(e) = handle_deployment_metadata(
+            &job.email,
+            &job.created_by,
+            &db,
+            &job.workspace_id,
+            DeployedObject::Flow { path: job_path, parent_path, version },
+            deployment_message,
+            rsmq.clone(),
+            false,
+        )
+        .await
+        {
+            tracing::error!(%e, "error handling deployment metadata");
+        }
     }
 
     Ok(to_raw_value_owned(json!({
@@ -613,7 +702,7 @@ async fn lock_modules<'c>(
             lock,
             path,
             content,
-            language,
+            mut language,
             input_transforms,
             tag,
             custom_concurrency_key,
@@ -765,8 +854,11 @@ async fn lock_modules<'c>(
             }
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
-                new_flow_modules.push(e);
-                continue;
+                let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
+                if skip_creating_new_lock {
+                    new_flow_modules.push(e);
+                    continue;
+                }
             }
         }
 
@@ -785,8 +877,12 @@ async fn lock_modules<'c>(
             worker_dir,
             base_internal_url,
             token,
-            &path.clone().unwrap_or_else(|| job_path.to_string()),
+            &format!(
+                "{}/flow",
+                &path.clone().unwrap_or_else(|| job_path.to_string())
+            ),
             false,
+            None,
         )
         .await;
         //
@@ -820,6 +916,14 @@ async fn lock_modules<'c>(
                     append_logs(&job.id, &job.workspace_id, logs, db).await;
                 }
 
+                if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
+                    let anns = get_annotation(&content);
+                    if anns.native_mode && language == ScriptLang::Bun {
+                        language = ScriptLang::Bunnative;
+                    } else if !anns.native_mode && language == ScriptLang::Bunnative {
+                        language = ScriptLang::Bun;
+                    };
+                }
                 e.value = windmill_common::worker::to_raw_value(&FlowModuleValue::RawScript {
                     lock: Some(new_lock),
                     path,
@@ -861,6 +965,18 @@ async fn lock_modules<'c>(
     Ok((new_flow_modules, tx, modified_ids))
 }
 
+fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
+    if language == &ScriptLang::Bun || language == &ScriptLang::Bunnative {
+        let anns = get_annotation(&content);
+        if anns.native_mode && language == &ScriptLang::Bun {
+            return false;
+        } else if !anns.native_mode && language == &ScriptLang::Bunnative {
+            return false;
+        };
+    }
+    true
+}
+
 #[async_recursion]
 async fn lock_modules_app(
     value: Value,
@@ -894,10 +1010,12 @@ async fn lock_modules_app(
                             if v.get("lock")
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
-                                logs.push_str(
-                                    "Found already locked inline script. Skipping lock...\n",
-                                );
-                                return Ok(Value::Object(m.clone()));
+                                if skip_creating_new_lock(&language, &content) {
+                                    logs.push_str(
+                                        "Found already locked inline script. Skipping lock...\n",
+                                    );
+                                    return Ok(Value::Object(m.clone()));
+                                }
                             }
                             logs.push_str("Found lockable inline script. Generating lock...\n");
                             let new_lock = capture_dependency_job(
@@ -913,13 +1031,29 @@ async fn lock_modules_app(
                                 worker_dir,
                                 base_internal_url,
                                 token,
-                                job.script_path(),
+                                &format!("{}/app", job.script_path()),
                                 false,
+                                None,
                             )
                             .await;
                             match new_lock {
                                 Ok(new_lock) => {
                                     append_logs(&job.id, &job.workspace_id, logs, db).await;
+                                    let anns = get_annotation(&content);
+                                    let nlang = if anns.native_mode && language == ScriptLang::Bun {
+                                        Some(ScriptLang::Bunnative)
+                                    } else if !anns.native_mode && language == ScriptLang::Bunnative
+                                    {
+                                        Some(ScriptLang::Bun)
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(nlang) = nlang {
+                                        v.insert(
+                                            "language".to_string(),
+                                            serde_json::Value::String(nlang.as_str().to_string()),
+                                        );
+                                    }
                                     v.insert(
                                         "lock".to_string(),
                                         serde_json::Value::String(new_lock),
@@ -1001,14 +1135,14 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
 ) -> error::Result<()> {
     let job_path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
-            "Cannot resolve flow dependencies for flow without path".to_string(),
+            "Cannot resolve app dependencies for app without path".to_string(),
         )
     })?;
 
     let id = job
         .script_hash
         .clone()
-        .ok_or_else(|| Error::InternalErr("Flow Dependency requires script hash".to_owned()))?
+        .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
         .0;
     let value = sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
@@ -1030,7 +1164,7 @@ pub async fn handle_app_dependency_job<R: rsmq_async::RsmqConnection + Send + Sy
         )
         .await?;
 
-        // Re-check cancelation to ensure we don't accidentially override a flow.
+        // Re-check cancelation to ensure we don't accidentially override an app.
         if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
             .fetch_optional(db)
             .await
@@ -1106,6 +1240,7 @@ async fn capture_dependency_job(
     token: &str,
     script_path: &str,
     raw_deps: bool,
+    npm_mode: Option<bool>,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
@@ -1200,7 +1335,9 @@ async fn capture_dependency_job(
             )
             .await
         }
-        ScriptLang::Bun => {
+        ScriptLang::Bun | ScriptLang::Bunnative => {
+            let npm_mode = npm_mode
+                .unwrap_or_else(|| windmill_common::worker::get_annotation(job_raw_code).npm_mode);
             if !raw_deps {
                 let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
             }
@@ -1221,9 +1358,24 @@ async fn capture_dependency_job(
                 } else {
                     None
                 },
-                false,
+                npm_mode,
             )
             .await?;
+            if req.is_some() && !raw_deps {
+                crate::bun_executor::prebundle_script(
+                    job_raw_code,
+                    req.clone(),
+                    script_path,
+                    job_id,
+                    w_id,
+                    db,
+                    &job_dir,
+                    base_internal_url,
+                    worker_name,
+                    &token,
+                )
+                .await?;
+            }
             Ok(req.unwrap_or_else(String::new))
         }
         ScriptLang::Php => {

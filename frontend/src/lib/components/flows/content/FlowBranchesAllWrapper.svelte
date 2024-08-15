@@ -45,7 +45,6 @@
 						<h3 class="mb-4"
 							>{value.branches.length} branch{value.branches.length > 1 ? 'es' : ''}</h3
 						>
-						<p>Add branches and steps directly on the graph.</p>
 						<div class="flex flex-col gap-y-4 py-2 w-full">
 							{#each value.branches as branch, i}
 								<div class="flex flex-row gap-x-4 w-full items-center">
@@ -64,6 +63,7 @@
 								</div>
 							{/each}
 						</div>
+						<p class="text-sm">Add branches and steps directly on the graph.</p>
 						<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
 						<Toggle
 							bind:checked={value.parallel}

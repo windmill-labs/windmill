@@ -55,7 +55,7 @@
 		Object.keys(schema?.properties ?? {}).forEach((key) => {
 			if (schema?.properties[key].default != undefined && args[key] == undefined) {
 				let value = schema?.properties[key].default
-				nargs[key] = value === 'object' ? JSON.parse(JSON.stringify(value)) : value
+				nargs[key] = value === 'object' ? structuredClone(value) : value
 			}
 		})
 		args = nargs
@@ -87,7 +87,6 @@
 				hasChanged = hasChanged || alignOrderWithProperties(schema.properties[k])
 			}
 			if (!norder.includes(k)) {
-				console.log('adding', k, index)
 				norder = [...norder.slice(0, index), k, ...norder.slice(index)]
 			}
 			index += 1
@@ -100,21 +99,23 @@
 		return hasChanged
 	}
 	function onSchemaChange() {
-		dispatch('change', schema)
+		let editSchema = false
 		if (alignOrderWithProperties(schema)) {
-			schema = schema
+			editSchema = true
 		}
 		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
 		if (schema?.properties && !deepEqual(lkeys, keys)) {
 			keys = [...lkeys]
-			schema = schema
+			editSchema = true
 			if (opened == undefined) {
 				opened = keys[0]
 			}
 		}
+		if (editSchema) {
+			schema = schema
+		}
 	}
 
-	let renderCount: number = 0
 	let opened: string | undefined = keys[0]
 	let selected = ''
 
@@ -179,6 +180,7 @@
 			opened = newName
 
 			schema = schema
+			dispatch('change', schema)
 			sendUserToast('Argument renamed successfully')
 		}
 	}
@@ -194,25 +196,25 @@
 		{#if !noPreview}
 			<Pane size={50} minSize={20}>
 				<div class="p-4">
-					{#key renderCount}
-						<SchemaFormDnd
-							{schema}
-							{dndType}
-							bind:args
-							on:click={(e) => {
-								opened = e.detail
-							}}
-							on:reorder={(e) => {
-								schema.order = e.detail
-							}}
-							on:change={() => {
-								schema = schema
-								dispatch('change', schema)
-							}}
-							{lightweightMode}
-							prettifyHeader={isAppInput}
-						/>
-					{/key}
+					<SchemaFormDnd
+						{schema}
+						{dndType}
+						bind:args
+						on:click={(e) => {
+							opened = e.detail
+						}}
+						on:reorder={(e) => {
+							schema.order = e.detail
+							schema = schema
+							dispatch('change', schema)
+						}}
+						on:change={() => {
+							schema = schema
+							dispatch('change', schema)
+						}}
+						{lightweightMode}
+						prettifyHeader={isAppInput}
+					/>
 				</div>
 			</Pane>
 		{/if}
@@ -260,48 +262,50 @@
 									<div class="flex flex-row gap-2">
 										{argName}
 										{#if !uiOnly}
-											<Popup
-												floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-												containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-												let:close
-											>
-												<svelte:fragment slot="button">
-													<Button
-														color="light"
-														size="xs2"
-														nonCaptureEvent
-														startIcon={{ icon: Pen }}
-														iconOnly
-													/>
-												</svelte:fragment>
-												<Label label="Name">
-													<div class="flex flex-col gap-2">
-														<input
-															type="text"
-															class="w-full !bg-surface"
-															value={argName}
-															id={argName + i}
-															on:keydown={(event) => {
-																if (event.key === 'Enter') {
+											<div on:click|stopPropagation|preventDefault>
+												<Popup
+													floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+													containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+													let:close
+												>
+													<svelte:fragment slot="button">
+														<Button
+															color="light"
+															size="xs2"
+															nonCaptureEvent
+															startIcon={{ icon: Pen }}
+															iconOnly
+														/>
+													</svelte:fragment>
+													<Label label="Name">
+														<div class="flex flex-col gap-2">
+															<input
+																type="text"
+																class="w-full !bg-surface"
+																value={argName}
+																id={argName + i}
+																on:keydown={(event) => {
+																	if (event.key === 'Enter') {
+																		renameProperty(argName, argName + i)
+																		close(null)
+																	}
+																}}
+															/>
+															<Button
+																variant="border"
+																color="light"
+																size="xs"
+																on:click={() => {
 																	renameProperty(argName, argName + i)
 																	close(null)
-																}
-															}}
-														/>
-														<Button
-															variant="border"
-															color="light"
-															size="xs"
-															on:click={() => {
-																renameProperty(argName, argName + i)
-																close(null)
-															}}
-														>
-															Rename
-														</Button>
-													</div>
-												</Label>
-											</Popup>
+																}}
+															>
+																Rename
+															</Button>
+														</div>
+													</Label>
+												</Popup>
+											</div>
 										{/if}
 									</div>
 
@@ -425,6 +429,8 @@
 																				type: e.detail
 																			}
 																		}
+																		schema = schema
+																		dispatch('change', schema)
 																	}}
 																>
 																	{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
@@ -465,9 +471,11 @@
 																} else {
 																	schema.required = schema.required?.filter((x) => x !== argName)
 																}
+																dispatch('change', schema)
 															}}
-															on:schemaChange={() => {
-																renderCount++
+															on:schemaChange={(e) => {
+																schema = schema
+																dispatch('change', schema)
 															}}
 														/>
 													{/if}
@@ -492,6 +500,7 @@
 							on:change={() => {
 								try {
 									schema = JSON.parse(schemaString)
+									dispatch('change', schema)
 									error = ''
 								} catch (err) {
 									error = err.message

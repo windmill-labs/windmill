@@ -4,7 +4,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import { AlertCircle, CheckCircle2, ChevronDown, Filter, PlayCircle, X } from 'lucide-svelte'
+	import { AlertCircle, CheckCircle2, ChevronDown, Filter, Hourglass, PlayCircle, X } from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Label from '../Label.svelte'
@@ -18,7 +18,8 @@
 	export let path: string | null = null
 	export let label: string | null = null
 	export let concurrencyKey: string | null = null
-	export let success: 'running' | 'success' | 'failure' | undefined = undefined
+	export let tag: string | null = null
+	export let success: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
 	export let argError: string
@@ -28,6 +29,7 @@
 	export let user: string | null = null
 	export let folder: string | null = null
 	export let mobile: boolean = false
+	export let schedulePath: string | undefined
 
 	// Autocomplete data
 	export let paths: string[] = []
@@ -37,39 +39,52 @@
 
 	$: displayedLabel = label
 	$: displayedConcurrencyKey = concurrencyKey
+	$: displayedTag = tag
+	$: displayedSchedule = schedulePath
 
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
 
-	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' = 'path'
+	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' | 'tag' | 'schedulePath' = 'path'
 
 	const dispatch = createEventDispatcher()
 
-	let manuallySet = false
+	let autoSet = false
 
-	$: {
+	
+	$: (path || user || folder || label || concurrencyKey || tag || schedulePath) && autosetFilter()
+
+	function autosetFilter() {
 		if (path !== null && path !== '' && filterBy !== 'path') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'path'
 		} else if (user !== null && user !== '' && filterBy !== 'user') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'user'
 		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'folder'
 		} else if (label !== null && label !== '' && filterBy !== 'label') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'label'
 		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'concurrencyKey'
+		} else if (tag !== null && tag !== '' && filterBy !== 'tag') {
+			autoSet = true
+			filterBy = 'tag'
+		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
+			autoSet = true
+			filterBy = 'schedulePath'
 		}
 	}
 
 	let labelTimeout: NodeJS.Timeout | undefined = undefined
 	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
+	let tagTimeout: NodeJS.Timeout | undefined = undefined
 </script>
-
+{autoSet}
+{filterBy}
 <div class="flex gap-4">
 	{#if !mobile}
 		<div class="flex gap-2">
@@ -88,14 +103,16 @@
 				<ToggleButtonGroup
 					bind:selected={filterBy}
 					on:selected={() => {
-						if (!manuallySet) {
+						if (!autoSet) {
 							path = null
 							user = null
 							folder = null
 							label = null
 							concurrencyKey = null
+							tag = null
+							schedulePath = undefined
 						} else {
-							manuallySet = false
+							autoSet = false
 						}
 					}}
 				>
@@ -104,8 +121,10 @@
 					<ToggleButton value="folder" label="Folder" />
 					<ToggleButtonMore
 						togglableItems={[
-							{ label: 'Concurrency key', value: 'concurrencyKey' },
-							{ label: 'Label', value: 'label' }
+							{ label: 'Schedule Path', value: 'schedulePath' },
+							{ label: 'Concurrency Key', value: 'concurrencyKey' },
+							{ label: 'Label', value: 'label' },
+							{ label: 'Tag', value: 'tag' }
 						]}
 					/>
 				</ToggleButtonGroup>
@@ -295,6 +314,72 @@
 						/>
 					</div>
 				{/key}
+			{:else if filterBy === 'tag'}
+				{#key tag}
+					<div class="relative">
+						{#if tag}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									tag = null
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+						<span class="text-xs absolute -top-4"> Tag </span>
+
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedTag}
+							on:keydown={(e) => {
+								if (tagTimeout) {
+									clearTimeout(tagTimeout)
+								}
+
+								tagTimeout = setTimeout(() => {
+									tag = displayedTag
+								}, 1000)
+							}}
+						/>
+					</div>
+				{/key}
+			{:else if filterBy === 'schedulePath'}
+				{#key tag}
+					<div class="relative">
+						{#if tag}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									schedulePath = undefined
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+						<span class="text-xs absolute -top-4"> Schedule Path </span>
+
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedSchedule}
+							on:keydown={(e) => {
+								if (tagTimeout) {
+									clearTimeout(tagTimeout)
+								}
+
+								tagTimeout = setTimeout(() => {
+									schedulePath = displayedSchedule
+								}, 1000)
+							}}
+						/>
+					</div>
+				{/key}
 			{/if}
 		</div>
 		<div class="relative">
@@ -352,6 +437,23 @@
 					icon={AlertCircle}
 					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
 				/>
+				{#if success == 'waiting'}
+				<ToggleButton
+					value={'waiting'}
+					tooltip="Waiting"
+					class="whitespace-nowrap"
+					icon={Hourglass}
+					iconProps={{ color: 'blue'}}
+				/>
+				{:else if success == 'suspended'}
+				<ToggleButton
+					value={'suspended'}
+					tooltip="Suspended"
+					class="whitespace-nowrap"
+					icon={Hourglass}
+					iconProps={{ color: 'blue'}}
+				/>
+				{/if}
 			</ToggleButtonGroup>
 		</div>
 	{/if}
@@ -378,19 +480,27 @@
 						<ToggleButtonGroup
 							bind:selected={filterBy}
 							on:selected={() => {
-								if (!manuallySet) {
+								if (!autoSet) {
 									path = null
 									user = null
 									folder = null
 									label = null
+									concurrencyKey = null
+									tag = null
+									schedulePath = undefined
 								} else {
-									manuallySet = false
+									autoSet = false
 								}
 							}}
 						>
 							<ToggleButton value="path" label="Path" />
 							<ToggleButton value="user" label="User" />
 							<ToggleButton value="folder" label="Folder" />
+							<ToggleButton value="schedulePath" label="Schedule" />
+							<ToggleButton value="concurrencyKey" label="Concurrency" />
+							<ToggleButton value="tag" label="Tag" />
+							<ToggleButton value="label" label="Label" />
+							
 						</ToggleButtonGroup>
 					</Label>
 
@@ -415,10 +525,10 @@
 										items={usernames}
 										value={user}
 										bind:selectedItem={user}
-										inputClassName="!h-[32px] py-1 !text-xs !w-64"
+										inputClassName="!h-[32px] py-1 !text-xs !w-80"
 										hideArrow
 										className={user ? '!font-bold' : ''}
-										dropdownClassName="!font-normal !w-64 !max-w-64"
+										dropdownClassName="!font-normal !w-80 !max-w-80"
 									/>
 								</div>
 							</Label>
@@ -445,10 +555,10 @@
 										items={folders}
 										value={folder}
 										bind:selectedItem={folder}
-										inputClassName="!h-[32px] py-1 !text-xs !w-64"
+										inputClassName="!h-[32px] py-1 !text-xs !w-80"
 										hideArrow
 										className={folder ? '!font-bold' : ''}
-										dropdownClassName="!font-normal !w-64 !max-w-64"
+										dropdownClassName="!font-normal !w-80 !max-w-80"
 									/>
 								</div>
 							</Label>
@@ -479,6 +589,107 @@
 										hideArrow
 										className={path ? '!font-bold' : ''}
 										dropdownClassName="!font-normal !w-80 !max-w-80"
+									/>
+								</div>
+							</Label>
+						{/key}
+					{:else if filterBy === 'tag'}
+						{#key tag}
+							<Label label="Tag">
+								<div class="relative w-full">
+									{#if tag}
+										<button
+											class="absolute top-2 right-2 z-50"
+											on:click={() => {
+												tag = null
+											}}
+										>
+											<X size={14} />
+										</button>
+									{/if}
+
+									<input
+										autofocus
+										type="text"
+										class="!h-[32px] py-1 !text-xs !w-80"
+										bind:value={displayedTag}
+										on:keydown={(e) => {
+											if (tagTimeout) {
+												clearTimeout(tagTimeout)
+											}
+
+											tagTimeout = setTimeout(() => {
+												tag = displayedTag
+												console.log(tag)
+											}, 1000)
+										}}
+									/>
+								</div></Label
+							>
+						{/key}
+					{:else if filterBy === 'label'}
+						{#key label}
+							<Label label="Label">
+								<div class="relative w-full">
+									{#if label}
+										<button
+											class="absolute top-2 right-2 z-50"
+											on:click={() => {
+												label = null
+											}}
+										>
+											<X size={14} />
+										</button>
+									{/if}
+
+									<input
+										autofocus
+										type="text"
+										class="!h-[32px] py-1 !text-xs !w-80"
+										bind:value={displayedLabel}
+										on:keydown={(e) => {
+											if (labelTimeout) {
+												clearTimeout(labelTimeout)
+											}
+
+											labelTimeout = setTimeout(() => {
+												label = displayedLabel
+											}, 1000)
+										}}
+									/>
+								</div></Label
+							>
+						{/key}
+					{:else if filterBy === 'concurrencyKey'}
+						{#key concurrencyKey}
+							<Label label="Concurrency Key">
+								<div class="relative w-full">
+									{#if concurrencyKey}
+										<button
+											class="absolute top-2 right-2 z-50"
+											on:click={() => {
+												concurrencyKey = null
+												// dispatch('reset')
+											}}
+										>
+											<X size={14} />
+										</button>
+									{/if}
+
+									<input
+										autofocus
+										type="text"
+										class="!h-[32px] py-1 !text-xs !w-80"
+										bind:value={displayedConcurrencyKey}
+										on:keydown={(e) => {
+											if (concurrencyKeyTimeout) {
+												clearTimeout(concurrencyKeyTimeout)
+											}
+
+											concurrencyKeyTimeout = setTimeout(() => {
+												concurrencyKey = displayedConcurrencyKey
+											}, 1000)
+										}}
 									/>
 								</div>
 							</Label>
@@ -536,10 +747,10 @@
 					{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
 				</span>
 				<Label label="Filter by args">
-					<JsonEditor on:change bind:error={argError} bind:code={copyArgFilter} />
+					<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
 				</Label>
 				<Label label="Filter by result">
-					<JsonEditor on:change bind:error={resultError} bind:code={copyResultFilter} />
+					<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
 				</Label>
 
 				<div class="flex flex-row gap-2 justify-between">
@@ -549,7 +760,6 @@
 						on:click={() => {
 							argFilter = ''
 							resultFilter = ''
-							close(null)
 						}}
 					>
 						Clear
@@ -561,7 +771,6 @@
 						on:click={() => {
 							argFilter = copyArgFilter
 							resultFilter = copyResultFilter
-							close(null)
 						}}
 					>
 						Set args/result filter

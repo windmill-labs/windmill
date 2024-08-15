@@ -20,7 +20,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { initCss } from '../../utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

@@ -55,6 +55,7 @@
 	import StylePanel from './settingsPanel/StylePanel.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
+	import { goto, replaceState } from '$app/navigation'
 
 	export let app: App
 	export let path: string
@@ -78,6 +79,10 @@
 
 	const appStore = writable<App>(app)
 	const selectedComponent = writable<string[] | undefined>(undefined)
+
+	// $: selectedComponent.subscribe((s) => {
+	// 	console.log('selectedComponent', s)
+	// })
 	const mode = writable<EditorMode>('dnd')
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
@@ -85,6 +90,10 @@
 		opened: false,
 		input: undefined,
 		hoveredComponent: undefined
+	})
+
+	summaryStore.subscribe((s) => {
+		$worldStore?.outputsById['ctx'].summary.set(s)
 	})
 
 	const cssEditorOpen = writable<boolean>(false)
@@ -113,7 +122,9 @@
 		query: Object.fromEntries($page.url.searchParams.entries()),
 		hash: $page.url.hash,
 		workspace: $workspaceStore,
-		mode: 'editor'
+		mode: 'editor',
+		summary: $summaryStore,
+		author: policy.on_behalf_of_email
 	}
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
@@ -155,7 +166,15 @@
 		darkMode,
 		cssEditorOpen,
 		previewTheme,
-		debuggingComponents: writable({})
+		debuggingComponents: writable({}),
+		replaceStateFn: (path) => replaceState(path, $page.state),
+		policy: policy,
+		recomputeAllContext: writable({
+			loading: false,
+			componentNumber: 0,
+			refreshing: [],
+			progress: 100
+		})
 	})
 
 	let scale = writable(100)
@@ -326,7 +345,10 @@
 
 	// Animation logic for cssInput
 	$: animateCssInput($cssEditorOpen)
-	$: $cssEditorOpen && secondaryMenuLeft?.open(StylePanel, {})
+	$: $cssEditorOpen &&
+		secondaryMenuLeft?.open(StylePanel, {
+			type: 'style'
+		})
 
 	function animateCssInput(cssEditorOpen: boolean) {
 		if (cssEditorOpen && !cssToggled) {
@@ -514,6 +536,7 @@
 	}
 
 	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = undefined
+	let stillInJobEnter = false
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -551,6 +574,8 @@
 						isEditor
 						{context}
 						noBackend={false}
+						replaceStateFn={(path) => replaceState(path, $page.state)}
+						gotoFn={(path, opt) => goto(path, opt)}
 					/>
 				</div>
 			</SplitPanesWrapper>
@@ -655,9 +680,15 @@
 										class="relative h-full w-full overflow-x-visible"
 										on:mouseenter={() => {
 											runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
-											$runnableJob.focused = true
+											stillInJobEnter = true
+											runnableJobEnterTimeout = setTimeout(() => {
+												if (stillInJobEnter) {
+													$runnableJob.focused = true
+												}
+											}, 200)
 										}}
 										on:mouseleave={() => {
+											stillInJobEnter = false
 											runnableJobEnterTimeout = setTimeout(
 												() => ($runnableJob.focused = false),
 												200

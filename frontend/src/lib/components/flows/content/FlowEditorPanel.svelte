@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
@@ -8,11 +8,14 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { initFlowStepWarnings } from '../utils'
+	import { dfs } from '../dfs'
 
 	export let noEditor = false
 	export let enableAi = false
 
-	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStore, flowStateStore, flowInputsStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
@@ -24,6 +27,30 @@
 			seenModules.push(m.id)
 		}
 	}
+
+	async function initWarnings() {
+		for (const module of $flowStore?.value?.modules) {
+			if (!module) {
+				continue
+			}
+
+			if (!$flowInputsStore) {
+				$flowInputsStore = {}
+			}
+
+			$flowInputsStore[module?.id] = {
+				flowStepWarnings: await initFlowStepWarnings(
+					module.value,
+					$flowStateStore?.[module?.id]?.schema ?? {},
+					dfs($flowStore.value.modules, (fm) => fm.id)
+				)
+			}
+		}
+	}
+
+	onMount(() => {
+		initWarnings()
+	})
 </script>
 
 {#if $selectedId?.startsWith('settings')}

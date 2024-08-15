@@ -191,6 +191,7 @@ pub enum Mode {
     Agent,
     Server,
     Standalone,
+    Indexer,
 }
 
 impl std::fmt::Display for Mode {

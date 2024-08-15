@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { RawAppService, type ListableRawApp } from '$lib/gen'
+	import { RawAppService, type ListableRawApp, type WorkspaceDeployUISettings } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -11,9 +12,10 @@
 	import Drawer from '../drawer/Drawer.svelte'
 	import DrawerContent from '../drawer/DrawerContent.svelte'
 	import FileInput from '../fileInput/FileInput.svelte'
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { FileUp, Globe, Pen, Share, Trash } from 'lucide-svelte'
+	import { isDeployable } from '$lib/utils_deployable'
 
 	export let app: ListableRawApp & { canWrite: boolean }
 	export let marked: string | undefined
@@ -24,6 +26,7 @@
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let depth: number = 0
 	export let menuOpen: boolean = false
+	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	let updateAppDrawer: Drawer
 
@@ -52,7 +55,7 @@
 	</Drawer>
 {/if}
 <Row
-	href="/apps/get_raw/{app.version}/{app.path}"
+	href="{base}/apps/get_raw/{app.version}/{app.path}"
 	kind="raw_app"
 	{marked}
 	path={app.path}
@@ -97,13 +100,17 @@
 						},
 						disabled: !canWrite
 					},
-					{
-						displayName: 'Deploy to prod/staging',
-						icon: Globe,
-						action: () => {
-							deploymentDrawer.openDrawer(path, 'raw_app')
-						}
-					},
+					...(isDeployable('app', path, deployUiSettings)
+						? [
+								{
+									displayName: 'Deploy to prod/staging',
+									icon: Globe,
+									action: () => {
+										deploymentDrawer.openDrawer(path, 'raw_app')
+									}
+								}
+						  ]
+						: []),
 					{
 						displayName: canWrite ? 'Share' : 'See Permissions',
 						icon: Share,

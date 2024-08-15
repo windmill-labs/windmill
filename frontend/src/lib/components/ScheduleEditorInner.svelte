@@ -22,11 +22,14 @@
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
+	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
+	import Label from './Label.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'retries' = 'error_handler'
 
@@ -35,6 +38,7 @@
 	let edit = true
 	let schedule: string = '0 0 12 * *'
 	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+	let paused_until: string | undefined = undefined
 
 	let itemKind: 'flow' | 'script' = 'script'
 	let errorHandleritemKind: 'flow' | 'script' = 'script'
@@ -78,6 +82,8 @@
 		runnable = undefined
 		is_flow = nis_flow
 		schedule = '0 0 12 * *'
+		paused_until = undefined
+		showPauseUntil = false
 		let defaultErrorHandlerMaybe = undefined
 		let defaultRecoveryHandlerMaybe = undefined
 		if ($workspaceStore) {
@@ -247,6 +253,8 @@
 			enabled = s.enabled
 			schedule = s.schedule
 			timezone = s.timezone
+			paused_until = s.paused_until
+			showPauseUntil = paused_until !== undefined
 			summary = s.summary ?? ''
 			script_path = s.script_path ?? ''
 			await loadScript(script_path)
@@ -328,7 +336,8 @@
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
-					tag: tag
+					tag: tag,
+					paused_until: paused_until
 				}
 			})
 			sendUserToast(`Schedule ${path} updated`)
@@ -356,7 +365,8 @@
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
 					no_flow_overlap: no_flow_overlap,
-					tag: tag
+					tag: tag,
+					paused_until: paused_until
 				}
 			})
 			sendUserToast(`Schedule ${path} created`)
@@ -390,6 +400,9 @@
 
 	let pathC: Path
 	let dirtyPath = false
+
+	let showPauseUntil = false
+	$: !showPauseUntil && (paused_until = undefined)
 </script>
 
 <Drawer size="900px" bind:this={drawer}>
@@ -405,9 +418,9 @@
 						variant="border"
 						startIcon={{ icon: List }}
 						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-						href={`/runs/${script_path}`}
+						href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
 					>
-						View Runs
+						View runs
 					</Button>
 				</div>
 				<div class="mr-8 center-center -mt-1">
@@ -441,16 +454,16 @@
 		</svelte:fragment>
 
 		<div class="flex flex-col gap-12">
-			<div>
+			<div class="flex flex-col gap-4">
 				<div>
-					<h2 class="text-base font-semibold">Metadata</h2>
-					<div class="w-full py-2">
+					<h2 class="text-base font-semibold mb-2">Metadata</h2>
+					<Label label="Summary">
 						<!-- svelte-ignore a11y-autofocus -->
 						<input
 							autofocus
 							type="text"
-							placeholder="Schedule summary"
-							class="text-sm w-full font-semibold"
+							placeholder="Short summary to be displayed when listed"
+							class="text-sm w-full"
 							bind:value={summary}
 							on:keyup={() => {
 								if (!edit && summary?.length > 0 && !dirtyPath) {
@@ -464,40 +477,42 @@
 								}
 							}}
 						/>
-					</div>
+					</Label>
 				</div>
-				{#if !edit}
-					<Path
-						bind:dirty={dirtyPath}
-						bind:this={pathC}
-						checkInitialPathExistence
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						namePlaceholder="schedule"
-						kind="schedule"
-					/>
-				{:else}
-					<div class="flex justify-start w-full">
-						<Badge
-							color="gray"
-							class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
-						>
-							Schedule path (not editable)
-						</Badge>
-						<input
-							type="text"
-							readonly
-							value={path}
-							size={path?.length || 50}
-							class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-							on:focus={({ currentTarget }) => {
-								currentTarget.select()
-							}}
+				<Label label="Path">
+					{#if !edit}
+						<Path
+							bind:dirty={dirtyPath}
+							bind:this={pathC}
+							checkInitialPathExistence
+							bind:error={pathError}
+							bind:path
+							{initialPath}
+							namePlaceholder="schedule"
+							kind="schedule"
 						/>
-						<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-					</div>
-				{/if}
+					{:else}
+						<div class="flex justify-start w-full">
+							<Badge
+								color="gray"
+								class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
+							>
+								Schedule path (not editable)
+							</Badge>
+							<input
+								type="text"
+								readonly
+								value={path}
+								size={path?.length || 50}
+								class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+								on:focus={({ currentTarget }) => {
+									currentTarget.select()
+								}}
+							/>
+							<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+						</div>
+					{/if}
+				</Label>
 			</div>
 
 			<Section label="Schedule">
@@ -505,6 +520,18 @@
 					<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 				</svelte:fragment>
 				<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
+				<Toggle
+					options={{
+						right: 'Pause schedule until...',
+						rightTooltip:
+							'Pausing the schedule will program the next job to run as if the schedule starts at the time the pause is lifted, instead of now.'
+					}}
+					bind:checked={showPauseUntil}
+					size="xs"
+				/>
+				{#if showPauseUntil}
+					<DateTimeInput bind:value={paused_until} />
+				{/if}
 			</Section>
 			<Section label="Runnable">
 				{#if !edit}

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import {
 		ResourceService,
 		SettingService,
@@ -202,7 +203,12 @@
 			<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
 		</span>
 		<div class="flex flex-row gap-1">
-			<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
+			<input
+				type="password"
+				autocomplete="new-password"
+				bind:value={openAiKey}
+				on:keyup={handleKeyUp}
+			/>
 			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} />
 		</div>
 		{#if openAiKey}
@@ -245,7 +251,7 @@
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-		<Button variant="border" size="sm" href="/user/workspaces"
+		<Button variant="border" size="sm" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button

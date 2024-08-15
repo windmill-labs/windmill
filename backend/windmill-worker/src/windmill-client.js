@@ -6621,8 +6621,8 @@ var ScriptService = class {
    * are
    * ed.
    *
-   * @param data.hideWithoutMain (default false)
-   * hide the scripts without an exported main function
+   * @param data.includeWithoutMain (default false)
+   * include scripts without an exported main function
    *
    * @param data.isTemplate (default regardless)
    * if true show only the templates
@@ -6656,7 +6656,7 @@ var ScriptService = class {
         last_parent_hash: data.lastParentHash,
         parent_hash: data.parentHash,
         show_archived: data.showArchived,
-        hide_without_main: data.hideWithoutMain,
+        includeWithoutMain: data.includeWithoutMain,
         is_template: data.isTemplate,
         kinds: data.kinds,
         starred_only: data.starredOnly,

@@ -7,9 +7,12 @@
  */
 
 use crate::db::ApiAuthed;
+#[cfg(feature = "enterprise")]
+use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 use crate::oauth2_ee::AllClients;
+use crate::smtp_server_ee::SmtpServer;
 use crate::tracing_init::MyOnFailure;
 use crate::{
     oauth2_ee::SlackVerifier,
@@ -57,6 +60,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+mod indexer_ee;
 mod inputs;
 mod integration;
 #[cfg(feature = "parquet")]
@@ -74,6 +78,7 @@ mod scim_ee;
 mod scripts;
 mod service_logs;
 mod settings;
+pub mod smtp_server_ee;
 mod static_assets;
 mod stripe_ee;
 mod tracing_init;
@@ -141,13 +146,27 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
+#[cfg(not(feature = "tantivy"))]
+type IndexReader = ();
+
+#[cfg(not(feature = "tantivy"))]
+type IndexWriter = ();
+
+#[cfg(feature = "tantivy")]
+type IndexReader = windmill_indexer::indexer_ee::IndexReader;
+#[cfg(feature = "tantivy")]
+type IndexWriter = windmill_indexer::indexer_ee::IndexWriter;
+
 pub async fn run_server(
     db: DB,
     rsmq: Option<rsmq_async::MultiplexedRsmq>,
+    index_reader: Option<IndexReader>,
+    index_writer: Option<IndexWriter>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
+    base_internal_url: String,
 ) -> anyhow::Result<()> {
     if let Some(mut rsmq) = rsmq.clone() {
         for tag in ALL_TAGS.read().await.iter() {
@@ -162,9 +181,13 @@ pub async fn run_server(
     }
     let user_db = UserDB::new(db.clone());
 
+    #[cfg(feature = "enterprise")]
+    let ext_jwks = ExternalJwks::load().await;
     let auth_cache = Arc::new(users::AuthCache::new(
         db.clone(),
         std::env::var("SUPERADMIN_SECRET").ok(),
+        #[cfg(feature = "enterprise")]
+        ext_jwks,
     ));
     let argon2 = Arc::new(Argon2::default());
 
@@ -175,9 +198,11 @@ pub async fn run_server(
 
     let middleware_stack = ServiceBuilder::new()
         .layer(Extension(db.clone()))
-        .layer(Extension(rsmq))
-        .layer(Extension(user_db))
+        .layer(Extension(rsmq.clone()))
+        .layer(Extension(user_db.clone()))
         .layer(Extension(auth_cache.clone()))
+        .layer(Extension(index_reader))
+        .layer(Extension(index_writer))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
         .layer(DefaultBodyLimit::max(
@@ -193,7 +218,18 @@ pub async fn run_server(
 
     if server_mode {
         #[cfg(feature = "embedding")]
-        load_embeddings_db(&db)
+        load_embeddings_db(&db);
+
+        let smtp_server = Arc::new(SmtpServer {
+            db: db.clone(),
+            user_db: user_db,
+            auth_cache: auth_cache.clone(),
+            rsmq: rsmq,
+            base_internal_url: base_internal_url.clone(),
+        });
+        if let Err(err) = smtp_server.start_listener_thread(addr).await {
+            tracing::error!("Error starting SMTP server: {err:#}");
+        }
     }
 
     let job_helpers_service = {
@@ -268,6 +304,10 @@ pub async fn run_server(
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
+                .nest(
+                    "/srch/w/:workspace_id/index",
+                    indexer_ee::workspaced_service(),
+                )
                 .nest("/oidc", oidc_ee::global_service())
                 .nest(
                     "/saml",

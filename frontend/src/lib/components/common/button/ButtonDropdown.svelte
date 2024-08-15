@@ -3,10 +3,12 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
 
 	export let hasPadding: boolean = true
 	export let target: string | undefined = 'body'
+	export let disabled: boolean = false
+
 	const [popperRef, popperContent] = createPopperActions({ placement: 'auto' })
 
 	const popperOptions: PopperOptions<{}> = {
@@ -28,6 +30,7 @@
 	<span use:popperRef>
 		<MenuButton
 			class={twMerge('h-full w-full flex flex-row gap-2 items-center', hasPadding ? 'px-2' : '')}
+			{disabled}
 		>
 			{#if $$slots.buttonReplacement}
 				<slot name="buttonReplacement" />
