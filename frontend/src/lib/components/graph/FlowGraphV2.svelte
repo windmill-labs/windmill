@@ -253,6 +253,7 @@
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		preventScrolling={scroll}
 		zoomOnDoubleClick={false}
+		elementsSelectable={false}
 		{proOptions}
 		nodesDraggable={false}
 		on:nodeclick={(e) => handleNodeClick(e)}

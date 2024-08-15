@@ -77,10 +77,8 @@
 	{/if}
 	<VirtualItem
 		label="Input"
-		modules={data.modules}
 		selectable
 		selected={$selectedId === 'Input'}
-		insertable={false}
 		bgColor={getStateColor(undefined, darkMode)}
 		on:insert={(e) => {
 			data.eventHandlers?.insert(e.detail)

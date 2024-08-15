@@ -20,12 +20,10 @@
 <NodeWrapper offset={data.offset} let:darkMode enableSourceHandle enableTargetHandle>
 	<VirtualItem
 		label={data.label ?? 'No branches'}
-		modules={data.modules}
 		id={data.id}
 		hideId={true}
 		selectable={true}
 		selected={false}
-		insertable={false}
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={getStateColor(data?.flowModuleStates?.[data?.id]?.type, darkMode)}
 		on:select={(e) => {

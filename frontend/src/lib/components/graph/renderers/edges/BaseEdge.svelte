@@ -52,8 +52,8 @@
 <EdgeLabelRenderer>
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
-			class="edgeButtonContainer nodrag nopan"
-			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+			class="edgeButtonContainer nodrag nopan top-0"
+			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY}px)"
 		>
 			<InsertModuleButton
 				disableAi={data.disableAi}
@@ -68,7 +68,7 @@
 		{#if data.enableTrigger}
 			<div
 				class="edgeButtonContainer nodrag nopan"
-				style:transform="translate(100%, -50%) translate({labelX}px,{labelY}px)"
+				style:transform="translate(100%, 50%) translate({sourceX}px,{sourceY}px)"
 			>
 				<InsertTriggerButton
 					disableAi={data.disableAi}

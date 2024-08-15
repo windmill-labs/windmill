@@ -26,10 +26,8 @@
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
 		label={data.label}
-		modules={data.modules}
 		selectable
 		selected={data.selected}
-		insertable={data.insertable}
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={borderStatus
 			? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')

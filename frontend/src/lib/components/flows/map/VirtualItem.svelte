@@ -1,25 +1,16 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import { ExternalLink, Wand2, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
-	import { copilotInfo } from '$lib/stores'
-	import Menu from '$lib/components/common/menu/Menu.svelte'
-	import InsertTriggerButton from './InsertTriggerButton.svelte'
 
 	export let label: string
-	export let modules: FlowModule[] | undefined
-	export let insertable: boolean
 	export let bgColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
-	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
 	export let center = true
-	export let disableAi: boolean = false
 	export let borderColor: string | undefined = undefined
 	export let hideId: boolean = false
 
@@ -31,31 +22,12 @@
 			index: number
 		}
 		select: string
-		deleteBranch: { module: FlowModule; index: number }
 	}>()
-	let triggerOpenMenu = false
-	let openNoCopilot = false
 
-	const { drawerStore: copilotDrawerStore, currentStepStore: copilotCurrentStepStore } =
+	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 </script>
 
-{#if insertable && deleteBranch}
-	<div class="w-[27px] absolute -top-[40px] left-[50%] right-[50%] -translate-x-1/2">
-		<button
-			title="Delete branch"
-			on:click|stopPropagation={() => {
-				if (deleteBranch) {
-					dispatch('deleteBranch', deleteBranch)
-				}
-			}}
-			type="button"
-			class="text-primary bg-surface border mx-[1px] 'border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-		>
-			<X class="m-[5px]" size={15} />
-		</button>
-	</div>
-{/if}
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
@@ -66,7 +38,7 @@
 		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : '',
 		'bg-surface'
 	)}
-	style="min-width: 275px; max-height: 80px; background-color: {bgColor} !important;"
+	style="width: 275px; max-height: 34px; background-color: {bgColor} !important;"
 	on:click={() => {
 		if (selectable) {
 			if (id) {
@@ -97,70 +69,3 @@
 		</div>
 	</div>
 </div>
-
-{#if insertable && modules && label == 'Input'}
-	{#if !disableAi}
-		<div
-			class="{openNoCopilot
-				? 'z-10'
-				: ''} w-9 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2"
-		>
-			<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
-				<button
-					title="AI Flow Builder"
-					on:pointerdown={$copilotInfo.exists_openai_resource_path
-						? (ev) => {
-								ev.preventDefault()
-								ev.stopPropagation()
-								$copilotDrawerStore?.openDrawer()
-						  }
-						: undefined}
-					slot="trigger"
-					type="button"
-					class=" bg-surface text-violet-800 dark:text-violet-400 border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
-				>
-					<Wand2 size={16} />
-				</button>
-				{#if !$copilotInfo.exists_openai_resource_path}
-					<div class="text-primary p-4">
-						<p class="text-sm w-80">
-							Enable Windmill AI in the
-							<a
-								href="{base}/workspace_settings?tab=openai"
-								target="_blank"
-								class="inline-flex flex-row items-center gap-1"
-								on:click={() => {
-									close()
-								}}
-							>
-								workspace settings
-								<ExternalLink size={16} />
-							</a>
-						</p>
-					</div>
-				{/if}
-			</Menu>
-		</div>
-	{/if}
-	<div
-		class="{triggerOpenMenu
-			? 'z-10'
-			: ''} w-[27px] absolute top-[50px] left-[65%] right-[35%] -translate-x-1/2"
-	>
-		<InsertTriggerButton
-			{disableAi}
-			bind:open={triggerOpenMenu}
-			on:new={(e) => {
-				if (modules) {
-					dispatch('insert', {
-						modules,
-						index: 0,
-						detail: e.detail
-					})
-				}
-			}}
-			index={0}
-			modules={modules ?? []}
-		/>
-	</div>
-{/if}
