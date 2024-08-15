@@ -123,6 +123,21 @@ export async function runScript(
   return await waitJob(jobId, verbose);
 }
 
+export async function runFlow(
+  path: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  args = args || {};
+
+  if (verbose) {
+    console.info(`running \`${path}\` synchronously with args:`, args);
+  }
+
+  const jobId = await runFlowAsync(path, args);
+  return await waitJob(jobId, verbose);
+}
+
 export async function waitJob(
   jobId: string,
   verbose: boolean = false
@@ -253,6 +268,50 @@ export async function runScriptAsync(
     body: JSON.stringify(args),
   }).then((res) => res.text());
 }
+
+export async function runFlowAsync(
+  path: string | null,
+  args: Record<string, any> | null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  // Create a script job and return its job id.
+
+  args = args || {};
+  const params: Record<string, any> = {};
+
+  if (scheduledInSeconds) {
+    params["scheduled_in_secs"] = scheduledInSeconds;
+  }
+
+  let parentJobId = getEnv("WM_JOB_ID");
+  if (parentJobId !== undefined) {
+    params["parent_job"] = parentJobId;
+  }
+
+  let rootJobId = getEnv("WM_ROOT_FLOW_JOB_ID");
+  if (rootJobId != undefined && rootJobId != "") {
+    params["root_job"] = rootJobId;
+  }
+
+  let endpoint: string;
+  if (path) {
+    endpoint = `/w/${getWorkspace()}/jobs/run/f/${path}`;
+  } else {
+    throw new Error("path must be provided");
+  }
+  let url = new URL(OpenAPI.BASE + endpoint);
+  url.search = new URLSearchParams(params).toString();
+
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OpenAPI.TOKEN}`,
+    },
+    body: JSON.stringify(args),
+  }).then((res) => res.text());
+}
+
 /**
  * Resolve a resource value in case the default value was picked because the input payload was undefined
  * @param obj resource value or path of the resource under the format `$res:path`

@@ -126,20 +126,21 @@
 			['ContextPanel', contextPanel]
 		])
 
-		new AppAggridTableActions({
+		const ta = new AppAggridTableActions({
 			target: c.eGui,
 			props: {
+				p,
 				id: id,
 				actions,
 				rowIndex,
 				row,
 				render: true,
 				wrapActions: resolvedConfig.wrapActions,
-				selectRow: () => {
+				selectRow: (p) => {
 					toggleRow(p)
 					p.node.setSelected(true)
 				},
-				onSet: (id, value) => {
+				onSet: (id, value, rowIndex) => {
 					if (!inputs[id]) {
 						inputs[id] = { [rowIndex]: value }
 					} else {
@@ -148,7 +149,7 @@
 
 					outputs?.inputs.set(inputs, true)
 				},
-				onRemove: (id) => {
+				onRemove: (id, rowIndex) => {
 					if (inputs?.[id] == undefined) {
 						return
 					}
@@ -163,6 +164,14 @@
 			},
 			context: componentContext
 		})
+		return {
+			destroy: () => {
+				ta.$destroy()
+			},
+			refresh(params) {
+				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data, p: params })
+			}
+		}
 	})
 
 	function transformColumnDefs(columnDefs: any[] | undefined) {
@@ -184,7 +193,7 @@
 				field: 'delete',
 				headerName: 'Delete',
 				cellRenderer: cellRendererFactory((c, p) => {
-					new Button({
+					let ta = new Button({
 						target: c.eGui,
 						props: {
 							btnClasses: 'w-12',
@@ -197,6 +206,14 @@
 							nonCaptureEvent: true
 						}
 					})
+					return {
+						destroy: () => {
+							ta.$destroy()
+						},
+						refresh(params) {
+							//
+						}
+					}
 				}),
 				cellRendererParams: {
 					onClick: (e) => {
