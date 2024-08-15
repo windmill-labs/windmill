@@ -10285,6 +10285,7 @@ dependencies = [
  "gethostname",
  "git-version",
  "lazy_static",
+ "object_store",
  "once_cell",
  "pg-embed",
  "prometheus",

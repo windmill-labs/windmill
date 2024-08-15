@@ -65,13 +65,19 @@ async fn list_files(
     if let Some(dt) = &lq.before {
         sqlb.and_where_le(
             "file_ts",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+            format!(
+                "to_timestamp({}  / 1000.0)",
+                dt.and_utc().timestamp_millis()
+            ),
         );
     }
     if let Some(dt) = &lq.after {
         sqlb.and_where_ge(
             "file_ts",
-            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
+            format!(
+                "to_timestamp({}  / 1000.0)",
+                dt.and_utc().timestamp_millis()
+            ),
         );
     }
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;

@@ -47,7 +47,7 @@ flamegraph = ["windmill-common/flamegraph", "windmill-worker/flamegraph"]
 loki = ["windmill-common/loki"]
 pg_embed = ["dep:pg-embed"]
 embedding = ["windmill-api/embedding"]
-parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-indexer/parquet"]
+parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "windmill-indexer/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
@@ -84,6 +84,7 @@ gethostname.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
+object_store = { workspace = true, optional = true }
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
 
 
