@@ -32,7 +32,7 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
     stats_ee::schedule_stats,
-    utils::{rd_string, Mode},
+    utils::{hostname, rd_string, Mode},
     worker::{reload_custom_tags_setting, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
@@ -318,6 +318,8 @@ Windmill Community Edition {GIT_VERSION}
     display_config(&ENV_SETTINGS);
 
     let worker_mode = num_workers > 0;
+
+    let hostname = hostname();
 
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());

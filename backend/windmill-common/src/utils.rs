@@ -201,6 +201,7 @@ impl std::fmt::Display for Mode {
             Mode::Agent => write!(f, "agent"),
             Mode::Server => write!(f, "server"),
             Mode::Standalone => write!(f, "standalone"),
+            Mode::Indexer => write!(f, "indexer"),
         }
     }
 }

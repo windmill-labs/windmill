@@ -344,6 +344,7 @@ async fn sleep_until_next_minute_start_plus_one_s() {
     .await;
 }
 
+use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
 async fn find_two_highest_files() -> (Option<String>, Option<String>) {
     let rd_dir = tokio::fs::read_dir(TMP_WINDMILL_LOGS_SERVICE).await;
     if let Ok(mut log_files) = rd_dir {
@@ -427,7 +428,7 @@ async fn send_log_file_to_object_store(
                 .and_then(|x| NaiveDateTime::parse_from_str(x, "%Y-%m-%d-%H-%M").ok())
                 .unwrap_or_else(|| Utc::now().naive_utc())
         };
-        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, file_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4)", hostname, mode.to_string(), ts, highest_file)
+        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, log_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4)", hostname, mode.to_string(), ts, highest_file)
             .execute(db)
             .await {
             tracing::error!("Error inserting log file: {:?}", e);
