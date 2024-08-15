@@ -202,7 +202,7 @@
 			['ContextPanel', contextPanel]
 		])
 
-		new AppAggridTableActions({
+		let ta = new AppAggridTableActions({
 			target: c.eGui,
 			props: {
 				id: id,
@@ -239,6 +239,15 @@
 			},
 			context: componentContext
 		})
+
+		return {
+			destroy: () => {
+				ta.$destroy()
+			},
+			refresh(params) {
+				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data })
+			}
+		}
 	})
 
 	function mountGrid() {
