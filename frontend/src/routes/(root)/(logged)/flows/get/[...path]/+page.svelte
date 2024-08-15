@@ -53,6 +53,7 @@
 	import { loadFlowSchedule, type Schedule } from '$lib/components/flows/scheduleUtils'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
+	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -470,6 +471,14 @@
 				path={flow?.path}
 				isFlow={true}
 				{args}
+			/>
+		</svelte:fragment>
+		<svelte:fragment slot="email">
+			<EmailTriggerPanel
+				bind:token
+				scopes={[`run:flow/${flow?.path}`]}
+				path={flow?.path}
+				isFlow={true}
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="schedule">
