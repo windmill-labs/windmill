@@ -221,7 +221,6 @@
 									return
 								}
 							}
-							console.log(lang, kind)
 							dispatch('new', {
 								language: lang == 'docker' ? 'bash' : lang,
 								kind,

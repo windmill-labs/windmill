@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
 	import { copyToClipboard } from '$lib/utils'
-	import { CalendarCheck2, Clipboard, Terminal, Webhook } from 'lucide-svelte'
+	import { CalendarCheck2, Clipboard, MailIcon, Terminal, Webhook } from 'lucide-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { yaml } from 'svelte-highlight/languages'
 	import json from 'svelte-highlight/languages/json'
@@ -9,7 +9,7 @@
 	import YAML from 'yaml'
 	import HighlightTheme from '../HighlightTheme.svelte'
 
-	export let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	export let triggerSelected: 'webhooks' | 'email' | 'schedule' | 'cli' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let hasStepDetails: boolean = false
 
@@ -66,6 +66,12 @@
 											Schedules
 										</span>
 									</Tab>
+									<Tab value="email">
+										<span class="flex flex-row gap-2 items-center">
+											<MailIcon size={14} />
+											Email
+										</span>
+									</Tab>
 									<Tab value="cli">
 										<span class="flex flex-row gap-2 items-center">
 											<Terminal size={14} />
@@ -78,6 +84,8 @@
 									<div class="h-full overflow-auto">
 										{#if triggerSelected === 'webhooks'}
 											<slot name="webhooks" />
+										{:else if triggerSelected === 'email'}
+											<slot name="email" />
 										{:else if triggerSelected === 'schedule'}
 											<slot name="schedule" />
 										{:else if triggerSelected === 'cli'}
