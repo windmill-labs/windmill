@@ -70,6 +70,7 @@
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -666,6 +667,14 @@
 					hash={script.hash}
 					path={script.path}
 					{args}
+				/>
+			</svelte:fragment>
+			<svelte:fragment slot="email">
+				<EmailTriggerPanel
+					bind:token
+					scopes={[`run:script/${script?.path}`]}
+					hash={script.hash}
+					path={script.path}
 				/>
 			</svelte:fragment>
 			<svelte:fragment slot="schedule">
