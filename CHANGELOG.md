@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.380.1](https://github.com/windmill-labs/windmill/compare/v1.380.0...v1.380.1) (2024-08-15)
+
+
+### Bug Fixes
+
+* **frontend:** improve UI for email triggers ([#4243](https://github.com/windmill-labs/windmill/issues/4243)) ([6c9e32a](https://github.com/windmill-labs/windmill/commit/6c9e32af104a897e5c2a5b41867d2ffbbacc8acb))
+* improve row update of aggrid table actions II ([3cf4f00](https://github.com/windmill-labs/windmill/commit/3cf4f00dca677fc592d5dde8a7b8fdcac5f08e0a))
+* **typescript-client:** add runFlow and runFlowAsync ([c9ef2c8](https://github.com/windmill-labs/windmill/commit/c9ef2c8e97bdecb16b9a54805f1c90523e3b406f))
+
 ## [1.380.0](https://github.com/windmill-labs/windmill/compare/v1.379.4...v1.380.0) (2024-08-14)
 
 
