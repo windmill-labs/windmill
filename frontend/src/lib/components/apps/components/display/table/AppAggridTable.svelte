@@ -123,7 +123,7 @@
 			}
 
 			if (!deepEqual(outputs?.selectedRow?.peak(), data)) {
-				outputs?.selectedRow.set(data)
+				outputs?.selectedRow?.set(data)
 			}
 
 			if (iterContext && listInputs) {
@@ -205,17 +205,18 @@
 		let ta = new AppAggridTableActions({
 			target: c.eGui,
 			props: {
+				p,
 				id: id,
 				actions,
 				rowIndex,
 				row,
 				render,
 				wrapActions: resolvedConfig.wrapActions,
-				selectRow: () => {
+				selectRow: (p) => {
 					toggleRow(p)
 					p.node.setSelected(true)
 				},
-				onSet: (id, value) => {
+				onSet: (id, value, rowIndex) => {
 					if (!inputs[id]) {
 						inputs[id] = { [rowIndex]: value }
 					} else {
@@ -224,7 +225,7 @@
 
 					outputs?.inputs.set(inputs, true)
 				},
-				onRemove: (id) => {
+				onRemove: (id, rowIndex) => {
 					if (inputs?.[id] == undefined) {
 						return
 					}
@@ -245,7 +246,7 @@
 				ta.$destroy()
 			},
 			refresh(params) {
-				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data })
+				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data, p: params })
 			}
 		}
 	})
