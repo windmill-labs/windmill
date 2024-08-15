@@ -175,7 +175,11 @@ WORKDIR ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
+COPY ./frontend/src/lib/hubPaths.json /usr/local/bin/hubPaths.json
+
 RUN windmill cache
+
+RUN rm /usr/local/bin/hubPaths.json
 
 EXPOSE 8000
 
