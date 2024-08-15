@@ -1,4 +1,5 @@
-import { NODE, type Node } from '$lib/components/graph'
+import { NODE } from '$lib/components/graph'
+import { type Node } from '@xyflow/svelte'
 
 interface NodeConfig {
 	id: string

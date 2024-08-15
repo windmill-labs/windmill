@@ -38,7 +38,6 @@
 					stepDetail = e.detail
 					dispatch('select', stepDetail)
 				}}
-				rebuildOnChange={flow}
 			/>
 		</div>
 	{/if}

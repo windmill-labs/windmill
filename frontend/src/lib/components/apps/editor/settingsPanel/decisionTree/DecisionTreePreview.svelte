@@ -1,10 +1,9 @@
 <script lang="ts">
-	import Svelvet from '$lib/components/graph/svelvet/container/views/Svelvet.svelte'
-	import type { UserEdgeType } from '$lib/components/graph/svelvet/types'
-	import { NODE, type Node } from '$lib/components/graph'
+	import { NODE } from '$lib/components/graph'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
 	import { deepEqual } from 'fast-equals'
+	import { SvelteFlow, type Node, type Edge, ConnectionLineType } from '@xyflow/svelte'
 
 	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
@@ -23,7 +22,6 @@
 	import { createEdge, createNode } from './nodeHelpers'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { deleteGridItem } from '../../appUtils'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 
 	export let nodes: DecisionTreeNode[]
 	export let rebuildOnChange: any = undefined
@@ -32,10 +30,8 @@
 	export let component: AppComponent
 
 	let displayedNodes: Node[] = []
-	let edges: UserEdgeType[] = []
+	let edges: Edge[] = []
 	let scroll = false
-
-	let darkMode = false
 
 	const dispatch = createEventDispatcher()
 
@@ -307,8 +303,7 @@
 									node: graphNode,
 									canDelete: !(graphNode.next.length > 1 && parentIds.length > 1),
 									canAddBranch: !cannotAddBranch,
-									index,
-									darkMode
+									index
 								},
 								cb: (e: string, detail: any) =>
 									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
@@ -369,8 +364,7 @@
 										!cannotAddBranch &&
 										(graphNode.next.length == 1 || !parentIds.includes('start')),
 									canAddBranch: !cannotAddBranch,
-									index,
-									darkMode
+									index
 								},
 								cb: (e: string, detail: any) =>
 									nodeCallbackHandler(e, detail, graphNode, parentIds, false)
@@ -478,20 +472,21 @@
 	}
 </script>
 
-<DarkModeObserver bind:darkMode />
-
 {#if mounted}
-	<Svelvet
-		download={false}
-		highlightEdges={false}
-		locked
-		dataflow={false}
-		nodes={displayedNodes}
+	<SvelteFlow
+		{nodes}
 		{edges}
-		height={paneHeight}
-		{scroll}
-		nodeSelected={false}
-		background={false}
-		width={paneWidth}
+		{edgeTypes}
+		{nodeTypes}
+		{viewport}
+		{height}
+		minZoom={0.5}
+		connectionLineType={ConnectionLineType.SmoothStep}
+		defaultEdgeOptions={{ type: 'smoothstep' }}
+		preventScrolling={scroll}
+		zoomOnDoubleClick={false}
+		elementsSelectable={false}
+		proOptions={{ hideAttribution: true }}
+		nodesDraggable={false}
 	/>
 {/if}

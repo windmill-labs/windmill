@@ -40,7 +40,6 @@
 	export let maxHeight: number | undefined = undefined
 	export let notSelectable = false
 	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
-	export let rebuildOnChange: any = undefined
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
 
@@ -205,17 +204,6 @@
 
 	const proOptions = { hideAttribution: true }
 
-	function handleNodeClick(e: CustomEvent) {
-		const mod = e.detail.node.data.module as FlowModule
-
-		if (!notSelectable && mod) {
-			if ($selectedId != mod.id) {
-				$selectedId = mod.id
-			}
-			dispatch('select', mod)
-		}
-	}
-
 	$: showDataflow =
 		$selectedId != undefined &&
 		!$selectedId.startsWith('constants') &&
@@ -256,7 +244,6 @@
 		elementsSelectable={false}
 		{proOptions}
 		nodesDraggable={false}
-		on:nodeclick={(e) => handleNodeClick(e)}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary" />
 		<Controls position="top-right" orientation="horizontal" showLock={false}>
