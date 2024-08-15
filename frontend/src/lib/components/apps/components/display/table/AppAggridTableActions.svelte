@@ -39,6 +39,14 @@
 			const parent = rowDiv.parentElement?.parentElement?.parentElement
 			if (parent) {
 				parent.classList.add('w-full')
+			} else {
+				//sometimes the parent is not available immediately
+				setTimeout(() => {
+					const parent = rowDiv?.parentElement?.parentElement?.parentElement
+					if (parent) {
+						parent.classList.add('w-full')
+					}
+				}, 10)
 			}
 		}
 	})
