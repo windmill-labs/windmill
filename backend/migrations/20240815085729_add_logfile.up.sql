@@ -6,7 +6,7 @@ CREATE TABLE log_file (
     log_ts TIMESTAMP,
     mode LOG_MODE NOT NULL,
     file_path VARCHAR(510),
-    PRIMARY KEY (hostname, mode)
+    PRIMARY KEY (hostname, log_ts)
 );
 
 CREATE INDEX log_file_last_updated_idx ON log_file (log_ts);

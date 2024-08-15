@@ -64,7 +64,7 @@ async fn list_files(
 
     if let Some(dt) = &lq.before {
         sqlb.and_where_le(
-            "file_ts",
+            "log_ts",
             format!(
                 "to_timestamp({}  / 1000.0)",
                 dt.and_utc().timestamp_millis()
@@ -73,7 +73,7 @@ async fn list_files(
     }
     if let Some(dt) = &lq.after {
         sqlb.and_where_ge(
-            "file_ts",
+            "log_ts",
             format!(
                 "to_timestamp({}  / 1000.0)",
                 dt.and_utc().timestamp_millis()
