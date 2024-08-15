@@ -29,7 +29,7 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
-RUN windmill cache
+RUN windmill cache ${APP}/hubPaths.json
 
 RUN rm ${APP}/hubPaths.json
 

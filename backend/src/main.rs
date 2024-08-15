@@ -117,9 +117,9 @@ pub fn main() -> anyhow::Result<()> {
     create_and_run_current_thread_inner(windmill_main())
 }
 
-async fn cache_hub_scripts() -> anyhow::Result<()> {
+async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     // read file:
-    let mut file = File::open("./hubPaths.json").await.context(
+    let mut file = File::open(file_path.unwrap_or("./hubPaths.json".to_string())).await.context(
         "Could not open hubPaths.json, make sure it exists and is in the same directory as the binary",
     )?;
     let mut contents = String::new();
@@ -165,7 +165,7 @@ async fn windmill_main() -> anyhow::Result<()> {
                 tracing::warn!("Embeddings are not enabled, ignoring...");
             }
 
-            cache_hub_scripts().await?;
+            cache_hub_scripts(std::env::args().nth(2)).await?;
 
             return Ok(());
         }
