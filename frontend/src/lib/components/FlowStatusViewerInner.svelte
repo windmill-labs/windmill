@@ -952,7 +952,6 @@
 								globalRefreshes[detail.moduleId]?.({ job: detail.id, index: detail.index })
 							}}
 							modules={job.raw_flow?.modules ?? []}
-							failureModule={job.raw_flow?.failure_module}
 						/>
 					</div>
 					<div

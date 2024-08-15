@@ -8,6 +8,7 @@
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStraightLinePath } from '../utils'
 	import InsertTriggerButton from '$lib/components/flows/map/InsertTriggerButton.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let sourceX: number
 	export let sourceY: number
@@ -100,9 +101,14 @@
 						})
 					}}
 					type="button"
-					class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+					class={twMerge(
+						'w-6 h-6 flex items-center justify-center',
+						'border border-gray-300 dark:border-gray-500',
+						'text-primary text-sm',
+						'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
+					)}
 				>
-					<ClipboardCopy class="m-[5px]" size={15} />
+					<ClipboardCopy size={14} />
 				</button>
 			{/if}
 		</div>
