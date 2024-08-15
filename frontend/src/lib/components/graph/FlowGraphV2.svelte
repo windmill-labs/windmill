@@ -228,7 +228,7 @@
 	$: width && centerViewport(width)
 </script>
 
-<div style={`height: ${height}px; `} bind:clientWidth={width}>
+<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
 	<SvelteFlow
 		{nodes}
 		{edges}

@@ -258,7 +258,6 @@
 			scroll
 			{minHeight}
 			moving={$moving?.module.id}
-			rebuildOnChange={$flowStore}
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
 			{selectedId}
@@ -268,8 +267,6 @@
 				dependents = getDependentComponents(e.id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
-
-					console.log('deleting node', e.id)
 
 					selectNextId(e.id)
 
@@ -307,8 +304,6 @@
 							$selectedId = $moving.module.id
 							$moving = undefined
 						} else {
-							console.log('inserting', detail.detail, detail.index, detail.modules)
-
 							await insertNewModuleAtIndex(
 								detail.modules,
 								detail.index ?? 0,
@@ -341,8 +336,6 @@
 				}
 			}}
 			on:move={async ({ detail }) => {
-				console.log('move', detail, $moving)
-
 				if (!$moving || $moving.module.id !== detail.module.id) {
 					if (detail.module && detail.modules) {
 						$moving = { module: detail.module, modules: detail.modules }
