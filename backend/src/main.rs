@@ -118,7 +118,6 @@ pub fn main() -> anyhow::Result<()> {
 }
 
 async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
-    // read file:
     let file_path = file_path.unwrap_or("./hubPaths.json".to_string());
     let mut file = File::open(&file_path)
         .await

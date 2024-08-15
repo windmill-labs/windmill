@@ -53,7 +53,6 @@ use windmill_common::{
     jobs::{
         get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
     },
-    oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},

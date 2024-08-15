@@ -177,8 +177,8 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 COPY ./frontend/src/lib/hubPaths.json /hubPaths.json
 
-RUN windmill cache /hubPaths.json
+# RUN windmill cache /hubPaths.json
 
 EXPOSE 8000
 
-CMD ["windmill"]
+# CMD ["windmill"]
