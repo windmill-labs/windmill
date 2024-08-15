@@ -29,7 +29,7 @@
 		disableMoveIds: string[]
 	}
 
-	$: [edgePath, labelX, labelY] = getBezierPath({
+	$: [edgePath] = getBezierPath({
 		sourceX,
 		sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
 		sourcePosition,
@@ -89,7 +89,7 @@
 	{#if data?.moving}
 		<div
 			class="edgeButtonContainer nodrag nopan"
-			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY}px)"
 		>
 			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
 				<button
