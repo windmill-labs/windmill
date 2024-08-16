@@ -20,7 +20,11 @@
 		offset: number
 	}
 
-	$: borderStatus = computeBorderStatus(data.branchIndex, data.flowModuleStates?.[data.id])
+	$: borderStatus = computeBorderStatus(
+		data.branchIndex,
+		'branchone',
+		data.flowModuleStates?.[data.id]
+	)
 </script>
 
 <NodeWrapper let:darkMode offset={data.offset}>
