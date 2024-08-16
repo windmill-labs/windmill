@@ -21,24 +21,6 @@ lazy_static::lazy_static! {
     static ref CARGO_PATH: String = std::env::var("RUST_PATH").unwrap_or_else(|_| "/home/wendrul/.cargo/bin/cargo".to_string());
 }
 
-async fn list_files_in_directory(dir_path: &str) -> tokio::io::Result<()> {
-    use std::path::PathBuf;
-    use tokio::fs;
-    let path_buf = PathBuf::from(dir_path);
-    let mut entries = fs::read_dir(path_buf).await?;
-
-    while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
-        if path.is_file() {
-            println!("File: {:?}", path);
-        } else if path.is_dir() {
-            println!("Directory: {:?}", path);
-        }
-    }
-
-    Ok(())
-}
-
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -84,15 +66,6 @@ pub async fn handle_rust_job(
 
     let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
 
-    // create_dir(job_dir).await?;
-    // let (skip_go_mod, skip_tidy) = if cache {
-    //     create_dir(job_dir).await?;
-    //     (true, true)
-    // // } else if let Some(requirements) = requirements_o {
-    // //     gen_go_mod(inner_content, job_dir, &requirements).await?
-    // } else {
-    //     (false, false)
-    // };
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
@@ -120,8 +93,6 @@ pub async fn handle_rust_job(
         //     &job.workspace_id,
         // )
         // .await?;
-
-        // let job_dir = "~/test/hello";
 
         create_args_and_out_file(client, job, job_dir, db).await?;
 
@@ -192,8 +163,6 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
 }}
 "#
         );
-
-        tracing::error!(mod_content);
 
         write_file(job_dir, "inner.rs", &mod_content).await?;
 
@@ -300,11 +269,9 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        tracing::error!("No error! we all gooooood");
 
         start_child_process(run_rust, compiled_executable_name).await?
     };
-    tracing::error!("Going to handle child");
     handle_child(
         &job.id,
         db,
