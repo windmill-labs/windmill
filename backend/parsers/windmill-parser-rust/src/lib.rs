@@ -1,6 +1,7 @@
 use anyhow::anyhow;
+use itertools::Itertools;
+use quote::ToTokens;
 use regex::Regex;
-use tree_sitter::Parser;
 use windmill_parser::{Arg, MainArgSignature, Typ};
 
 pub fn otyp_to_string(otyp: Option<String>) -> String {
@@ -8,50 +9,21 @@ pub fn otyp_to_string(otyp: Option<String>) -> String {
 }
 
 pub fn parse_rust_signature(code: &str) -> anyhow::Result<MainArgSignature> {
-    let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_rust::language())?;
-    let tree = parser
-        .parse(code, None)
-        .ok_or(anyhow!("Parsed empty tree"))?;
-    let mut cursor = tree.walk();
-    let x = if let Some(main_fn) = tree.root_node().children(&mut cursor).find_map(|x| {
-        if x.kind() == "function_item"
-            && x.child_by_field_name("name")
-                .map(|f| f.utf8_text(code.as_bytes()).map(|n| n == "main"))
-                .unwrap_or(Ok(false))
-                .unwrap_or(false)
-        {
-            Some(x)
-        } else {
-            None
-        }
+    let ast: syn::File = syn::parse_file(code)?;
+
+    if let Some(main_fn) = ast.items.iter().find_map(|item| match item {
+        syn::Item::Fn(f) if f.sig.ident == "main" => Some(f),
+        _ => None,
     }) {
-        let mut cursor = main_fn.walk();
         let args = main_fn
-            .child_by_field_name("parameters")
-            .ok_or(anyhow!("No parameters on main function"))?
-            .named_children(&mut cursor)
+            .sig
+            .inputs
+            .iter()
             .map(|param| {
-                let param_name = param
-                    .child_by_field_name("pattern")
-                    .ok_or(anyhow!("No 'pattern' in node"))?
-                    .utf8_text(code.as_bytes())?;
-                let param_type = param
-                    .child_by_field_name("type")
-                    .ok_or(anyhow!("No 'pattern' in node"))?
-                    .utf8_text(code.as_bytes())?;
-                let (otyp, typ) = parse_rust_typ(param_type);
-                Ok(Arg {
-                    name: param_name.to_string(),
-                    otyp,
-                    typ,
-                    default: None,
-                    has_default: false,
-                    oidx: None,
-                })
+                let (otyp, typ, name) = parse_rust_typ(param);
+                Arg { name, otyp, typ, default: None, has_default: false, oidx: None }
             })
-            // .take_while(Result::is_ok)
-            .collect::<anyhow::Result<Vec<Arg>>>()?;
+            .collect_vec();
         Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -65,8 +37,7 @@ pub fn parse_rust_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             args: vec![],
             no_main_func: Some(true),
         })
-    };
-    x
+    }
 }
 
 pub fn parse_rust_deps_into_manifest(code: &str) -> anyhow::Result<String> {
@@ -103,17 +74,68 @@ pub fn parse_rust_deps_into_manifest(code: &str) -> anyhow::Result<String> {
     Ok(manif.to_string())
 }
 
-fn parse_rust_typ(param_typ: &str) -> (Option<String>, Typ) {
-    (
-        Some(param_typ.to_string()),
-        match param_typ {
-            "usize" | "u8" | "u16" | "u32" | "u64" | "isize" | "i8" | "i16" | "i32" | "i64" => {
-                Typ::Int
+fn parse_pat_type(p: Box<syn::Type>) -> Typ {
+    match *p {
+        syn::Type::Array(a) => {
+            let inner_typ = parse_pat_type(a.elem);
+            Typ::List(Box::new(inner_typ))
+        }
+        // syn::Type::BareFn(_) => todo!(),
+        // syn::Type::Group(_) => todo!(),
+        // syn::Type::ImplTrait(_) => todo!(),
+        // syn::Type::Infer(_) => todo!(),
+        // syn::Type::Macro(_) => todo!(),
+        // syn::Type::Never(_) => todo!(),
+        syn::Type::Paren(e) => parse_pat_type(e.elem),
+        syn::Type::Path(e) => {
+            if let Some(u) = e.path.segments.last() {
+                match u.ident.to_string().as_str() {
+                    "usize" | "u8" | "u16" | "u32" | "u64" | "u128" | "isize" | "i8" | "i16"
+                    | "i32" | "i64" | "i128" => Typ::Int,
+                    "String" | "str" => Typ::Str(None),
+                    "bool" => Typ::Bool,
+                    "f32" | "f64" => Typ::Float,
+                    "Vec" => {
+                        if let syn::PathArguments::AngleBracketed(t) = &u.arguments {
+                            if let Some(syn::GenericArgument::Type(a)) = t.args.last() {
+                                Typ::List(Box::new(parse_pat_type(Box::new(a.clone()))))
+                            } else {
+                                Typ::Unknown
+                            }
+                        } else {
+                            Typ::Unknown
+                        }
+                    },
+                    _ => Typ::Unknown,
+                }
+            } else {
+                Typ::Unknown
             }
-            // "&str" | "String" => Typ::Str(),
-            _ => Typ::Unknown,
-        },
-    )
+        }
+        // syn::Type::Ptr(_) => todo!(),
+        syn::Type::Reference(e) => parse_pat_type(e.elem),
+        syn::Type::Slice(e) => Typ::List(Box::new(parse_pat_type(e.elem))),
+        // syn::Type::TraitObject(_) => todo!(),
+        // syn::Type::Tuple(_) => todo!(),
+        // syn::Type::Verbatim(_) => todo!(),
+        _ => Typ::Unknown,
+    }
+}
+
+fn parse_rust_typ(param_typ: &syn::FnArg) -> (Option<String>, Typ, String) {
+    match param_typ {
+        syn::FnArg::Receiver(_) => (None, Typ::Unknown, "self".to_string()),
+        syn::FnArg::Typed(s) => {
+            let name = match *s.pat.clone() {
+                syn::Pat::Ident(p) => p.ident.to_string(),
+                _ => "undefined".to_string(),
+            };
+
+            let otyp = Some(s.ty.to_token_stream().to_string());
+            let typ = parse_pat_type(s.ty.clone());
+            (otyp, typ, name)
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -289,7 +311,7 @@ fn extract_comment(s: &str) -> Option<String> {
                         break;
                     }
                     ("*/", _) => depth -= 1,
-                    _ => panic!("got a comment marker other than /* or */"),
+                    _ => return None,
                 }
             }
 
@@ -311,7 +333,7 @@ fn extract_comment(s: &str) -> Option<String> {
 
             leading_space = leading_space.or_else(|| space_re.find(line).map(|m| m.end()));
 
-                       let strip_len = min(leading_space.unwrap_or(0), line.len());
+            let strip_len = min(leading_space.unwrap_or(0), line.len());
             let line = &line[strip_len..];
 
             r.push_str(line);
@@ -372,16 +394,72 @@ mod test {
         let code = r#"
 // commenting comments
 
-fn main(my_int: i8) -> Result<String, String> {
+fn main(
+    my_int: i8,
+    my_vec: Vec<u8>,
+    mut my_arr: [u8; 9],
+    my_complex: Vec<Result<MyStruct, anyhow::Error>>,
+) -> Result<String, String> {
     println!("My int is {}", my_int);
 }"#;
 
         let ret = parse_rust_signature(code).unwrap();
 
-        assert_eq!(ret.args.len(), 1);
+        assert_eq!(ret.args.len(), 4);
+
         assert_eq!(ret.args[0].name, "my_int");
-        assert_eq!(ret.args[0].typ, Typ::Int);
         assert_eq!(ret.args[0].otyp, Some("i8".to_string()));
+        assert_eq!(ret.args[0].typ, Typ::Int);
+
+        assert_eq!(ret.args[1].name, "my_vec");
+        assert_eq!(ret.args[1].otyp, Some("Vec < u8 >".to_string()));
+        assert_eq!(ret.args[1].typ, Typ::List(Box::new(Typ::Int)));
+
+        assert_eq!(ret.args[2].name, "my_arr");
+        assert_eq!(ret.args[2].otyp, Some("[u8 ; 9]".to_string()));
+        assert_eq!(ret.args[2].typ, Typ::List(Box::new(Typ::Int)));
+
+        assert_eq!(ret.args[3].name, "my_complex");
+        assert_eq!(
+            ret.args[3].otyp,
+            Some("Vec < Result < MyStruct , anyhow :: Error > >".to_string())
+        );
+        assert_eq!(ret.args[3].typ, Typ::List(Box::new(Typ::Unknown)));
+
+        let code = r#"
+// commenting comments
+
+fn main(
+    my_str_slice: &str,
+    my_String: String,
+    mut my_mut_ref_to_string: &mut String,
+    my_string_vec: Vec<String>,
+) -> Result<String, String> {
+    println!("My int is {}", my_int);
+}"#;
+
+        let ret = parse_rust_signature(code).unwrap();
+
+        assert_eq!(ret.args.len(), 4);
+
+        assert_eq!(ret.args[0].name, "my_str_slice");
+        assert_eq!(ret.args[0].otyp, Some("& str".to_string()));
+        assert_eq!(ret.args[0].typ, Typ::Str(None));
+
+        assert_eq!(ret.args[1].name, "my_String");
+        assert_eq!(ret.args[1].otyp, Some("String".to_string()));
+        assert_eq!(ret.args[1].typ, Typ::Str(None));
+
+        assert_eq!(ret.args[2].name, "my_mut_ref_to_string");
+        assert_eq!(ret.args[2].otyp, Some("& mut String".to_string()));
+        assert_eq!(ret.args[2].typ, Typ::Str(None));
+
+        assert_eq!(ret.args[3].name, "my_string_vec");
+        assert_eq!(
+            ret.args[3].otyp,
+            Some("Vec < String >".to_string())
+        );
+        assert_eq!(ret.args[3].typ, Typ::List(Box::new(Typ::Str(None))));
     }
 
     #[test]
