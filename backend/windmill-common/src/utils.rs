@@ -96,7 +96,7 @@ pub async fn query_elems_from_hub(
     reqwest::header::HeaderMap,
     axum::body::Body,
 )> {
-    let response = http_get_from_hub(http_client, url, false, query_params, db).await?;
+    let response = http_get_from_hub(http_client, url, false, query_params, Some(db)).await?;
 
     let status = response.status();
 
@@ -112,9 +112,18 @@ pub async fn http_get_from_hub(
     url: &str,
     plain: bool,
     query_params: Option<Vec<(&str, String)>>,
-    db: &Pool<Postgres>,
+    db: Option<&Pool<Postgres>>,
 ) -> Result<reqwest::Response> {
-    let uid = get_uid(db).await;
+    let uid = match db {
+        Some(db) => match get_uid(db).await {
+            Ok(uid) => Some(uid),
+            Err(err) => {
+                tracing::info!("No valid uid found: {}", err);
+                None
+            }
+        },
+        None => None,
+    };
 
     let mut request = http_client.get(url).header(
         "Accept",
@@ -125,10 +134,8 @@ pub async fn http_get_from_hub(
         },
     );
 
-    if let Ok(uid) = uid {
+    if let Some(uid) = uid {
         request = request.header("X-uid", uid);
-    } else {
-        tracing::info!("No valid uid found: {}", uid.err().unwrap())
     }
 
     if let Some(query_params) = query_params {

@@ -1,0 +1,9 @@
+{
+  "gitSync": "hub/8931/sync-script-to-git-repo-windmill",
+  "gitSyncTest": "hub/8944/git-repo-test-read-write-windmill",
+  "slackErrorHandler": "hub/6512/workspace-or-schedule-error-handler-slack",
+  "slackRecoveryHandler": "hub/2430/slack/schedule-recovery-handler-slack",
+  "slackReport": "hub/7836/slack",
+  "discordReport": "hub/7838/discord",
+  "smtpReport": "hub/7837/smtp"
+}

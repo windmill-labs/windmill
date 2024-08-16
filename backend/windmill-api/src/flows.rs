@@ -230,7 +230,7 @@ pub async fn get_hub_flow_by_id(
         &format!("{}/flows/{}/json", *HUB_BASE_URL.read().await, id),
         false,
         None,
-        &db,
+        Some(&db),
     )
     .await?
     .json()
