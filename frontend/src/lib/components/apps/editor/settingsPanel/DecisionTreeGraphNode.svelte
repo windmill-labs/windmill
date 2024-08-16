@@ -27,15 +27,13 @@
 		parentIds: string[]
 	}
 
-	let node = data.node
-
 	let open: boolean = false
 
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
 	}>('DecisionTreeEditor')
 
-	$: selected = $selectedNodeId === node.id
+	$: selected = $selectedNodeId === data.node.id
 </script>
 
 <NodeWrapper let:darkMode>
@@ -53,11 +51,11 @@
 			)};"
 			on:click={() => {
 				selected = true
-				data.nodeCallbackHandler('select', node.id, node, data.parentIds, false)
+				data.nodeCallbackHandler('select', data.node.id, data.node, data.parentIds, false)
 			}}
 		>
 			<div class="ml-2 text-xs font-normal text-primary truncate">
-				{node.label === '' ? `Tab: ${node.id}` : node.label}
+				{data.node.label === '' ? `Tab: ${data.node.id}` : data.node.label}
 			</div>
 			<Badge color="indigo" small>
 				Tab index: {data.index}
@@ -76,14 +74,14 @@
 					'group-hover:opacity-100 opacity-0'
 				)}
 				on:click|preventDefault|stopPropagation={() => {
-					data.nodeCallbackHandler('delete', node.id, node, data.parentIds, false)
+					data.nodeCallbackHandler('delete', data.node.id, data.node, data.parentIds, false)
 				}}
 			>
 				<X class="mx-[3px]" size={14} strokeWidth={2} />
 			</button>
 		{/if}
 
-		{#if node.id !== 'end'}
+		{#if data.node.id !== 'end'}
 			<div
 				class={twMerge(
 					'absolute -bottom-10 left-1/2 transform -translate-x-1/2 flex items-center',
@@ -92,13 +90,13 @@
 			>
 				<InsertDecisionTreeNode
 					on:node={() => {
-						data.nodeCallbackHandler('nodeInsert', node.id, node, data.parentIds, false)
+						data.nodeCallbackHandler('nodeInsert', data.node.id, data.node, data.parentIds, false)
 					}}
 					on:addBranch={() => {
-						data.nodeCallbackHandler('addBranch', node.id, node, data.parentIds, true)
+						data.nodeCallbackHandler('addBranch', data.node.id, data.node, data.parentIds, true)
 					}}
-					canAddBranch={data.canAddBranch || node.next.length > 1}
-					canAddNode={node.next.length <= 1}
+					canAddBranch={data.canAddBranch || data.node.next.length > 1}
+					canAddNode={data.node.next.length <= 1}
 				/>
 			</div>
 		{/if}
