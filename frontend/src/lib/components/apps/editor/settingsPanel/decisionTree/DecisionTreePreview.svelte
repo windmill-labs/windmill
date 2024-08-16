@@ -221,7 +221,9 @@
 										next: []
 									},
 									canDelete: false,
-									nodeCallbackHandler
+									nodeCallbackHandler,
+									realNode: next,
+									branchHeader: true
 								}
 							}
 

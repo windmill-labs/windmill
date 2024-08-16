@@ -16,6 +16,8 @@
 			branchInsert: boolean
 		) => void
 		parentIds: string[]
+		realNode: DecisionTreeNode
+		branchHeader: boolean
 	}
 
 	let open: boolean = false
@@ -61,7 +63,13 @@
 			>
 				<InsertDecisionTreeNode
 					on:node={() => {
-						data.nodeCallbackHandler('nodeInsert', data.node.id, data.node, data.parentIds, false)
+						data.nodeCallbackHandler(
+							'nodeInsert',
+							data.realNode ? data.realNode.id : data.node.id,
+							data.realNode ?? data.node,
+							data.parentIds ?? [],
+							data.branchHeader
+						)
 					}}
 					on:addBranch={() => {
 						data.nodeCallbackHandler('addBranch', data.node.id, data.node, data.parentIds, true)
