@@ -10,7 +10,7 @@
 		Controls
 	} from '@xyflow/svelte'
 
-	import { addNewBranch, addNode, insertNode, removeBranch, removeNode } from './utils'
+	import { addNewBranch, addNode, getParents, insertNode, removeBranch, removeNode } from './utils'
 
 	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
@@ -194,9 +194,12 @@
 				addEdge(beforeNode.id, nextNode.id)
 			} else {
 				decisionTreeNodes.forEach((node, index) => {
+					const cannotAddBranch =
+						node.next.length === 0 ||
+						(node.next.length === 1 && getParents(decisionTreeNodes, node.next[0].id).length > 1)
 					addNode(node, 'step', {
 						canDelete: true,
-						canAddBranch: true,
+						canAddBranch: !cannotAddBranch,
 						selected: false,
 						index
 					})
@@ -212,8 +215,10 @@
 								position: { x: -1, y: -1 },
 								data: {
 									node: {
-										label: index === 0 ? 'Default branch' : `Branch ${index}`,
-										id: branchHeaderId
+										label: innerIndex === 0 ? 'Default branch' : `Branch ${innerIndex}`,
+										id: branchHeaderId,
+										allowed: undefined,
+										next: []
 									},
 									canDelete: false,
 									nodeCallbackHandler
