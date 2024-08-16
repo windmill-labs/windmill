@@ -10,7 +10,15 @@
 		Controls
 	} from '@xyflow/svelte'
 
-	import { addNewBranch, addNode, getParents, insertNode, removeBranch, removeNode } from './utils'
+	import {
+		addNewBranch,
+		addNode,
+		getFirstNode,
+		getParents,
+		insertNode,
+		removeBranch,
+		removeNode
+	} from './utils'
 
 	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
@@ -160,9 +168,10 @@
 			data: {
 				canDelete: boolean
 				canAddBranch: boolean
-				selected: boolean
 				index: number
-			}
+				parentIds?: string[]
+			},
+			x = nodeCallbackHandler
 		) {
 			nodes.push({
 				id: node.id,
@@ -170,7 +179,7 @@
 				position: { x: -1, y: -1 },
 				data: {
 					node,
-					nodeCallbackHandler,
+					nodeCallbackHandler: x,
 					...data
 				}
 			})
@@ -189,72 +198,145 @@
 			})
 		}
 
-		function processNodes(decisionTreeNodes: DecisionTreeNode[], beforeNode: Node, nextNode: Node) {
-			if (decisionTreeNodes.length === 0) {
-				addEdge(beforeNode.id, nextNode.id)
-			} else {
-				decisionTreeNodes.forEach((node, index) => {
-					const cannotAddBranch =
-						node.next.length === 0 ||
-						(node.next.length === 1 && getParents(decisionTreeNodes, node.next[0].id).length > 1)
-					addNode(node, 'step', {
-						canDelete: true,
-						canAddBranch: !cannotAddBranch,
-						selected: false,
-						index
-					})
+		function processNodes(decisionTreeNodes: DecisionTreeNode[]) {
+			decisionTreeNodes.forEach((graphNode, index) => {
+				const parentIds = getParents(decisionTreeNodes, graphNode.id)
+				const parentNext = decisionTreeNodes.find((node) => node.id == parentIds[0])?.next
+				const hasParentBranches = parentNext ? parentNext.length > 1 : false
 
-					if (node.next.length === 1) {
-						addEdge(node.id, node.next[0].id)
-					} else if (node.next.length > 0) {
-						node.next.forEach((next, innerIndex) => {
-							const branchHeaderId = `${node.id}-branch-${innerIndex}`
-							const header = {
+				if (hasParentBranches) {
+					const positionRelativeToParent = parentNext?.findIndex((next) => next.id == graphNode.id)
+					const branchHeaderId = `${parentIds[0]}-${graphNode.id}-branch-header`
+
+					// We create a header node for the branch, which will be the parent of the actual node
+					const header = {
+						id: branchHeaderId,
+						type: 'start',
+						position: { x: -1, y: -1 },
+						data: {
+							node: {
+								label:
+									positionRelativeToParent === 0
+										? 'Default branch'
+										: `Branch ${positionRelativeToParent}`,
 								id: branchHeaderId,
-								type: 'start',
-								position: { x: -1, y: -1 },
-								data: {
-									node: {
-										label: innerIndex === 0 ? 'Default branch' : `Branch ${innerIndex}`,
-										id: branchHeaderId,
-										allowed: undefined,
-										next: []
-									},
-									canDelete: false,
-									nodeCallbackHandler,
-									realNode: next,
-									branchHeader: true
-								}
-							}
+								allowed: undefined,
+								next: [],
+								parentIds: [parentIds[0]]
+							},
+							canDelete: true,
+							nodeCallbackHandler: (e, d) => {
+								nodeCallbackHandler(e, d, graphNode, parentIds, true)
+							},
+							branchHeader: true
+						}
+					}
 
-							nodes.push(header)
-							addEdge(node.id, header.id)
-							addEdge(header.id, next.id)
+					nodes.push(header)
+
+					const cannotAddBranch =
+						graphNode.next.length === 0 ||
+						(graphNode.next.length === 1 &&
+							getParents(decisionTreeNodes, graphNode.next[0].id).length > 1)
+
+					// We create the actual node
+
+					addNode(
+						graphNode,
+						'step',
+						{
+							canDelete: !(graphNode.next.length > 1 && parentIds.length > 1),
+							canAddBranch: !cannotAddBranch,
+							index,
+							parentIds: [
+								branchHeaderId,
+								...parentIds.filter((pId) => {
+									const firstLetter = branchHeaderId.split('-')[0]
+									return pId !== firstLetter
+								})
+							]
+						},
+						(e, d) => {
+							nodeCallbackHandler(e, d, graphNode, parentIds, false)
+							return undefined
+						}
+					)
+
+					addEdge(branchHeaderId, graphNode.id)
+
+					if (graphNode.next.length === 1) {
+						addEdge(graphNode.id, graphNode.next[0].id)
+					} else {
+						graphNode.next.forEach((nextNode) => {
+							addEdge(graphNode.id, `${graphNode.id}-${nextNode.id}-branch-header`)
 						})
 					}
+				} else {
+					const cannotAddBranch =
+						graphNode.next.length === 0 ||
+						(graphNode.next.length === 1 &&
+							getParents(decisionTreeNodes, graphNode.next[0].id).length > 1)
 
-					if (index === 0) {
-						addEdge(beforeNode.id, node.id)
-					}
-				})
-			}
+					addNode(
+						graphNode,
+						'step',
+						{
+							canDelete:
+								!cannotAddBranch && (graphNode.next.length == 1 || !parentIds.includes('start')),
+							canAddBranch: !cannotAddBranch,
+							index,
+							parentIds: parentIds
+						},
+						(e, d) => {
+							nodeCallbackHandler(e, d, graphNode, parentIds, false)
+							return undefined
+						}
+					)
+
+					// if node has multiple next, it means it needs to be connected to a branch header
+					const hasMultipleNext = graphNode.next.length > 1
+
+					graphNode.next.forEach((nextNode) => {
+						const target = hasMultipleNext
+							? `${graphNode.id}-${nextNode.id}-branch-header`
+							: nextNode.id
+
+						addEdge(graphNode.id, target)
+					})
+				}
+			})
 		}
 
-		const startNode = {
-			id: 'start',
-			type: 'start',
-			position: { x: -1, y: -1 },
-			data: {
-				node: {
-					id: 'start',
-					label: 'Start',
-					allowed: undefined,
-					next: []
-				},
-				canDelete: false,
-				nodeCallbackHandler
+		const firstNode = getFirstNode(decisionTreeNodes)
+
+		if (firstNode) {
+			const startNode = {
+				id: 'start',
+				type: 'start',
+				position: { x: -1, y: -1 },
+				data: {
+					node: {
+						id: 'start',
+						label: 'Start',
+						allowed: undefined,
+						next: {
+							id: firstNode.id,
+							condition: {
+								type: 'evalv2',
+								expr: 'true',
+								fieldType: 'boolean'
+							}
+						}
+					},
+					canDelete: false,
+					nodeCallbackHandler
+				}
 			}
+			nodes.push(startNode)
+			addEdge('start', firstNode.id)
 		}
+
+		processNodes(decisionTreeNodes)
 
 		const endNode = {
 			id: 'end',
@@ -282,10 +364,7 @@
 			addEdge(id, endNode.id)
 		})
 
-		nodes.push(startNode)
 		nodes.push(endNode)
-
-		processNodes(decisionTreeNodes, startNode, endNode)
 
 		Object.keys(parents).forEach((key) => {
 			const node = nodes.find((n) => n.id === key)
