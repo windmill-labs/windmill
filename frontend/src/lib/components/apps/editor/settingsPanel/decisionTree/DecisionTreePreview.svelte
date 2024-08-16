@@ -215,7 +215,8 @@
 										label: index === 0 ? 'Default branch' : `Branch ${index}`,
 										id: branchHeaderId
 									},
-									canDelete: false
+									canDelete: false,
+									nodeCallbackHandler
 								}
 							}
 
@@ -227,10 +228,6 @@
 
 					if (index === 0) {
 						addEdge(beforeNode.id, node.id)
-					}
-
-					if (index === decisionTreeNodes.length - 1) {
-						addEdge(node.id, nextNode.id)
 					}
 				})
 			}
@@ -267,6 +264,16 @@
 				nodeCallbackHandler
 			}
 		}
+
+		const lastNodesIds = decisionTreeNodes
+			.filter((node) => {
+				return node.next.length == 0
+			})
+			.map((node) => node.id)
+
+		lastNodesIds.forEach((id) => {
+			addEdge(id, endNode.id)
+		})
 
 		nodes.push(startNode)
 		nodes.push(endNode)
