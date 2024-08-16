@@ -85,6 +85,7 @@ serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
+quote.workspace = true
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -267,3 +268,5 @@ tree-sitter = "0.22"
 tree-sitter-rust = "0.21"
 pulldown-cmark = "0.9"
 toml = "0.7"
+syn = { version = "2.0.74", features = ["full"] }
+quote = "1.0.36"
