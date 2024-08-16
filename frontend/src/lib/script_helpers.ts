@@ -250,18 +250,42 @@ function main(
 }
 `
 
-export const RUST_INIT_CODE = `
-//! Add dependencies in the following partial Cargo.toml manifest
+export const RUST_INIT_CODE = `//! Add dependencies in the following partial Cargo.toml manifest
 //!
 //! \`\`\`cargo
 //! [dependencies]
-//! time = "0.1.25"
+//! anyhow = "1.0.86"
+//! rand = "0.7.2"
 //! \`\`\`
+//!
+//! Note that serde is used by default with the \`derive\` feature.
+//! You can still reimport it if you need additional features.
 
-fn main() {
-    println!("{}", time::now().rfc822z());
+use anyhow::anyhow;
+use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
+
+#[derive(serde::Serialize, Debug)]
+struct Ret {
+    msg: String,
+    number: i8,
+}
+
+fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
+    println!(
+        "person to gree:{} -  numbers to choose: {:?}",
+        who_to_greet, numbers
+    );
+    Ok(Ret {
+        msg: format!("Greetings {}!", who_to_greet),
+        number: *numbers
+            .choose(&mut rand::thread_rng())
+            .ok_or(anyhow!("There should be some numbers to choose from"))?,
+    })
 }
 `
+
+
 
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,

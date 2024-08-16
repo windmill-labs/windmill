@@ -105,7 +105,7 @@ fn parse_pat_type(p: Box<syn::Type>) -> Typ {
                         } else {
                             Typ::Unknown
                         }
-                    },
+                    }
                     _ => Typ::Unknown,
                 }
             } else {
