@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.381.0](https://github.com/windmill-labs/windmill/compare/v1.380.0...v1.381.0) (2024-08-16)
+
+
+### Features
+
+* add env to refresh cgroup readings ([#4250](https://github.com/windmill-labs/windmill/issues/4250)) ([e23c3fa](https://github.com/windmill-labs/windmill/commit/e23c3fad628cc718314472f3cb53c0f257c4c9e5))
+* cache common hub scripts in image ([#4249](https://github.com/windmill-labs/windmill/issues/4249)) ([99f7828](https://github.com/windmill-labs/windmill/commit/99f7828ebb5fddf799afb52af7214ba4119e57b9))
+
+
+### Bug Fixes
+
+* **cli:** add inject and define options ([dffd5f7](https://github.com/windmill-labs/windmill/commit/dffd5f7f7d5c84624953bf8c778b14586a14e2d4))
+* **frontend:** improve UI for email triggers ([#4243](https://github.com/windmill-labs/windmill/issues/4243)) ([6c9e32a](https://github.com/windmill-labs/windmill/commit/6c9e32af104a897e5c2a5b41867d2ffbbacc8acb))
+* improve password field lifetime incorrectly recycled too early ([5a8fa1d](https://github.com/windmill-labs/windmill/commit/5a8fa1d72487ac2a29dca8833b8c92b8cac3726e))
+* improve row update of aggrid table actions II ([3cf4f00](https://github.com/windmill-labs/windmill/commit/3cf4f00dca677fc592d5dde8a7b8fdcac5f08e0a))
+* **typescript-client:** add runFlow and runFlowAsync ([c9ef2c8](https://github.com/windmill-labs/windmill/commit/c9ef2c8e97bdecb16b9a54805f1c90523e3b406f))
+* workspace specific default tags do not override step level custom tags ([49835ca](https://github.com/windmill-labs/windmill/commit/49835ca6ca65e569ea2915b2ef4f7ce1c4988cae))
+
 ## [1.380.0](https://github.com/windmill-labs/windmill/compare/v1.379.4...v1.380.0) (2024-08-14)
 
 
