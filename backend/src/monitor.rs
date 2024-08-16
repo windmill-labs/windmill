@@ -552,7 +552,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     }
 
     let deleted_expired_variables = sqlx::query_scalar!(
-        "DELETE FROM variable WHERE expires_at IS NOT NULL AND expires_at > now() RETURNING path",
+        "DELETE FROM variable WHERE expires_at IS NOT NULL AND expires_at < now() RETURNING path",
     )
     .fetch_all(db)
     .await;

@@ -1,6 +1,7 @@
 import type { Schema } from './common'
 import { AppService, FlowService, type Flow, type Script } from './gen'
 import { encodeState } from './utils'
+import rawHubPaths from './hubPaths.json?raw'
 
 export function scriptToHubUrl(
 	content: string,
@@ -55,3 +56,15 @@ export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
 	url.searchParams.append('app', encodeState(staticApp))
 	return url
 }
+
+type HubPaths = {
+	gitSync: string
+	gitSyncTest: string
+	slackErrorHandler: string
+	slackRecoveryHandler: string
+	slackReport: string
+	discordReport: string
+	smtpReport: string
+}
+
+export const hubPaths = JSON.parse(rawHubPaths) as HubPaths

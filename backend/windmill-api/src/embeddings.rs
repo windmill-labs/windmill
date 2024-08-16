@@ -313,7 +313,7 @@ impl EmbeddingsDb {
                         &format!("{}/scripts/embeddings", hub_base_url),
                         false,
                         None,
-                        pg_db,
+                        Some(pg_db),
                     )
                     .await?
                 } else {
@@ -326,7 +326,7 @@ impl EmbeddingsDb {
                     &format!("{}/scripts/embeddings", hub_base_url),
                     false,
                     None,
-                    pg_db,
+                    Some(pg_db),
                 )
                 .await?
             }
@@ -375,7 +375,7 @@ impl EmbeddingsDb {
                         &format!("{}/resource_types/embeddings", hub_base_url),
                         false,
                         None,
-                        pg_db,
+                        Some(pg_db),
                     )
                     .await?
                 } else {
@@ -388,7 +388,7 @@ impl EmbeddingsDb {
                     &format!("{}/resource_types/embeddings", hub_base_url),
                     false,
                     None,
-                    pg_db,
+                    Some(pg_db),
                 )
                 .await?
             }

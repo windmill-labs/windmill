@@ -2736,9 +2736,9 @@ pub struct ContentReqLangEnvs {
     pub codebase: Option<String>,
 }
 
-async fn get_hub_script_content_and_requirements(
+pub async fn get_hub_script_content_and_requirements(
     script_path: Option<String>,
-    db: &DB,
+    db: Option<&DB>,
 ) -> error::Result<ContentReqLangEnvs> {
     let script_path = script_path
         .clone()
@@ -2783,7 +2783,7 @@ async fn get_script_content_by_path(
         .clone()
         .ok_or_else(|| Error::InternalErr(format!("expected script path")))?;
     return if script_path.starts_with("hub/") {
-        get_hub_script_content_and_requirements(Some(script_path), db).await
+        get_hub_script_content_and_requirements(Some(script_path), Some(db)).await
     } else {
         let (script_hash, ..) =
             get_latest_deployed_hash_for_path(db, w_id, script_path.as_str()).await?;
@@ -2870,7 +2870,7 @@ async fn handle_code_execution_job(
                 codebase
         }},
         JobKind::Script_Hub => {
-            get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
+            get_hub_script_content_and_requirements(job.script_path.clone(), Some(db)).await?
         }
         JobKind::Script => {
             get_script_content_by_hash(
