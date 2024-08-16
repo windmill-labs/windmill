@@ -10,6 +10,7 @@
 	import type { DurationStatus } from './graph'
 	import type { Writable } from 'svelte/store'
 
+	export let waitingForExecutor: boolean = false
 	export let result: any
 	export let logs: string | undefined
 	export let col: boolean = false
@@ -17,6 +18,7 @@
 	export let loading: boolean
 	export let filename: string | undefined = undefined
 	export let jobId: string | undefined = undefined
+	export let tag: string | undefined = undefined
 	export let workspaceId: string | undefined = undefined
 	export let refreshLog: boolean = false
 	export let durationStates: Writable<Record<string, DurationStatus>> | undefined
@@ -79,9 +81,9 @@
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
-		<div class="absolute z-40 text-sm top-1.5 left-2"
+		<div class="absolute z-40 text-xs top-0 left-1"
 			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
 		>
-		<LogViewer content={logs ?? ''} {jobId} isLoading={false} tag={undefined} />
+		<LogViewer content={logs ?? ''} {jobId} isLoading={waitingForExecutor} {tag} />
 	</div>
 </div>
