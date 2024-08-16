@@ -39,6 +39,7 @@
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
+	import ServiceLogsInner from '../ServiceLogsInner.svelte'
 
 	let open: boolean = false
 
@@ -603,9 +604,7 @@
 						/>
 					{:else if tab === 'logs'}
 						<div class="p-2">
-							<Alert title="Service log search is coming soon" type="info">
-								Full text search on windmill's service logs is coming soon
-							</Alert>
+							<ServiceLogsInner />
 						</div>
 					{:else if tab === 'runs'}
 						<div class="flex h-full p-2 divide-x">

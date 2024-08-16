@@ -43,7 +43,8 @@ pub struct LogFileQuery {
 pub struct LogFile {
     pub hostname: String,
     pub mode: String,
-    pub file_ts: String,
+    pub worker_group: Option<String>,
+    pub log_ts: chrono::NaiveDateTime,
     pub file_path: String,
 }
 async fn list_files(
@@ -56,8 +57,14 @@ async fn list_files(
     let (per_page, offset) = windmill_common::utils::paginate(pagination);
 
     let mut sqlb = sql_builder::SqlBuilder::select_from("log_file")
-        .field("*")
-        .order_by("file_ts", true)
+        .fields(&[
+            "hostname",
+            "mode::text",
+            "worker_group",
+            "log_ts",
+            "file_path",
+        ])
+        .order_by("log_ts", true)
         .offset(offset)
         .limit(per_page)
         .clone();

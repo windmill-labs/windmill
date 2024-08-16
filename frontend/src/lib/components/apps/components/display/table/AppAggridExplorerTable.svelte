@@ -150,7 +150,7 @@
 					outputs?.inputs.set(inputs, true)
 				},
 				onRemove: (id, rowIndex) => {
-					if (inputs?.[id] == undefined) {
+				if (inputs?.[id] == undefined) {
 						return
 					}
 					delete inputs[id][rowIndex]

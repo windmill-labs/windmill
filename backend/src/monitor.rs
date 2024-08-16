@@ -43,8 +43,9 @@ use windmill_common::{
     users::truncate_token,
     utils::{now_from_db, rd_string, Mode},
     worker::{
-        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
+        self, load_worker_config, make_pull_query, make_suspended_pull_query,
+        reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+        SERVER_CONFIG, WORKER_CONFIG, WORKER_GROUP,
     },
     BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
     METRICS_DEBUG_ENABLED, METRICS_ENABLED,
@@ -371,18 +372,35 @@ async fn find_two_highest_files() -> (Option<String>, Option<String>) {
     }
 }
 
+fn get_worker_group(mode: &Mode) -> Option<String> {
+    let worker_group = WORKER_GROUP.clone();
+    if worker_group.is_empty() || mode == &Mode::Server || mode == &Mode::Indexer {
+        None
+    } else {
+        Some(worker_group)
+    }
+}
 pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
     let db = db.clone();
     let hostname = hostname.to_string();
     let mode = mode.clone();
+    let worker_group = get_worker_group(&mode);
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
         tracing::error!("Starting log file upload to object store");
         sleep_until_next_minute_start_plus_one_s().await;
         loop {
             interval.tick().await;
             let (_, snd_highest_file) = find_two_highest_files().await;
-            send_log_file_to_object_store(&hostname, &mode, &db, snd_highest_file, false).await;
+            send_log_file_to_object_store(
+                &hostname,
+                &mode,
+                &worker_group,
+                &db,
+                snd_highest_file,
+                false,
+            )
+            .await;
         }
     });
 }
@@ -390,17 +408,50 @@ pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
 pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
     tracing::info!("Sending current log file to object store");
     let (highest_file, _) = find_two_highest_files().await;
-    send_log_file_to_object_store(hostname, mode, db, highest_file, true).await;
+    let worker_group = get_worker_group(&mode);
+    send_log_file_to_object_store(hostname, mode, &worker_group, db, highest_file, true).await;
 }
 
 async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
+    worker_group: &Option<String>,
     db: &Pool<Postgres>,
     snd_highest_file: Option<String>,
     use_now: bool,
 ) {
     if let Some(highest_file) = snd_highest_file {
+        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
+        let ts: NaiveDateTime = if use_now {
+            Utc::now().naive_utc()
+        } else {
+            highest_file
+                .split(".")
+                .last()
+                .and_then(|x| NaiveDateTime::parse_from_str(x, "%Y-%m-%d-%H-%M").ok())
+                .unwrap_or_else(|| Utc::now().naive_utc())
+        };
+
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM log_file WHERE hostname = $1 AND log_ts = $2)",
+            hostname,
+            ts
+        )
+        .fetch_one(db)
+        .await;
+
+        match exists {
+            Ok(Some(true)) => {
+                tracing::info!("Log file already uploaded");
+                return;
+            }
+            Err(e) => {
+                tracing::error!("Error checking if log file exists: {:?}", e);
+                return;
+            }
+            _ => (),
+        }
+
         let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE).join(&highest_file);
         #[cfg(feature = "parquet")]
         let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
@@ -418,21 +469,13 @@ async fn send_log_file_to_object_store(
                 tracing::error!("Error sending logs to object store: {:?}", e);
             }
         }
-        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
-        let ts: NaiveDateTime = if use_now {
-            Utc::now().naive_utc()
-        } else {
-            highest_file
-                .split(".")
-                .last()
-                .and_then(|x| NaiveDateTime::parse_from_str(x, "%Y-%m-%d-%H-%M").ok())
-                .unwrap_or_else(|| Utc::now().naive_utc())
-        };
-        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, log_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4)", hostname, mode.to_string(), ts, highest_file)
+
+        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5)", 
+            hostname, mode.to_string(), worker_group.clone(), ts, highest_file)
             .execute(db)
             .await {
             tracing::error!("Error inserting log file: {:?}", e);
-            }
+        }
     }
 }
 

@@ -8588,7 +8588,7 @@ paths:
   /service_logs/list_files:
     get:
       summary: list log files ordered by timestamp
-      operationId: listExtendedJobs
+      operationId: listLogFiles
       tags:
         - service_logs
       parameters:
@@ -8601,7 +8601,26 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ExtendedJobs"
+                type: array
+                items:
+                  type: object
+                  properties:
+                    hostname:
+                      type: string
+                    mode:
+                      type: string
+                    worker_group:
+                      type: string
+                    log_ts:
+                      type: string
+                      format: date-time
+                    file_path:
+                      type: string
+                  required:
+                    - hostname
+                    - mode
+                    - log_ts
+                    - file_path
 
 
   /concurrency_groups/list:
@@ -8975,6 +8994,13 @@ components:
       schema:
         type: string
         format: date-time
+    Before:
+      name: before
+      description: filter on started before (inclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
     CreatedOrStartedAfter:
       name: created_or_started_after
       description:
@@ -9047,13 +9073,6 @@ components:
     After:
       name: after
       description: filter on created after (exclusive) timestamp
-      in: query
-      schema:
-        type: string
-        format: date-time
-    Before:
-      name: before
-      description: filter on created before (exclusive) timestamp
       in: query
       schema:
         type: string
