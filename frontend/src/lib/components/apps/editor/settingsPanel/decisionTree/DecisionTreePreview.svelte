@@ -10,6 +10,16 @@
 		Controls
 	} from '@xyflow/svelte'
 
+	import {
+		addNewBranch,
+		addNode,
+		getFirstNode,
+		getParents,
+		insertNode,
+		removeBranch,
+		removeNode
+	} from './utils'
+
 	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
 
@@ -27,6 +37,83 @@
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
 	}>('DecisionTreeEditor')
+
+	function nodeCallbackHandler(
+		event: string,
+		detail: string,
+		graphNode: DecisionTreeNode | undefined,
+		parentIds: string[],
+		branchInsert: boolean = false
+	) {
+		switch (event) {
+			case 'select':
+				$selectedNodeId = detail
+				const index = nodes.findIndex((node) => node.id === detail)
+				$componentControl?.[component.id]?.setTab?.(index)
+				$debuggingComponents[component.id] = index
+
+				break
+			case 'nodeInsert': {
+				addSubGrid()
+
+				if (branchInsert) {
+					if (parentIds.length === 1 && graphNode) {
+						// console.log('A', parentIds)
+						nodes = insertNode(nodes, parentIds[0], graphNode)
+					} else {
+						// console.log('B', parentIds)
+						// find parent with multiple next
+						const parentWithMultipleNext = nodes.find((node) => {
+							return node.next.length > 1 && parentIds.includes(node.id)
+						})
+
+						if (!parentWithMultipleNext) {
+							deleteSubgrid(nodes.length - 1)
+							return nodes
+						}
+
+						nodes = insertNode(nodes, parentWithMultipleNext.id, graphNode!)
+					}
+				} else {
+					nodes = addNode(nodes, graphNode)
+				}
+
+				break
+			}
+
+			case 'delete': {
+				const graphNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
+
+				if (graphNodeIndex > -1) {
+					deleteSubgrid(graphNodeIndex)
+				}
+
+				nodes = removeNode(nodes, graphNode)
+
+				$debuggingComponents = Object.fromEntries(
+					Object.entries($debuggingComponents).filter(([key]) => key !== component.id)
+				)
+
+				break
+			}
+			case 'addBranch': {
+				addSubGrid()
+				nodes = addNewBranch(nodes, graphNode!)
+				break
+			}
+			case 'removeBranch': {
+				nodes = removeBranch(nodes, graphNode, parentIds[0], (nodeId) => {
+					const index = nodes.findIndex((node) => node.id === nodeId)
+
+					deleteSubgrid(index)
+				})
+				break
+			}
+			default:
+				break
+		}
+		dispatch('render')
+	}
 
 	function graphBuilder(decisionTreeNodes: DecisionTreeNode[]): {
 		edges: Edge[]
@@ -67,83 +154,6 @@
 				target,
 				type: 'edge'
 			})
-		}
-
-		function nodeCallbackHandler(
-			event: string,
-			detail: string,
-			graphNode: DecisionTreeNode | undefined,
-			parentIds: string[],
-			branchInsert: boolean = false
-		) {
-			switch (event) {
-				case 'select':
-					$selectedNodeId = detail
-					const index = nodes.findIndex((node) => node.id === detail)
-					$componentControl?.[component.id]?.setTab?.(index)
-					$debuggingComponents[component.id] = index
-
-					break
-				case 'nodeInsert': {
-					addSubGrid()
-
-					if (branchInsert) {
-						if (parentIds.length === 1 && graphNode) {
-							// console.log('A', parentIds)
-							nodes = insertNode(nodes, parentIds[0], graphNode)
-						} else {
-							// console.log('B', parentIds)
-							// find parent with multiple next
-							const parentWithMultipleNext = nodes.find((node) => {
-								return node.next.length > 1 && parentIds.includes(node.id)
-							})
-
-							if (!parentWithMultipleNext) {
-								deleteSubgrid(nodes.length - 1)
-								return nodes
-							}
-
-							nodes = insertNode(nodes, parentWithMultipleNext.id, graphNode!)
-						}
-					} else {
-						nodes = addNode(nodes, graphNode)
-					}
-
-					break
-				}
-
-				case 'delete': {
-					const graphNodeIndex = nodes.findIndex((node) => node.id == graphNode?.id)
-
-					if (graphNodeIndex > -1) {
-						deleteSubgrid(graphNodeIndex)
-					}
-
-					nodes = removeNode(nodes, graphNode)
-
-					$debuggingComponents = Object.fromEntries(
-						Object.entries($debuggingComponents).filter(([key]) => key !== component.id)
-					)
-
-					break
-				}
-				case 'addBranch': {
-					addSubGrid()
-					nodes = addNewBranch(nodes, graphNode!)
-					break
-				}
-				case 'removeBranch': {
-					nodes = removeBranch(nodes, graphNode, parentIds[0], (nodeId) => {
-						const index = nodes.findIndex((node) => node.id === nodeId)
-
-						deleteSubgrid(index)
-					})
-					break
-				}
-				default:
-					break
-			}
-			dispatch('render')
 		}
 
 		function processNodes(decisionTreeNodes: DecisionTreeNode[], beforeNode: Node, nextNode: Node) {
