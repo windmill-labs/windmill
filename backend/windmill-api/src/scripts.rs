@@ -817,7 +817,8 @@ pub async fn get_full_hub_script_by_path(
     Extension(db): Extension<DB>,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, &db).await?,
+        windmill_common::scripts::get_full_hub_script_by_path(path, &HTTP_CLIENT, Some(&db))
+            .await?,
     ))
 }
 

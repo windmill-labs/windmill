@@ -55,6 +55,7 @@
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
+	import { hubPaths } from '$lib/hub'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -138,7 +139,7 @@
 			| 'error_handler') ?? 'users'
 	let usingOpenaiClientCredentialsOauth = false
 
-	const latestGitSyncHubScript = `hub/8931/sync-script-to-git-repo-windmill`
+	const latestGitSyncHubScript = hubPaths.gitSync
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
 	// 		{
@@ -566,7 +567,7 @@
 		}
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
-			path: 'hub/8944/git-repo-test-read-write-windmill',
+			path: hubPaths.gitSyncTest,
 			requestBody: {
 				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
 			}

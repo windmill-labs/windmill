@@ -6,15 +6,20 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use anyhow::Context;
 use gethostname::gethostname;
 use git_version::git_version;
 use rand::Rng;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tokio::fs::DirBuilder;
+use tokio::{
+    fs::{create_dir_all, DirBuilder, File},
+    io::AsyncReadExt,
+};
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
@@ -54,9 +59,10 @@ use windmill_common::METRICS_ADDR;
 use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 use windmill_worker::{
-    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR,
-    DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR,
-    LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
+    BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
 };
 
 use crate::monitor::{
@@ -111,6 +117,28 @@ pub fn main() -> anyhow::Result<()> {
     create_and_run_current_thread_inner(windmill_main())
 }
 
+async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
+    let file_path = file_path.unwrap_or("./hubPaths.json".to_string());
+    let mut file = File::open(&file_path)
+        .await
+        .with_context(|| format!("Could not open {}, make sure it exists", &file_path))?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).await?;
+    let paths = serde_json::from_str::<HashMap<String, String>>(&contents).with_context(|| {
+        format!(
+            "Could not parse {}, make sure it is a valid JSON object with string keys and values",
+            &file_path
+        )
+    })?;
+
+    create_dir_all(HUB_CACHE_DIR).await?;
+
+    for path in paths.values() {
+        get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
+    }
+    Ok(())
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
 
@@ -141,6 +169,9 @@ async fn windmill_main() -> anyhow::Result<()> {
             {
                 tracing::warn!("Embeddings are not enabled, ignoring...");
             }
+
+            cache_hub_scripts(std::env::args().nth(2)).await?;
+
             return Ok(());
         }
         "-v" | "--version" | "version" => {
