@@ -36,12 +36,7 @@ export function createNode(nodeConfig: NodeConfig): Node {
 		position: nodeConfig.position || { x: -1, y: -1 },
 		data: nodeConfig.data,
 		width: nodeConfig.width || NODE.width,
-		height: nodeConfig.height || NODE.height,
-		borderColor: nodeConfig.borderColor || '#999',
-		sourcePosition: 'bottom',
-		targetPosition: 'top',
-		parentIds: nodeConfig.parentIds || [],
-		loopDepth: nodeConfig.loopDepth || 0
+		height: nodeConfig.height || NODE.height
 	}
 }
 
