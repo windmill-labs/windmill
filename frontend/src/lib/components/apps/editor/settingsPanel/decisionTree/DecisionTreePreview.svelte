@@ -34,6 +34,9 @@
 	export let paneHeight = 0
 	export let component: AppComponent
 
+	const nodesStore = writable<Node[]>([])
+	const edgesStore = writable<Edge[]>([])
+
 	const dispatch = createEventDispatcher()
 
 	const { selectedNodeId } = getContext<{
@@ -155,10 +158,7 @@
 		dispatch('render')
 	}
 
-	function graphBuilder(decisionTreeNodes: DecisionTreeNode[]): {
-		edges: Edge[]
-		nodes: Node[]
-	} {
+	function graphBuilder(decisionTreeNodes: DecisionTreeNode[]) {
 		const nodes: Node[] = []
 		const edges: Edge[] = []
 
@@ -319,14 +319,16 @@
 						id: 'start',
 						label: 'Start',
 						allowed: undefined,
-						next: {
-							id: firstNode.id,
-							condition: {
-								type: 'evalv2',
-								expr: 'true',
-								fieldType: 'boolean'
+						next: [
+							{
+								id: firstNode.id,
+								condition: {
+									type: 'evalv2',
+									expr: 'true',
+									fieldType: 'boolean'
+								}
 							}
-						}
+						]
 					},
 					canDelete: false,
 					nodeCallbackHandler
@@ -374,16 +376,11 @@
 			}
 		})
 
-		return {
-			edges,
-			nodes
-		}
+		$nodesStore = layoutNodes(nodes)
+		$edgesStore = edges
 	}
 
-	$: graph = graphBuilder(nodes)
-
-	const nodesStore = writable<Node[]>([])
-	const edgesStore = writable<Edge[]>([])
+	$: graphBuilder(nodes)
 
 	function layoutNodes(nodes: Node[]): Node[] {
 		let seenId: string[] = []
@@ -427,13 +424,6 @@
 
 		return newNodes
 	}
-
-	function updateStores() {
-		$nodesStore = layoutNodes(graph?.nodes)
-		$edgesStore = graph.edges
-	}
-
-	$: graph && updateStores()
 
 	const viewport = writable<Viewport>({
 		x: 0,
