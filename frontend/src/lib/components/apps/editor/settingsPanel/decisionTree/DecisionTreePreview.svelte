@@ -10,15 +10,7 @@
 		Controls
 	} from '@xyflow/svelte'
 
-	import {
-		addNewBranch,
-		addNode,
-		getFirstNode,
-		getParents,
-		insertNode,
-		removeBranch,
-		removeNode
-	} from './utils'
+	import { addNewBranch, addNode, insertNode, removeBranch, removeNode } from './utils'
 
 	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
@@ -26,6 +18,8 @@
 	import { writable, type Writable } from 'svelte/store'
 	import type { AppComponent, DecisionTreeNode } from '../../component'
 	import { createEventDispatcher, getContext } from 'svelte'
+	import type { AppViewerContext } from '$lib/components/apps/types'
+	import { deleteGridItem } from '../../appUtils'
 
 	export let nodes: DecisionTreeNode[]
 	export let paneWidth = 0
@@ -37,6 +31,44 @@
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
 	}>('DecisionTreeEditor')
+
+	const { app, runnableComponents, componentControl, debuggingComponents } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	function addSubGrid() {
+		const numberOfPanes = nodes.length
+		if (!$app.subgrids) {
+			$app.subgrids = {}
+		}
+		$app.subgrids[`${component.id}-${numberOfPanes}`] = []
+
+		component.numberOfSubgrids = nodes.length + 1
+	}
+
+	function deleteSubgrid(index: number) {
+		let subgrid = `${component.id}-${index}`
+
+		if (!$app.subgrids![subgrid]) {
+			return
+		}
+
+		for (const item of $app!.subgrids![subgrid]) {
+			const components = deleteGridItem($app, item.data, subgrid)
+			for (const key in components) {
+				delete $runnableComponents[key]
+			}
+		}
+		$runnableComponents = $runnableComponents
+		for (let i = index; i < nodes.length - 1; i++) {
+			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+		}
+		nodes.splice(index, 1)
+		delete $app!.subgrids![`${component.id}-${nodes.length}`]
+
+		nodes = nodes
+		component.numberOfSubgrids = nodes.length
+		$app = $app
+	}
 
 	function nodeCallbackHandler(
 		event: string,
@@ -138,6 +170,7 @@
 				position: { x: -1, y: -1 },
 				data: {
 					node,
+					nodeCallbackHandler,
 					...data
 				}
 			})
@@ -168,7 +201,9 @@
 						index
 					})
 
-					if (node.next.length > 0) {
+					if (node.next.length === 1) {
+						addEdge(node.id, node.next[0].id)
+					} else if (node.next.length > 0) {
 						node.next.forEach((next, innerIndex) => {
 							const branchHeaderId = `${node.id}-branch-${innerIndex}`
 							const header = {
@@ -212,7 +247,8 @@
 					allowed: undefined,
 					next: []
 				},
-				canDelete: false
+				canDelete: false,
+				nodeCallbackHandler
 			}
 		}
 
@@ -227,7 +263,8 @@
 					allowed: undefined,
 					next: []
 				},
-				canDelete: false
+				canDelete: false,
+				nodeCallbackHandler
 			}
 		}
 

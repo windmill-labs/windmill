@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
 	import type { DecisionTreeNode } from '../component'
 	import { twMerge } from 'tailwind-merge'
 	import InsertDecisionTreeNode from './decisionTree/InsertDecisionTreeNode.svelte'
@@ -9,16 +8,17 @@
 	export let data: {
 		node: DecisionTreeNode
 		canDelete: boolean
+		nodeCallbackHandler: (
+			event: string,
+			detail: string,
+			graphNode: DecisionTreeNode | undefined,
+			parentIds: string[],
+			branchInsert: boolean
+		) => void
+		parentIds: string[]
 	}
 
 	let open: boolean = false
-
-	const dispatch = createEventDispatcher<{
-		nodeInsert: void
-		delete: void
-		addBranch: void
-		removeBranch: void
-	}>()
 </script>
 
 <NodeWrapper>
@@ -41,7 +41,9 @@
 			<div class="w-[27px] absolute -top-[32px] left-[50%] right-[50%] -translate-x-1/2">
 				<button
 					title="Delete branch"
-					on:click|preventDefault|stopPropagation={() => dispatch('removeBranch')}
+					on:click|preventDefault|stopPropagation={() => {
+						data.nodeCallbackHandler('removeBranch', data.node.id, data.node, data.parentIds, false)
+					}}
 					type="button"
 					class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
@@ -58,8 +60,12 @@
 				)}
 			>
 				<InsertDecisionTreeNode
-					on:node={() => dispatch('nodeInsert')}
-					on:addBranch={() => dispatch('addBranch')}
+					on:node={() => {
+						data.nodeCallbackHandler('nodeInsert', data.node.id, data.node, data.parentIds, false)
+					}}
+					on:addBranch={() => {
+						data.nodeCallbackHandler('addBranch', data.node.id, data.node, data.parentIds, true)
+					}}
 					canAddBranch={false}
 				/>
 			</div>

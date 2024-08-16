@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { DecisionTreeNode } from '../component'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -17,18 +17,19 @@
 		canAddBranch: boolean
 		selected: boolean
 		index: number
+		nodeCallbackHandler: (
+			event: string,
+			detail: string,
+			graphNode: DecisionTreeNode | undefined,
+			parentIds: string[],
+			branchInsert: boolean
+		) => void
+		parentIds: string[]
 	}
 
 	let node = data.node
 
 	let open: boolean = false
-
-	const dispatch = createEventDispatcher<{
-		select: string
-		nodeInsert: void
-		delete: void
-		addBranch: void
-	}>()
 
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
@@ -52,7 +53,7 @@
 			)};"
 			on:click={() => {
 				selected = true
-				dispatch('select', node.id)
+				data.nodeCallbackHandler('select', node.id, node, data.parentIds, false)
 			}}
 		>
 			<div class="ml-2 text-xs font-normal text-primary truncate">
@@ -74,7 +75,9 @@
 					'border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white hover:border-red-700',
 					'group-hover:opacity-100 opacity-0'
 				)}
-				on:click|preventDefault|stopPropagation={() => dispatch('delete')}
+				on:click|preventDefault|stopPropagation={() => {
+					data.nodeCallbackHandler('delete', node.id, node, data.parentIds, false)
+				}}
 			>
 				<X class="mx-[3px]" size={14} strokeWidth={2} />
 			</button>
@@ -88,8 +91,12 @@
 				)}
 			>
 				<InsertDecisionTreeNode
-					on:node={() => dispatch('nodeInsert')}
-					on:addBranch={() => dispatch('addBranch')}
+					on:node={() => {
+						data.nodeCallbackHandler('nodeInsert', node.id, node, data.parentIds, false)
+					}}
+					on:addBranch={() => {
+						data.nodeCallbackHandler('addBranch', node.id, node, data.parentIds, true)
+					}}
 					canAddBranch={data.canAddBranch || node.next.length > 1}
 					canAddNode={node.next.length <= 1}
 				/>
