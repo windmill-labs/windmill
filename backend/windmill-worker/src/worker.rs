@@ -7,7 +7,7 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR}
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR}
 };
 
 use anyhow::{Context, Result};
@@ -245,6 +245,7 @@ pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
 pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
 
 const NUM_SECS_PING: u64 = 5;
+const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 
@@ -371,6 +372,12 @@ lazy_static::lazy_static! {
     pub static ref EXIT_AFTER_NO_JOB_FOR_SECS: Option<u64> = std::env::var("EXIT_AFTER_NO_JOB_FOR_SECS")
         .ok()
         .and_then(|x| x.parse::<u64>().ok());
+
+
+    pub static ref REFRESH_CGROUP_READINGS: bool = std::env::var("REFRESH_CGROUP_READINGS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(false);
 
 
 }
@@ -1356,6 +1363,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
     };
     let mut suspend_first_success = false;
+    let mut last_reading = Instant::now() - Duration::from_secs(NUM_SECS_READINGS + 1);
 
     loop {
         #[cfg(feature = "benchmark")]
@@ -1385,15 +1393,23 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
+            let (vcpus, memory) = if *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS {
+                last_reading = Instant::now();
+                (get_vcpus(), get_memory())
+            } else {
+                (None, None)
+            };
 
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $6",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
                 worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
                 memory_usage,
                 wm_memory_usage,
-                &worker_name
+                &worker_name,
+                vcpus,
+                memory
             ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
