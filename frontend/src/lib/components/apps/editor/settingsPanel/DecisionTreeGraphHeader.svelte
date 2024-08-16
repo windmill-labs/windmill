@@ -63,13 +63,17 @@
 			>
 				<InsertDecisionTreeNode
 					on:node={() => {
-						data.nodeCallbackHandler(
-							'nodeInsert',
-							data.realNode ? data.realNode.id : data.node.id,
-							data.realNode ?? data.node,
-							data.parentIds ?? [],
-							data.branchHeader
-						)
+						if (data.node.id === 'start') {
+							data.nodeCallbackHandler('nodeInsert', 'start', undefined, [], false)
+						} else {
+							data.nodeCallbackHandler(
+								'nodeInsert',
+								data.realNode ? data.realNode.id : data.node.id,
+								data.realNode ?? data.node,
+								data.parentIds ?? [],
+								data.branchHeader
+							)
+						}
 					}}
 					on:addBranch={() => {
 						data.nodeCallbackHandler('addBranch', data.node.id, data.node, data.parentIds, true)
