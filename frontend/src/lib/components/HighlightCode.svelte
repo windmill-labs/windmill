@@ -75,7 +75,7 @@
 		}}
 		iconOnly
 	/>
-	{#if code?.length < 5000}
+	{#if code?.length < 10000}
 		{#if !lines}
 			<Highlight class="nowrap {$$props.class}" language={lang} {code} />
 		{:else}
@@ -84,7 +84,7 @@
 			</Highlight>
 		{/if}
 	{:else}
-		<pre class="overflow-auto max-h-screen {$$props.class}"
+		<pre class="overflow-auto max-h-screen text-xs {$$props.class}"
 			><code class="language-{language}">{code}</code></pre
 		>
 	{/if}

@@ -17,6 +17,7 @@ flamegraph = []
 parquet = ["windmill-common/parquet", "dep:object_store"]
 flow_testing = []
 cloud = []
+sqlx = []
 
 [dependencies]
 windmill-queue.workspace = true

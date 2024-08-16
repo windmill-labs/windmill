@@ -76,7 +76,8 @@
 	import { forLater } from '$lib/forLater'
 	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import MemoryFootprintViewer from '$lib/components/MemoryFootprintViewer.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import { Highlight } from 'svelte-highlight'
@@ -750,7 +751,7 @@
 										jobId={job.id}
 										duration={job?.['duration_ms']}
 										mem={job?.['mem_peak']}
-										isLoading={!(job && 'logs' in job && job.logs)}
+										isLoading={job?.['running'] == false}
 										content={job?.logs}
 										tag={job?.tag}
 									/>
@@ -774,6 +775,7 @@
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}
 									result={job.result}
+									language={job.language}
 								/>
 							{:else if job}
 								No output is available yet

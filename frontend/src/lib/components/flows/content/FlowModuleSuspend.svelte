@@ -118,6 +118,21 @@
 					<SecondsInput disabled />
 				{/if}
 			</Label>
+
+			<Toggle
+				options={{
+					right: 'Continue on disapproval/timeout',
+					rightTooltip:
+						'Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. If any disapproval/timeout event is received, the resume payload will be similar to every error result in Winmdill, an object containing an `error` field which you can use to distinguish between approvals and disapproval/timeouts'
+				}}
+				checked={Boolean(flowModule.suspend?.continue_on_disapprove_timeout)}
+				disabled={!Boolean(flowModule.suspend)}
+				on:change={(e) => {
+					if (flowModule.suspend) {
+						flowModule.suspend.continue_on_disapprove_timeout = e.detail
+					}
+				}}
+			/>
 		</div>
 	{:else if suspendTabSelected === 'permissions'}
 		<div class="flex flex-col mt-4 gap-4">

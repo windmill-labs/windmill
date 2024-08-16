@@ -174,15 +174,42 @@ export function buildExtraLib(
 		.filter(([k, v]) => k != idToExclude && k != 'state')
 		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
 		.map(
-			([k, v]) => `declare const ${k}: ${JSON.stringify(v)};
+			([k, v]) => `declare const ${k}: WidenRo<${JSON.stringify(v)}>;
 `
 		)
 		.join('\n')
 
-	return `${cs}
+	return `
+
+type Widen<T> = T extends string
+  ? string
+  : T extends number
+  ? number
+  : T extends boolean
+  ? boolean
+  : T extends Array<infer U>
+  ? Array<Widen<U>>
+  : T extends object
+  ? Partial<{ [K in keyof T]: Widen<T[K]> } & {[key: string]: any}>
+  : T;
+
+type WidenRo<T> = T extends string
+  ? string
+  : T extends number
+  ? number
+  : T extends boolean
+  ? boolean
+  : T extends Array<infer U>
+  ? Readonly<Array<WidenRo<U>>>
+  : T extends object
+  ? Readonly<{ [K in keyof T]: WidenRo<T[K]> }>
+  : T;
+
 
 /** The mutable state of the app */
-declare const state: ${JSON.stringify(state)} & {[key: string]: any};
+declare const state: Widen<${JSON.stringify(state)}> & {[key: string]: any};
+
+${cs}
 
 ${
 	goto
@@ -266,6 +293,11 @@ declare function showToast(message: string, error?: boolean): void;
  */
 declare async function waitJob(id: string): Promise<any>;
 
+
+/**
+ * ask user resource on a UserResourceComponent
+ */
+declare async function askNewResource(id: string): void;
 
 `
 		: ''
@@ -442,3 +474,5 @@ export function getImageDataURL(imageKind: string | undefined, image: string | u
 			return image
 	}
 }
+
+export const ctxRegex = /^ctx\.(workspace|groups|username|email|author)$/

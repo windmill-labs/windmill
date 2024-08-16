@@ -203,7 +203,12 @@
 			<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
 		</span>
 		<div class="flex flex-row gap-1">
-			<input type="password" bind:value={openAiKey} on:keyup={handleKeyUp} />
+			<input
+				type="password"
+				autocomplete="new-password"
+				bind:value={openAiKey}
+				on:keyup={handleKeyUp}
+			/>
 			<TestOpenaiKey apiKey={openAiKey} disabled={!openAiKey} />
 		</div>
 		{#if openAiKey}

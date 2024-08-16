@@ -12,7 +12,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
-    worker::{save_cache, CLOUD_HOSTED},
+    worker::save_cache,
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy};
@@ -301,12 +301,6 @@ func Run(req Req) (interface{{}}, error){{
     )
     .await?;
 
-    if cache && *CLOUD_HOSTED {
-        //do not keep the binary in the cache if it is cloud hosted to avoid filling up the disk
-        if let Err(e) = tokio::fs::remove_file(&bin_path).await {
-            tracing::error!("could not remove {bin_path} from go cache: {e:?}");
-        }
-    }
     read_result(job_dir).await
 }
 

@@ -50,6 +50,7 @@ export type GraphModuleState = {
 	flow_jobs_results?: any
 	branchChosen?: number
 	result?: any
+	tag?: string
 	scheduled_for?: Date
 	job_id?: string
 	parent_module?: string

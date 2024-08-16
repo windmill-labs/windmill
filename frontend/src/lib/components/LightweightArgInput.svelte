@@ -96,18 +96,15 @@
 
 	$: render && changeDefaultValue(inputCat, defaultValue)
 
-	$: rawValue && evalRawValueToValue()
+	$: (rawValue || inputCat === 'object') && evalRawValueToValue()
 
 	$: validateInput(pattern, value, required)
 
-	$: {
-		if (inputCat === 'object') {
-			evalValueToRaw()
-		}
-	}
-
 	function evalRawValueToValue() {
-		if (rawValue) {
+		if (!rawValue || rawValue === '') {
+			value = undefined
+			error = ''
+		} else {
 			try {
 				value = JSON.parse(rawValue)
 				error = ''
@@ -124,7 +121,7 @@
 		} else {
 			// If value is undefined, set rawValue to empty object
 			// This is to prevent the textarea from being empty
-			rawValue = '{}'
+			rawValue = ''
 		}
 	}
 
@@ -184,9 +181,17 @@
 	}
 
 	let prevDefaultValue: any = undefined
+	let defaultChange = 0
+
 	async function changeDefaultValue(inputCat, defaultValue) {
-		if (value == null || value == undefined || deepEqual(value, prevDefaultValue)) {
+		if (
+			value == null ||
+			value == undefined ||
+			deepEqual(value, prevDefaultValue) ||
+			(prevDefaultValue != undefined && !deepEqual(defaultValue, prevDefaultValue))
+		) {
 			value = defaultValue
+			defaultChange += 1
 		}
 		prevDefaultValue = structuredClone(defaultValue)
 
@@ -501,11 +506,13 @@
 						{/each}
 					</select>
 				{:else if inputCat == 'date'}
-					{#if format === 'date'}
-						<DateInput bind:value dateFormat={extra['dateFormat']} />
-					{:else}
-						<DateTimeInput useDropdown bind:value />
-					{/if}
+					{#key defaultChange}
+						{#if format === 'date'}
+							<DateInput bind:value dateFormat={extra['dateFormat']} />
+						{:else}
+							<DateTimeInput useDropdown bind:value />
+						{/if}
+					{/key}
 				{:else if inputCat == 'base64'}
 					<div class="flex flex-col my-6 w-full">
 						<input

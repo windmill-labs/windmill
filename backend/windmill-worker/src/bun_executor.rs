@@ -18,8 +18,8 @@ use crate::{
         write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_PATH,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
+    NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 use tokio::{fs::File, process::Command};
@@ -967,11 +967,10 @@ try {{
     };
 
     let reserved_variables_args_out_f = async {
-        if annotation.native_mode {
-            return Ok(HashMap::new()) as error::Result<HashMap<String, String>>;
-        }
         let args_and_out_f = async {
-            create_args_and_out_file(&client, job, job_dir, db).await?;
+            if !annotation.native_mode {
+                create_args_and_out_file(&client, job, job_dir, db).await?;
+            }
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
@@ -1166,7 +1165,7 @@ try {{
                 "--config",
                 "run.config.proto",
                 "--",
-                &NODE_PATH,
+                &NODE_BIN_PATH,
                 "/tmp/nodejs/wrapper.mjs",
             ]
         } else if codebase.is_some() || has_bundle_cache {
@@ -1208,7 +1207,7 @@ try {{
         let cmd = if annotation.nodejs_mode {
             let script_path = format!("{job_dir}/wrapper.mjs");
 
-            let mut bun_cmd = Command::new(&*NODE_PATH);
+            let mut bun_cmd = Command::new(&*NODE_BIN_PATH);
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()
@@ -1249,7 +1248,7 @@ try {{
         start_child_process(
             cmd,
             if annotation.nodejs_mode {
-                &*NODE_PATH
+                &*NODE_BIN_PATH
             } else {
                 &*BUN_PATH
             },
@@ -1275,7 +1274,7 @@ try {{
 }
 
 pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String, String> {
-    let bun_envs: HashMap<String, String> = HashMap::from([
+    let mut bun_envs: HashMap<String, String> = HashMap::from([
         (String::from("PATH"), PATH_ENV.clone()),
         (String::from("HOME"), HOME_ENV.clone()),
         (String::from("TZ"), TZ_ENV.clone()),
@@ -1292,6 +1291,11 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
             BUN_CACHE_DIR.to_string(),
         ),
     ]);
+
+    if let Some(ref node_path) = NODE_PATH.as_ref() {
+        bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
+    }
+
     return bun_envs;
 }
 
@@ -1508,7 +1512,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         let script_path = format!("{job_dir}/wrapper.mjs");
 
         handle_dedicated_process(
-            &*NODE_PATH,
+            &*NODE_BIN_PATH,
             job_dir,
             context_envs,
             envs,

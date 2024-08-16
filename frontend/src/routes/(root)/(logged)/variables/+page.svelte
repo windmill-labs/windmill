@@ -22,7 +22,8 @@
 	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { ALL_DEPLOYABLE, canWrite, isDeployable, isOwner, truncate } from '$lib/utils'
+	import { canWrite, isOwner, truncate } from '$lib/utils'
+	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import {
 		Plus,
 		FileUp,

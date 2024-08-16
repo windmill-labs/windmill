@@ -162,6 +162,11 @@ pub struct SkipIfStopped {
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
 }
 
+#[derive(Deserialize)]
+struct RecoveryObject {
+    recover: Option<bool>,
+}
+
 #[derive(sqlx::FromRow, Deserialize)]
 pub struct RowFlowStatus {
     pub flow_status: sqlx::types::Json<Box<serde_json::value::RawValue>>,
@@ -758,8 +763,9 @@ pub async fn update_flow_status_after_job_completion_internal<
         let module = get_module(&flow_job, module_index);
 
         // tracing::error!(
-        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler}", flow_job.canceled
+        //     "UPDATE FLOW STATUS 3: {module:#?} {unrecoverable} {} {is_last_step} {success} {skip_error_handler} is_failure_step {is_failure_step}", flow_job.canceled
         // );
+
         let should_continue_flow = match success {
             _ if stop_early => false,
             _ if flow_job.canceled => false,
@@ -873,7 +879,13 @@ pub async fn update_flow_status_after_job_completion_internal<
 
                 save_in_cache(db, client, &flow_job, cached_res_path, &nresult).await;
             }
-            let success = success && !is_failure_step && !skip_error_handler;
+            fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
+                let recover = serde_json::from_str::<RecoveryObject>(nresult.get());
+                return recover.map(|r| r.recover.unwrap_or(false)).unwrap_or(false);
+            }
+            let success = success
+                && (!is_failure_step || result_has_recover_true(nresult.clone()))
+                && !skip_error_handler;
             if success {
                 add_completed_job(
                     db,
@@ -1715,7 +1727,26 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             }
 
             let is_disapproved = resumes.iter().find(|x| !x.approved);
-            if is_disapproved.is_none() && resume_messages.len() >= required_events as usize {
+            let can_be_resumed =
+                is_disapproved.is_none() && resume_messages.len() >= required_events as usize;
+            let disapproved_or_timeout_but_continue = !can_be_resumed
+                && (is_disapproved.is_some()
+                    || !matches!(
+                        &status_module,
+                        FlowStatusModule::WaitingForPriorSteps { .. }
+                    ))
+                && suspend.continue_on_disapprove_timeout.unwrap_or(false);
+
+            if can_be_resumed || disapproved_or_timeout_but_continue {
+                if disapproved_or_timeout_but_continue {
+                    let js = if let Some(disapproved) = is_disapproved.as_ref() {
+                        json!({"error": {"message": format!("Disapproved by {}", disapproved.approver.clone().unwrap_or_else( || "unknown".to_string())), "name": "SuspendedDisapproved"}})
+                    } else {
+                        json!({"error": {"message": "Timed out waiting to be resumed", "name": "SuspendedTimedOut"}})
+                    };
+
+                    resume_messages.push(to_raw_value(&js));
+                }
                 sqlx::query(
                     "UPDATE queue
                     SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
@@ -1787,7 +1818,13 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
 
                 let (logs, error_name) = if let Some(disapprover) = is_disapproved {
                     (
-                        format!("Disapproved by {:?}", disapprover.approver),
+                        format!(
+                            "Disapproved by {}",
+                            disapprover
+                                .approver
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string())
+                        ),
                         "SuspendedDisapproved",
                     )
                 } else {
@@ -2342,7 +2379,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
-            if flow_job.tag == "flow" {
+            if flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id) {
                 payload_tag.tag
             } else {
                 Some(flow_job.tag.clone())

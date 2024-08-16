@@ -79,6 +79,7 @@
 	import AppDateSelect from '../../components/inputs/AppDateSelect.svelte'
 	import AppDisplayComponentByJobId from '../../components/display/AppRecomputeAll.svelte'
 	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
+	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -98,6 +99,7 @@
 	let initializing: boolean | undefined = undefined
 	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0
+	let componentContainerWidth: number = 0
 
 	let inlineEditorOpened: boolean = false
 
@@ -157,6 +159,7 @@
 				inlineEditorOpened = !inlineEditorOpened
 			}}
 			{errorHandledByComponent}
+			{componentContainerWidth}
 		/>
 	{/if}
 
@@ -190,6 +193,7 @@
 		)}
 		style={$app.css?.['app']?.['component']?.style}
 		bind:clientHeight={componentContainerHeight}
+		bind:clientWidth={componentContainerWidth}
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent
@@ -432,6 +436,14 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				onSelect={component.onSelect}
+				{render}
+			/>
+		{:else if component.type === 'userresourcecomponent'}
+			<AppUserResource
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
 				{render}
 			/>
 		{:else if component.type === 'multiselectcomponent'}

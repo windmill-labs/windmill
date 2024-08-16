@@ -935,23 +935,25 @@
 
 			<div class="mt-10" />
 
-			<h2>Secret public URL</h2>
+			<h2>Public URL</h2>
 			<div class="mt-4" />
 
-			<Toggle
-				options={{
-					left: `Require login and read-access`,
-					right: `No login required`
-				}}
-				checked={policy.execution_mode == 'anonymous'}
-				on:change={(e) => {
-					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
-				}}
-			/>
+			<div class="flex gap-2 items-center">
+				<Toggle
+					options={{
+						left: `Require login and read-access`,
+						right: `No login required`
+					}}
+					checked={policy.execution_mode == 'anonymous'}
+					on:change={(e) => {
+						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
+						setPublishState()
+					}}
+				/>
+			</div>
 
 			<div class="my-6 box">
-				Secret public url:
+				Public url:
 				{#if secretUrl}
 					{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
 					{@const href = $page.url.protocol + '//' + url}
@@ -971,13 +973,18 @@
 				{:else}<Loader2 class="animate-spin" />
 				{/if}
 				<div class="text-xs text-secondary"
-					>You may share this url directly or embed it using an iframe (if not requiring login)</div
+					>Share this url directly or embed it using an iframe (if requiring login, top-level domain
+					of embedding app must be the same as the one of Windmill)</div
 				>
 			</div>
-
 			<Alert type="info" title="Only latest deployed app is publicly available">
 				You will still need to deploy the app to make visible the latest changes
 			</Alert>
+
+			<a
+				href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
+				class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
+			>
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -1146,14 +1153,14 @@
 														duration={job?.['duration_ms']}
 														jobId={job?.id}
 														content={job?.logs}
-														isLoading={testIsLoading}
+														isLoading={testIsLoading && job?.['running'] == false}
 														tag={job?.tag}
 													/>
 												</Pane>
 												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}
-														<div class="relative h-full px-2">
-															<DisplayResult
+													{#if job != undefined && 'result' in job && job.result != undefined}<div
+															class="relative h-full px-2"
+															><DisplayResult
 																workspaceId={$workspaceStore}
 																jobId={selectedJobId}
 																result={job.result}

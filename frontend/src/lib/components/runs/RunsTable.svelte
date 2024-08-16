@@ -228,73 +228,75 @@
 			<div class="w-3/12 text-xs font-semibold">Triggered by</div>
 		</div>
 	</div>
+	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
+		<tr>
+			<td colspan="4" class="text-center p-8">
+				<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
+			</td>
+		</tr>
+	{:else}
+		<VirtualList
+			width="100%"
+			height={tableHeight - header}
+			itemCount={flatJobs?.length ?? 3}
+			itemSize={42}
+			overscanCount={20}
+			{stickyIndices}
+		>
+			<div slot="item" let:index let:style {style} class="w-full">
+				{#if flatJobs}
+					{@const jobOrDate = flatJobs[index]}
 
-	<VirtualList
-		width="100%"
-		height={tableHeight - header}
-		itemCount={flatJobs?.length ?? 3}
-		itemSize={42}
-		{stickyIndices}
-	>
-		<div slot="item" let:index let:style {style} class="w-full">
-			{#if flatJobs}
-				{@const jobOrDate = flatJobs[index]}
-
-				{#if jobOrDate}
-					{#if jobOrDate?.type === 'date'}
-						<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
-							{jobOrDate.date}
-						</div>
-					{:else}
-						<div class="flex flex-row items-center h-full w-full">
-							<RunRow
-								{containsLabel}
-								job={jobOrDate.job}
-								selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-								{isSelectingJobsToCancel}
-								on:select={() => {
-									const jobId = jobOrDate.job.id
-									if (isSelectingJobsToCancel) {
-										if (selectedIds.includes(jobOrDate.job.id)) {
-											selectedIds = selectedIds.filter((id) => id != jobId)
+					{#if jobOrDate}
+						{#if jobOrDate?.type === 'date'}
+							<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+								{jobOrDate.date}
+							</div>
+						{:else}
+							<div class="flex flex-row items-center h-full w-full">
+								<RunRow
+									{containsLabel}
+									job={jobOrDate.job}
+									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+									{isSelectingJobsToCancel}
+									on:select={() => {
+										const jobId = jobOrDate.job.id
+										if (isSelectingJobsToCancel) {
+											if (selectedIds.includes(jobOrDate.job.id)) {
+												selectedIds = selectedIds.filter((id) => id != jobId)
+											} else {
+												selectedIds.push(jobId)
+												selectedIds = selectedIds
+											}
 										} else {
-											selectedIds.push(jobId)
-											selectedIds = selectedIds
+											selectedWorkspace = jobOrDate.job.workspace_id
+											selectedIds = [jobOrDate.job.id]
+											dispatch('select')
 										}
-									} else {
-										selectedWorkspace = jobOrDate.job.workspace_id
-										selectedIds = [jobOrDate.job.id]
-										dispatch('select')
-									}
-								}}
-								{activeLabel}
-								on:filterByLabel
-								on:filterByPath
-								on:filterByUser
-								on:filterByFolder
-								on:filterByConcurrencyKey
-								{containerWidth}
-							/>
-						</div>
+									}}
+									{activeLabel}
+									on:filterByLabel
+									on:filterByPath
+									on:filterByUser
+									on:filterByFolder
+									on:filterByConcurrencyKey
+									on:filterBySchedule
+									{containerWidth}
+								/>
+							</div>
+						{/if}
+					{:else}
+						{JSON.stringify(jobOrDate)}
 					{/if}
 				{:else}
-					{JSON.stringify(jobOrDate)}
+					<div class="flex flex-row items-center h-full w-full">
+						<div class="w-1/12 text-2xs">...</div>
+						<div class="w-4/12 text-xs">...</div>
+						<div class="w-4/12 text-xs">...</div>
+						<div class="w-3/12 text-xs">...</div>
+					</div>
 				{/if}
-			{:else}
-				<div class="flex flex-row items-center h-full w-full">
-					<div class="w-1/12 text-2xs">...</div>
-					<div class="w-4/12 text-xs">...</div>
-					<div class="w-4/12 text-xs">...</div>
-					<div class="w-3/12 text-xs">...</div>
-				</div>
-			{/if}
-		</div>
-	</VirtualList>
+			</div>
+		</VirtualList>
+	{/if}
 </div>
-{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
-	<tr>
-		<td colspan="4" class="text-center py-8">
-			<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
-		</td>
-	</tr>
-{/if}

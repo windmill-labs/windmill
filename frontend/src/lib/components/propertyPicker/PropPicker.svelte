@@ -113,7 +113,8 @@
 						error: {
 							message: 'The error message',
 							name: 'The error name',
-							stack: 'The error stack'
+							stack: 'The error stack',
+							step_id: 'The step id'
 						}
 					}}
 					on:select

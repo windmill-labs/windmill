@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.375.0
+  version: 1.381.0
   title: Windmill API
 
   contact:
@@ -845,6 +845,12 @@ paths:
       operationId: renewLicenseKey
       tags:
         - setting
+      parameters:
+        - name: license_key
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: status
@@ -859,6 +865,12 @@ paths:
       operationId: createCustomerPortalSession
       tags:
         - setting
+      parameters:
+        - name: license_key
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: url to portal
@@ -5619,6 +5631,8 @@ paths:
                 properties:
                   database_length:
                     type: integer
+                  suspended:
+                    type: integer
                 required:
                   - database_length
 
@@ -5800,6 +5814,7 @@ paths:
         - $ref: "#/components/parameters/CreatedOrStartedAfter"
         - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
+        - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"

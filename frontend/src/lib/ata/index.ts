@@ -4,6 +4,7 @@ import {
 	getNPMVersionForModuleReference,
 	getNPMVersionsForModule,
 	isOverlimit,
+	limit,
 	type NPMTreeMeta,
 	type ResLimit
 } from './apis'
@@ -49,6 +50,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 	const moduleMap = new Map<string, ModuleMeta>()
 	const fsMap = new Map<string, string>()
 
+	limit.clearQueue()
 	let estimatedToDownload = 0
 	let estimatedDownloaded = 0
 

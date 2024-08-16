@@ -8,7 +8,8 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	// @ts-ignore
-	import Portal from 'svelte-portal'
+	import Portal from '$lib/components/Portal.svelte'
+
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { extractCustomProperties } from '$lib/utils'
 	import { tick } from 'svelte'

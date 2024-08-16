@@ -748,6 +748,9 @@ export const quickStyleProperties: Record<
 	resourceselectcomponent: {
 		input: inputDefaultProps
 	},
+	userresourcecomponent: {
+		input: inputDefaultProps
+	},
 	verticaldividercomponent: {
 		divider: dividerDefaultProps,
 		container: containerDefaultProps

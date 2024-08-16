@@ -27,6 +27,7 @@ export const authorizedClassnames = [
 	'wm-currency-input',
 	'wm-date-input',
 	'wm-text-input',
+	'wm-user-resource-select',
 	'wm-html',
 	'wm-table-container',
 	'wm-table-header',
@@ -333,6 +334,17 @@ export const customisationByComponent: Customisation[] = [
 			'passwordinputcomponent'
 		],
 		selectors: [{ selector: '.wm-text-input', comment: 'Text component', customCssKey: 'input' }],
+		variables: []
+	},
+	{
+		components: ['userresourcecomponent'],
+		selectors: [
+			{
+				selector: '.wm-user-resource-select',
+				comment: 'User resource select',
+				customCssKey: 'input'
+			}
+		],
 		variables: []
 	},
 	{

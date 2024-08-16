@@ -49,6 +49,8 @@ import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import fs from "node:fs";
 import { type Tarball } from "npm:@ayonli/jsext/archive";
 
+import { execSync } from "node:child_process";
+
 export interface ScriptFile {
   parent_hash?: string;
   summary: string;
@@ -155,19 +157,30 @@ export async function handleFile(
     let bundleContent: string | Tarball | undefined = undefined;
 
     if (codebase) {
-      const esbuild = await import("npm:esbuild");
+      if (codebase.customBundler) {
+        log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
+        bundleContent = execSync(
+          codebase.customBundler + " " + path
+        ).toString();
+        log.info("Custom bundler executed");
+      } else {
+        const esbuild = await import("npm:esbuild");
 
-      log.info(`Starting building the bundle for ${path}`);
-      const out = await esbuild.build({
-        entryPoints: [path],
-        format: "cjs",
-        bundle: true,
-        write: false,
-        platform: "node",
-        packages: "bundle",
-        target: "node20.15.1",
-      });
-      bundleContent = out.outputFiles[0].text;
+        log.info(`Starting building the bundle for ${path}`);
+        const out = await esbuild.build({
+          entryPoints: [path],
+          format: "cjs",
+          bundle: true,
+          write: false,
+          external: codebase.external,
+          inject: codebase.inject,
+          define: codebase.define,
+          platform: "node",
+          packages: "bundle",
+          target: "node20.15.1",
+        });
+        bundleContent = out.outputFiles[0].text;
+      }
       if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
         const archiveNpm = await import("npm:@ayonli/jsext/archive");
 

@@ -161,20 +161,22 @@ export async function main(x: string) {
 `
 
 export const DENO_FAILURE_MODULE_CODE = `
-export async function main(message: string, name: string) {
-  const flow_id = Deno.env.get("WM_FLOW_JOB_ID")
+export async function main(message: string, name: string, step_id: string) {
+  const flow_id = Deno.env.get("WM_ROOT_FLOW_JOB_ID")
   console.log("message", message)
   console.log("name",name)
-  return { message, flow_id }
+  console.log("step_id", step_id)
+  return { message, flow_id, step_id, recover: false }
 }
 `
 
 export const BUN_FAILURE_MODULE_CODE = `
-export async function main(message: string, name: string) {
-  const flow_id = process.env.WM_FLOW_JOB_ID
+export async function main(message: string, name: string, step_id: string) {
+  const flow_id = process.env.WM_ROOT_FLOW_JOB_ID
   console.log("message", message)
   console.log("name",name)
-  return { message, flow_id }
+  console.log("step_id", step_id)
+  return { message, flow_id, step_id, recover: false }
 }
 `
 
@@ -557,10 +559,10 @@ export function initialCode(
 			return PYTHON_INIT_CODE_TRIGGER
 		} else if (kind === 'approval') {
 			return PYTHON_INIT_CODE_APPROVAL
-		} else if (subkind === 'flow') {
-			return PYTHON_INIT_CODE_CLEAR
 		} else if (kind === 'failure') {
 			return PYTHON_FAILURE_MODULE_CODE
+		} else if (subkind === 'flow') {
+			return PYTHON_INIT_CODE_CLEAR
 		} else {
 			return PYTHON_INIT_CODE
 		}

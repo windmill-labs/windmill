@@ -56,8 +56,8 @@ pub struct ListableFlow {
     pub path: String,
     pub summary: String,
     pub description: String,
-    pub edited_by: String,
-    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub edited_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived: bool,
     pub extra_perms: serde_json::Value,
     pub starred: bool,
@@ -213,6 +213,12 @@ pub struct Suspend {
     pub self_approval_disabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hide_cancel: Option<bool>,
+    #[serde(skip_serializing_if = "false_or_empty")]
+    pub continue_on_disapprove_timeout: Option<bool>,
+}
+
+fn false_or_empty(v: &Option<bool>) -> bool {
+    v.is_none() || v.as_ref().is_some_and(|x| !x)
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

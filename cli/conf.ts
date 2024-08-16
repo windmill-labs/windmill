@@ -32,6 +32,10 @@ export interface Codebase {
     from: string;
     to: string;
   }[];
+  customBundler?: string;
+  external?: string[];
+  define?: { [key: string]: string };
+  inject?: string[];
 }
 
 export async function readConfigFile(): Promise<SyncOptions> {

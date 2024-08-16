@@ -12,7 +12,7 @@
 	import { ArrowBigUp } from 'lucide-svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { WorkspaceService, type WorkspaceDeployUISettings } from '$lib/gen'
-	import { ALL_DEPLOYABLE } from '$lib/utils'
+	import { ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	export let item
 	export let depth: number = 0

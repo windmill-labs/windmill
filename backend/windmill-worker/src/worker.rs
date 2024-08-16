@@ -7,7 +7,7 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR}
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR}
 };
 
 use anyhow::{Context, Result};
@@ -234,6 +234,7 @@ pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
 pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
 
 const NUM_SECS_PING: u64 = 5;
+const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 
@@ -306,13 +307,15 @@ lazy_static::lazy_static! {
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     pub static ref BUN_PATH: String = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
     pub static ref NPM_PATH: String = std::env::var("NPM_PATH").unwrap_or_else(|_| "/usr/bin/npm".to_string());
-    pub static ref NODE_PATH: String = std::env::var("NODE_PATH").unwrap_or_else(|_| "/usr/bin/node".to_string());
+    pub static ref NODE_BIN_PATH: String = std::env::var("NODE_BIN_PATH").unwrap_or_else(|_| "/usr/bin/node".to_string());
     pub static ref POWERSHELL_PATH: String = std::env::var("POWERSHELL_PATH").unwrap_or_else(|_| "/usr/bin/pwsh".to_string());
     pub static ref PHP_PATH: String = std::env::var("PHP_PATH").unwrap_or_else(|_| "/usr/bin/php".to_string());
     pub static ref COMPOSER_PATH: String = std::env::var("COMPOSER_PATH").unwrap_or_else(|_| "/usr/bin/composer".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
+
     pub static ref TZ_ENV: String = std::env::var("TZ").unwrap_or_else(|_| String::new());
     pub static ref GOPRIVATE: Option<String> = std::env::var("GOPRIVATE").ok();
     pub static ref GOPROXY: Option<String> = std::env::var("GOPROXY").ok();
@@ -358,6 +361,12 @@ lazy_static::lazy_static! {
     pub static ref EXIT_AFTER_NO_JOB_FOR_SECS: Option<u64> = std::env::var("EXIT_AFTER_NO_JOB_FOR_SECS")
         .ok()
         .and_then(|x| x.parse::<u64>().ok());
+
+
+    pub static ref REFRESH_CGROUP_READINGS: bool = std::env::var("REFRESH_CGROUP_READINGS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(false);
 
 
 }
@@ -1343,6 +1352,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         }
     };
     let mut suspend_first_success = false;
+    let mut last_reading = Instant::now() - Duration::from_secs(NUM_SECS_READINGS + 1);
 
     loop {
         #[cfg(feature = "benchmark")]
@@ -1372,15 +1382,23 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
             let memory_usage = get_worker_memory_usage();
             let wm_memory_usage = get_windmill_memory_usage();
+            let (vcpus, memory) = if *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS {
+                last_reading = Instant::now();
+                (get_vcpus(), get_memory())
+            } else {
+                (None, None)
+            };
 
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL WHERE worker = $6",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
                 worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
                 memory_usage,
                 wm_memory_usage,
-                &worker_name
+                &worker_name,
+                vcpus,
+                memory
             ).execute(db).await {
                 tracing::error!("failed to update worker ping, exiting: {}", e);
                 killpill_tx.send(()).unwrap_or_default();
@@ -2157,9 +2175,20 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
-fn extract_error_value(log_lines: &str, i: i32) -> Box<RawValue> {
+#[derive(Debug, Serialize)]
+struct SerializedError {
+    message: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_id: Option<String>,
+}
+fn extract_error_value(log_lines: &str, i: i32, step_id: Option<String>) -> Box<RawValue> {
     return to_raw_value(
-        &json!({"message": format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()), "name": "ExecutionErr"}),
+        &SerializedError {
+            message: format!("ExitCode: {i}, last log lines:\n{}", ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()),
+            name: "ExecutionErr".to_string(),
+            step_id,
+        },
     );
 }
 
@@ -2265,6 +2294,34 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     }
     if let Some(e) = &job.pre_run_error {
         return Err(Error::ExecutionErr(e.to_string()));
+    }
+
+    #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
+    if job.created_by.starts_with("email-trigger-") {
+        let daily_count = sqlx::query!(
+            "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
+        ).fetch_optional(db).await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
+
+        if let Some(count) = daily_count {
+            if count >= 100 {
+                return Err(error::Error::QuotaExceeded(format!(
+                    "Email trigger usage limit of 100 per day has been reached."
+                )));
+            } else {
+                sqlx::query!(
+                    "UPDATE metrics SET value = $1 WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day'",
+                    serde_json::json!(count + 1)
+                )
+                .execute(db)
+                .await?;
+            }
+        } else {
+            sqlx::query!(
+                "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
+            )
+            .execute(db)
+            .await?;
+        }
     }
 
     let step = if job.is_flow_step {
@@ -2599,11 +2656,15 @@ async fn process_result(
                             .last()
                             .unwrap_or(&last_10_log_lines);
 
-                        extract_error_value(log_lines, i)
+                        extract_error_value(log_lines, i, job.flow_step_id.clone())
                     }
                 }
                 err @ _ => to_raw_value(
-                    &json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"}),
+                    &SerializedError {
+                        message: format!("error during execution of the script:\n{}", err),
+                        name: "ExecutionErr".to_string(),
+                        step_id: job.flow_step_id.clone(),
+                    },
                 ),
             };
 
@@ -2664,9 +2725,9 @@ pub struct ContentReqLangEnvs {
     pub codebase: Option<String>,
 }
 
-async fn get_hub_script_content_and_requirements(
+pub async fn get_hub_script_content_and_requirements(
     script_path: Option<String>,
-    db: &DB,
+    db: Option<&DB>,
 ) -> error::Result<ContentReqLangEnvs> {
     let script_path = script_path
         .clone()
@@ -2711,7 +2772,7 @@ async fn get_script_content_by_path(
         .clone()
         .ok_or_else(|| Error::InternalErr(format!("expected script path")))?;
     return if script_path.starts_with("hub/") {
-        get_hub_script_content_and_requirements(Some(script_path), db).await
+        get_hub_script_content_and_requirements(Some(script_path), Some(db)).await
     } else {
         let (script_hash, ..) =
             get_latest_deployed_hash_for_path(db, w_id, script_path.as_str()).await?;
@@ -2798,7 +2859,7 @@ async fn handle_code_execution_job(
                 codebase
         }},
         JobKind::Script_Hub => {
-            get_hub_script_content_and_requirements(job.script_path.clone(), db).await?
+            get_hub_script_content_and_requirements(job.script_path.clone(), Some(db)).await?
         }
         JobKind::Script => {
             get_script_content_by_hash(

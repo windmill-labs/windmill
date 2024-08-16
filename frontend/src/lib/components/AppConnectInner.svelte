@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
@@ -75,18 +75,29 @@
 
 	let pathError = ''
 
-	export async function open(rt?: string) {
+	let expressOAuthSetup = false
+
+	export async function open(rt?: string, express?: boolean) {
+		expressOAuthSetup = express ?? false
 		if (!rt) {
 			loadResourceTypes()
 		}
-		step = 1
+		step = 1 //express && !manual ? 3 : 1
 		value = ''
 		description = ''
 		resourceType = rt ?? ''
 		valueToken = undefined
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
+		if (manual && expressOAuthSetup) {
+			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
+			return
+		}
 		if (rt) {
+			if (!manual && expressOAuthSetup) {
+				await getScopesAndParams()
+				step = 2
+			}
 			next()
 		}
 	}
@@ -154,10 +165,13 @@
 	}
 
 	function popupListener(event) {
+		console.log('popupListener', event.data, event.origin, window.location.origin)
 		let data = event.data
-		if (event.origin !== window.location.origin) {
+		if (event.origin == null || event.origin !== window.location.origin) {
 			return
 		}
+
+		window.removeEventListener('message', popupListener)
 
 		if (data.type === 'error') {
 			sendUserToast(event.data.error, true)
@@ -167,6 +181,10 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			step = 4
+			if (expressOAuthSetup) {
+				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+				next()
+			}
 		}
 	}
 
@@ -201,7 +219,7 @@
 			// if (!newPageOAuth) {
 			// 	window.location.href = url.toString()
 			// } else {
-			window.addEventListener('message', popupListener, { once: true })
+			window.addEventListener('message', popupListener)
 			window.open(url.toString(), '_blank', 'popup=true')
 			step += 1
 

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.375.0"
+version = "1.381.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -26,7 +26,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.375.0"
+version = "1.381.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -55,6 +55,7 @@ openidconnect = ["windmill-api/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy"]
+sqlx = ["windmill-worker/sqlx"]
 
 [dependencies]
 anyhow.workspace = true
@@ -158,7 +159,7 @@ mail-send = { version = "0.4.0", features = ["builder"], default-features=false 
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
-reqwest = { version = "^0.12", features = ["json", "stream"] }
+reqwest = { version = "^0.12", features = ["json", "stream", "gzip"] }
 time = "0.3.16"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
@@ -182,6 +183,7 @@ swc_ecma_parser = "=0.144.3"
 swc_ecma_ast = "=0.113.7"
 swc_ecma_visit = "=0.99.1"
 base64 = "0.21.0"
+base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
@@ -243,6 +245,9 @@ candle-nn = "0.3.0"
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "8f66a699dfa041e7b5f736c7e94f92c945453c9e", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
+tokio-native-tls = "^0"
+openssl = "=0.10"
+mail-parser = "^0"
 
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }

@@ -69,6 +69,7 @@
 	export let reducedPolling = false
 
 	export let wideResults = false
+	export let hideFlowResult = false
 
 	let jobResults: any[] =
 		flowJobIds?.flowJobs?.map((x, id) => `iter #${id + 1} not loaded by frontend yet`) ?? []
@@ -170,7 +171,7 @@
 					mod.type === 'WaitingForEvents' &&
 					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
 				) {
-					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args })
+					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
 					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
@@ -186,7 +187,8 @@
 								scheduled_for: job?.['scheduled_for'],
 								job_id: job?.id,
 								parent_module: mod['parent_module'],
-								args: job?.args
+								args: job?.args,
+								tag: job?.tag
 							}
 							setModuleState(mod.id ?? '', newState)
 						})
@@ -251,21 +253,24 @@
 
 		let last = root ? undefined : flowJobIds?.flowJobs?.[flowJobIds?.flowJobs.length - 1]
 
+		// console.log(innerModule, modId)
+
 		Object.entries(recursiveRefresh).forEach(([key, v]) => {
 			if (modId) {
 				if ((root && key == loopJob?.job) || key == last) {
 					v(false)
-				} else {
 				}
 			} else {
 				v(false)
 			}
 		})
+
 		let njob = flowJobIds
 			? root && modId
 				? storedListJobs?.[loopJob.job]
-				: storedListJobs[flowJobIds.length - 1]
+				: storedListJobs?.[flowJobIds.length - 1]
 			: job
+
 		if (njob) {
 			dispatch('jobsLoaded', { job: njob, force: true })
 		}
@@ -395,6 +400,7 @@
 						job_id: job.id,
 						logs: job.logs,
 						args: job.args,
+						tag: job.tag,
 						started_at,
 						parent_module: mod['parent_module']
 					},
@@ -413,6 +419,7 @@
 						logs: job.logs,
 						result: job['result'],
 						job_id: job.id,
+						tag: job.tag,
 						parent_module: mod['parent_module'],
 						duration_ms: job['duration_ms'],
 						started_at: started_at,
@@ -639,16 +646,19 @@
 						<Loader2 class="animate-spin" />
 					</div>
 				{:else if `result` in job}
-					<div class="w-full h-full">
-						<FlowJobResult
-							workspaceId={job?.workspace_id}
-							jobId={job?.id}
-							loading={job['running'] == true}
-							result={job.result}
-							logs={job.logs}
-							durationStates={localDurationStatuses}
-						/>
-					</div>
+					{#if !hideFlowResult}
+						<div class="w-full h-full">
+							<FlowJobResult
+								workspaceId={job?.workspace_id}
+								jobId={job?.id}
+								tag={job?.tag}
+								loading={job['running'] == true}
+								result={job.result}
+								logs={job.logs}
+								durationStates={localDurationStatuses}
+							/>
+						</div>
+					{/if}
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'}
 					<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
 				{:else if $suspendStatus && Object.keys($suspendStatus).length > 0}
@@ -981,6 +991,7 @@
 											jobId={job?.id}
 											filename={job.id}
 											loading={job['running']}
+											tag={job?.tag}
 											noBorder
 											col
 											result={job['result']}
@@ -1044,14 +1055,17 @@
 												/>
 											</div>
 										{/if}
+
 										<FlowJobResult
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder
 											loading={node.type != 'Success' && node.type != 'Failure'}
+											waitingForExecutor={node.type == 'WaitingForExecutor'}
 											refreshLog={node.type == 'InProgress'}
 											col
 											result={node.result}
+											tag={node.tag}
 											logs={node.logs}
 											durationStates={localDurationStatuses}
 										/>

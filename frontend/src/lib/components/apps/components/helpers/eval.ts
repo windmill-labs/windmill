@@ -25,11 +25,11 @@ function create_context_function_template(
 ) {
 	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
-return async function (context, state, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob) {
+return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource) {
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
-		? `let ${contextKeys.map((key) => ` ${key} = context['${key}']`)};`
+		? `let ${contextKeys.map((key) => ` ${key} = createProxy('${key}', context['${key}'])`)};`
 		: ``
 }
 ${
@@ -46,6 +46,7 @@ return ${eval_string.startsWith('return ') ? eval_string.substring(7) : eval_str
 type WmFunctor = (
 	context,
 	state,
+	createProxy,
 	goto,
 	setTab,
 	recompute,
@@ -61,7 +62,8 @@ type WmFunctor = (
 	validateAll,
 	clearFiles,
 	showToast,
-	waitJob
+	waitJob,
+	askNewResource
 ) => Promise<any>
 
 let functorCache: Record<number, WmFunctor> = {}
@@ -111,30 +113,73 @@ export async function eval_like(
 			clearFiles?: () => void
 			showToast?: (message: string, error?: boolean) => void
 			waitJob?: (jobId: string) => void
+			askNewResource?: () => void
+			setGroupValue?: (key: string, value: any) => void
 		}
 	>,
 	worldStore: World | undefined,
 	runnableComponents: Record<string, { cb?: (() => void)[] }>,
-	noReturn: boolean
+	noReturn: boolean,
+	groupContextId: string | undefined
 ) {
-	const proxiedState = new Proxy(state, {
-		set(target, key, value) {
-			if (typeof key !== 'string') {
-				throw new Error('Invalid key')
+	const createProxy = (name: string, obj: any) => {
+		// console.log('Creating proxy', name, obj)
+		if (obj != null && obj != undefined && typeof obj == 'object') {
+			if (name == 'group' && groupContextId) {
+				return createGroupProxy(groupContextId, obj)
 			}
-			target[key] = value
-			let o = worldStore?.newOutput('state', key, value)
-			o?.set(value, true)
+			return new Proxy(obj, {
+				set(target, key, value) {
+					if (name != 'state') {
+						throw new Error(
+							'Cannot set value on objects that are neither the global state or a container group field'
+						)
+					}
+					if (typeof key !== 'string') {
+						throw new Error('Invalid key')
+					}
+					target[key] = value
+					let o = worldStore?.newOutput(name, key, value)
+					o?.set(value, true)
 
-			return true
+					return true
+				},
+				get(obj, prop) {
+					if (name != 'state' && prop == 'group') {
+						return createGroupProxy(name, obj[prop])
+					} else {
+						return obj[prop]
+					}
+				}
+			})
+		} else {
+			return obj
 		}
-	})
+	}
+
+	const createGroupProxy = (name: string, obj: any) => {
+		return new Proxy(obj, {
+			set(target, key, value) {
+				target[key] = value
+				let o = worldStore?.newOutput(name, 'group', target)
+				o?.set(target, true)
+				if (typeof key !== 'string') {
+					throw new Error('Invalid key')
+				}
+				controlComponents[name]?.setGroupValue?.(key, value)
+				return true
+			}
+		})
+	}
+
+	const proxiedState = createProxy('state', state)
 
 	let evaluator = make_context_evaluator(text, Object.keys(context ?? {}), noReturn)
 	// console.log(i, j)
 	return await evaluator(
 		context,
 		proxiedState,
+		createProxy,
 		async (x, newTab) => {
 			if (newTab || editor) {
 				if (!newTab) {
@@ -189,6 +234,9 @@ export async function eval_like(
 		(message, error) => {
 			sendUserToast(message, error)
 		},
-		async (id) => waitJob(id)
+		async (id) => waitJob(id),
+		(id) => {
+			controlComponents[id]?.askNewResource?.()
+		}
 	)
 }

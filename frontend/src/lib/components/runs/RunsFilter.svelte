@@ -4,7 +4,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import { AlertCircle, CheckCircle2, ChevronDown, Filter, PlayCircle, X } from 'lucide-svelte'
+	import { AlertCircle, CheckCircle2, ChevronDown, Filter, Hourglass, PlayCircle, X } from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Label from '../Label.svelte'
@@ -19,7 +19,7 @@
 	export let label: string | null = null
 	export let concurrencyKey: string | null = null
 	export let tag: string | null = null
-	export let success: 'running' | 'success' | 'failure' | undefined = undefined
+	export let success: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
 	export let argError: string
@@ -29,6 +29,7 @@
 	export let user: string | null = null
 	export let folder: string | null = null
 	export let mobile: boolean = false
+	export let schedulePath: string | undefined
 
 	// Autocomplete data
 	export let paths: string[] = []
@@ -39,35 +40,42 @@
 	$: displayedLabel = label
 	$: displayedConcurrencyKey = concurrencyKey
 	$: displayedTag = tag
+	$: displayedSchedule = schedulePath
 
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
 
-	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' | 'tag' = 'path'
+	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' | 'tag' | 'schedulePath' = 'path'
 
 	const dispatch = createEventDispatcher()
 
-	let manuallySet = false
+	let autoSet = false
 
-	$: {
+	
+	$: (path || user || folder || label || concurrencyKey || tag || schedulePath) && autosetFilter()
+
+	function autosetFilter() {
 		if (path !== null && path !== '' && filterBy !== 'path') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'path'
 		} else if (user !== null && user !== '' && filterBy !== 'user') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'user'
 		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'folder'
 		} else if (label !== null && label !== '' && filterBy !== 'label') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'label'
 		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'concurrencyKey'
 		} else if (tag !== null && tag !== '' && filterBy !== 'tag') {
-			manuallySet = true
+			autoSet = true
 			filterBy = 'tag'
+		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
+			autoSet = true
+			filterBy = 'schedulePath'
 		}
 	}
 
@@ -75,7 +83,8 @@
 	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
 	let tagTimeout: NodeJS.Timeout | undefined = undefined
 </script>
-
+{autoSet}
+{filterBy}
 <div class="flex gap-4">
 	{#if !mobile}
 		<div class="flex gap-2">
@@ -94,15 +103,16 @@
 				<ToggleButtonGroup
 					bind:selected={filterBy}
 					on:selected={() => {
-						if (!manuallySet) {
+						if (!autoSet) {
 							path = null
 							user = null
 							folder = null
 							label = null
 							concurrencyKey = null
 							tag = null
+							schedulePath = undefined
 						} else {
-							manuallySet = false
+							autoSet = false
 						}
 					}}
 				>
@@ -111,7 +121,8 @@
 					<ToggleButton value="folder" label="Folder" />
 					<ToggleButtonMore
 						togglableItems={[
-							{ label: 'Concurrency key', value: 'concurrencyKey' },
+							{ label: 'Schedule Path', value: 'schedulePath' },
+							{ label: 'Concurrency Key', value: 'concurrencyKey' },
 							{ label: 'Label', value: 'label' },
 							{ label: 'Tag', value: 'tag' }
 						]}
@@ -336,6 +347,39 @@
 						/>
 					</div>
 				{/key}
+			{:else if filterBy === 'schedulePath'}
+				{#key tag}
+					<div class="relative">
+						{#if tag}
+							<button
+								class="absolute top-2 right-2 z-50"
+								on:click={() => {
+									schedulePath = undefined
+									dispatch('reset')
+								}}
+							>
+								<X size={14} />
+							</button>
+						{/if}
+						<span class="text-xs absolute -top-4"> Schedule Path </span>
+
+						<input
+							autofocus
+							type="text"
+							class="!h-[32px] py-1 !text-xs !w-64"
+							bind:value={displayedSchedule}
+							on:keydown={(e) => {
+								if (tagTimeout) {
+									clearTimeout(tagTimeout)
+								}
+
+								tagTimeout = setTimeout(() => {
+									schedulePath = displayedSchedule
+								}, 1000)
+							}}
+						/>
+					</div>
+				{/key}
 			{/if}
 		</div>
 		<div class="relative">
@@ -393,6 +437,23 @@
 					icon={AlertCircle}
 					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
 				/>
+				{#if success == 'waiting'}
+				<ToggleButton
+					value={'waiting'}
+					tooltip="Waiting"
+					class="whitespace-nowrap"
+					icon={Hourglass}
+					iconProps={{ color: 'blue'}}
+				/>
+				{:else if success == 'suspended'}
+				<ToggleButton
+					value={'suspended'}
+					tooltip="Suspended"
+					class="whitespace-nowrap"
+					icon={Hourglass}
+					iconProps={{ color: 'blue'}}
+				/>
+				{/if}
 			</ToggleButtonGroup>
 		</div>
 	{/if}
@@ -419,24 +480,27 @@
 						<ToggleButtonGroup
 							bind:selected={filterBy}
 							on:selected={() => {
-								if (!manuallySet) {
+								if (!autoSet) {
 									path = null
 									user = null
 									folder = null
 									label = null
 									concurrencyKey = null
 									tag = null
+									schedulePath = undefined
 								} else {
-									manuallySet = false
+									autoSet = false
 								}
 							}}
 						>
 							<ToggleButton value="path" label="Path" />
 							<ToggleButton value="user" label="User" />
 							<ToggleButton value="folder" label="Folder" />
+							<ToggleButton value="schedulePath" label="Schedule" />
 							<ToggleButton value="concurrencyKey" label="Concurrency" />
 							<ToggleButton value="tag" label="Tag" />
 							<ToggleButton value="label" label="Label" />
+							
 						</ToggleButtonGroup>
 					</Label>
 

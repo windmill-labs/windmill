@@ -126,20 +126,23 @@
 		<div
 			class={twMerge('p-2 overflow-auto h-full', css?.container?.class, 'wm-schema-form')}
 			style={css?.container?.style}
-			on:pointerdown|stopPropagation={(e) =>
-				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 		>
-			<LightweightSchemaForm
-				defaultValues={resolvedConfig.defaultValues}
-				dynamicEnums={resolvedConfig.dynamicEnums}
-				schema={result}
-				bind:isValid={valid}
-				bind:args
-				bind:this={schemaForm}
-				displayType={Boolean(resolvedConfig.displayType)}
-				largeGap={Boolean(resolvedConfig.largeGap)}
-				{css}
-			/>
+			<div
+				on:pointerdown|stopPropagation={(e) =>
+					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
+			>
+				<LightweightSchemaForm
+					defaultValues={resolvedConfig.defaultValues}
+					dynamicEnums={resolvedConfig.dynamicEnums}
+					schema={result}
+					bind:isValid={valid}
+					bind:args
+					bind:this={schemaForm}
+					displayType={Boolean(resolvedConfig.displayType)}
+					largeGap={Boolean(resolvedConfig.largeGap)}
+					{css}
+				/>
+			</div>
 		</div>
 	{:else}
 		<p class="m-2 italic">Empty form (no property)</p>

@@ -363,6 +363,7 @@
 										component.type === 'aggridinfinitecomponentee'
 											? ['offset', 'limit', 'orderBy', 'isDesc', 'search']
 											: []}
+										securedContext
 									/>
 								</div>
 							{/if}

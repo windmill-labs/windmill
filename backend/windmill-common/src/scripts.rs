@@ -386,7 +386,7 @@ pub async fn get_hub_script_by_path(
         &format!("{}/raw/{}.ts", hub_base_url, path),
         true,
         None,
-        db,
+        Some(db),
     )
     .await?
     .text()
@@ -411,7 +411,7 @@ pub async fn get_hub_script_by_path(
                     &format!("{}/raw/{}.ts", DEFAULT_HUB_BASE_URL, path),
                     true,
                     None,
-                    db,
+                    Some(db),
                 )
                 .await?
                 .text()
@@ -429,7 +429,7 @@ pub async fn get_hub_script_by_path(
 pub async fn get_full_hub_script_by_path(
     path: StripPath,
     http_client: &reqwest::Client,
-    db: &DB,
+    db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
     let path = path
         .to_path()

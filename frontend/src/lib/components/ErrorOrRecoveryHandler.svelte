@@ -19,9 +19,10 @@
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
+	import { hubPaths } from '$lib/hub'
 
-	const slackRecoveryHandler = 'hub/2430/slack/schedule-recovery-handler-slack'
-	const slackHandlerScriptPath = 'hub/6512/workspace-or-schedule-error-handler-slack'
+	const slackRecoveryHandler = hubPaths.slackRecoveryHandler
+	const slackHandlerScriptPath = hubPaths.slackErrorHandler
 
 	export let errorOrRecovery: 'error' | 'recovery'
 	export let isEditable: boolean

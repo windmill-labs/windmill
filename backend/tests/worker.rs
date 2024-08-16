@@ -128,6 +128,7 @@ impl ApiServer {
             rx,
             port_tx,
             false,
+            format!("http://localhost:{}", addr.port()),
         ));
 
         _port_rx.await.unwrap();
@@ -371,7 +372,7 @@ mod suspend_resume {
         server.close().await.unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by Some(\"ruben\")"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ruben"}}),
             result
         );
     }
@@ -432,7 +433,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.json_result().unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by None"}}),
+            json!( {"error": {"name": "SuspendedDisapproved", "message": "Disapproved by unknown"}}),
             result
         );
     }

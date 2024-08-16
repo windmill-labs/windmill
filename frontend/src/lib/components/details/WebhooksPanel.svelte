@@ -18,7 +18,7 @@
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import HighlightTheme from '../HighlightTheme.svelte'
-
+	import { base } from '$lib/base'
 	let userSettings: UserSettings
 
 	export let token: string
@@ -27,6 +27,8 @@
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
+
+	let selectedTab: string = 'rest'
 
 	let webhooks: {
 		async: {
@@ -43,16 +45,16 @@
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
 	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs`
+		let webhookBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
 		return {
 			async: {
-				hash: `${base}/run/h/${hash}`,
-				path: `${base}/run/p/${path}`
+				hash: `${webhookBase}/run/h/${hash}`,
+				path: `${webhookBase}/run/p/${path}`
 			},
 			sync: {
-				hash: `${base}/run_wait_result/h/${hash}`,
-				path: `${base}/run_wait_result/p/${path}`,
-				get_path: `${base}/run_wait_result/p/${path}`
+				hash: `${webhookBase}/run_wait_result/h/${hash}`,
+				path: `${webhookBase}/run_wait_result/p/${path}`,
+				get_path: `${webhookBase}/run_wait_result/p/${path}`
 			}
 		}
 	}
@@ -301,7 +303,7 @@ done`
 	</div>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<Tabs selected="rest">
+	<Tabs bind:selected={selectedTab}>
 		<Tab value="rest" size="xs">REST</Tab>
 		{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 			<Tab value="curl" size="xs">Curl</Tab>
