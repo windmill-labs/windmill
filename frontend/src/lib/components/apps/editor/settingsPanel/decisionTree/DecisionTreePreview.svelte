@@ -462,5 +462,7 @@
 	proOptions={{ hideAttribution: true }}
 	nodesDraggable={false}
 >
+	<div class="absolute inset-0 !bg-surface-secondary" />
+
 	<Controls position="top-right" orientation="horizontal" showLock={false} />
 </SvelteFlow>
