@@ -84,20 +84,36 @@ function findClosestRawReqs(
 }
 
 const TOP_HASH = "__flow_hash";
-async function generateFlowHash(folder: string) {
+async function generateFlowHash(folder: string): Promise<{
+  hashes: Record<string, string>;
+  exts: string[];
+}> {
   const elems = await FSFSElement(path.join(Deno.cwd(), folder), []);
   const hashes: Record<string, string> = {};
+  const exts: string[] = [];
   for await (const f of elems.getChildren()) {
-    if (exts.some((e) => f.path.endsWith(e))) {
+    const found_ext = exts.some((e) => f.path.endsWith(e));
+    if (found_ext) {
+      if (!exts.includes(f.path)) {
+        exts.push(f.path);
+      }
       hashes[f.path] = await generateHash(await f.getContentText());
     }
   }
-  return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
+  return {
+    hashes: {
+      ...hashes,
+      [TOP_HASH]: await generateHash(JSON.stringify(hashes)),
+    },
+    exts,
+  };
 }
+
 export async function generateFlowLockInternal(
   folder: string,
   dryRun: boolean,
   workspace: Workspace,
+  globalDeps: GlobalDeps,
   justUpdateMetadataLock?: boolean
 ): Promise<string | undefined> {
   if (folder.endsWith(SEP)) {
@@ -110,7 +126,17 @@ export async function generateFlowLockInternal(
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
-  let hashes = await generateFlowHash(folder);
+  let { hashes, exts } = await generateFlowHash(folder);
+
+  const rawReqs: Record<string, string> = {};
+
+  exts.forEach((ext) => {
+    const lang = inferContentTypeFromFilePath(ext, "bun");
+    const raw = findClosestRawReqs(lang, ext, globalDeps);
+    if (raw) {
+      rawReqs[ext] = raw;
+    }
+  });
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
