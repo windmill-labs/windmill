@@ -567,7 +567,7 @@
 											<Cell>
 												<div class="flex flex-col gap-1">
 													<div>
-														{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
+														{vcpus ? (vcpus / 100000).toFixed(2) + ' vCPUs' : '--'}
 													</div>
 													<div>
 														{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
