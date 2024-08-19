@@ -147,9 +147,8 @@
 	>
 		{#if $$slots.icon}
 			<slot name="icon" />
-			<span class="mr-2" />
 		{/if}
-		<div class="flex-1 truncate" class:font-bold={bold}>{label}</div>
+		<div class="truncate" class:font-bold={bold}>{label}</div>
 		<div class="flex items-center space-x-2">
 			{#if id}
 				<Badge color="indigo">{id}</Badge>

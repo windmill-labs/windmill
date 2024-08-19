@@ -6,6 +6,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
@@ -28,15 +29,21 @@
 	placement="bottom-center"
 	let:close
 >
-	<button
-		title="Add step"
-		slot="trigger"
-		id={`flow-editor-add-step-${index}`}
-		type="button"
-		class="text-primary bg-surface border-[1px] mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
-	>
-		<Cross class="mx-[5px]" size={15} />
-	</button>
+	<svelte:fragment slot="trigger">
+		<button
+			title="Add step"
+			id={`flow-editor-add-step-${index}`}
+			type="button"
+			class={twMerge(
+				'w-6 h-6 flex items-center justify-center',
+				'border border-gray-300 dark:border-gray-500',
+				'text-primary text-sm',
+				'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
+			)}
+		>
+			<Cross size={14} />
+		</button>
+	</svelte:fragment>
 	<div id="flow-editor-insert-module">
 		<StepGen on:insert {index} bind:funcDesc bind:open {close} {modules} {disableAi} />
 
