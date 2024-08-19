@@ -1,29 +1,46 @@
 <script lang="ts">
 	import type { SupportedLanguage } from '$lib/common'
+	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { ScriptService } from '$lib/gen'
 	import { getScriptByPath } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
 
 	export let path: string
 	export let hash: string | undefined = undefined
+	export let previousHash: string | undefined = undefined
 	export let showDate = false
 	export let showAllCode: boolean = true
 
 	let code: string
+	let previousCode: string
 	let language: SupportedLanguage
 	let lock: string | undefined = undefined
 	let date: string | undefined = undefined
 	let notFound = false
 
-	async function loadCode(path: string, hash: string | undefined) {
+	async function loadCode(
+		path: string,
+		hash: string | undefined,
+		previousHash: string | undefined
+	) {
 		try {
 			notFound = false
 			const script = hash
 				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 				: await getScriptByPath(path!)
 			code = script.content
+
+			if (previousHash) {
+				const previousScript = await ScriptService.getScriptByHash({
+					workspace: $workspaceStore!,
+					hash: previousHash
+				})
+				previousCode = previousScript.content
+			}
+
 			language = script.language
 			lock = script.lock
 			date = script.created_at
@@ -33,11 +50,13 @@
 		}
 	}
 
-	$: path && loadCode(path, hash)
+	$: path && loadCode(path, hash, previousHash)
 
 	function toggleShowAll() {
 		showAllCode = !showAllCode
 	}
+
+	let showDiff = false
 </script>
 
 <div class="flex flex-col flex-1 h-full overflow-auto p-2">
@@ -47,7 +66,30 @@
 	{#if notFound}
 		<div class="text-red-400">script not found at {path} in workspace {$workspaceStore}</div>
 	{:else if showAllCode}
-		<HighlightCode {language} {code} />
+		{#if previousHash !== undefined}
+			<div class=" mb-2">
+				<Toggle
+					size="xs"
+					options={{ right: 'Show diff with previous version' }}
+					bind:checked={showDiff}
+				/>
+			</div>
+		{:else}
+			<div class="mb-2 text-xs text-secondary"> No previous version found </div>
+		{/if}
+
+		{#if showDiff}
+			<DiffEditor
+				class="h-80"
+				readOnly
+				automaticLayout
+				defaultLang={language}
+				defaultOriginal={previousCode}
+				defaultModified={code}
+			/>
+		{:else}
+			<HighlightCode {language} {code} />
+		{/if}
 	{:else}
 		<div class="code-container h-full">
 			<HighlightCode {language} code={code?.split('\n').slice(0, 10).join('\n')} />

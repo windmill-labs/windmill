@@ -19,6 +19,7 @@
 	let deploymentMsgUpdate: string | undefined = undefined
 
 	let selectedVersion: ScriptHistory | undefined = undefined
+	let selectedVersionIndex: number | undefined = undefined
 	let versions: ScriptHistory[] | undefined = undefined
 	let loading: boolean = false
 
@@ -62,17 +63,20 @@
 				{#if !loading}
 					{#if versions && versions.length > 0}
 						<div class="flex gap-2 flex-col">
-							{#each versions ?? [] as version}
+							{#each versions ?? [] as version, versionIndex}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
 								<div
 									class={classNames(
-										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer ',
 										selectedVersion?.script_hash == version.script_hash
-											? 'bg-blue-100 text-blue-600'
-											: ''
+											? 'bg-surface-selected'
+											: '',
+										'hover:bg-surface-hover'
 									)}
 									on:click={() => {
 										selectedVersion = version
+										selectedVersionIndex = versionIndex
 										deploymentMsgUpdate = undefined
 										deploymentMsgUpdateMode = false
 									}}
@@ -168,7 +172,14 @@
 								</button>
 							{/if}
 						</span>
-						<FlowModuleScript showDate path={scriptPath} hash={selectedVersion.script_hash} />
+						<FlowModuleScript
+							showDate
+							path={scriptPath}
+							hash={selectedVersion.script_hash}
+							previousHash={selectedVersionIndex !== undefined
+								? versions?.[selectedVersionIndex + 1]?.script_hash
+								: undefined}
+						/>
 					</div>
 				{/key}
 			{:else}
