@@ -33,6 +33,7 @@
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
+	import TriggersNode from './renderers/nodes/TriggersNode.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -196,7 +197,8 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchAllEndNode,
-		noBranch: NoBranchNode
+		noBranch: NoBranchNode,
+		trigger: TriggersNode
 	} as any
 
 	const edgeTypes = {

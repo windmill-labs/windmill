@@ -42,7 +42,7 @@
 
 	let flowTutorials: FlowTutorials | undefined = undefined
 
-	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore } =
+	const { selectedId, moving, history, flowStateStore, flowStore, flowInputsStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
@@ -253,6 +253,7 @@
 
 	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			path={$pathStore}
 			{disableAi}
 			insertable
 			scroll

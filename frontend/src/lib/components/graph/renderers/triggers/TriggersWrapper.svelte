@@ -10,27 +10,31 @@
 	import WebhooksPanel from '$lib/components/details/WebhooksPanel.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
-	import { getContext } from 'svelte'
 	import TriggerCount from './TriggerCount.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
+
 	let schedules: Schedule[] | undefined = undefined
-	const { selectedId, pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	export let path: string
+
 	async function loadSchedules() {
-		if (!$pathStore) return
+		if (!path) return
 		try {
 			schedules = await ScheduleService.listSchedules({
 				workspace: $workspaceStore ?? '',
-				path: $pathStore,
+				path: path,
 				isFlow: true
 			})
 		} catch (e) {
 			console.error('impossible to load schedules')
 		}
 	}
+
 	loadSchedules()
+
 	let drawer: Drawer | undefined = undefined
-	let selectedTab: 'webhooks' | 'mail' = 'webhooks'
+	let selectedTab: 'webhooks' | 'mail' | 'schedules' = 'webhooks'
 </script>
 
 <Drawer bind:this={drawer} size="600px">
@@ -44,24 +48,18 @@
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="webhooks">Webhooks</Tab>
 			<Tab value="mail">Mail</Tab>
+			<Tab value="schedules">Schedules</Tab>
 			<svelte:fragment slot="content">
 				{#if selectedTab === 'webhooks'}
-					<WebhooksPanel
-						scopes={[`run:flow/${$pathStore}`]}
-						path={$pathStore}
-						isFlow={true}
-						args={{}}
-						token=""
-					/>
+					<WebhooksPanel scopes={[`run:flow/${path}`]} {path} isFlow={true} args={{}} token="" />
 				{/if}
 
 				{#if selectedTab === 'mail'}
-					<EmailTriggerPanel
-						token=""
-						scopes={[`run:flow/${$pathStore}`]}
-						path={$pathStore}
-						isFlow={true}
-					/>
+					<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
+				{/if}
+
+				{#if selectedTab === 'schedules'}
+					<RunPageSchedules isFlow={true} path={path ?? ''} can_write={false} />
 				{/if}
 			</svelte:fragment>
 		</Tabs>
@@ -109,7 +107,8 @@
 				<svelte:fragment slot="text">See all schedules</svelte:fragment>
 				<TriggerButton
 					on:click={() => {
-						$selectedId = 'settings-schedule'
+						selectedTab = 'schedules'
+						drawer?.openDrawer()
 					}}
 				>
 					<TriggerCount count={schedules?.length} />
