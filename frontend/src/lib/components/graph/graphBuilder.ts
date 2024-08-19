@@ -127,13 +127,15 @@ export default function graphBuilder(
 		type: 'result'
 	}
 
-	nodes.push(triggerNode)
+	if (extra.path) {
+		nodes.push(triggerNode)
+		addEdge('Trigger', 'Input', {
+			type: 'hiddenedge'
+		})
+	}
+
 	nodes.push(inputNode)
 	nodes.push(resultNode)
-
-	addEdge('Trigger', 'Input', {
-		type: 'hiddenedge'
-	})
 
 	function processModules(
 		modules: FlowModule[],

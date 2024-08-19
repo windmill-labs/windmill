@@ -1,9 +1,14 @@
 <script lang="ts">
-	export let count: number = 0
+	import { Loader2 } from 'lucide-svelte'
+	export let count: number | undefined = undefined
 </script>
 
-<div class="absolute -right-1 -top-1">
-	<div class="bg-blue-500 rounded-full w-4 h-4 flex center-center text-white text-xs">
-		{count}
+<div class="absolute -right-2 -top-2">
+	<div class="bg-blue-500 rounded-full h-4 w-4 p-1 flex center-center text-white text-2xs">
+		{#if count === undefined}
+			<Loader2 class="animate-spin text-2xs" />
+		{:else}
+			{count}
+		{/if}
 	</div>
 </div>

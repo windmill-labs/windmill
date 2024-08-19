@@ -5,7 +5,7 @@
 <button
 	on:click
 	class={twMerge(
-		'bg-surface hover:bg-surface-hover rounded-full border text-xs',
+		'bg-surface-secondary hover:bg-surface-hover rounded-md border text-xs',
 		'w-6 h-6',
 		'relative center-center'
 	)}

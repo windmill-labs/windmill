@@ -31,7 +31,7 @@
 
 <NodeWrapper let:darkMode sourceOffset={-160}>
 	{#if data.insertable && !data.disableAi}
-		<div class="absolute -top-10 left-1/2 transform -translate-x-1/2 z-10">
+		<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 z-10">
 			<Popover>
 				<div class={openNoCopilot ? 'z-10' : ''}>
 					<Menu pointerDown noMinW placement="bottom-center" let:close bind:show={openNoCopilot}>
@@ -46,9 +46,9 @@
 								: undefined}
 							slot="trigger"
 							type="button"
-							class=" bg-surface text-violet-800 dark:text-violet-400 border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-8 h-8 flex items-center justify-center"
+							class=" bg-surface text-violet-800 dark:text-violet-400 border mx-0.5 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 						>
-							<Wand2 size={16} />
+							<Wand2 size={14} />
 						</button>
 						{#if !$copilotInfo.exists_openai_resource_path}
 							<div class="text-primary p-4">

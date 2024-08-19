@@ -32,7 +32,6 @@
 		>
 			<FlowGraphV2
 				{download}
-				path={flow?.path}
 				minHeight={400}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
