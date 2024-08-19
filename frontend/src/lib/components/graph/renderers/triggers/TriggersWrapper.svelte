@@ -38,13 +38,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="600px">
-	<DrawerContent
-		title="Triggers"
-		noPadding
-		on:close={drawer.closeDrawer}
-		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
-		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
-	>
+	<DrawerContent title="Triggers" noPadding on:close={drawer.closeDrawer}>
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="webhooks">Webhooks</Tab>
 			<Tab value="mail">Mail</Tab>
