@@ -176,7 +176,7 @@
 		$nodes = layoutNodes(graph?.nodes)
 		$edges = graph.edges
 
-		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height) + 40, minHeight)
+		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
 	$: graph && updateStores()
