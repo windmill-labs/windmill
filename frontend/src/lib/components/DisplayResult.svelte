@@ -34,6 +34,7 @@
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import S3ImagePreview from './S3ImagePreview.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -636,15 +637,19 @@
 								</button>
 							{/if}
 						</div>
-						{#if typeof result?.s3 == 'string' && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
-							{#key result.s3}
-								<ParqetTableRenderer
-									disable_download={result?.disable_download}
-									{workspaceId}
-									s3resource={result?.s3}
-									storage={result?.storage}
-								/>
-							{/key}
+						{#if typeof result?.s3 === 'string'}
+							{#if result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv')}
+								{#key result.s3}
+									<ParqetTableRenderer
+										disable_download={result?.disable_download}
+										{workspaceId}
+										s3resource={result?.s3}
+										storage={result?.storage}
+									/>
+								{/key}
+							{:else if result?.s3?.endsWith('.png') || result?.s3?.endsWith('.jpeg') || result?.s3?.endsWith('.jpg') || result?.s3?.endsWith('.webp')}
+								<S3ImagePreview {workspaceId} storage={result?.storage} fileKey={result?.s3} />
+							{/if}
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind == 's3object-list'}
@@ -691,6 +696,22 @@
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
 											>open table preview <ArrowDownFromLine />
+										</button>
+									{/if}
+								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+									{#if seeS3PreviewFileFromList == s3object?.s3}
+										<S3ImagePreview
+											{workspaceId}
+											storage={s3object?.storage}
+											fileKey={s3object?.s3}
+										/>
+									{:else}
+										<button
+											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											on:click={() => {
+												seeS3PreviewFileFromList = s3object?.s3
+											}}
+											>open image preview <ArrowDownFromLine />
 										</button>
 									{/if}
 								{/if}

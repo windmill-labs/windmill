@@ -11065,7 +11065,7 @@ components:
           type: string
         content_type:
           type: string
-          enum: ["RawText", "Csv", "Parquet", "Unknown"]
+          enum: ["RawText", "Csv", "Parquet", "Image", "Unknown"]
       required:
         - content_type
 
