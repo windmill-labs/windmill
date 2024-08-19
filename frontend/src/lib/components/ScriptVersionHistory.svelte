@@ -8,7 +8,7 @@
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
-	import { ExternalLink, Pencil, ArrowRight, X } from 'lucide-svelte'
+	import { ExternalLink, Pencil, ArrowRight, X, Diff } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 
 	const dispatch = createEventDispatcher()
@@ -86,7 +86,14 @@
 											showDiff = false
 										}
 
-										previousHash = versions?.slice(selectedVersionIndex + 1)[0]?.script_hash
+										const availableVersions = versions?.slice(selectedVersionIndex + 1)
+
+										if (
+											previousHash &&
+											!availableVersions?.find((v) => v.script_hash === previousHash)
+										) {
+											previousHash = availableVersions?.[0]?.script_hash
+										}
 
 										deploymentMsgUpdate = undefined
 										deploymentMsgUpdateMode = false
@@ -185,12 +192,11 @@
 						</span>
 
 						{#if selectedVersionIndex !== undefined && versions?.slice(selectedVersionIndex + 1).length}
-							<div class="p-2 flex flex-row items-center gap-4">
-								<Toggle
-									size="xs"
-									options={{ right: 'Show diff with previous versions' }}
-									bind:checked={showDiff}
-								/>
+							<div class="p-2 flex flex-row items-center gap-4 h-8">
+								<div class="flex flex-row gap-2">
+									<Diff size={16} />
+									<Toggle size="xs" options={{ right: 'Diff' }} bind:checked={showDiff} />
+								</div>
 								{#if showDiff}
 									<select bind:value={previousHash} class="!text-xs !w-40">
 										{#each versions?.slice(selectedVersionIndex + 1) ?? [] as version}
@@ -199,7 +205,7 @@
 												selected={version.script_hash === selectedVersion.script_hash}
 												class="!text-xs"
 											>
-												{version.script_hash}
+												{version.deployment_msg ?? version.script_hash}
 											</option>
 										{/each}
 									</select>
