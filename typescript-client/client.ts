@@ -134,7 +134,7 @@ export async function runFlow(
     console.info(`running \`${path}\` synchronously with args:`, args);
   }
 
-  const jobId = await runFlowAsync(path, args, null, true);
+  const jobId = await runFlowAsync(path, args, null, false);
   return await waitJob(jobId, verbose);
 }
 
@@ -273,7 +273,7 @@ export async function runFlowAsync(
   path: string | null,
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null,
-  flowOutlivesParent: boolean = false
+  flowOutlivesParent: boolean = true
 ): Promise<string> {
   // Create a script job and return its job id.
 
@@ -284,7 +284,7 @@ export async function runFlowAsync(
     params["scheduled_in_secs"] = scheduledInSeconds;
   }
 
-  if (flowOutlivesParent) {
+  if (!flowOutlivesParent) {
     let parentJobId = getEnv("WM_JOB_ID");
     if (parentJobId !== undefined) {
       params["parent_job"] = parentJobId;
