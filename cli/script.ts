@@ -366,11 +366,19 @@ async function createScript(
   workspace: Workspace
 ) {
   if (!bundleContent) {
-    // no parent hash
-    await ScriptService.createScript({
-      workspace: workspaceId,
-      requestBody: body,
-    });
+    try {
+      // no parent hash
+      await ScriptService.createScript({
+        workspace: workspaceId,
+        requestBody: body,
+      });
+    } catch (e) {
+      throw Error(
+        `Script creation for ${body.path} with parent ${
+          body.parent_hash
+        }  was not successful: ${e.body ?? e.message}`
+      );
+    }
   } else {
     const form = new FormData();
     form.append("script", JSON.stringify(body));
