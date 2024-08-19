@@ -32,6 +32,8 @@
 	import { encodeState } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
+	import TriggersNode from './renderers/nodes/TriggersNode.svelte'
+	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -40,7 +42,6 @@
 	export let maxHeight: number | undefined = undefined
 	export let notSelectable = false
 	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
-
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
 
 	export let insertable = false
@@ -54,6 +55,7 @@
 	export let flowInputsStore: Writable<FlowInput | undefined> = writable<FlowInput | undefined>(
 		undefined
 	)
+	export let path: string | undefined = undefined
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -126,13 +128,13 @@
 			disableAi,
 			insertable,
 			flowModuleStates,
-			selectedId: $selectedId
+			selectedId: $selectedId,
+			path
 		},
 		failureModule,
 		{
 			deleteBranch: (detail, label) => {
 				$selectedId = label
-
 				dispatch('deleteBranch', detail)
 			},
 			insert: (detail) => {
@@ -148,7 +150,6 @@
 			},
 			delete: (detail, label) => {
 				$selectedId = label
-
 				dispatch('delete', detail)
 			},
 			newBranch: (module) => {
@@ -193,13 +194,15 @@
 		whileLoopEnd: ForLoopEndNode,
 		branchOneStart: BranchOneStart,
 		branchOneEnd: BranchAllEndNode,
-		noBranch: NoBranchNode
+		noBranch: NoBranchNode,
+		trigger: TriggersNode
 	} as any
 
 	const edgeTypes = {
 		edge: BaseEdge,
 		empty: EmptyEdge,
-		dataflowedge: DataflowEdge
+		dataflowedge: DataflowEdge,
+		hiddenedge: HiddenBaseEdge
 	} as any
 
 	const proOptions = { hideAttribution: true }

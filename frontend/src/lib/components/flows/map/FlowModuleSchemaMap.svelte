@@ -253,6 +253,7 @@
 
 	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			path={$flowStore['path']}
 			{disableAi}
 			insertable
 			scroll

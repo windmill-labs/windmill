@@ -12,6 +12,7 @@
 		description?: string
 		value: FlowValue
 		schema?: any
+		path?: string
 	}
 	export let overflowAuto = false
 	export let noSide = false
@@ -31,6 +32,7 @@
 		>
 			<FlowGraphV2
 				{download}
+				path={flow?.path}
 				minHeight={400}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}

@@ -12,7 +12,6 @@
 	import { copilotInfo } from '$lib/stores'
 	import { base } from '$lib/base'
 	import type { Writable } from 'svelte/store'
-	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
 
 	export let data: {
 		insertable: boolean
@@ -30,11 +29,7 @@
 	}>('FlowGraphContext')
 </script>
 
-<NodeWrapper enableTargetHandle={false} let:darkMode>
-	<div class="absolute -top-32 left-1/2 transform -translate-x-1/2 z-10">
-		<TriggersWrapper />
-	</div>
-
+<NodeWrapper let:darkMode sourceOffset={-160}>
 	{#if data.insertable && !data.disableAi}
 		<div class="absolute -top-10 left-1/2 transform -translate-x-1/2 z-10">
 			<Popover>

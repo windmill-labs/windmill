@@ -13,5 +13,6 @@
 	download="flow.json"
 	href={'data:text/json;charset=utf-8,' +
 		encodeURIComponent(JSON.stringify({ value: { modules, failureModule }, summary: '' }, null, 4))}
-	>Download</a
 >
+	Download
+</a>

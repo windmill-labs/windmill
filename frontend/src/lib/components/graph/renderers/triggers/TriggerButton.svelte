@@ -1,5 +1,14 @@
-<div
-	class="bg-surface hover:bg-surface-hover rounded-full border center-center text-xs relative w-8 h-8 flex flex-row gap-2"
+<script>
+	import { twMerge } from 'tailwind-merge'
+</script>
+
+<button
+	on:click
+	class={twMerge(
+		'bg-surface hover:bg-surface-hover rounded-full border text-xs',
+		'w-6 h-6',
+		'relative center-center'
+	)}
 >
 	<slot />
-</div>
+</button>

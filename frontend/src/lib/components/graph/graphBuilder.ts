@@ -95,6 +95,15 @@ export default function graphBuilder(
 		})
 	}
 
+	const triggerNode: Node = {
+		id: 'Trigger',
+		position: { x: -1, y: -1 },
+		type: 'trigger',
+		data: {
+			path: extra.path
+		}
+	}
+
 	const inputNode: Node = {
 		id: 'Input',
 		position: { x: -1, y: -1 },
@@ -102,7 +111,6 @@ export default function graphBuilder(
 		data: {
 			eventHandlers: eventHandlers,
 			modules: modules,
-
 			...extra
 		}
 	}
@@ -119,8 +127,13 @@ export default function graphBuilder(
 		type: 'result'
 	}
 
+	nodes.push(triggerNode)
 	nodes.push(inputNode)
 	nodes.push(resultNode)
+
+	addEdge('Trigger', 'Input', {
+		type: 'hiddenedge'
+	})
 
 	function processModules(
 		modules: FlowModule[],

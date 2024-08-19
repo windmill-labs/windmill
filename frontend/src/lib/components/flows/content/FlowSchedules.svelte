@@ -17,13 +17,17 @@
 
 	async function loadSchedules() {
 		try {
-			schedules = (
-				await ScheduleService.listSchedules({
-					workspace: $workspaceStore ?? '',
-					path: initialPath,
-					isFlow: true
-				})
-			).filter((s) => s.path != initialPath)
+			schedules = await ScheduleService.listSchedules({
+				workspace: $workspaceStore ?? '',
+				path: initialPath,
+				isFlow: true
+			})
+
+			console.log(
+				schedules,
+				initialPath,
+				schedules.filter((s) => s.path === initialPath)
+			)
 		} catch (e) {
 			console.error('impossible to load schedules')
 		}
