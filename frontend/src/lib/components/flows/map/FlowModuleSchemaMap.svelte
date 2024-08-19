@@ -304,8 +304,6 @@
 							$selectedId = $moving.module.id
 							$moving = undefined
 						} else {
-							console.log('inserting', detail.detail, detail.index, detail.modules)
-
 							await insertNewModuleAtIndex(
 								detail.modules,
 								detail.index ?? 0,
@@ -338,8 +336,6 @@
 				}
 			}}
 			on:move={async ({ detail }) => {
-				console.log('move', detail, $moving)
-
 				if (!$moving || $moving.module.id !== detail.module.id) {
 					if (detail.module && detail.modules) {
 						$moving = { module: detail.module, modules: detail.modules }

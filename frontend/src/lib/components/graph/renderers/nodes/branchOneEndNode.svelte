@@ -4,12 +4,10 @@
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStateColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
-	import type { FlowModule } from '$lib/gen'
 
 	export let data: {
 		id: string
 		insertable: boolean
-		modules: FlowModule[]
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		offset: number

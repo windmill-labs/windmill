@@ -39,9 +39,6 @@
 		on:select={() => {
 			data.eventHandlers.select(data.id)
 		}}
-		on:deleteBranch={(e) => {
-			data.eventHandlers.deleteBranch(e.detail, data.label)
-		}}
 		on:insert={(e) => {
 			data.eventHandlers.insert(e.detail)
 		}}
