@@ -10,6 +10,7 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 
@@ -42,30 +43,38 @@
 		appConnect?.open?.(resourceType, expressOAuthSetup)
 	}
 
+	let loading = true
 	async function loadResources(resourceType: string | undefined) {
-		const nc = (
-			await ResourceService.listResource({
-				workspace: $workspaceStore!,
-				resourceType
-			})
-		)
-			.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
-			.map((x) => ({
-				value: x.path,
-				label: x.path,
-				type: x.resource_type
-			}))
+		loading = true
+		try {
+			const nc = (
+				await ResourceService.listResource({
+					workspace: $workspaceStore!,
+					resourceType
+				})
+			)
+				.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
+				.map((x) => ({
+					value: x.path,
+					label: x.path,
+					type: x.resource_type
+				}))
 
-		// TODO check if this is needed
-		if (!nc.find((x) => x.value == value) && (initialValue || value)) {
-			nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
+			// TODO check if this is needed
+			if (!nc.find((x) => x.value == value) && (initialValue || value)) {
+				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
+			}
+			collection = nc
+			if (collection.length == 1 && selectFirst && valueSelect == undefined) {
+				value = collection[0].value
+				valueType = collection[0].type
+				valueSelect = collection[0]
+			}
+		} catch (e) {
+			sendUserToast('Failed to load resource types', true)
+			console.error(e)
 		}
-		collection = nc
-		if (collection.length == 1 && selectFirst && valueSelect == undefined) {
-			value = collection[0].value
-			valueType = collection[0].type
-			valueSelect = collection[0]
-		}
+		loading = false
 	}
 
 	$: $workspaceStore && loadResources(resourceType)
@@ -131,46 +140,48 @@
 					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			/>
-		{:else}
+		{:else if !loading}
 			<div class="text-2xs text-tertiary mr-2">0 found</div>
 		{/if}
 
-		{#if value && value != ''}
-			<Button
-				{disabled}
-				color="light"
-				variant="border"
-				size="xs"
-				on:click={() => resourceEditor?.initEdit?.(value ?? '')}
-				startIcon={{ icon: Pen }}
-				iconOnly
-			/>
-		{/if}
-
-		{#if resourceType?.includes(',')}
-			{#each resourceType.split(',') as rt}
+		{#if !loading}
+			{#if value && value != ''}
 				<Button
 					{disabled}
 					color="light"
 					variant="border"
 					size="xs"
-					on:click={() => appConnect?.open?.(rt)}
-					startIcon={{ icon: Plus }}>{rt}</Button
+					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
+					startIcon={{ icon: Pen }}
+					iconOnly
+				/>
+			{/if}
+
+			{#if resourceType?.includes(',')}
+				{#each resourceType.split(',') as rt}
+					<Button
+						{disabled}
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => appConnect?.open?.(rt)}
+						startIcon={{ icon: Plus }}>{rt}</Button
+					>
+				{/each}
+			{:else}
+				<Button
+					{disabled}
+					color="light"
+					variant="border"
+					size="xs"
+					on:click={() => appConnect?.open?.(resourceType, expressOAuthSetup)}
+					startIcon={{ icon: Plus }}
+					iconOnly={collection?.length > 0}
+					>{#if collection?.length == 0}
+						Add a {resourceType} resource
+					{/if}</Button
 				>
-			{/each}
-		{:else}
-			<Button
-				{disabled}
-				color="light"
-				variant="border"
-				size="xs"
-				on:click={() => appConnect?.open?.(resourceType, expressOAuthSetup)}
-				startIcon={{ icon: Plus }}
-				iconOnly={collection?.length > 0}
-				>{#if collection?.length == 0}
-					Add a {resourceType} resource
-				{/if}</Button
-			>
+			{/if}
 		{/if}
 
 		<Button
