@@ -12,7 +12,7 @@ import {
   yamlParse,
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { resolve, track_job } from "./script.ts";
+import { findGlobalDeps, resolve, track_job } from "./script.ts";
 import { defaultFlowDefinition } from "./bootstrap/flow_bootstrap.ts";
 import { generateFlowLockInternal } from "./metadata.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "./conf.ts";
@@ -237,8 +237,15 @@ async function generateLocks(
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
   if (folder) {
+    const globalDeps = await findGlobalDeps();
     // read script metadata file
-    await generateFlowLockInternal(folder, false, workspace);
+    await generateFlowLockInternal(
+      folder,
+      false,
+      workspace,
+      globalDeps,
+      opts.defaultTs
+    );
   } else {
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
@@ -258,8 +265,16 @@ async function generateLocks(
     ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
     let hasAny = false;
 
+    const globalDeps = await findGlobalDeps();
+
     for (const folder of elems) {
-      const candidate = await generateFlowLockInternal(folder, true, workspace);
+      const candidate = await generateFlowLockInternal(
+        folder,
+        true,
+        workspace,
+        globalDeps,
+        opts.defaultTs
+      );
       if (candidate) {
         hasAny = true;
         log.info(colors.green(`+ ${candidate}`));
@@ -281,7 +296,13 @@ async function generateLocks(
       return;
     }
     for (const folder of elems) {
-      await generateFlowLockInternal(folder, false, workspace);
+      await generateFlowLockInternal(
+        folder,
+        false,
+        workspace,
+        globalDeps,
+        opts.defaultTs
+      );
     }
   }
 }

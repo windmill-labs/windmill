@@ -1070,7 +1070,14 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
     }
     for (const change of changedFlows) {
       log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, true);
+      await generateFlowLockInternal(
+        change,
+        false,
+        workspace,
+        globalDeps,
+        opts.defaultTs,
+        true
+      );
     }
     log.info(
       colors.bold.green.underline(
