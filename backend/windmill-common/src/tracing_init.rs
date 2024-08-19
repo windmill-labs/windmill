@@ -87,6 +87,7 @@ pub fn initialize_tracing() -> WorkerGuard {
                     .with_line_number(true)
                     .with_target(false),
             )
+            .with(CountingLayer::new())
             .init(),
     }
     _guard
@@ -106,4 +107,62 @@ pub fn setup_flamegraph() -> impl Drop {
         .with(flame_layer)
         .init();
     _guard
+}
+
+use std::sync::{Arc, Mutex};
+use tracing::Event;
+use tracing_subscriber::layer::Context;
+
+#[derive(Debug)]
+struct LogCounter {
+    non_error_count: usize,
+    error_count: usize,
+}
+
+impl LogCounter {
+    fn new() -> Self {
+        LogCounter { non_error_count: 0, error_count: 0 }
+    }
+
+    fn reset(&mut self) {
+        self.non_error_count = 0;
+        self.error_count = 0;
+    }
+}
+
+#[derive(Debug)]
+struct CountingLayer {
+    counter: Arc<Mutex<LogCounter>>,
+}
+
+impl CountingLayer {
+    pub fn new() -> Self {
+        CountingLayer { counter: Arc::new(Mutex::new(LogCounter::new())) }
+    }
+
+    pub fn get_counts(&self) -> (usize, usize) {
+        let counter = self.counter.lock().unwrap();
+        (counter.non_error_count, counter.error_count)
+    }
+
+    pub fn reset_counts(&self) {
+        let mut counter = self.counter.lock().unwrap();
+        counter.reset();
+    }
+}
+
+impl<S> tracing_subscriber::Layer<S> for CountingLayer
+where
+    S: tracing::Subscriber,
+{
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let level = *event.metadata().level();
+
+        let mut counter = self.counter.lock().unwrap();
+        if level == tracing::Level::ERROR {
+            counter.error_count += 1;
+        } else {
+            counter.non_error_count += 1;
+        }
+    }
 }

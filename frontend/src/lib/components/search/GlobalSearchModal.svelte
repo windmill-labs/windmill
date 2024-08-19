@@ -274,23 +274,25 @@
 					open = false
 				}
 			}
-			if (event.key === 'ArrowDown') {
-				event.preventDefault()
-				let idx = itemMap[tab].indexOf(selectedItem)
-				if (idx != -1) {
-					idx = (idx + 1) % itemMap[tab].length
-					selectedItem = selectItem(idx)
-					let el = document.getElementById(selectedItem.search_id)
-					if (el) scroll_into_view_if_needed_polyfill(el, false)
-				}
-			} else if (event.key === 'ArrowUp') {
-				event.preventDefault()
-				let idx = itemMap[tab].indexOf(selectedItem)
-				if (idx != -1) {
-					idx = (idx - 1 + itemMap[tab].length) % itemMap[tab].length
-					selectedItem = selectItem(idx)
-					let el = document.getElementById(selectedItem.search_id)
-					if (el) scroll_into_view_if_needed_polyfill(el, false)
+			if (tab != 'logs') {
+				if (event.key === 'ArrowDown') {
+					event.preventDefault()
+					let idx = itemMap[tab].indexOf(selectedItem)
+					if (idx != -1) {
+						idx = (idx + 1) % itemMap[tab].length
+						selectedItem = selectItem(idx)
+						let el = document.getElementById(selectedItem.search_id)
+						if (el) scroll_into_view_if_needed_polyfill(el, false)
+					}
+				} else if (event.key === 'ArrowUp') {
+					event.preventDefault()
+					let idx = itemMap[tab].indexOf(selectedItem)
+					if (idx != -1) {
+						idx = (idx - 1 + itemMap[tab].length) % itemMap[tab].length
+						selectedItem = selectItem(idx)
+						let el = document.getElementById(selectedItem.search_id)
+						if (el) scroll_into_view_if_needed_polyfill(el, false)
+					}
 				}
 			}
 		}
@@ -478,7 +480,7 @@
 	}
 
 	function maxModalWidth(tab: SearchMode) {
-		if (tab === 'runs') {
+		if (tab === 'runs' || tab === 'logs') {
 			return 'max-w-7xl'
 		} else {
 			return 'max-w-4xl'
@@ -486,7 +488,7 @@
 	}
 
 	function maxModalHeight(tab: SearchMode) {
-		if (tab === 'runs') {
+		if (tab === 'runs' || tab === 'logs') {
 			return ''
 		} else if (tab === 'content') {
 			return 'max-h-[70vh]'

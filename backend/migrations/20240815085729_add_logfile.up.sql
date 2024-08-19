@@ -4,6 +4,7 @@ CREATE TYPE LOG_MODE AS ENUM ('standalone', 'server', 'worker', 'agent', 'indexe
 CREATE TABLE log_file (
     hostname VARCHAR(255) NOT NULL,
     log_ts TIMESTAMP,
+    byte_size BIGINT,
     mode LOG_MODE NOT NULL,
     worker_group VARCHAR(255),
     file_path VARCHAR(510) NOT NULL,

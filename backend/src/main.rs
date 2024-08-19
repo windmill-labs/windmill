@@ -7,7 +7,6 @@
  */
 
 use anyhow::Context;
-use gethostname::gethostname;
 use git_version::git_version;
 use monitor::{send_current_log_file_to_object_store, send_logs_to_object_store};
 use rand::Rng;

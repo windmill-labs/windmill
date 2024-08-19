@@ -98,7 +98,8 @@
 	dropdownItems={[
 		...manualDates.map((d, i) => ({
 			label: d.label,
-			onClick: () => {
+			onClick: (e) => {
+				e.preventDefault()
 				selectedManualDate = i
 				const ts = d.computeMinMax()
 				if (ts) {

@@ -43,9 +43,9 @@ use windmill_common::{
     users::truncate_token,
     utils::{now_from_db, rd_string, Mode},
     worker::{
-        self, load_worker_config, make_pull_query, make_suspended_pull_query,
-        reload_custom_tags_setting, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
-        SERVER_CONFIG, WORKER_CONFIG, WORKER_GROUP,
+        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
+        WORKER_GROUP,
     },
     BASE_URL, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
     METRICS_DEBUG_ENABLED, METRICS_ENABLED,
@@ -387,6 +387,7 @@ pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
     let worker_group = get_worker_group(&mode);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         tracing::error!("Starting log file upload to object store");
         sleep_until_next_minute_start_plus_one_s().await;
         loop {
@@ -453,6 +454,7 @@ async fn send_log_file_to_object_store(
         }
 
         let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE).join(&highest_file);
+
         #[cfg(feature = "parquet")]
         let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
         #[cfg(feature = "parquet")]
@@ -470,8 +472,12 @@ async fn send_log_file_to_object_store(
             }
         }
 
-        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5)", 
-            hostname, mode.to_string(), worker_group.clone(), ts, highest_file)
+        let size = tokio::fs::metadata(&path)
+            .await
+            .map(|x| x.len() as i64)
+            .unwrap_or(1);
+        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, byte_size) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6)", 
+            hostname, mode.to_string(), worker_group.clone(), ts, highest_file, size)
             .execute(db)
             .await {
             tracing::error!("Error inserting log file: {:?}", e);

@@ -57,6 +57,7 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
 }
 
 pub fn hostname() -> String {
+    // return std::env::var("HOSTNAME").unwrap_or_default();
     gethostname()
         .to_str()
         .map(|x| x.to_string())

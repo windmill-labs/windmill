@@ -6119,7 +6119,7 @@ paths:
 
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
-      summary: cancel queued job
+      summary: cancel queued or running job
       operationId: cancelQueuedJob
       tags:
         - job
@@ -8616,11 +8616,29 @@ paths:
                       format: date-time
                     file_path:
                       type: string
+                    byte_size:
+                      type: integer
                   required:
                     - hostname
                     - mode
                     - log_ts
                     - file_path
+
+  /service_logs/get_log_file/{path}:
+    get:
+      summary: get log file by path
+      operationId: getLogFile
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Path"            
+      responses:
+        "200":
+          description: log stream
+          content:
+            text/plain:
+              schema:
+                type: string
 
 
   /concurrency_groups/list:
