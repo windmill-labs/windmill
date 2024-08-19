@@ -20,11 +20,7 @@
 	let date: string | undefined = undefined
 	let notFound = false
 
-	async function loadCode(
-		path: string,
-		hash: string | undefined,
-		previousHash: string | undefined
-	) {
+	async function loadCode(path: string, hash: string | undefined) {
 		try {
 			notFound = false
 			const script = hash
@@ -53,7 +49,7 @@
 		}
 	}
 
-	$: path && loadCode(path, hash, previousHash)
+	$: path && loadCode(path, hash)
 	$: path && previousHash && loadPreviousCode(previousHash)
 
 	function toggleShowAll() {
