@@ -1,10 +1,10 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getStateColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
+	import type { FlowModule } from '$lib/gen'
 
 	export let data: {
 		id: string
@@ -19,11 +19,9 @@
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
 		label={'Collect result from all branches'}
-		modules={data.modules}
 		id={data.id}
 		selectable={true}
 		selected={false}
-		insertable={false}
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={getStateColor(data?.flowModuleStates?.[data?.id]?.type, darkMode)}
 		on:select={(e) => {

@@ -7,19 +7,26 @@ export function getStraightLinePath({ sourceX, sourceY, targetY }) {
 
 export function computeBorderStatus(
 	branchIndex: number,
+	type: 'branchone' | 'branchall',
 	graphModuleState: GraphModuleState | undefined
 ): FlowStatusModule['type'] | undefined {
-	const flowJobSuccess = graphModuleState?.flow_jobs_success
+	if (type === 'branchone') {
+		const branchChosen = graphModuleState?.branchChosen
 
-	if (!Array.isArray(flowJobSuccess)) {
-		return 'WaitingForPriorSteps'
+		if (branchChosen === branchIndex) {
+			return graphModuleState?.type
+		}
+	} else {
+		let flow_jobs_success = graphModuleState?.flow_jobs_success
+		if (!flow_jobs_success) {
+			return 'WaitingForPriorSteps'
+		} else {
+			let status = flow_jobs_success?.[branchIndex]
+			if (status == undefined) {
+				return 'WaitingForExecutor'
+			} else {
+				return status ? 'Success' : 'Failure'
+			}
+		}
 	}
-
-	const jobStatus = flowJobSuccess[branchIndex]
-
-	if (jobStatus === undefined) {
-		return 'WaitingForExecutor'
-	}
-
-	return jobStatus ? 'Success' : 'Failure'
 }

@@ -9,13 +9,6 @@ export const NODE = {
 	}
 }
 
-export function* createIdGenerator(): Generator<number, number, unknown> {
-	let id = 0
-	while (true) {
-		yield id++
-	}
-}
-
 export function getStateColor(
 	state: FlowStatusModule['type'] | undefined,
 	isDark: boolean,

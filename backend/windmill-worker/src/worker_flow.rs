@@ -2379,7 +2379,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
-            if flow_job.tag == "flow" {
+            if flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id) {
                 payload_tag.tag
             } else {
                 Some(flow_job.tag.clone())

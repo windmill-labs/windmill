@@ -258,7 +258,6 @@
 			scroll
 			{minHeight}
 			moving={$moving?.module.id}
-			rebuildOnChange={$flowStore}
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
 			{selectedId}
@@ -268,8 +267,6 @@
 				dependents = getDependentComponents(e.id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
-
-					console.log('deleting node', e.id)
 
 					selectNextId(e.id)
 

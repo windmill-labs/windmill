@@ -19,11 +19,9 @@
 <NodeWrapper offset={data.offset} let:darkMode enableSourceHandle enableTargetHandle>
 	<VirtualItem
 		label={'Collect result from all branches'}
-		modules={data.modules}
 		id={data.id}
 		selectable={true}
 		selected={false}
-		insertable={false}
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={getStateColor(data?.flowModuleStates?.[data?.id]?.type, darkMode)}
 		on:select={(e) => {

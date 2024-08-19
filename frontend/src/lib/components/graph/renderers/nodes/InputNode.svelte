@@ -1,6 +1,6 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	import { Calendar, ExternalLink, Split, Wand2, Webhook } from 'lucide-svelte'
+	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
@@ -82,10 +82,8 @@
 	{/if}
 	<VirtualItem
 		label="Input"
-		modules={data.modules}
 		selectable
 		selected={$selectedId === 'Input'}
-		insertable={false}
 		bgColor={getStateColor(undefined, darkMode)}
 		on:insert={(e) => {
 			data.eventHandlers?.insert(e.detail)

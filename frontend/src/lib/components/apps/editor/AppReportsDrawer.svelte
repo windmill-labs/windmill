@@ -24,6 +24,7 @@
 	import { RotateCw, Save } from 'lucide-svelte'
 	import { CUSTOM_TAGS_SETTING, WORKSPACE_SLACK_BOT_TOKEN_PATH } from '$lib/consts'
 	import { loadSchemaFromPath } from '$lib/infer'
+	import { hubPaths } from '$lib/hub'
 	export let appPath: string
 	export let open = false
 
@@ -187,7 +188,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 
 	const notificationScripts = {
 		discord: {
-			path: 'hub/7838/discord',
+			path: hubPaths.discordReport,
 			schema: {
 				type: 'object',
 				properties: {
@@ -203,7 +204,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			}
 		},
 		slack: {
-			path: 'hub/7836/slack', // if to be updated, also update it in in backend/windmill-queue/src/jobs.rs
+			path: hubPaths.slackReport, // if to be updated, also update it in in backend/windmill-queue/src/jobs.rs
 			schema: {
 				type: 'object',
 				properties: {
@@ -216,7 +217,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			}
 		},
 		email: {
-			path: 'hub/7837/smtp',
+			path: hubPaths.smtpReport,
 			schema: {
 				type: 'object',
 				properties: {

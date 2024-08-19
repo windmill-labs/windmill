@@ -22,10 +22,8 @@
 	<VirtualItem
 		id={'Result'}
 		label={'Result'}
-		modules={undefined}
 		selectable={true}
 		selected={$selectedId === 'Result'}
-		insertable={false}
 		hideId={true}
 		bgColor={getStateColor(
 			data.success == undefined ? undefined : data.success ? 'Success' : 'Failure',

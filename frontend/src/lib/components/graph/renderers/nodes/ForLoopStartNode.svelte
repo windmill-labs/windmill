@@ -18,9 +18,7 @@
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
 		label={'Do one iteration'}
-		modules={data.modules}
 		selectable={false}
-		insertable={false}
 		selected={false}
 		id={data.id}
 		hideId

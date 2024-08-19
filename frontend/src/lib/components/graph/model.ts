@@ -1,17 +1,8 @@
 import type { FlowStatusModule, Job } from '$lib/gen'
 import type { Writable } from 'svelte/store'
-import type { UserNodeType } from './svelvet/types'
 import type { FlowState } from '../flows/flowState'
 
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
-
-export type Node = UserNodeType & {
-	parentIds: string[]
-	edgeLabel?: string
-	host?: ModuleHost
-	type: 'node'
-	loopDepth: number
-}
 
 export type Loop = {
 	type: 'loop'
@@ -50,6 +41,7 @@ export type GraphModuleState = {
 	flow_jobs_results?: any
 	branchChosen?: number
 	result?: any
+	tag?: string
 	scheduled_for?: Date
 	job_id?: string
 	parent_module?: string

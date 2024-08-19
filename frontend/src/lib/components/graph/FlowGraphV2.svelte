@@ -40,7 +40,6 @@
 	export let maxHeight: number | undefined = undefined
 	export let notSelectable = false
 	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
-	export let rebuildOnChange: any = undefined
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
 
@@ -177,7 +176,7 @@
 		$nodes = layoutNodes(graph?.nodes)
 		$edges = graph.edges
 
-		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height), minHeight)
+		height = Math.max(...$nodes.map((n) => n.position.y + NODE.height + 40), minHeight)
 	}
 
 	$: graph && updateStores()
@@ -205,17 +204,6 @@
 
 	const proOptions = { hideAttribution: true }
 
-	function handleNodeClick(e: CustomEvent) {
-		const mod = e.detail.node.data.module as FlowModule
-
-		if (!notSelectable && mod) {
-			if ($selectedId != mod.id) {
-				$selectedId = mod.id
-			}
-			dispatch('select', mod)
-		}
-	}
-
 	$: showDataflow =
 		$selectedId != undefined &&
 		!$selectedId.startsWith('constants') &&
@@ -225,7 +213,7 @@
 
 	const viewport = writable<Viewport>({
 		x: 0,
-		y: 100,
+		y: 5,
 		zoom: 1
 	})
 
@@ -240,7 +228,7 @@
 	$: width && centerViewport(width)
 </script>
 
-<div style={`height: ${height}px; `} bind:clientWidth={width}>
+<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
 	<SvelteFlow
 		{nodes}
 		{edges}
@@ -253,9 +241,9 @@
 		defaultEdgeOptions={{ type: 'smoothstep' }}
 		preventScrolling={scroll}
 		zoomOnDoubleClick={false}
+		elementsSelectable={false}
 		{proOptions}
 		nodesDraggable={false}
-		on:nodeclick={(e) => handleNodeClick(e)}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary" />
 		<Controls position="top-right" orientation="horizontal" showLock={false}>

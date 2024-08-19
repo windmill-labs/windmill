@@ -29,7 +29,7 @@
 		disableMoveIds: string[]
 	}
 
-	$: [edgePath, labelX, labelY] = getBezierPath({
+	$: [edgePath] = getBezierPath({
 		sourceX,
 		sourceY: targetY - sourceY > 100 ? targetY - 100 : sourceY,
 		sourcePosition,
@@ -47,13 +47,15 @@
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
+
+	let menuOpen = false
 </script>
 
 <EdgeLabelRenderer>
 	{#if data?.insertable && !$useDataflow && !data?.moving}
 		<div
-			class="edgeButtonContainer nodrag nopan"
-			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+			class={twMerge('edgeButtonContainer nodrag nopan top-0', menuOpen ? 'z-50' : '')}
+			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY}px)"
 		>
 			<InsertModuleButton
 				disableAi={data.disableAi}
@@ -63,12 +65,13 @@
 				on:new={(e) => {
 					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
 				}}
+				bind:open={menuOpen}
 			/>
 		</div>
 		{#if data.enableTrigger}
 			<div
 				class="edgeButtonContainer nodrag nopan"
-				style:transform="translate(100%, -50%) translate({labelX}px,{labelY}px)"
+				style:transform="translate(100%, 50%) translate({sourceX}px,{sourceY}px)"
 			>
 				<InsertTriggerButton
 					disableAi={data.disableAi}
@@ -89,7 +92,7 @@
 	{#if data?.moving}
 		<div
 			class="edgeButtonContainer nodrag nopan"
-			style:transform="translate(-50%, -50%) translate({labelX}px,{labelY}px)"
+			style:transform="translate(-50%, 50%) translate({sourceX}px,{sourceY}px)"
 		>
 			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
 				<button
