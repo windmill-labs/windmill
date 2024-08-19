@@ -10738,11 +10738,11 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.375.0"
+version = "1.381.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "lazy_static",
  "pulldown-cmark",
  "quote",

@@ -269,8 +269,7 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "<0.1.12"
 
 tantivy = "0.22.0"
-tree-sitter = "0.22"
-tree-sitter-rust = "0.21"
+
 pulldown-cmark = "0.9"
 toml = "0.7"
 syn = { version = "2.0.74", features = ["full"] }

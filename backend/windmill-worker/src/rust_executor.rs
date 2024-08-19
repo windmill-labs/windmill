@@ -2,7 +2,7 @@ use serde_json::value::RawValue;
 use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
-use tokio::{fs::{create_dir, DirBuilder}, process::Command};
+use tokio::process::Command;
 use windmill_common::{error::Error, jobs::QueuedJob, utils::calculate_hash, worker::save_cache};
 use windmill_queue::{append_logs, CanceledBy};
 
