@@ -9,6 +9,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import { ExternalLink, Pencil, ArrowRight, X } from 'lucide-svelte'
+	import Toggle from './Toggle.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -54,6 +55,9 @@
 	}
 
 	loadVersions()
+
+	let showDiff: boolean = false
+	let previousHash: string | undefined = undefined
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -77,6 +81,13 @@
 									on:click={() => {
 										selectedVersion = version
 										selectedVersionIndex = versionIndex
+
+										if (showDiff && versions && selectedVersionIndex === versions.length - 1) {
+											showDiff = false
+										}
+
+										previousHash = versions?.slice(selectedVersionIndex + 1)[0]?.script_hash
+
 										deploymentMsgUpdate = undefined
 										deploymentMsgUpdateMode = false
 									}}
@@ -172,13 +183,37 @@
 								</button>
 							{/if}
 						</span>
+
+						{#if selectedVersionIndex !== undefined && versions?.slice(selectedVersionIndex + 1).length}
+							<div class="p-2 flex flex-row items-center gap-4">
+								<Toggle
+									size="xs"
+									options={{ right: 'Show diff with previous versions' }}
+									bind:checked={showDiff}
+								/>
+								{#if showDiff}
+									<select bind:value={previousHash} class="!text-xs !w-40">
+										{#each versions?.slice(selectedVersionIndex + 1) ?? [] as version}
+											<option
+												value={version.script_hash}
+												selected={version.script_hash === selectedVersion.script_hash}
+												class="!text-xs"
+											>
+												{version.script_hash}
+											</option>
+										{/each}
+									</select>
+								{/if}
+							</div>
+						{:else}
+							<div class="p-2 text-xs text-secondary"> No previous version found </div>
+						{/if}
 						<FlowModuleScript
 							showDate
 							path={scriptPath}
 							hash={selectedVersion.script_hash}
-							previousHash={selectedVersionIndex !== undefined
-								? versions?.[selectedVersionIndex + 1]?.script_hash
-								: undefined}
+							{previousHash}
+							{showDiff}
 						/>
 					</div>
 				{/key}

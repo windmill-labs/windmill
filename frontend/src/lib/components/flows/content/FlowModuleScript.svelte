@@ -3,7 +3,6 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { ScriptService } from '$lib/gen'
 	import { getScriptByPath } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
@@ -33,14 +32,6 @@
 				: await getScriptByPath(path!)
 			code = script.content
 
-			if (previousHash) {
-				const previousScript = await ScriptService.getScriptByHash({
-					workspace: $workspaceStore!,
-					hash: previousHash
-				})
-				previousCode = previousScript.content
-			}
-
 			language = script.language
 			lock = script.lock
 			date = script.created_at
@@ -50,13 +41,26 @@
 		}
 	}
 
+	async function loadPreviousCode(previousHash: string) {
+		try {
+			const previousScript = await ScriptService.getScriptByHash({
+				workspace: $workspaceStore!,
+				hash: previousHash
+			})
+			previousCode = previousScript.content
+		} catch (e) {
+			console.error(e)
+		}
+	}
+
 	$: path && loadCode(path, hash, previousHash)
+	$: path && previousHash && loadPreviousCode(previousHash)
 
 	function toggleShowAll() {
 		showAllCode = !showAllCode
 	}
 
-	let showDiff = false
+	export let showDiff: boolean = false
 </script>
 
 <div class="flex flex-col flex-1 h-full overflow-auto p-2">
@@ -66,27 +70,17 @@
 	{#if notFound}
 		<div class="text-red-400">script not found at {path} in workspace {$workspaceStore}</div>
 	{:else if showAllCode}
-		{#if previousHash !== undefined}
-			<div class=" mb-2">
-				<Toggle
-					size="xs"
-					options={{ right: 'Show diff with previous version' }}
-					bind:checked={showDiff}
-				/>
-			</div>
-		{:else}
-			<div class="mb-2 text-xs text-secondary"> No previous version found </div>
-		{/if}
-
 		{#if showDiff}
-			<DiffEditor
-				class="h-80"
-				readOnly
-				automaticLayout
-				defaultLang={language}
-				defaultOriginal={previousCode}
-				defaultModified={code}
-			/>
+			{#key previousCode + code}
+				<DiffEditor
+					class="h-80"
+					readOnly
+					automaticLayout
+					defaultLang={language}
+					defaultOriginal={previousCode}
+					defaultModified={code}
+				/>
+			{/key}
 		{:else}
 			<HighlightCode {language} {code} />
 		{/if}
