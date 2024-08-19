@@ -107,6 +107,22 @@ export default function graphBuilder(
 		}
 	}
 
+	if (extra.path) {
+		const triggerNode: Node = {
+			id: 'Trigger',
+			position: { x: -1, y: -1 },
+			type: 'trigger',
+			data: {
+				path: extra.path
+			}
+		}
+
+		nodes.push(triggerNode)
+		addEdge('Trigger', 'Input', {
+			type: 'hiddenedge'
+		})
+	}
+
 	const resultNode: Node = {
 		id: 'result',
 		data: {

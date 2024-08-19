@@ -32,6 +32,7 @@
 	import { encodeState } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
+	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
 
 	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
@@ -42,6 +43,7 @@
 	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
+	export let path: string | undefined = undefined
 
 	export let insertable = false
 	export let moving: string | undefined = undefined
@@ -126,7 +128,8 @@
 			disableAi,
 			insertable,
 			flowModuleStates,
-			selectedId: $selectedId
+			selectedId: $selectedId,
+			path
 		},
 		failureModule,
 		{
@@ -199,7 +202,8 @@
 	const edgeTypes = {
 		edge: BaseEdge,
 		empty: EmptyEdge,
-		dataflowedge: DataflowEdge
+		dataflowedge: DataflowEdge,
+		hiddenedge: HiddenBaseEdge
 	} as any
 
 	const proOptions = { hideAttribution: true }
