@@ -705,7 +705,7 @@ pub async fn get_hub_app_by_id(
         &format!("{}/apps/{}/json", *HUB_BASE_URL.read().await, id),
         false,
         None,
-        &db,
+        Some(&db),
     )
     .await?
     .json()

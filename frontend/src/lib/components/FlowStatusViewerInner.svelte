@@ -167,7 +167,7 @@
 					mod.type === 'WaitingForEvents' &&
 					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
 				) {
-					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args })
+					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
 					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
@@ -183,7 +183,8 @@
 								scheduled_for: job?.['scheduled_for'],
 								job_id: job?.id,
 								parent_module: mod['parent_module'],
-								args: job?.args
+								args: job?.args,
+								tag: job?.tag
 							}
 							setModuleState(mod.id ?? '', newState)
 						})
@@ -395,6 +396,7 @@
 						job_id: job.id,
 						logs: job.logs,
 						args: job.args,
+						tag: job.tag,
 						started_at,
 						parent_module: mod['parent_module']
 					},
@@ -413,6 +415,7 @@
 						logs: job.logs,
 						result: job['result'],
 						job_id: job.id,
+						tag: job.tag,
 						parent_module: mod['parent_module'],
 						duration_ms: job['duration_ms'],
 						started_at: started_at,
@@ -645,6 +648,7 @@
 							<FlowJobResult
 								workspaceId={job?.workspace_id}
 								jobId={job?.id}
+								tag={job?.tag}
 								loading={job['running'] == true}
 								result={job.result}
 								logs={job.logs}
@@ -985,6 +989,7 @@
 											jobId={job?.id}
 											filename={job.id}
 											loading={job['running']}
+											tag={job?.tag}
 											noBorder
 											col
 											result={job['result']}
@@ -1048,14 +1053,17 @@
 												/>
 											</div>
 										{/if}
+
 										<FlowJobResult
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder
 											loading={node.type != 'Success' && node.type != 'Failure'}
+											waitingForExecutor={node.type == 'WaitingForExecutor'}
 											refreshLog={node.type == 'InProgress'}
 											col
 											result={node.result}
+											tag={node.tag}
 											logs={node.logs}
 											durationStates={localDurationStatuses}
 										/>
