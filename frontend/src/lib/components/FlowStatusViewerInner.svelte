@@ -16,12 +16,7 @@
 	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import {
-		FlowGraph,
-		type DurationStatus,
-		type FlowStatusViewerContext,
-		type GraphModuleState
-	} from './graph'
+	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { emptyString, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
@@ -33,6 +28,7 @@
 	import { writable, type Writable } from 'svelte/store'
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
+	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -594,6 +590,7 @@
 	let stepDetail: FlowModule | string | undefined = undefined
 
 	let storedListJobs: Record<number, Job> = {}
+	let wrapperHeight: number = 0
 </script>
 
 {#if notAnonynmous}
@@ -905,7 +902,7 @@
 	{#if render}
 		{#if job.raw_flow && !isListJob}
 			<div class="{selected != 'graph' ? 'hidden' : ''} grow mt-4">
-				<div class="grid grid-cols-3 border h-full">
+				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
 							{#each Object.values($retryStatus) as count}
@@ -924,8 +921,9 @@
 							{/each}
 						</div>
 
-						<FlowGraph
+						<FlowGraphV2
 							download
+							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
 							on:select={(e) => {
@@ -950,6 +948,7 @@
 							}}
 							on:selectedIteration={(e) => {
 								let detail = e.detail
+
 								setModuleState(detail.moduleId, {
 									selectedForloop: detail.id,
 									selectedForloopIndex: detail.index
@@ -957,7 +956,6 @@
 								globalRefreshes[detail.moduleId]?.({ job: detail.id, index: detail.index })
 							}}
 							modules={job.raw_flow?.modules ?? []}
-							failureModule={job.raw_flow?.failure_module}
 						/>
 					</div>
 					<div
