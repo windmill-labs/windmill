@@ -4,7 +4,15 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import { AlertCircle, CheckCircle2, ChevronDown, Filter, Hourglass, PlayCircle, X } from 'lucide-svelte'
+	import {
+		AlertCircle,
+		CheckCircle2,
+		ChevronDown,
+		Filter,
+		Hourglass,
+		PlayCircle,
+		X
+	} from 'lucide-svelte'
 	import JsonEditor from '../apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Label from '../Label.svelte'
@@ -19,7 +27,14 @@
 	export let label: string | null = null
 	export let concurrencyKey: string | null = null
 	export let tag: string | null = null
-	export let success: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined = undefined
+	export let success:
+		| 'running'
+		| 'waiting'
+		| 'suspended'
+		| 'queued'
+		| 'success'
+		| 'failure'
+		| undefined = undefined
 	export let isSkipped: boolean | undefined = undefined
 	export let argFilter: string
 	export let argError: string
@@ -45,13 +60,19 @@
 	let copyArgFilter = argFilter
 	let copyResultFilter = resultFilter
 
-	export let filterBy: 'path' | 'user' | 'folder' | 'label' | 'concurrencyKey' | 'tag' | 'schedulePath' = 'path'
+	export let filterBy:
+		| 'path'
+		| 'user'
+		| 'folder'
+		| 'label'
+		| 'concurrencyKey'
+		| 'tag'
+		| 'schedulePath' = 'path'
 
 	const dispatch = createEventDispatcher()
 
 	let autoSet = false
 
-	
 	$: (path || user || folder || label || concurrencyKey || tag || schedulePath) && autosetFilter()
 
 	function autosetFilter() {
@@ -83,8 +104,7 @@
 	let concurrencyKeyTimeout: NodeJS.Timeout | undefined = undefined
 	let tagTimeout: NodeJS.Timeout | undefined = undefined
 </script>
-{autoSet}
-{filterBy}
+
 <div class="flex gap-4">
 	{#if !mobile}
 		<div class="flex gap-2">
@@ -438,21 +458,21 @@
 					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
 				/>
 				{#if success == 'waiting'}
-				<ToggleButton
-					value={'waiting'}
-					tooltip="Waiting"
-					class="whitespace-nowrap"
-					icon={Hourglass}
-					iconProps={{ color: 'blue'}}
-				/>
+					<ToggleButton
+						value={'waiting'}
+						tooltip="Waiting"
+						class="whitespace-nowrap"
+						icon={Hourglass}
+						iconProps={{ color: 'blue' }}
+					/>
 				{:else if success == 'suspended'}
-				<ToggleButton
-					value={'suspended'}
-					tooltip="Suspended"
-					class="whitespace-nowrap"
-					icon={Hourglass}
-					iconProps={{ color: 'blue'}}
-				/>
+					<ToggleButton
+						value={'suspended'}
+						tooltip="Suspended"
+						class="whitespace-nowrap"
+						icon={Hourglass}
+						iconProps={{ color: 'blue' }}
+					/>
 				{/if}
 			</ToggleButtonGroup>
 		</div>
@@ -500,7 +520,6 @@
 							<ToggleButton value="concurrencyKey" label="Concurrency" />
 							<ToggleButton value="tag" label="Tag" />
 							<ToggleButton value="label" label="Label" />
-							
 						</ToggleButtonGroup>
 					</Label>
 
