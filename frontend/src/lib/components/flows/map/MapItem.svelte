@@ -58,7 +58,7 @@
 	$: itemProps = {
 		selected: $selectedId === mod.id,
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
-		earlyStop: mod.stop_after_if != undefined,
+		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
 		cache: Boolean(mod.cache_ttl),

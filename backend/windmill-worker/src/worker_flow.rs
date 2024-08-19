@@ -232,22 +232,27 @@ pub async fn update_flow_status_after_job_completion_internal<
         //     "UPDATE FLOW STATUS 2: {module_index:#?} {module_status:#?} {old_status:#?} "
         // );
 
-        let (skip_loop_failures, parallelism) = if matches!(
+        let (is_loop, skip_loop_failures, parallelism) = if matches!(
             module_status,
             FlowStatusModule::InProgress { iterator: Some(_), .. }
         ) {
             let (loop_failures, parallelism) =
                 compute_skip_loop_failures_and_parallelism(flow, old_status.step, db).await?;
-            (loop_failures.unwrap_or(false), parallelism)
+            (true, loop_failures.unwrap_or(false), parallelism)
         } else {
-            (false, None)
+            (false, false, None)
         };
+
+        let is_branch_all = matches!(
+            module_status,
+            FlowStatusModule::InProgress { branchall: Some(_), .. }
+        );
 
         // 0 length flows are not failure steps
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let (mut stop_early, skip_if_stop_early, continue_on_error) = if let Some(se) =
+        let (mut stop_early, mut skip_if_stop_early, continue_on_error) = if let Some(se) =
             stop_early_override
         {
             //do not stop early if module is a flow step
@@ -280,7 +285,18 @@ pub async fn update_flow_status_after_job_completion_internal<
             .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e:#}")))?;
 
             let stop_early = success
+                && !is_branch_all
                 && if let Some(expr) = r.stop_early_expr.clone() {
+                    let all_iters = match &module_status {
+                        FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. }
+                            if expr.contains("all_iters") =>
+                        {
+                            Some(Arc::new(
+                                retrieve_flow_jobs_results(db, w_id, flow_jobs).await?,
+                            ))
+                        }
+                        _ => None,
+                    };
                     compute_bool_from_expr(
                         expr,
                         Marc::new(
@@ -290,6 +306,7 @@ pub async fn update_flow_status_after_job_completion_internal<
                                 .to_owned(),
                         ),
                         result.clone(),
+                        all_iters,
                         None,
                         Some(client),
                         None,
@@ -734,6 +751,50 @@ pub async fn update_flow_status_after_job_completion_internal<
             }
             _ => result.clone(),
         };
+
+        match &new_status {
+            Some(FlowStatusModule::Success { .. }) if is_loop || is_branch_all => {
+                let r_after_all_iters = sqlx::query_as::<_, SkipIfStopped>(
+                    "SELECT
+                            raw_flow->'modules'->$1::int->'stop_after_all_iters_if'->>'expr' as stop_early_expr,
+                            (raw_flow->'modules'->$1::int->'stop_after_all_iters_if'->>'skip_if_stopped')::bool as skip_if_stopped,
+                            NULL as continue_on_error,
+                            args
+                        FROM queue
+                        WHERE id = $2"
+                    )
+                    .bind(old_status.step)
+                    .bind(flow)
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e:#}")))?;
+                if let Some(expr) = r_after_all_iters.stop_early_expr {
+                    let should_stop = compute_bool_from_expr(
+                        expr,
+                        Marc::new(
+                            r_after_all_iters
+                                .args
+                                .map(|x| x.0)
+                                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())
+                                .to_owned(),
+                        ),
+                        nresult.clone(),
+                        None,
+                        None,
+                        Some(client),
+                        None,
+                        None,
+                    )
+                    .await?;
+
+                    if should_stop {
+                        stop_early = should_stop;
+                        skip_if_stop_early = r_after_all_iters.skip_if_stopped.unwrap_or(false);
+                    }
+                }
+            }
+            _ => {}
+        }
 
         if old_status.retry.fail_count > 0
             && matches!(&new_status, Some(FlowStatusModule::Success { .. }))
@@ -1186,6 +1247,7 @@ async fn compute_bool_from_expr(
     expr: String,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
     result: Arc<Box<RawValue>>,
+    all_iters: Option<Arc<Box<RawValue>>>,
     by_id: Option<IdContext>,
     client: Option<&AuthedClient>,
     resumes: Option<(Arc<Box<RawValue>>, Arc<Box<RawValue>>, Arc<Box<RawValue>>)>,
@@ -1193,6 +1255,9 @@ async fn compute_bool_from_expr(
 ) -> error::Result<bool> {
     let mut context = HashMap::with_capacity(if resumes.is_some() { 7 } else { 3 });
     context.insert("result".to_string(), result.clone());
+    if let Some(all_iters) = all_iters {
+        context.insert("all_iters".to_string(), all_iters);
+    }
     context.insert("previous_result".to_string(), result.clone());
 
     if let Some(resumes) = resumes {
@@ -1567,6 +1632,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                 skip_expr.to_string(),
                 arc_flow_job_args.clone(),
                 Arc::new(to_raw_value(&json!("{}"))),
+                None,
                 None,
                 Some(client),
                 None,
@@ -2982,6 +3048,7 @@ async fn compute_next_flow_transform(
                             b.expr.to_string(),
                             arc_flow_job_args.clone(),
                             arc_last_job_result.clone(),
+                            None,
                             Some(idcontext.clone()),
                             Some(client),
                             Some((resumes.clone(), resume.clone(), approvers.clone())),
@@ -3258,6 +3325,7 @@ fn is_simple_modules(modules: &Vec<FlowModule>, flow: &FlowValue) -> bool {
         && modules[0].cache_ttl.is_none()
         && modules[0].retry.is_none()
         && modules[0].stop_after_if.is_none()
+        && modules[0].stop_after_all_iters_if.is_none()
         && (modules[0].mock.is_none() || modules[0].mock.as_ref().is_some_and(|m| !m.enabled))
         && flow.failure_module.is_none();
     is_simple

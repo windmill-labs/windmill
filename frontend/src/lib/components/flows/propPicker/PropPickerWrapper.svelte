@@ -28,6 +28,7 @@
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
+	export let extraResults: any = undefined
 	export let flow_input: any = undefined
 	export let error: boolean = false
 	export let displayContext = true
@@ -73,6 +74,7 @@
 			{#if result}
 				<PropPickerResult
 					{result}
+					{extraResults}
 					{flow_input}
 					on:select={({ detail }) => {
 						if (!notSelectable && !$propPickerConfig) {
