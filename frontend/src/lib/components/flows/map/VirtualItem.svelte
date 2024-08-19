@@ -38,12 +38,12 @@
 		label === 'Input' && $copilotCurrentStepStore === 'Input' ? 'z-[901]' : '',
 		'bg-surface'
 	)}
-<<<<<<< HEAD
-	style="min-width: 275px; max-height: 80px; background-color: {bgColor} !important;"
-=======
 	style="width: 275px; max-height: 34px; background-color: {bgColor} !important;"
->>>>>>> main
+	on:click={() => {
+		if (selectable) {
+			if (id) {
 				dispatch('select', id)
+			} else {
 				dispatch('select', label)
 			}
 		}
