@@ -319,8 +319,7 @@
 
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-2">
-				<span class="text-sm font-semibold">Previous runs</span>
-
+				<div class="text-sm font-semibold">Previous runs</div>
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if loading && (jobs == undefined || jobs?.length == 0)}
 						<div class="text-left text-tertiary text-xs">Loading current runs...</div>
@@ -335,12 +334,12 @@
 									if (!$workspaceStore) {
 										return
 									}
-
+		
 									const args = await JobService.getJobArgs({
 										workspace: $workspaceStore,
 										id: i.id
 									})
-
+		
 									selectedInput = {
 										id: i.id,
 										name: 'Running job: ' + i.id,
@@ -348,7 +347,7 @@
 										created_by: i.created_by ?? '',
 										is_public: true
 									}
-
+		
 									selectArgs(args)
 								}}
 							>
@@ -444,6 +443,11 @@
 						<div class="text-center text-tertiary">No previous Runs</div>
 					{/if}
 				</div>
+				{#if scriptPath || flowPath}
+					<a href="/runs/{scriptPath || flowPath}?show_schedules=true&show_future_jobs=true" class="text-sm text-blue-600 hover:underline">
+						All runs
+					</a>
+				{/if}
 			</div>
 		</Pane>
 
