@@ -248,6 +248,78 @@ async fn fix_flow_versioning_migration(
     Ok(())
 }
 
+macro_rules! run_windmill_migration {
+    ($migration_job_name:expr, $db:expr, $code:block) => {
+        {
+            let migration_job_name = $migration_job_name;
+            let db: &Pool<Postgres> = $db;
+
+            let has_done_migration = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
+                migration_job_name
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false);
+            if !has_done_migration {
+                tracing::info!("Applying {migration_job_name} migration");
+                let mut tx = db.begin().await?;
+                let mut r = false;
+                while !r {
+                    r = sqlx::query_scalar!("SELECT pg_try_advisory_lock(4242)")
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("Error acquiring {migration_job_name} lock: {e:#}");
+                            sqlx::migrate::MigrateError::Execute(e)
+                        })?
+                        .unwrap_or(false);
+                    if !r {
+                        tracing::info!("PG {migration_job_name} lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                }
+                tracing::info!("acquired lock for {migration_job_name}");
+
+                let has_done_migration = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
+                    migration_job_name
+                )
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false);
+
+                if !has_done_migration {
+
+                    $code
+
+                    sqlx::query!(
+                        "INSERT INTO windmill_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING",
+                        migration_job_name
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                    tracing::info!("Finished applying {migration_job_name} migration");
+                } else {
+                    tracing::info!("migration {migration_job_name} already done");
+                }
+
+                let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
+                    .execute(&mut *tx)
+                    .await?;
+                tx.commit().await?;
+                tracing::info!("released lock for {migration_job_name}");
+
+
+                tracing::info!("Finished applying {migration_job_name} migration");
+            } else {
+                tracing::info!("migration {migration_job_name} already done");
+
+            }
+        }
+    };
+}
+
 async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     // let has_done_migration = sqlx::query_scalar!(
     //     "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_job_completed_index')"
