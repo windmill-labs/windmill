@@ -37,7 +37,7 @@
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
 				on:select={(e) => {
-					const mod = dfs(flow?.value?.modules, (m) => m).find((m) => m?.id === e?.detail)
+					const mod = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === e?.detail)
 					stepDetail = mod ?? e.detail
 					dispatch('select', stepDetail)
 				}}
