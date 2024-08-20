@@ -205,13 +205,16 @@
 				draft?: Flow
 			}
 
+			let savedAtNewPath = false
 			if (newFlow) {
 				dispatch('saveInitial', $pathStore)
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
+				savedAtNewPath = true
 				initialPath = $pathStore
 				// this is so we can use the flow builder outside of sveltekit
 				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
 			}
+			dispatch('saveDraft', { path: $pathStore, savedAtNewPath, newFlow })
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)

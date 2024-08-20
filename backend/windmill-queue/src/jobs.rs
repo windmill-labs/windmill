@@ -2598,6 +2598,7 @@ impl DecodeQueries {
 #[derive(Deserialize)]
 pub struct RequestQuery {
     pub raw: Option<bool>,
+    pub wrap_body: Option<bool>,
     pub include_header: Option<String>,
 }
 
@@ -2632,13 +2633,14 @@ impl PushArgsOwned {
     async fn from_json(
         mut extra: HashMap<String, Box<RawValue>>,
         use_raw: bool,
+        force_wrap_body: bool,
         str: String,
     ) -> Result<Self, Response> {
         if use_raw {
             extra.insert("raw_string".to_string(), to_raw_value(&str));
         }
 
-        let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+        let wrap_body = force_wrap_body || str.len() > 0 && str.chars().next().unwrap() != '{';
 
         if wrap_body {
             let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
@@ -2743,7 +2745,7 @@ where
         req: Request<axum::body::Body>,
         _state: &S,
     ) -> Result<Self, Self::Rejection> {
-        let (content_type, mut extra, use_raw) = {
+        let (content_type, mut extra, use_raw, wrap_body) = {
             let headers_map = req.headers();
             let content_type_header = headers_map.get(CONTENT_TYPE);
             let content_type = content_type_header.and_then(|value| value.to_str().ok());
@@ -2755,7 +2757,8 @@ where
                 extra.extend(queries);
             }
             let raw = query.raw.as_ref().is_some_and(|x| *x);
-            (content_type, extra, raw)
+            let wrap_body = query.wrap_body.as_ref().is_some_and(|x| *x);
+            (content_type, extra, raw, wrap_body)
         };
 
         if content_type.is_none() || content_type.unwrap().starts_with("application/json") {
@@ -2765,7 +2768,7 @@ where
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            PushArgsOwned::from_json(extra, use_raw, str).await
+            PushArgsOwned::from_json(extra, use_raw, wrap_body, str).await
         } else if content_type
             .unwrap()
             .starts_with("application/cloudevents+json")
