@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type FlowModule } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { createEventDispatcher, setContext } from 'svelte'
+	import { createEventDispatcher, onMount, setContext } from 'svelte'
 
 	import { writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/style.css'
@@ -226,6 +226,10 @@
 	}
 
 	$: width && centerViewport(width)
+
+	onMount(() => {
+		centerViewport(width)
+	})
 </script>
 
 <div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={width}>
