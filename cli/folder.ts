@@ -92,8 +92,7 @@ export async function pushFolder(
         },
       });
     } catch (e) {
-      console.error(e.body);
-      throw e;
+      throw Error(`Failed to create folder ${name}: ${e.body ?? e.message}`);
     }
   }
 }

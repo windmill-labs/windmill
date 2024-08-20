@@ -115,14 +115,20 @@ export async function pushFlow(
     });
   } else {
     log.info(colors.bold.yellow("Creating new flow..."));
-    await FlowService.createFlow({
-      workspace: workspace,
-      requestBody: {
-        path: remotePath.replaceAll(SEP, "/"),
-        deployment_message: message,
-        ...localFlow,
-      },
-    });
+    try {
+      await FlowService.createFlow({
+        workspace: workspace,
+        requestBody: {
+          path: remotePath.replaceAll(SEP, "/"),
+          deployment_message: message,
+          ...localFlow,
+        },
+      });
+    } catch (e) {
+      throw new Error(
+        `Failed to create flow ${remotePath}: ${e.body ?? e.message}`
+      );
+    }
   }
 }
 
