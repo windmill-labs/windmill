@@ -573,6 +573,7 @@ pub async fn load_worker_config(
 
     if let Some(force_worker_tags) = std::env::var("FORCE_WORKER_TAGS")
         .ok()
+        .filter(|x| !x.is_empty())
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<String>>())
     {
         tracing::info!(
