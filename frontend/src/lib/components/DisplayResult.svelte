@@ -34,7 +34,6 @@
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import S3ImagePreview from './S3ImagePreview.svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -648,7 +647,14 @@
 									/>
 								{/key}
 							{:else if result?.s3?.endsWith('.png') || result?.s3?.endsWith('.jpeg') || result?.s3?.endsWith('.jpg') || result?.s3?.endsWith('.webp')}
-								<S3ImagePreview {workspaceId} storage={result?.storage} fileKey={result?.s3} />
+								<div class="h-full mt-2">
+									<img
+										alt="preview rendered"
+										class="w-auto h-full"
+										src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
+									/>
+								</div>
 							{/if}
 						{/if}
 					</div>
@@ -700,11 +706,14 @@
 									{/if}
 								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
-										<S3ImagePreview
-											{workspaceId}
-											storage={s3object?.storage}
-											fileKey={s3object?.s3}
-										/>
+										<div class="h-full mt-2">
+											<img
+												alt="preview rendered"
+												class="w-auto h-full"
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
+													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										</div>
 									{:else}
 										<button
 											class="text-secondary whitespace-nowrap flex gap-2 items-center"

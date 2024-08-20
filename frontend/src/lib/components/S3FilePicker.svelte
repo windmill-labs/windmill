@@ -82,7 +82,6 @@
 				fileKey: string
 				contentPreview: string | undefined
 				contentType: string | undefined
-				tooBig?: boolean
 		  }
 		| undefined = undefined
 
@@ -229,21 +228,11 @@
 			storage: storage
 		})
 
-		let tooBig = false
-		if (
-			fileSizeInBytes &&
-			filePreviewRaw.content_type === 'Image' &&
-			fileSizeInBytes > 8 * 1024 * 1024
-		) {
-			tooBig = true
-		}
-
 		let filePreviewContent = filePreviewRaw.content
 		if (
 			filePreviewContent !== null &&
 			filePreviewContent !== undefined &&
-			filePreviewContent.length >= 128 * 1024 &&
-			filePreviewRaw.content_type !== 'Image'
+			filePreviewContent.length >= 128 * 1024
 		) {
 			filePreviewContent =
 				filePreviewContent?.substring(0, 128 * 1024 - 35) +
@@ -254,8 +243,7 @@
 			filePreview = {
 				fileKey: fileKey,
 				contentPreview: filePreviewContent,
-				contentType: filePreviewRaw.content_type,
-				tooBig
+				contentType: filePreviewRaw.content_type
 			}
 		}
 		filePreviewLoading = false
@@ -620,7 +608,15 @@
 					{/if}
 
 					<div class="flex flex-col h-full w-full overflow-auto text-xs p-4 bg-surface-secondary">
-						{#if filePreviewLoading}
+						{#if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
+							<div>
+								<img
+									src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
+										(storage ? `&storage=${storage}` : '')}
+									alt="S3 preview"
+								/>
+							</div>
+						{:else if filePreviewLoading}
 							<div class="flex h-6 items-center text-tertiary mb-4">
 								<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
 							</div>
@@ -665,25 +661,17 @@
 												)}
 										/>
 									</div>
-								{:else if filePreview.contentType === 'Image' && !filePreview.tooBig}
-									<div>
-										<img src={filePreview.contentPreview} alt="S3 preview" />
-									</div>
 								{:else}
 									Previewing a {filePreview.contentType?.toLowerCase()} file.
 								{/if}
 							</div>
-							{#if filePreview.contentType !== 'Image' || filePreview.tooBig}
-								<pre class="grow whitespace-no-wrap break-words">
-									{#if filePreview.tooBig}
-										File too large to preview
-									{:else if !emptyString(filePreview.contentPreview)}
-										{filePreview.contentPreview}
-									{:else if filePreview.contentType !== undefined}
-										Preview impossible.
-									{/if}
+							<pre class="grow whitespace-no-wrap break-words">
+									{#if !emptyString(filePreview.contentPreview)}
+									{filePreview.contentPreview}
+								{:else if filePreview.contentType !== undefined}
+									Preview impossible.
+								{/if}
 							</pre>
-							{/if}
 						{/if}
 					</div>
 				</div>
