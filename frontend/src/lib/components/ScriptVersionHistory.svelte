@@ -132,7 +132,7 @@
 		<div class="h-full w-full overflow-auto">
 			{#if selectedVersion}
 				{#key selectedVersion}
-					<div class="flex flex-col">
+					<div class="flex flex-col min-h-full">
 						<span class="flex flex-row text-sm p-2 text-tertiary">
 							{#if deploymentMsgUpdateMode}
 								<div class="flex w-full">

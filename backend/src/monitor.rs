@@ -934,7 +934,7 @@ pub async fn reload_worker_config(
         tracing::error!("Error reloading worker config: {:?}", e)
     } else {
         let wc = WORKER_CONFIG.read().await;
-        let mut config = config.unwrap();
+        let config = config.unwrap();
         if *wc != config || config.dedicated_worker.is_some() {
             if kill_if_change {
                 if config.dedicated_worker.is_some()
