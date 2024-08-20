@@ -363,129 +363,122 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     // }
 
     run_windmill_migration!("fix_job_completed_index_2", &db, {
+        //     sqlx::query(
+        //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_created_at_new_2 ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, created_at DESC)"
+        // ).execute(db).await?;
 
-            //     sqlx::query(
-            //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_created_at_new_2 ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, created_at DESC)"
-            // ).execute(db).await?;
+        //     sqlx::query(
+        //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_started_at_new ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, started_at DESC)"
+        // ).execute(db).await?;
 
-            //     sqlx::query(
-            //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_started_at_new ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, started_at DESC)"
-            // ).execute(db).await?;
-
-            sqlx::query(
-                "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at",
-            )
+        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at")
             .execute(db)
             .await?;
 
-            sqlx::query(
-                "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new",
-            )
-            .execute(db)
-            .await?;
-
+        sqlx::query(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new",
+        )
+        .execute(db)
+        .await?;
     });
 
     run_windmill_migration!("fix_job_completed_index_3", &db, {
+        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_job_on_schedule_path")
+            .execute(db)
+            .await?;
 
-            sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_job_on_schedule_path")
-                .execute(db)
-                .await?;
+        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS concurrency_limit_stats_queue")
+            .execute(db)
+            .await?;
 
-            sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS concurrency_limit_stats_queue")
-                .execute(db)
-                .await?;
+        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index")
+            .execute(db)
+            .await?;
 
-            sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index")
-                .execute(db)
-                .await?;
-
-            sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_on_created")
-                .execute(db)
-                .await?;
+        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_on_created")
+            .execute(db)
+            .await?;
     });
 
     run_windmill_migration!("fix_job_completed_index_4", &db, {
-
-            let migration_job_name = "fix_job_completed_index_4";
-            let mut i = 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
-            sqlx::query("create index concurrently  if not exists ix_completed_job_workspace_id_created_at_new_3 ON completed_job  (workspace_id,  created_at DESC)")
+        let migration_job_name = "fix_job_completed_index_4";
+        let mut i = 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
+        sqlx::query("create index concurrently  if not exists ix_completed_job_workspace_id_created_at_new_3 ON completed_job  (workspace_id,  created_at DESC)")
                 .execute(db)
                 .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_8 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('deploymentcallback') AND parent_job IS NULL")
+        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_8 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('deploymentcallback') AND parent_job IS NULL")
             .execute(db)
             .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_9 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('dependencies', 'flowdependencies', 'appdependencies') AND parent_job IS NULL")
+        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_9 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('dependencies', 'flowdependencies', 'appdependencies') AND parent_job IS NULL")
             .execute(db)
             .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_5 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('preview', 'flowpreview') AND parent_job IS NULL")
+        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_5 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('preview', 'flowpreview') AND parent_job IS NULL")
                 .execute(db)
                 .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_6 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
+        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_6 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
                 .execute(db)
                 .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_7 ON completed_job  (workspace_id, success, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
+        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_7 ON completed_job  (workspace_id, success, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
                 .execute(db)
                 .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON completed_job  (workspace_id, started_at DESC)")
+        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON completed_job  (workspace_id, started_at DESC)")
                 .execute(db)
                 .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists root_job_index_by_path_2 ON completed_job (workspace_id, script_path, created_at desc) WHERE parent_job IS NULL")
+        sqlx::query("create index concurrently if not exists root_job_index_by_path_2 ON completed_job (workspace_id, script_path, created_at desc) WHERE parent_job IS NULL")
                 .execute(db)
                 .await?;
 
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query("create index concurrently if not exists ix_completed_job_created_at ON completed_job  (created_at DESC)")
+        sqlx::query("create index concurrently if not exists ix_completed_job_created_at ON completed_job  (created_at DESC)")
                     .execute(db)
                     .await?;
 
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
 
-            sqlx::query(
-                "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_2",
-            )
+        sqlx::query(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_2",
+        )
+        .execute(db)
+        .await?;
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
+
+        sqlx::query(
+            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_started_at_new",
+        )
+        .execute(db)
+        .await?;
+        i += 1;
+        tracing::info!("step {i} of {migration_job_name} migration");
+
+        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path")
             .execute(db)
             .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
-
-            sqlx::query(
-                "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_started_at_new",
-            )
-            .execute(db)
-            .await?;
-            i += 1;
-            tracing::info!("step {i} of {migration_job_name} migration");
-
-            sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path")
-                .execute(db)
-                .await?;
-
     });
 
     Ok(())
