@@ -86,6 +86,10 @@ lazy_static::lazy_static! {
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
+    if wc.worker_tags.len() == 0 {
+        tracing::error!("Empty tags in worker tags, skipping");
+        return;
+    }
     let query = format!(
         "UPDATE queue
             SET running = true
@@ -114,6 +118,10 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
 pub async fn make_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
     for tags in wc.priority_tags_sorted.iter() {
+        if tags.tags.len() == 0 {
+            tracing::error!("Empty tags in priority tags, skipping");
+            continue;
+        }
         let query = format!("UPDATE queue
         SET running = true
         , started_at = coalesce(started_at, now())

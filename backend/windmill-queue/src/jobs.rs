@@ -1967,6 +1967,11 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   or suspend_until <= now() if it has timed out */
         let query = WORKER_SUSPENDED_PULL_QUERY.read().await;
 
+        if query.is_empty() {
+            tracing::warn!("No suspended pull queries available");
+            return Ok(None);
+        }
+
         let r = if suspend_first {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, QueuedJob>(&query)
@@ -1981,6 +1986,11 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             let mut highest_priority_job: Option<QueuedJob> = None;
 
             let queries = WORKER_PULL_QUERIES.read().await;
+
+            if queries.is_empty() {
+                tracing::warn!("No pull queries available");
+                return Ok(None);
+            }
 
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
