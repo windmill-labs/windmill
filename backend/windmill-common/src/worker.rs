@@ -563,6 +563,17 @@ pub async fn load_worker_config(
         config.worker_tags = Some(all_tags);
     }
 
+    if let Some(force_worker_tags) = std::env::var("FORCE_WORKER_TAGS")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<String>>())
+    {
+        tracing::info!(
+            "Detected FORCE_WORKER_TAGS, forcing worker tags to: {:#?}",
+            force_worker_tags
+        );
+        config.worker_tags = Some(force_worker_tags);
+    }
+
     // set worker_tags using default if none. If priority tags is set, compute the sorted priority tags as well
     let worker_tags = config
         .worker_tags
