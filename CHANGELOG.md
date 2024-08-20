@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.382.2](https://github.com/windmill-labs/windmill/compare/v1.382.1...v1.382.2) (2024-08-20)
+
+
+### Bug Fixes
+
+* **app:** database studio/empty table count reset ([d6d3389](https://github.com/windmill-labs/windmill/commit/d6d33898a765f910f66cd0cfbd70a439ab107528))
+* **frontend:** Fix initial FlowGraph rendering on Chrome ([#4268](https://github.com/windmill-labs/windmill/issues/4268)) ([84d4e2c](https://github.com/windmill-labs/windmill/commit/84d4e2cb956ab4947b364d64c464fd5cf3c1d16f))
+* handle more gracefully worker without tags ([7e1f280](https://github.com/windmill-labs/windmill/commit/7e1f28071a7d6f3f34df417ea746fc9b5dca5157))
+
 ## [1.382.1](https://github.com/windmill-labs/windmill/compare/v1.382.0...v1.382.1) (2024-08-20)
 
 
