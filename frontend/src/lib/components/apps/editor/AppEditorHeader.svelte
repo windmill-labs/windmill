@@ -230,6 +230,11 @@
 									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
+								console.log(
+									x.id,
+									getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
+									columnDefs
+								)
 								r.push({
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
