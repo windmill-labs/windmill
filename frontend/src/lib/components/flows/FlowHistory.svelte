@@ -91,6 +91,7 @@
 		on:close={() => {
 			drawer?.closeDrawer()
 		}}
+		noPadding
 	>
 		<Splitpanes class="!overflow-visible">
 			<Pane size={20}>
