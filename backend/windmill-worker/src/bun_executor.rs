@@ -571,6 +571,7 @@ pub fn copy_recursively(
                     }
                 }
             }
+
             let original = entry.path();
 
             if filetype.is_dir() {
@@ -1289,6 +1290,10 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
         (
             String::from("BUN_INSTALL_CACHE_DIR"),
             BUN_CACHE_DIR.to_string(),
+        ),
+        (
+            String::from("BUN_RUNTIME_TRANSPILER_CACHE_PATH"),
+            "0".to_string(),
         ),
     ]);
 
