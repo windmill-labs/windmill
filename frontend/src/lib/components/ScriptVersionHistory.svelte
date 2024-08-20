@@ -8,8 +8,9 @@
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
-	import { ExternalLink, Pencil, ArrowRight, X, Diff } from 'lucide-svelte'
-	import Toggle from './Toggle.svelte'
+	import { ExternalLink, Pencil, ArrowRight, X, Diff, Code } from 'lucide-svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -192,12 +193,16 @@
 						</span>
 
 						{#if selectedVersionIndex !== undefined && versions?.slice(selectedVersionIndex + 1).length}
-							<div class="p-2 flex flex-row items-center gap-4 h-8">
-								<div class="flex flex-row gap-2">
-									<Diff size={16} />
-									<Toggle size="xs" options={{ right: 'Diff' }} bind:checked={showDiff} />
+							<div class="p-2 flex flex-row items-center gap-2 h-8">
+								<div class="w-min">
+									<ToggleButtonGroup bind:selected={showDiff}>
+										<ToggleButton light small value={false} label="Code" icon={Code} />
+										<ToggleButton light small value={true} label="Diff" icon={Diff} />
+									</ToggleButtonGroup>
 								</div>
+
 								{#if showDiff}
+									<div class="text-xs">Versions:</div>
 									<select bind:value={previousHash} class="!text-xs !w-40">
 										{#each versions?.slice(selectedVersionIndex + 1) ?? [] as version}
 											<option
