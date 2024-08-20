@@ -8,7 +8,9 @@
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
-	import { ExternalLink, Pencil, ArrowRight, X } from 'lucide-svelte'
+	import { ExternalLink, Pencil, ArrowRight, X, Diff, Code } from 'lucide-svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -19,6 +21,7 @@
 	let deploymentMsgUpdate: string | undefined = undefined
 
 	let selectedVersion: ScriptHistory | undefined = undefined
+	let selectedVersionIndex: number | undefined = undefined
 	let versions: ScriptHistory[] | undefined = undefined
 	let loading: boolean = false
 
@@ -53,6 +56,9 @@
 	}
 
 	loadVersions()
+
+	let showDiff: boolean = false
+	let previousHash: string | undefined = undefined
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -62,17 +68,34 @@
 				{#if !loading}
 					{#if versions && versions.length > 0}
 						<div class="flex gap-2 flex-col">
-							{#each versions ?? [] as version}
+							{#each versions ?? [] as version, versionIndex}
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
 								<div
 									class={classNames(
-										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer ',
 										selectedVersion?.script_hash == version.script_hash
-											? 'bg-blue-100 text-blue-600'
-											: ''
+											? 'bg-surface-selected'
+											: '',
+										'hover:bg-surface-hover'
 									)}
 									on:click={() => {
 										selectedVersion = version
+										selectedVersionIndex = versionIndex
+
+										if (showDiff && versions && selectedVersionIndex === versions.length - 1) {
+											showDiff = false
+										}
+
+										const availableVersions = versions?.slice(selectedVersionIndex + 1)
+
+										if (
+											previousHash &&
+											!availableVersions?.find((v) => v.script_hash === previousHash)
+										) {
+											previousHash = availableVersions?.[0]?.script_hash
+										}
+
 										deploymentMsgUpdate = undefined
 										deploymentMsgUpdateMode = false
 									}}
@@ -109,7 +132,7 @@
 		<div class="h-full w-full overflow-auto">
 			{#if selectedVersion}
 				{#key selectedVersion}
-					<div class="flex flex-col">
+					<div class="flex flex-col min-h-full">
 						<span class="flex flex-row text-sm p-2 text-tertiary">
 							{#if deploymentMsgUpdateMode}
 								<div class="flex w-full">
@@ -168,7 +191,41 @@
 								</button>
 							{/if}
 						</span>
-						<FlowModuleScript showDate path={scriptPath} hash={selectedVersion.script_hash} />
+
+						{#if selectedVersionIndex !== undefined && versions?.slice(selectedVersionIndex + 1).length}
+							<div class="p-2 flex flex-row items-center gap-2 h-8">
+								<div class="w-min">
+									<ToggleButtonGroup bind:selected={showDiff}>
+										<ToggleButton light small value={false} label="Code" icon={Code} />
+										<ToggleButton light small value={true} label="Diff" icon={Diff} />
+									</ToggleButtonGroup>
+								</div>
+
+								{#if showDiff}
+									<div class="text-xs">Versions:</div>
+									<select bind:value={previousHash} class="!text-xs !w-40">
+										{#each versions?.slice(selectedVersionIndex + 1) ?? [] as version}
+											<option
+												value={version.script_hash}
+												selected={version.script_hash === selectedVersion.script_hash}
+												class="!text-xs"
+											>
+												{version.deployment_msg ?? version.script_hash}
+											</option>
+										{/each}
+									</select>
+								{/if}
+							</div>
+						{:else}
+							<div class="p-2 text-xs text-secondary"> No previous version found </div>
+						{/if}
+						<FlowModuleScript
+							showDate
+							path={scriptPath}
+							hash={selectedVersion.script_hash}
+							{previousHash}
+							{showDiff}
+						/>
 					</div>
 				{/key}
 			{:else}

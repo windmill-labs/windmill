@@ -407,8 +407,24 @@
 															enum_={itemsType?.enum ?? []}
 															enumLabels={extra['enumLabels']}
 														/>
-													{:else if itemsType?.type == 'resource' && itemsType?.resourceType}
-														<ResourcePicker bind:value={v} resourceType={itemsType?.resourceType} />
+													{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+														<ObjectResourceInput
+															bind:value={v}
+															format={'resource-' + itemsType?.resourceType}
+															defaultValue={undefined}
+														/>
+													{:else if itemsType?.type == 'resource'}
+														<JsonEditor
+															bind:editor
+															on:focus={(e) => {
+																dispatch('focus')
+															}}
+															on:blur={(e) => {
+																dispatch('blur')
+															}}
+															code={JSON.stringify(v, null, 2)}
+															bind:value={v}
+														/>
 													{:else if itemsType?.type === 'object' && itemsType?.properties}
 														<div class="p-8 border rounded-md w-full">
 															<SchemaForm
@@ -455,7 +471,20 @@
 										if (value == undefined || !Array.isArray(value)) {
 											value = []
 										}
-										value = value.concat('')
+										if (itemsType?.type == 'number') {
+											value = value.concat(0)
+										} else if (
+											itemsType?.type == 'object' ||
+											(itemsType?.type == 'resource' &&
+												!(
+													itemsType?.resourceType &&
+													resourceTypes?.includes(itemsType?.resourceType)
+												))
+										) {
+											value = value.concat({})
+										} else {
+											value = value.concat('')
+										}
 									}}
 									id="arg-input-add-item"
 									startIcon={{ icon: Plus }}
@@ -495,6 +524,7 @@
 					{disablePortal}
 					{format}
 					bind:value
+					bind:editor
 					{showSchemaExplorer}
 				/>
 			{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format

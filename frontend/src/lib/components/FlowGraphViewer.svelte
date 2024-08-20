@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { FlowGraph } from './graph'
-
 	import type { FlowModule, FlowValue } from '$lib/gen'
 
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
+	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
+	import { dfs } from './flows/dfs'
 
 	export let flow: {
 		summary: string
@@ -14,6 +14,7 @@
 		value: FlowValue
 		schema?: any
 	}
+
 	export let overflowAuto = false
 	export let noSide = false
 	export let download = false
@@ -30,16 +31,16 @@
 			class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
 			class:overflow-auto={overflowAuto}
 		>
-			<FlowGraph
+			<FlowGraphV2
 				{download}
 				minHeight={400}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
 				on:select={(e) => {
-					stepDetail = e.detail
+					const mod = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === e?.detail)
+					stepDetail = mod ?? e.detail
 					dispatch('select', stepDetail)
 				}}
-				rebuildOnChange={flow}
 			/>
 		</div>
 	{/if}

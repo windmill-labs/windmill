@@ -60,10 +60,10 @@
 	}
 
 	function computeFlowWebhooks(path: string) {
-		let base = `${$page.url.origin}/api/w/${$workspaceStore}/jobs`
+		let webhooksBase = `${$page.url.origin}${base}/api/w/${$workspaceStore}/jobs`
 
-		let urlAsync = `${base}/run/f/${path}`
-		let urlSync = `${base}/run_wait_result/f/${path}`
+		let urlAsync = `${webhooksBase}/run/f/${path}`
+		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
 		return {
 			async: {
 				path: urlAsync

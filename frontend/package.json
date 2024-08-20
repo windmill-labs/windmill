@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.381.0",
+	"version": "1.382.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -97,6 +97,7 @@
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.9.9",
 		"@windmill-labs/svelte-dnd-action": "latest",
+		"@xyflow/svelte": "^0.1.15",
 		"ag-charts-community": "^9.0.1",
 		"ag-charts-enterprise": "^9.0.1",
 		"ag-grid-community": "^31.0.0",

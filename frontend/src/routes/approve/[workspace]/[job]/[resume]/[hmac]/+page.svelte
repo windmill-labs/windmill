@@ -9,7 +9,6 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { LogIn, AlertTriangle } from 'lucide-svelte'
@@ -20,6 +19,7 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 
 	$workspaceStore = $page.params.workspace
 	let rd = $page.url.href.replace($page.url.origin, '')
@@ -286,7 +286,7 @@
 		{#if job && job.raw_flow && !completed}
 			<h2 class="mt-10">Flow details</h2>
 			<div class="border border-gray-700">
-				<FlowGraph
+				<FlowGraphV2
 					modules={job.raw_flow?.modules}
 					failureModule={job.raw_flow?.failure_module}
 					notSelectable

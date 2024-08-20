@@ -50,7 +50,9 @@
 	}
 
 	function plugIt(argName: string) {
-		args[argName] = evalValue(argName, mod, testStepStore, pickableProperties, true)
+		args[argName] = structuredClone(
+			evalValue(argName, mod, testStepStore, pickableProperties, true)
+		)
 		try {
 			editor?.[argName]?.setCode(JSON.stringify(args[argName], null, 4))
 		} catch {

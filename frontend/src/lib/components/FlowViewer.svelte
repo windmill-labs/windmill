@@ -87,6 +87,7 @@
 				{:else}
 					<div class="text-secondary text-xs italic mb-4">No inputs</div>
 				{/if}
+
 				<FlowGraphViewer download {noSide} {flow} overflowAuto />
 			</div>
 		</TabContent>
