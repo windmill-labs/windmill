@@ -69,7 +69,7 @@
 		{#if showDiff}
 			{#key previousCode + code}
 				<DiffEditor
-					class="h-80"
+					class="h-screen"
 					readOnly
 					automaticLayout
 					defaultLang={language}
