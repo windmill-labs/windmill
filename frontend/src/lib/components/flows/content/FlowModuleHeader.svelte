@@ -71,7 +71,7 @@
 				<svelte:fragment slot="text">Cache</svelte:fragment>
 			</Popover>
 		{/if}
-		{#if module.stop_after_if}
+		{#if module.stop_after_if || module.stop_after_all_iters_if}
 			<Popover
 				placement="bottom"
 				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
