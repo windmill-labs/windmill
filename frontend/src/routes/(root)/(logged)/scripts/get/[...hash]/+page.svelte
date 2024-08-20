@@ -475,7 +475,7 @@
 
 {#if script}
 	<Drawer bind:open={versionsDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)}>
+		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
 			<ScriptVersionHistory
 				scriptPath={script.path}
 				openDetails
