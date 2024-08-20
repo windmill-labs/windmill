@@ -4,7 +4,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { ScriptService } from '$lib/gen'
-	import { getScriptByPath } from '$lib/scripts'
+	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
 
 	export let path: string
@@ -72,7 +72,7 @@
 					class="h-screen"
 					readOnly
 					automaticLayout
-					defaultLang={language}
+					defaultLang={scriptLangToEditorLang(language)}
 					defaultOriginal={previousCode}
 					defaultModified={code}
 				/>
