@@ -103,6 +103,15 @@ components:
               type: string
           required:
             - expr
+        stop_after_all_iters_if:
+          type: object
+          properties:
+            skip_if_stopped:
+              type: boolean
+            expr:
+              type: string
+          required:
+            - expr
         sleep:
           $ref: "#/components/schemas/InputTransform"
         cache_ttl:
