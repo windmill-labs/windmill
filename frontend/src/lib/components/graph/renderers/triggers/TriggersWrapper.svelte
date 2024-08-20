@@ -12,11 +12,14 @@
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import TriggerCount from './TriggerCount.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	let schedules: Schedule[] | undefined = undefined
 
 	export let path: string
+	export let isEditor: boolean
+
+	const dispatch = createEventDispatcher()
 
 	async function loadSchedules() {
 		if (!path) return
@@ -37,28 +40,25 @@
 	let selectedTab: 'webhooks' | 'mail' | 'schedules' = 'webhooks'
 </script>
 
-<Drawer bind:this={drawer} size="600px">
-	<DrawerContent title="Triggers" noPadding on:close={drawer.closeDrawer}>
-		<Tabs bind:selected={selectedTab}>
-			<Tab value="webhooks">Webhooks</Tab>
-			<Tab value="mail">Mail</Tab>
-			<Tab value="schedules">Schedules</Tab>
-			<svelte:fragment slot="content">
-				{#if selectedTab === 'webhooks'}
-					<WebhooksPanel scopes={[`run:flow/${path}`]} {path} isFlow={true} args={{}} token="" />
-				{/if}
+{#if isEditor}
+	<Drawer bind:this={drawer} size="600px">
+		<DrawerContent title="Triggers" noPadding on:close={drawer.closeDrawer}>
+			<Tabs bind:selected={selectedTab}>
+				<Tab value="webhooks">Webhooks</Tab>
+				<Tab value="mail">Mail</Tab>
+				<svelte:fragment slot="content">
+					{#if selectedTab === 'webhooks'}
+						<WebhooksPanel scopes={[`run:flow/${path}`]} {path} isFlow={true} args={{}} token="" />
+					{/if}
 
-				{#if selectedTab === 'mail'}
-					<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
-				{/if}
-
-				{#if selectedTab === 'schedules'}
-					<RunPageSchedules isFlow={true} path={path ?? ''} can_write={false} />
-				{/if}
-			</svelte:fragment>
-		</Tabs>
-	</DrawerContent>
-</Drawer>
+					{#if selectedTab === 'mail'}
+						<EmailTriggerPanel token="" scopes={[`run:flow/${path}`]} {path} isFlow={true} />
+					{/if}
+				</svelte:fragment>
+			</Tabs>
+		</DrawerContent>
+	</Drawer>
+{/if}
 
 <div style={`width: ${NODE.width}px;`}>
 	<div class="flex flex-col mx-auto w-min">
@@ -79,8 +79,12 @@
 				<svelte:fragment slot="text">See default webhooks triggers</svelte:fragment>
 				<TriggerButton
 					on:click={() => {
-						selectedTab = 'webhooks'
-						drawer?.openDrawer()
+						if (isEditor) {
+							selectedTab = 'webhooks'
+							drawer?.openDrawer()
+						} else {
+							dispatch('triggerDetail', 'webhooks')
+						}
 					}}
 				>
 					<Webhook size={12} />
@@ -90,8 +94,12 @@
 				<svelte:fragment slot="text">See default mail trigger</svelte:fragment>
 				<TriggerButton
 					on:click={() => {
-						selectedTab = 'mail'
-						drawer?.openDrawer()
+						if (isEditor) {
+							selectedTab = 'mail'
+							drawer?.openDrawer()
+						} else {
+							dispatch('triggerDetail', 'mail')
+						}
 					}}
 				>
 					<Mail size={12} />
@@ -101,8 +109,11 @@
 				<svelte:fragment slot="text">See all schedules</svelte:fragment>
 				<TriggerButton
 					on:click={() => {
-						selectedTab = 'schedules'
-						drawer?.openDrawer()
+						if (isEditor) {
+							dispatch('openSchedules')
+						} else {
+							dispatch('triggerDetail', 'schedule')
+						}
 					}}
 				>
 					<TriggerCount count={schedules?.length} />

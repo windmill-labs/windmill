@@ -304,7 +304,7 @@
 	let token = 'TOKEN_TO_CREATE'
 	let detailSelected = 'saved_inputs'
 
-	let triggerSelected: 'webhooks' | 'schedule' | 'cli' = 'webhooks'
+	let triggerSelected: 'webhooks' | 'schedule' | 'cli' | 'email' = 'webhooks'
 
 	let flowHistory: FlowHistory | undefined = undefined
 </script>
@@ -442,6 +442,10 @@
 							} else {
 								stepDetail = undefined
 							}
+						}}
+						on:triggerDetail={(e) => {
+							detailSelected = 'details'
+							triggerSelected = e.detail === 'mail' ? 'email' : e.detail
 						}}
 					/>
 				</div>

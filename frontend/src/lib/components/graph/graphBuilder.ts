@@ -22,7 +22,13 @@ export default function graphBuilder(
 	success: boolean | undefined,
 	useDataflow: boolean | undefined,
 	selectedId: string | undefined,
-	moving: string | undefined
+	moving: string | undefined,
+	triggerProps?: {
+		path?: string
+		openSchedules?: () => void
+		triggerDetail?: (e) => void
+		isEditor?: boolean
+	}
 ): {
 	nodes: Node[]
 	edges: Edge[]
@@ -113,7 +119,10 @@ export default function graphBuilder(
 			position: { x: -1, y: -1 },
 			type: 'trigger',
 			data: {
-				path: extra.path
+				path: triggerProps?.path,
+				openSchedules: triggerProps?.openSchedules,
+				triggerDetail: triggerProps?.triggerDetail,
+				isEditor: triggerProps?.isEditor
 			}
 		}
 

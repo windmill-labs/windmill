@@ -254,6 +254,7 @@
 	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraphV2
 			path={$pathStore}
+			isEditor={true}
 			{disableAi}
 			insertable
 			scroll
@@ -344,6 +345,9 @@
 				} else {
 					$moving = undefined
 				}
+			}}
+			on:openSchedules={() => {
+				$selectedId = 'settings-schedule'
 			}}
 		/>
 	</div>

@@ -12,6 +12,7 @@
 		description?: string
 		value: FlowValue
 		schema?: any
+		path?: string
 	}
 	export let overflowAuto = false
 	export let noSide = false
@@ -30,6 +31,7 @@
 			class:overflow-auto={overflowAuto}
 		>
 			<FlowGraphV2
+				path={flow?.path}
 				{download}
 				minHeight={400}
 				modules={flow?.value?.modules}
@@ -38,6 +40,7 @@
 					stepDetail = e.detail
 					dispatch('select', stepDetail)
 				}}
+				on:triggerDetail
 			/>
 		</div>
 	{/if}

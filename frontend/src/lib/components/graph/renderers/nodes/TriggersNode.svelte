@@ -4,9 +4,19 @@
 
 	export let data: {
 		path: string
+		openSchedules: () => void
+		triggerDetail: (e: { detail: 'webhook' | 'mail' | 'schedule' }) => void
+		isEditor: boolean
 	}
 </script>
 
 <NodeWrapper wrapperClass="shadow-none">
-	<TriggersWrapper path={data.path} />
+	<TriggersWrapper
+		path={data.path}
+		on:openSchedules={() => data.openSchedules()}
+		on:triggerDetail={(e) => {
+			data.triggerDetail(e.detail)
+		}}
+		isEditor={data.isEditor}
+	/>
 </NodeWrapper>

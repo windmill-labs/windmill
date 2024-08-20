@@ -45,6 +45,7 @@
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
 	export let path: string | undefined = undefined
+	export let isEditor: boolean = false
 
 	export let insertable = false
 	export let moving: string | undefined = undefined
@@ -168,7 +169,17 @@
 		success,
 		$useDataflow,
 		$selectedId,
-		moving
+		moving,
+		{
+			openSchedules: () => {
+				dispatch('openSchedules')
+			},
+			triggerDetail: (e) => {
+				dispatch('triggerDetail', e)
+			},
+			isEditor: isEditor,
+			path
+		}
 	)
 
 	const nodes = writable<Node[]>([])
