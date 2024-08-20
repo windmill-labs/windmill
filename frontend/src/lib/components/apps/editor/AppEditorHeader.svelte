@@ -31,9 +31,13 @@
 		RefreshCw,
 		Save,
 		Smartphone,
-		FileClock
+		FileClock,
+		PanelLeftClose,
+		PanelLeftOpen,
+		PanelRightOpen,
+		PanelRightClose
 	} from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
@@ -115,6 +119,8 @@
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
+	export let leftPanelHidden: boolean = false
+	export let rightPanelHidden: boolean = false
 
 	const {
 		app,
@@ -737,6 +743,8 @@
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1307,6 +1315,38 @@
 		</div>
 	</div>
 
+	<div class="flex gap-2">
+		<button
+			on:click={() => {
+				if (leftPanelHidden) {
+					dispatch('showLeftPanel')
+				} else {
+					dispatch('hideLeftPanel')
+				}
+			}}
+		>
+			{#if leftPanelHidden}
+				<PanelLeftOpen size={14} />
+			{:else}
+				<PanelLeftClose size={14} />
+			{/if}
+		</button>
+		<button
+			on:click={() => {
+				if (rightPanelHidden) {
+					dispatch('showRightPanel')
+				} else {
+					dispatch('hideRightPanel')
+				}
+			}}
+		>
+			{#if rightPanelHidden}
+				<PanelRightOpen size={14} />
+			{:else}
+				<PanelRightClose size={14} />
+			{/if}
+		</button>
+	</div>
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}

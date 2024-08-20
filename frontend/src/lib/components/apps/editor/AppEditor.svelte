@@ -56,6 +56,7 @@
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
 	import { goto, replaceState } from '$app/navigation'
+	import HideButton from './settingsPanel/HideButton.svelte'
 
 	export let app: App
 	export let path: string
@@ -308,7 +309,7 @@
 	let gridPanelSize = 70
 
 	let leftPanelSize = 22
-	let centerPanelSize = 63
+	let centerPanelSize = 56
 	let rightPanelSize = 22
 
 	let tmpRunnablePanelSize = -1
@@ -537,6 +538,8 @@
 
 	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = undefined
 	let stillInJobEnter = false
+	let storedLeftPanelSize = 0
+	let storedRightPanelSize = 0
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -553,6 +556,28 @@
 			{diffDrawer}
 			bind:savedApp
 			{version}
+			on:showLeftPanel={() => {
+				leftPanelSize = storedLeftPanelSize
+				centerPanelSize = centerPanelSize - storedLeftPanelSize
+				storedLeftPanelSize = 0
+			}}
+			on:showRightPanel={() => {
+				rightPanelSize = storedRightPanelSize
+				centerPanelSize = centerPanelSize - storedRightPanelSize
+				storedRightPanelSize = 0
+			}}
+			leftPanelHidden={leftPanelSize === 0}
+			rightPanelHidden={rightPanelSize === 0}
+			on:hideLeftPanel={() => {
+				storedLeftPanelSize = leftPanelSize
+				leftPanelSize = 0
+				centerPanelSize = centerPanelSize + storedLeftPanelSize
+			}}
+			on:hideRightPanel={() => {
+				storedRightPanelSize = rightPanelSize
+				rightPanelSize = 0
+				centerPanelSize = centerPanelSize + storedRightPanelSize
+			}}
 		/>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
@@ -598,7 +623,13 @@
 							<!-- {yTop} -->
 
 							<SecondaryMenu right={false} />
-							<ContextPanel />
+							<ContextPanel
+								on:hidePanel={() => {
+									storedLeftPanelSize = leftPanelSize
+									leftPanelSize = 0
+									centerPanelSize = centerPanelSize + storedLeftPanelSize
+								}}
+							/>
 						</div>
 					</Pane>
 					<Pane bind:size={centerPanelSize}>
@@ -760,6 +791,15 @@
 										</div>
 									</Tab>
 								</Popover>
+								<div class="h-full w-full flex justify-end px-1">
+									<HideButton
+										on:click={() => {
+											storedRightPanelSize = rightPanelSize
+											rightPanelSize = 0
+											centerPanelSize = centerPanelSize + storedRightPanelSize
+										}}
+									/>
+								</div>
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}

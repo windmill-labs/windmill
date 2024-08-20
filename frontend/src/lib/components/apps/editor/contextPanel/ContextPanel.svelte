@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { connectInput } from '../appUtils'
@@ -11,9 +11,12 @@
 	import OutputHeader from './components/OutputHeader.svelte'
 	import { ClearableInput } from '../../../common'
 	import DocLink from '../settingsPanel/DocLink.svelte'
+	import HideButton from '../settingsPanel/HideButton.svelte'
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { search } = getContext<ContextPanelContext>('ContextPanel')
+
+	const dispatch = createEventDispatcher()
 
 	let hasState: boolean = false
 </script>
@@ -21,6 +24,11 @@
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
 	<svelte:fragment slot="action">
 		<div class="p-0.5">
+			<HideButton
+				on:click={() => {
+					dispatch('hidePanel')
+				}}
+			/>
 			<DocLink docLink="https://www.windmill.dev/docs/apps/outputs" />
 		</div>
 	</svelte:fragment>
