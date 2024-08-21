@@ -19,14 +19,14 @@
 	import { sendUserToast } from '$lib/utils'
 	import { workerTags } from '$lib/stores'
 	import { getLatestHashForScript } from '$lib/scripts'
-	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	export let module: FlowModule
 	const { scriptEditorDrawer, flowStore, selectedId } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
-	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
 	loadWorkerGroups()
 
