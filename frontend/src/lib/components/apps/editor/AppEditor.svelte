@@ -540,6 +540,7 @@
 	let stillInJobEnter = false
 	let storedLeftPanelSize = 0
 	let storedRightPanelSize = 0
+	let storedBottomPanelSize = 0
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -557,8 +558,12 @@
 			bind:savedApp
 			{version}
 			on:showLeftPanel={() => {
-				leftPanelSize = storedLeftPanelSize
-				centerPanelSize = centerPanelSize - storedLeftPanelSize
+				animateTo(leftPanelSize, storedLeftPanelSize, (newValue) => (leftPanelSize = newValue))
+				animateTo(
+					centerPanelSize,
+					centerPanelSize - storedLeftPanelSize,
+					(newValue) => (centerPanelSize = newValue)
+				)
 				storedLeftPanelSize = 0
 			}}
 			on:showRightPanel={() => {
@@ -568,15 +573,45 @@
 			}}
 			leftPanelHidden={leftPanelSize === 0}
 			rightPanelHidden={rightPanelSize === 0}
+			bottomPanelHidden={runnablePanelSize === 0}
 			on:hideLeftPanel={() => {
 				storedLeftPanelSize = leftPanelSize
-				leftPanelSize = 0
-				centerPanelSize = centerPanelSize + storedLeftPanelSize
+
+				animateTo(leftPanelSize, 0, (newValue) => (leftPanelSize = newValue))
+
+				animateTo(
+					centerPanelSize,
+					centerPanelSize + storedLeftPanelSize,
+					(newValue) => (centerPanelSize = newValue)
+				)
 			}}
 			on:hideRightPanel={() => {
 				storedRightPanelSize = rightPanelSize
 				rightPanelSize = 0
 				centerPanelSize = centerPanelSize + storedRightPanelSize
+			}}
+			on:hideBottomPanel={() => {
+				storedBottomPanelSize = runnablePanelSize
+				animateTo(runnablePanelSize, 0, (newValue) => (runnablePanelSize = newValue))
+
+				animateTo(
+					gridPanelSize,
+					gridPanelSize + storedBottomPanelSize,
+					(newValue) => (gridPanelSize = newValue)
+				)
+			}}
+			on:showBottomPanel={() => {
+				animateTo(
+					runnablePanelSize,
+					storedBottomPanelSize,
+					(newValue) => (runnablePanelSize = newValue)
+				)
+				animateTo(
+					gridPanelSize,
+					gridPanelSize - storedLeftPanelSize,
+					(newValue) => (gridPanelSize = newValue)
+				)
+				storedBottomPanelSize = 0
 			}}
 		/>
 		{#if $mode === 'preview'}

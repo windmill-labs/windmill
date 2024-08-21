@@ -35,7 +35,9 @@
 		PanelLeftClose,
 		PanelLeftOpen,
 		PanelRightOpen,
-		PanelRightClose
+		PanelRightClose,
+		PanelBottomOpen,
+		PanelBottomClose
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -121,6 +123,7 @@
 	export let version: number | undefined = undefined
 	export let leftPanelHidden: boolean = false
 	export let rightPanelHidden: boolean = false
+	export let bottomPanelHidden: boolean = false
 
 	const {
 		app,
@@ -1334,6 +1337,21 @@
 				<PanelLeftOpen size={14} />
 			{:else}
 				<PanelLeftClose size={14} />
+			{/if}
+		</button>
+		<button
+			on:click={() => {
+				if (bottomPanelHidden) {
+					dispatch('showBottomPanel')
+				} else {
+					dispatch('hideBottomPanel')
+				}
+			}}
+		>
+			{#if bottomPanelHidden}
+				<PanelBottomOpen size={14} />
+			{:else}
+				<PanelBottomClose size={14} />
 			{/if}
 		</button>
 		<button
