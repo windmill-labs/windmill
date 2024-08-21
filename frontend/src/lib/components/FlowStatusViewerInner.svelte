@@ -776,7 +776,7 @@
 						{/if}
 					{/each}
 				</div>
-			{:else if innerModules.length > 0}
+			{:else if innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
@@ -896,6 +896,8 @@
 						</li>
 					{/each}
 				</ul>
+			{:else}
+				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
 	</div>
