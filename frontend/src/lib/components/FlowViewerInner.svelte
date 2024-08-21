@@ -1,0 +1,131 @@
+<script lang="ts">
+	import Highlight from 'svelte-highlight'
+	import json from 'svelte-highlight/languages/json'
+	import type { FlowValue } from '$lib/gen'
+	import { Tab, Tabs, Button } from './common'
+	import { copyToClipboard } from '../utils'
+
+	import { ArrowDown, Clipboard } from 'lucide-svelte'
+	import YAML from 'yaml'
+	import { yaml } from 'svelte-highlight/languages'
+	import HighlightTheme from './HighlightTheme.svelte'
+
+	export let flow: {
+		summary: string
+		description?: string
+		value: FlowValue
+		schema?: any
+	}
+
+	$: flowFiltered = {
+		summary: flow.summary,
+		description: flow.description,
+		value: flow.value,
+		schema: flow.schema
+	}
+
+	let rawType: 'json' | 'yaml' = 'yaml'
+
+	function trimStringToLines(inputString: string, maxLines: number = 100): string {
+		const lines = inputString?.split('\n') ?? []
+		const linesToKeep = lines.slice(0, maxLines)
+
+		return linesToKeep.join('\n')
+	}
+
+	let code: string = ''
+
+	function computeCode() {
+		const str =
+			rawType === 'json' ? JSON.stringify(flowFiltered, null, 4) : YAML.stringify(flowFiltered)
+
+		const numberOfLines = str.split('\n').length
+
+		if (numberOfLines > maxLines) {
+			shouldDisplayLoadMore = true
+		}
+
+		code = str
+	}
+
+	let shouldDisplayLoadMore = false
+
+	$: flowFiltered && rawType && computeCode()
+
+	let maxLines = 100
+</script>
+
+<HighlightTheme />
+
+<Tabs
+	bind:selected={rawType}
+	wrapperClass="mt-4"
+	on:selected={() => {
+		maxLines = 100
+	}}
+>
+	<Tab value="yaml">YAML</Tab>
+	<Tab value="json">JSON</Tab>
+	<svelte:fragment slot="content">
+		<div class="relative pt-2">
+			<Button
+				on:click={() =>
+					copyToClipboard(
+						rawType === 'yaml'
+							? YAML.stringify(flowFiltered)
+							: JSON.stringify(flowFiltered, null, 4)
+					)}
+				color="light"
+				variant="border"
+				size="xs"
+				startIcon={{ icon: Clipboard }}
+				btnClasses="absolute top-2 right-2 w-min"
+			>
+				Copy content
+			</Button>
+
+			<div class={shouldDisplayLoadMore ? 'code-container' : ''}>
+				<Highlight
+					class="overflow-auto px-1"
+					language={rawType === 'yaml' ? yaml : json}
+					code={trimStringToLines(code, maxLines)}
+				/>
+			</div>
+			{#if shouldDisplayLoadMore}
+				<Button
+					on:click={() => {
+						maxLines += 500
+
+						// If the code is less than the max lines, we don't need to show the button
+						if (maxLines >= code?.split('\n').length) {
+							shouldDisplayLoadMore = false
+						}
+					}}
+					color="light"
+					size="xs"
+					btnClasses="mb-2 mx-2"
+					startIcon={{ icon: ArrowDown }}
+				>
+					Show more
+				</Button>
+			{/if}
+		</div>
+	</svelte:fragment>
+</Tabs>
+
+<style>
+	.code-container {
+		position: relative;
+		overflow: hidden;
+	}
+	.code-container::after {
+		content: '';
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 100px;
+		background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgb(var(--color-surface)));
+		pointer-events: none;
+	}
+</style>
