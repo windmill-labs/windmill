@@ -158,6 +158,11 @@
 							<Button
 								on:click={() => {
 									maxLines += 500
+
+									// If the code is less than the max lines, we don't need to show the button
+									if (maxLines >= code?.split('\n').length) {
+										shouldDisplayLoadMore = false
+									}
 								}}
 								color="light"
 								size="xs"
