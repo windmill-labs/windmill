@@ -8,7 +8,7 @@
 	import { copyToClipboard } from '../utils'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 
-	import { ChevronDown, Clipboard } from 'lucide-svelte'
+	import { ArrowDown, Clipboard } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
 	import HighlightTheme from './HighlightTheme.svelte'
@@ -147,26 +147,24 @@
 							Copy content
 						</Button>
 
+						<Highlight
+							class="overflow-auto px-1"
+							language={rawType === 'yaml' ? yaml : json}
+							code={trimStringToLines(code, maxLines)}
+						/>
 						{#if shouldDisplayLoadMore}
 							<Button
 								on:click={() => {
 									maxLines += 500
 								}}
 								color="light"
-								variant="border"
 								size="xs"
-								btnClasses="absolute bottom-2 right-2 w-min"
-								startIcon={{ icon: ChevronDown }}
+								btnClasses="mb-2"
+								startIcon={{ icon: ArrowDown }}
 							>
 								Show more
 							</Button>
 						{/if}
-
-						<Highlight
-							class="overflow-auto px-1"
-							language={rawType === 'yaml' ? yaml : json}
-							code={trimStringToLines(code, maxLines)}
-						/>
 					</div>
 				</svelte:fragment>
 			</Tabs>
