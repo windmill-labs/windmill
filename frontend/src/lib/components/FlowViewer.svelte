@@ -52,6 +52,25 @@
 		return linesToKeep.join('\n')
 	}
 
+	let code: string = ''
+
+	function computeCode() {
+		const str =
+			rawType === 'json' ? JSON.stringify(flowFiltered, null, 4) : YAML.stringify(flowFiltered)
+
+		const numberOfLines = str.split('\n').length
+
+		if (numberOfLines > maxLines) {
+			shouldDisplayLoadMore = true
+		}
+
+		code = str
+	}
+
+	let shouldDisplayLoadMore = false
+
+	$: flowFiltered && rawType && computeCode()
+
 	let maxLines = 100
 </script>
 
@@ -101,7 +120,13 @@
 			</div>
 		</TabContent>
 		<TabContent value="raw"
-			><Tabs bind:selected={rawType} wrapperClass="mt-4">
+			><Tabs
+				bind:selected={rawType}
+				wrapperClass="mt-4"
+				on:selected={() => {
+					maxLines = 100
+				}}
+			>
 				<Tab value="yaml">YAML</Tab>
 				<Tab value="json">JSON</Tab>
 				<svelte:fragment slot="content">
@@ -122,28 +147,25 @@
 							Copy content
 						</Button>
 
-						<Button
-							on:click={() => {
-								maxLines += 100
-							}}
-							color="light"
-							variant="border"
-							size="xs"
-							btnClasses="absolute bottom-2 right-2 w-min"
-							startIcon={{ icon: ChevronDown }}
-						>
-							Show more
-						</Button>
+						{#if shouldDisplayLoadMore}
+							<Button
+								on:click={() => {
+									maxLines += 500
+								}}
+								color="light"
+								variant="border"
+								size="xs"
+								btnClasses="absolute bottom-2 right-2 w-min"
+								startIcon={{ icon: ChevronDown }}
+							>
+								Show more
+							</Button>
+						{/if}
 
 						<Highlight
 							class="overflow-auto px-1"
 							language={rawType === 'yaml' ? yaml : json}
-							code={trimStringToLines(
-								rawType === 'yaml'
-									? YAML.stringify(flowFiltered)
-									: JSON.stringify(flowFiltered, null, 4),
-								maxLines
-							)}
+							code={trimStringToLines(code, maxLines)}
 						/>
 					</div>
 				</svelte:fragment>
