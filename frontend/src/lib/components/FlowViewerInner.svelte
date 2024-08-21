@@ -57,61 +57,62 @@
 
 <HighlightTheme />
 
-<Tabs
-	bind:selected={rawType}
-	wrapperClass="mt-4"
-	on:selected={() => {
-		maxLines = 100
-	}}
->
-	<Tab value="yaml">YAML</Tab>
-	<Tab value="json">JSON</Tab>
-	<svelte:fragment slot="content">
-		<div class="relative pt-2">
-			<Button
-				on:click={() =>
-					copyToClipboard(
-						rawType === 'yaml'
-							? YAML.stringify(flowFiltered)
-							: JSON.stringify(flowFiltered, null, 4)
-					)}
-				color="light"
-				variant="border"
-				size="xs"
-				startIcon={{ icon: Clipboard }}
-				btnClasses="absolute top-2 right-2 w-min"
-			>
-				Copy content
-			</Button>
-
-			<div class={shouldDisplayLoadMore ? 'code-container' : ''}>
-				<Highlight
-					class="overflow-auto px-1"
-					language={rawType === 'yaml' ? yaml : json}
-					code={trimStringToLines(code, maxLines)}
-				/>
-			</div>
-			{#if shouldDisplayLoadMore}
+<div>
+	<Tabs
+		bind:selected={rawType}
+		on:selected={() => {
+			maxLines = 100
+		}}
+	>
+		<Tab value="yaml">YAML</Tab>
+		<Tab value="json">JSON</Tab>
+		<svelte:fragment slot="content">
+			<div class="relative pt-2">
 				<Button
-					on:click={() => {
-						maxLines += 500
-
-						// If the code is less than the max lines, we don't need to show the button
-						if (maxLines >= code?.split('\n').length) {
-							shouldDisplayLoadMore = false
-						}
-					}}
+					on:click={() =>
+						copyToClipboard(
+							rawType === 'yaml'
+								? YAML.stringify(flowFiltered)
+								: JSON.stringify(flowFiltered, null, 4)
+						)}
 					color="light"
+					variant="border"
 					size="xs"
-					btnClasses="mb-2 mx-2"
-					startIcon={{ icon: ArrowDown }}
+					startIcon={{ icon: Clipboard }}
+					btnClasses="absolute top-2 right-2 w-min"
 				>
-					Show more
+					Copy content
 				</Button>
-			{/if}
-		</div>
-	</svelte:fragment>
-</Tabs>
+
+				<div class={shouldDisplayLoadMore ? 'code-container' : ''}>
+					<Highlight
+						class="overflow-auto px-1"
+						language={rawType === 'yaml' ? yaml : json}
+						code={trimStringToLines(code, maxLines)}
+					/>
+				</div>
+				{#if shouldDisplayLoadMore}
+					<Button
+						on:click={() => {
+							maxLines += 500
+
+							// If the code is less than the max lines, we don't need to show the button
+							if (maxLines >= code?.split('\n').length) {
+								shouldDisplayLoadMore = false
+							}
+						}}
+						color="light"
+						size="xs"
+						btnClasses="mb-2 mx-2"
+						startIcon={{ icon: ArrowDown }}
+					>
+						Show more
+					</Button>
+				{/if}
+			</div>
+		</svelte:fragment>
+	</Tabs>
+</div>
 
 <style>
 	.code-container {
