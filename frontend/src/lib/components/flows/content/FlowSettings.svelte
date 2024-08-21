@@ -29,7 +29,7 @@
 
 	export let noEditor: boolean
 
-	const { selectedId, flowStore, initialPath, previewArgs, pathStore, schedule } =
+	const { selectedId, flowStore, initialPath, previewArgs, pathStore, schedule, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	let hostname = BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
@@ -52,22 +52,33 @@
 		<div class="h-full flex-1">
 			<Tabs bind:selected={$selectedId}>
 				<Tab value="settings-metadata">Metadata</Tab>
-				{#if !noEditor}
+				{#if !noEditor && customUi?.settingsTabs?.schedule != false}
 					<Tab value="settings-schedule" active={$schedule.enabled}>Schedule</Tab>
 				{/if}
-				<Tab value="settings-same-worker" active={$flowStore.value.same_worker}>
-					Shared Directory
-				</Tab>
-				<Tab value="settings-early-stop" active={Boolean($flowStore.value.skip_expr)}>
-					Early Stop
-				</Tab>
-				<Tab value="settings-early-return" active={Boolean($flowStore.value.early_return)}>
-					Early Return
-				</Tab>
-				<Tab value="settings-worker-group">Worker Group</Tab>
-				<Tab value="settings-concurrency">Concurrency</Tab>
-				<Tab value="settings-cache" active={Boolean($flowStore.value.cache_ttl)}>Cache</Tab>
-
+				{#if customUi?.settingsTabs?.sharedDiretory != false}
+					<Tab value="settings-same-worker" active={$flowStore.value.same_worker}>
+						Shared Directory
+					</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.earlyStop != false}
+					<Tab value="settings-early-stop" active={Boolean($flowStore.value.skip_expr)}>
+						Early Stop
+					</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.earlyReturn != false}
+					<Tab value="settings-early-return" active={Boolean($flowStore.value.early_return)}>
+						Early Return
+					</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.workerGroup != false}
+					<Tab value="settings-worker-group">Worker Group</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.concurrency != false}
+					<Tab value="settings-concurrency">Concurrency</Tab>
+				{/if}
+				{#if customUi?.settingsTabs?.cache != false}
+					<Tab value="settings-cache" active={Boolean($flowStore.value.cache_ttl)}>Cache</Tab>
+				{/if}
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full overflow-auto">
 						<Section label="Metadata">
