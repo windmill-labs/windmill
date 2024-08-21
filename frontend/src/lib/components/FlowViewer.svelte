@@ -112,13 +112,20 @@
 						>
 							Copy content
 						</Button>
-						<Highlight
-							class="overflow-auto px-1"
-							language={rawType === 'yaml' ? yaml : json}
-							code={rawType === 'yaml'
-								? YAML.stringify(flowFiltered)
-								: JSON.stringify(flowFiltered, null, 4)}
-						/>
+
+						{#if rawType === 'yaml'}
+							<Highlight
+								class="overflow-auto px-1"
+								language={yaml}
+								code={YAML.stringify(flowFiltered)}
+							/>
+						{:else}
+							<Highlight
+								class="overflow-auto px-1"
+								language={json}
+								code={JSON.stringify(flowFiltered, null, 4)}
+							/>
+						{/if}
 					</div>
 				</svelte:fragment>
 			</Tabs>
