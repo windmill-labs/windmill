@@ -55,7 +55,8 @@
 		flowStore,
 		pathStore,
 		saveDraft,
-		flowInputsStore
+		flowInputsStore,
+		customUi
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -265,6 +266,7 @@
 			{#if flowModule.value.type === 'rawscript' && !noEditor}
 				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
+						customUi={customUi?.editorBar}
 						{validCode}
 						{editor}
 						{diffEditor}
