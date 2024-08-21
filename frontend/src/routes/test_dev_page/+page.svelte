@@ -1,10 +1,10 @@
 <script lang="ts">
 	// import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 
-	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	// import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import type { OpenFlow } from '$lib/gen'
-	import { writable, type Writable } from 'svelte/store'
+	// import type { OpenFlow } from '$lib/gen'
+	// import { writable, type Writable } from 'svelte/store'
 
 	// let schema = {
 	// 	type: 'object',
