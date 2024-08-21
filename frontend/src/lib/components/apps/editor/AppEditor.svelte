@@ -222,7 +222,10 @@
 
 	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
 
-	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
+	$: width =
+		$breakpoint === 'sm' && !$appStore.disableBreakpoints
+			? 'min-w-[400px] max-w-[656px]'
+			: 'min-w-[710px] w-full'
 
 	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
 

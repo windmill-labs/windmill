@@ -31,7 +31,8 @@
 		RefreshCw,
 		Save,
 		Smartphone,
-		FileClock
+		FileClock,
+		MonitorSmartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -83,6 +84,7 @@
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
+	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 
 	async function hash(message) {
 		try {
@@ -1293,19 +1295,29 @@
 					/>
 				</ToggleButtonGroup>
 			{/if}
-			<div>
+			<div class="flex flex-row gap-2">
 				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
 					<ToggleButton
 						tooltip="Mobile View"
 						icon={Smartphone}
-						value="sm"
+						value={$app.disableBreakpoints ? '' : 'sm'}
 						iconProps={{ size: 16 }}
+						disabled={$app.disableBreakpoints}
 					/>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
-						value="lg"
+						value={$app.disableBreakpoints ? '' : 'lg'}
 						iconProps={{ size: 16 }}
+						disabled={$app.disableBreakpoints}
+					/>
+					<ToggleEnable
+						tooltip="By default, only the desktop view is enabled. Enable this to use the breakpoints. Components placement needs to be adjusted for each breakpoint."
+						label="Disable breakpoints"
+						icon={MonitorSmartphone}
+						bind:checked={$app.disableBreakpoints}
+						iconProps={{ size: 16 }}
+						iconOnly={false}
 					/>
 				</ToggleButtonGroup>
 			</div>
