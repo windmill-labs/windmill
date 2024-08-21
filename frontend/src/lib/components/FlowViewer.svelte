@@ -8,7 +8,7 @@
 	import { copyToClipboard } from '../utils'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 
-	import { Clipboard } from 'lucide-svelte'
+	import { ChevronDown, Clipboard } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
 	import HighlightTheme from './HighlightTheme.svelte'
@@ -44,6 +44,15 @@
 	function toAny(x: unknown): any {
 		return x as any
 	}
+
+	function trimStringToLines(inputString: string, maxLines: number = 100): string {
+		const lines = inputString?.split('\n') ?? []
+		const linesToKeep = lines.slice(0, maxLines)
+
+		return linesToKeep.join('\n')
+	}
+
+	let maxLines = 100
 </script>
 
 <HighlightTheme />
@@ -113,19 +122,29 @@
 							Copy content
 						</Button>
 
-						{#if rawType === 'yaml'}
-							<Highlight
-								class="overflow-auto px-1"
-								language={yaml}
-								code={YAML.stringify(flowFiltered)}
-							/>
-						{:else}
-							<Highlight
-								class="overflow-auto px-1"
-								language={json}
-								code={JSON.stringify(flowFiltered, null, 4)}
-							/>
-						{/if}
+						<Button
+							on:click={() => {
+								maxLines += 100
+							}}
+							color="light"
+							variant="border"
+							size="xs"
+							btnClasses="absolute bottom-2 right-2 w-min"
+							startIcon={{ icon: ChevronDown }}
+						>
+							Show more
+						</Button>
+
+						<Highlight
+							class="overflow-auto px-1"
+							language={rawType === 'yaml' ? yaml : json}
+							code={trimStringToLines(
+								rawType === 'yaml'
+									? YAML.stringify(flowFiltered)
+									: JSON.stringify(flowFiltered, null, 4),
+								maxLines
+							)}
+						/>
 					</div>
 				</svelte:fragment>
 			</Tabs>
