@@ -33,6 +33,7 @@
 
 	export let tab: 'ui' | 'raw' | 'schema' = noGraph ? 'schema' : 'ui'
 	export let noSummary = false
+	export let noGraphDownload = false
 
 	let rawType: 'json' | 'yaml' = 'yaml'
 
@@ -88,7 +89,7 @@
 					<div class="text-secondary text-xs italic mb-4">No inputs</div>
 				{/if}
 
-				<FlowGraphViewer download {noSide} {flow} overflowAuto />
+				<FlowGraphViewer download={!noGraphDownload} {noSide} {flow} overflowAuto />
 			</div>
 		</TabContent>
 		<TabContent value="raw"
