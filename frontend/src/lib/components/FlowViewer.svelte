@@ -147,11 +147,13 @@
 							Copy content
 						</Button>
 
-						<Highlight
-							class="overflow-auto px-1"
-							language={rawType === 'yaml' ? yaml : json}
-							code={trimStringToLines(code, maxLines)}
-						/>
+						<div class={shouldDisplayLoadMore ? 'code-container' : ''}>
+							<Highlight
+								class="overflow-auto px-1"
+								language={rawType === 'yaml' ? yaml : json}
+								code={trimStringToLines(code, maxLines)}
+							/>
+						</div>
 						{#if shouldDisplayLoadMore}
 							<Button
 								on:click={() => {
@@ -175,3 +177,20 @@
 		</TabContent>
 	</svelte:fragment>
 </Tabs>
+
+<style>
+	.code-container {
+		position: relative;
+		overflow: hidden;
+	}
+	.code-container::after {
+		content: '';
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 100px;
+		background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgb(var(--color-surface)));
+		pointer-events: none;
+	}
+</style>
