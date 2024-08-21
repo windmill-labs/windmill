@@ -67,6 +67,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
+	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -81,6 +82,7 @@
 	export let disableHistoryChange = false
 	export let replaceStateFn: (url: string) => void = (url) =>
 		window.history.replaceState(null, '', url)
+	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
 
 	let metadataOpen =
 		showMeta ||
@@ -423,7 +425,7 @@
 
 	function computeDropdownItems(initialPath: string) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
-			initialPath != ''
+			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
 						{
 							label: 'Deploy & Stay here',
@@ -1050,32 +1052,34 @@
 							{$scheduleStore.cron ?? ''}
 						</Button>
 					{/if}
-					<div class="flex justify-start w-full border rounded-md overflow-hidden">
-						<div>
-							<button
-								on:click={async () => {
-									metadataOpen = true
-								}}
-							>
-								<Badge
-									color="gray"
-									class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+					{#if customUi?.topBar?.path != false}
+						<div class="flex justify-start w-full border rounded-md overflow-hidden">
+							<div>
+								<button
+									on:click={async () => {
+										metadataOpen = true
+									}}
 								>
-									<Pen size={12} class="mr-2" /> Path
-								</Badge>
-							</button>
+									<Badge
+										color="gray"
+										class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+									>
+										<Pen size={12} class="mr-2" /> Path
+									</Badge>
+								</button>
+							</div>
+							<input
+								type="text"
+								readonly
+								value={script.path}
+								size={script.path?.length || 50}
+								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+								on:focus={({ currentTarget }) => {
+									currentTarget.select()
+								}}
+							/>
 						</div>
-						<input
-							type="text"
-							readonly
-							value={script.path}
-							size={script.path?.length || 50}
-							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
-							on:focus={({ currentTarget }) => {
-								currentTarget.select()
-							}}
-						/>
-					</div>
+					{/if}
 				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
@@ -1106,17 +1110,19 @@
 							<span class="hidden lg:flex"> Diff </span>
 						</div>
 					</Button>
-					<Button
-						color="light"
-						variant="border"
-						size="xs"
-						on:click={() => {
-							metadataOpen = true
-						}}
-						startIcon={{ icon: Settings }}
-					>
-						<span class="hidden lg:flex"> Settings </span>
-					</Button>
+					{#if customUi?.topBar?.settings != false}
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							on:click={() => {
+								metadataOpen = true
+							}}
+							startIcon={{ icon: Settings }}
+						>
+							<span class="hidden lg:flex"> Settings </span>
+						</Button>
+					{/if}
 					<Button
 						loading={loadingDraft}
 						size="xs"
@@ -1170,6 +1176,7 @@
 		</div>
 
 		<ScriptEditor
+			{customUi}
 			collabMode
 			edit={initialPath != ''}
 			on:format={() => {

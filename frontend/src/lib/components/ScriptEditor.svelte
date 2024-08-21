@@ -23,6 +23,7 @@
 	import DiffEditor from './DiffEditor.svelte'
 	import { Clipboard, CornerDownLeft, Github, Play } from 'lucide-svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
+	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -43,6 +44,7 @@
 	export let noHistory = false
 	export let saveToWorkspace = false
 	export let watchChanges = false
+	export let customUi: ScriptEditorWhitelabelCustomUi = {}
 
 	let websocketAlive = {
 		pyright: false,
@@ -243,6 +245,7 @@
 					setCollaborationMode()
 				}
 			}}
+			customUi={customUi?.editorBar}
 			collabLive={wsProvider?.shouldConnect}
 			{collabMode}
 			{validCode}
@@ -260,7 +263,7 @@
 			{noHistory}
 			{saveToWorkspace}
 		/>
-		{#if !noSyncFromGithub}
+		{#if !noSyncFromGithub && customUi?.editorBar?.useVsCode != false}
 			<div class="py-1">
 				<Button
 					target="_blank"
