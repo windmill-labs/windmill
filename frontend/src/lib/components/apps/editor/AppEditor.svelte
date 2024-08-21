@@ -35,7 +35,7 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { VariableService, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
-	import { Component, Minus, Paintbrush, Plus } from 'lucide-svelte'
+	import { Component, Minus, Paintbrush, Plus, Smartphone } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
@@ -223,7 +223,7 @@
 	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
 
 	$: width =
-		$breakpoint === 'sm' && !$appStore.disableBreakpoints
+		$breakpoint === 'sm' && $appStore.mobileViewOnSmallerScreens
 			? 'min-w-[400px] max-w-[656px]'
 			: 'min-w-[710px] w-full'
 
@@ -671,6 +671,34 @@
 												class={twMerge(width, 'mx-auto', 'z-10000')}
 											>
 												<GridEditor {policy} />
+											</div>
+										{/if}
+										{#if !$appStore.mobileViewOnSmallerScreens && $breakpoint === 'sm'}
+											<div
+												class="absolute inset-0 flex bg-surface center-center z-10000 bg-opacity-60"
+											>
+												<div
+													class="bg-surface shadow-md rounded-md p-4 max-w-sm flex flex-col gap-2"
+												>
+													<div class="text-sm font-semibold"> Mobile View </div>
+													<div class="text-xs">
+														Enabling mobile view allows you to adjust component placement for
+														smaller screens.
+													</div>
+													<Button
+														color="light"
+														variant="border"
+														size="xs"
+														on:click={() => {
+															$appStore.mobileViewOnSmallerScreens = true
+														}}
+														startIcon={{
+															icon: Smartphone
+														}}
+													>
+														Add mobile view on smaller screens
+													</Button>
+												</div>
 											</div>
 										{/if}
 									</div>

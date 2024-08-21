@@ -143,7 +143,7 @@
 			setUpTopBarComponentContent(id, value)
 
 			value.hideLegacyTopBar = true
-			value.disableBreakpoints = true
+			value.mobileViewOnSmallerScreens = false
 
 			value = value
 		}

@@ -154,7 +154,9 @@
 	}
 
 	$: width =
-		$breakpoint === 'sm' && !$appStore.disableBreakpoints ? 'max-w-[640px]' : 'w-full min-w-[768px]'
+		$breakpoint === 'sm' && $appStore.mobileViewOnSmallerScreens
+			? 'max-w-[640px]'
+			: 'w-full min-w-[768px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 	function onThemeChange() {
 		$darkMode = document.documentElement.classList.contains('dark')

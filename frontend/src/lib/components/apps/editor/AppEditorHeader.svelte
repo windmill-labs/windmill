@@ -31,8 +31,7 @@
 		RefreshCw,
 		Save,
 		Smartphone,
-		FileClock,
-		MonitorSmartphone
+		FileClock
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -1298,27 +1297,26 @@
 			<div class="flex flex-row gap-2">
 				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
 					<ToggleButton
-						tooltip="Mobile View"
-						icon={Smartphone}
-						value={$app.disableBreakpoints ? '' : 'sm'}
-						iconProps={{ size: 16 }}
-						disabled={$app.disableBreakpoints}
-					/>
-					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
-						value={$app.disableBreakpoints ? '' : 'lg'}
+						value={'lg'}
 						iconProps={{ size: 16 }}
-						disabled={$app.disableBreakpoints}
 					/>
-					<ToggleEnable
-						tooltip="By default, only the desktop view is enabled. Enable this to use the breakpoints. Components placement needs to be adjusted for each breakpoint."
-						label="Disable breakpoints"
-						icon={MonitorSmartphone}
-						bind:checked={$app.disableBreakpoints}
+					<ToggleButton
+						tooltip="Mobile View"
+						icon={Smartphone}
+						value={'sm'}
 						iconProps={{ size: 16 }}
-						iconOnly={false}
 					/>
+					{#if $breakpoint === 'sm'}
+						<ToggleEnable
+							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
+							label="Enable mobile view for smaller screens"
+							bind:checked={$app.mobileViewOnSmallerScreens}
+							iconProps={{ size: 16 }}
+							iconOnly={false}
+						/>
+					{/if}
 				</ToggleButtonGroup>
 			</div>
 		</div>
