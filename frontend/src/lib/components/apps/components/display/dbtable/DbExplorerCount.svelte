@@ -35,10 +35,12 @@
 	let localColumnDefs = columnDefs
 	let lastTable = table
 
-	$: {
+	$: lastTable != undefined && table && onTableChange()
+
+	function onTableChange() {
 		if (table !== lastTable) {
-			localColumnDefs = []
 			lastTable = table
+			localColumnDefs = []
 		}
 	}
 

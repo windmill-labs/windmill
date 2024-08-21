@@ -85,6 +85,9 @@ function getModuleExprs(x: FlowModule): string[] {
 		if (x.stop_after_if?.expr) {
 			exprs.push(x.stop_after_if.expr)
 		}
+		if (x.stop_after_all_iters_if?.expr) {
+			exprs.push(x.stop_after_all_iters_if.expr)
+		}
 		exprs.push(...getExpr(x.sleep))
 	}
 	return exprs
