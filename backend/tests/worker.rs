@@ -75,8 +75,8 @@ async fn initialize_tracing() {
     use std::sync::Once;
 
     static ONCE: Once = Once::new();
-    ONCE.call_once(|| { 
-        let _ = windmill_common::tracing_init::initialize_tracing(); 
+    ONCE.call_once(|| {
+        let _ = windmill_common::tracing_init::initialize_tracing();
     });
 }
 

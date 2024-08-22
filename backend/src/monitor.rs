@@ -380,6 +380,7 @@ fn get_worker_group(mode: &Mode) -> Option<String> {
         Some(worker_group)
     }
 }
+
 pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
     let db = db.clone();
     let hostname = hostname.to_string();
@@ -388,7 +389,6 @@ pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        tracing::error!("Starting log file upload to object store");
         sleep_until_next_minute_start_plus_one_s().await;
         loop {
             interval.tick().await;
@@ -413,6 +413,15 @@ pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode
     send_log_file_to_object_store(hostname, mode, &worker_group, db, highest_file, true).await;
 }
 
+fn get_now_and_str() -> (NaiveDateTime, String) {
+    let ts = Utc::now().naive_utc();
+    (
+        ts,
+        ts.format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
+            .to_string(),
+    )
+}
+
 async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
@@ -423,14 +432,21 @@ async fn send_log_file_to_object_store(
 ) {
     if let Some(highest_file) = snd_highest_file {
         //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
-        let ts: NaiveDateTime = if use_now {
-            Utc::now().naive_utc()
+        let (ts, ts_str) = if use_now {
+            get_now_and_str()
         } else {
             highest_file
                 .split(".")
                 .last()
-                .and_then(|x| NaiveDateTime::parse_from_str(x, "%Y-%m-%d-%H-%M").ok())
-                .unwrap_or_else(|| Utc::now().naive_utc())
+                .and_then(|x| {
+                    NaiveDateTime::parse_from_str(
+                        x,
+                        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
+                    )
+                    .ok()
+                    .map(|y| (y, x.to_string()))
+                })
+                .unwrap_or_else(get_now_and_str)
         };
 
         let exists = sqlx::query_scalar!(
@@ -472,17 +488,33 @@ async fn send_log_file_to_object_store(
             }
         }
 
-        let size = tokio::fs::metadata(&path)
-            .await
-            .map(|x| x.len() as i64)
-            .unwrap_or(1);
-        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, byte_size) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6)", 
-            hostname, mode.to_string(), worker_group.clone(), ts, highest_file, size)
+        let (ok_lines, err_lines) = read_log_counters(ts_str);
+
+        if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7)", 
+            hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64)
             .execute(db)
             .await {
             tracing::error!("Error inserting log file: {:?}", e);
         }
     }
+}
+
+fn read_log_counters(ts_str: String) -> (usize, usize) {
+    let counters = windmill_common::tracing_init::LOG_COUNTING_BY_MIN.read();
+    let mut ok_lines = 0;
+    let mut err_lines = 0;
+    if let Ok(ref c) = counters {
+        let counter = c.get(&ts_str);
+        if let Some(counter) = counter {
+            ok_lines = counter.non_error_count;
+            err_lines = counter.error_count;
+        } else {
+            println!("no counter found for {ts_str}");
+        }
+    } else {
+        println!("Error reading log counters 2");
+    }
+    (ok_lines, err_lines)
 }
 
 pub async fn load_keep_job_dir(db: &DB) {

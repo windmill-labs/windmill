@@ -8592,9 +8592,13 @@ paths:
       tags:
         - service_logs
       parameters:
-        - $ref: "#/components/parameters/StartedBefore"
-        - $ref: "#/components/parameters/StartedAfter"
-
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+        - name: with_error
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: time
@@ -8616,7 +8620,9 @@ paths:
                       format: date-time
                     file_path:
                       type: string
-                    byte_size:
+                    ok_lines:
+                      type: integer
+                    err_lines:
                       type: integer
                   required:
                     - hostname

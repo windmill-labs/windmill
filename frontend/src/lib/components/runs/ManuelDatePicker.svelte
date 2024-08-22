@@ -7,77 +7,97 @@
 	export let maxTs: string | undefined
 	export let loading: boolean = false
 	export let selectedManualDate = 0
+	export let loadText: string | undefined = undefined
+	export let serviceLogsChoices: boolean = false
 
 	export function computeMinMax(): { minTs: string; maxTs: string } | undefined {
 		return manualDates[selectedManualDate].computeMinMax()
 	}
 
+	function computeMinMaxInc(inc: number) {
+		let minTs = new Date(new Date().getTime() - inc).toISOString()
+		let maxTs = new Date().toISOString()
+		return { minTs, maxTs }
+	}
 	const manualDates: {
 		label: string
 		computeMinMax: () => { minTs: string; maxTs: string } | undefined
 	}[] = [
 		{
-			label: 'Last 1000 runs',
+			label: loadText ?? 'Last 1000 runs',
 			computeMinMax: () => {
 				return undefined
 			}
 		},
-		{
-			label: 'Within 30 seconds',
-			computeMinMax: () => {
-				let minTs = new Date(new Date().getTime() - 30 * 1000).toISOString()
-				let maxTs = new Date().toISOString()
-				return { minTs, maxTs }
-			}
-		},
-		{
-			label: 'Within last minute',
-			computeMinMax: () => {
-				let minTs = new Date(new Date().getTime() - 60 * 1000).toISOString()
-				let maxTs = new Date().toISOString()
-				return { minTs, maxTs }
-			}
-		},
+		...(!serviceLogsChoices
+			? [
+					{
+						label: 'Within 30 seconds',
+						computeMinMax: () => {
+							return computeMinMaxInc(30 * 1000)
+						}
+					},
+					{
+						label: 'Within last minute',
+						computeMinMax: () => {
+							return computeMinMaxInc(60 * 1000)
+						}
+					}
+			  ]
+			: []),
 		{
 			label: 'Within last 5 minutes',
 			computeMinMax: () => {
-				let minTs = new Date(new Date().getTime() - 5 * 60 * 1000).toISOString()
-				let maxTs = new Date().toISOString()
-				return { minTs, maxTs }
+				return computeMinMaxInc(5 * 60 * 1000)
 			}
 		},
 		{
 			label: 'Within last 30 minutes',
 			computeMinMax: () => {
-				let minTs = new Date(new Date().getTime() - 30 * 60 * 1000).toISOString()
-				let maxTs = new Date().toISOString()
-				return { minTs, maxTs }
+				return computeMinMaxInc(30 * 60 * 1000)
 			}
 		},
-		{
-			label: 'Within last 24 hours',
-			computeMinMax: () => {
-				let minTs = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString()
-				let maxTs = new Date().toISOString()
-				return { minTs, maxTs }
-			}
-		},
-		{
-			label: 'Within last 7 days',
-			computeMinMax: () => {
-				let minTs = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-				let maxTs = new Date().toISOString()
-				return { minTs, maxTs }
-			}
-		},
-		{
-			label: 'Within last month',
-			computeMinMax: () => {
-				let minTs = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
-				let maxTs = new Date().toISOString()
-				return { minTs, maxTs }
-			}
-		}
+		...(serviceLogsChoices
+			? [
+					{
+						label: 'Within last hour',
+						computeMinMax: () => {
+							return computeMinMaxInc(60 * 60 * 1000)
+						}
+					},
+					{
+						label: 'Within last 6 hours',
+						computeMinMax: () => {
+							return computeMinMaxInc(6 * 60 * 60 * 1000)
+						}
+					},
+					{
+						label: 'Within last 12 hours',
+						computeMinMax: () => {
+							return computeMinMaxInc(12 * 60 * 60 * 1000)
+						}
+					}
+			  ]
+			: [
+					{
+						label: 'Within last 24 hours',
+						computeMinMax: () => {
+							return computeMinMaxInc(24 * 60 * 60 * 1000)
+						}
+					},
+					{
+						label: 'Within last 7 days',
+						computeMinMax: () => {
+							return computeMinMaxInc(7 * 24 * 60 * 60 * 1000)
+						}
+					},
+					{
+						label: 'Within last month',
+						computeMinMax: () => {
+							return computeMinMaxInc(30 * 24 * 60 * 60 * 1000)
+						}
+					}
+			  ])
 	]
 
 	const dispatch = createEventDispatcher()

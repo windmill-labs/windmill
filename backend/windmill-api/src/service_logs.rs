@@ -30,8 +30,9 @@ use axum::extract::Path;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct LogFileQuery {
-    before: Option<NaiveDateTime>,
-    after: Option<NaiveDateTime>,
+    before: Option<chrono::DateTime<chrono::Utc>>,
+    after: Option<chrono::DateTime<chrono::Utc>>,
+    with_error: Option<bool>,
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -41,7 +42,8 @@ pub struct LogFile {
     pub worker_group: Option<String>,
     pub log_ts: chrono::NaiveDateTime,
     pub file_path: String,
-    pub byte_size: Option<i64>,
+    pub ok_lines: Option<i64>,
+    pub err_lines: Option<i64>,
 }
 async fn list_files(
     ApiAuthed { email, .. }: ApiAuthed,
@@ -59,7 +61,8 @@ async fn list_files(
             "worker_group",
             "log_ts",
             "file_path",
-            "byte_size",
+            "ok_lines",
+            "err_lines",
         ])
         .order_by("log_ts", true)
         .offset(offset)
@@ -69,20 +72,18 @@ async fn list_files(
     if let Some(dt) = &lq.before {
         sqlb.and_where_le(
             "log_ts",
-            format!(
-                "to_timestamp({}  / 1000.0)",
-                dt.and_utc().timestamp_millis()
-            ),
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
         );
     }
     if let Some(dt) = &lq.after {
         sqlb.and_where_ge(
             "log_ts",
-            format!(
-                "to_timestamp({}  / 1000.0)",
-                dt.and_utc().timestamp_millis()
-            ),
+            format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
         );
+    }
+
+    if let Some(true) = lq.with_error {
+        sqlb.and_where("err_lines > 0");
     }
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let rows = sqlx::query_as::<_, LogFile>(&sql).fetch_all(&db).await?;

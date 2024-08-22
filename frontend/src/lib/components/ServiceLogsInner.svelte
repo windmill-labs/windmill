@@ -5,57 +5,88 @@
 	import ManuelDatePicker from './runs/ManuelDatePicker.svelte'
 	import CalendarPicker from './common/calendarPicker/CalendarPicker.svelte'
 	import LogViewer from './LogViewer.svelte'
+	import Toggle from './Toggle.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { onDestroy } from 'svelte'
+	import { time } from 'console'
 
 	let minTs: undefined | string = undefined
 	let maxTs: undefined | string = undefined
-	let maxByteSize: undefined | number = undefined
+	let max_lines: undefined | number = undefined
+
+	let withError = false
+	let autoRefresh = true
+	let loading = false
 
 	type LogFile = {
 		ts: number
 		file_path: string
-		byte_size: number
+		ok_lines: number
+		err_lines: number
 	}
 
 	type ByHostname = Record<string, LogFile[]>
 	type ByWorkerGroup = Record<string, ByHostname>
 	type ByMode = Record<string, ByWorkerGroup>
 
+	let timeout: NodeJS.Timeout | undefined = undefined
+
 	let allLogs: ByMode = {}
 	function getAllLogs() {
-		ServiceLogsService.listLogFiles({}).then((res) => {
-			let minTsN = minTs ? new Date(minTs).getTime() : undefined
-			let maxTsN = maxTs ? new Date(maxTs).getTime() : undefined
-			res.forEach((log) => {
-				let ts = new Date(log.log_ts).getTime()
-				if (minTsN == undefined || ts < minTsN) {
-					minTsN = ts
-				}
-				if (maxTsN == undefined || ts > maxTsN) {
-					maxTsN = ts
-				}
-				if (!allLogs[log.mode]) {
-					allLogs[log.mode] = {}
-				}
-				const wg = log.worker_group ?? ''
-				if (!allLogs[log.mode][wg]) {
-					allLogs[log.mode][wg] = {}
-				}
-				const hn = log.hostname ?? ''
-				if (!allLogs[log.mode][wg][hn]) {
-					allLogs[log.mode][wg][hn] = []
-				}
-				allLogs[log.mode][wg][hn].push({
-					ts: ts,
-					file_path: log.file_path,
-					byte_size: log.byte_size ?? 1
+		loading = true
+		ServiceLogsService.listLogFiles({ withError, before: maxTs, after: minTs })
+			.then((res) => {
+				let minTsN = minTs ? new Date(minTs).getTime() : undefined
+				let maxTsN = maxTs ? new Date(maxTs).getTime() : undefined
+				res.forEach((log) => {
+					let ts = new Date(log.log_ts).getTime()
+					if (minTsN == undefined || ts < minTsN) {
+						minTsN = ts
+					}
+					if (maxTsN == undefined || ts > maxTsN) {
+						maxTsN = ts
+					}
+					if (!allLogs[log.mode]) {
+						allLogs[log.mode] = {}
+					}
+					const wg = log.worker_group ?? ''
+					if (!allLogs[log.mode][wg]) {
+						allLogs[log.mode][wg] = {}
+					}
+					const hn = log.hostname ?? ''
+					if (!allLogs[log.mode][wg][hn]) {
+						allLogs[log.mode][wg][hn] = []
+					}
+					allLogs[log.mode][wg][hn].push({
+						ts: ts,
+						file_path: log.file_path,
+						ok_lines: log.ok_lines ?? 1,
+						err_lines: log.err_lines ?? 0
+					})
+					if (
+						log.ok_lines != undefined &&
+						log.err_lines != undefined &&
+						(max_lines == undefined || log.ok_lines + log.err_lines > max_lines)
+					) {
+						max_lines = log.ok_lines + log.err_lines
+					}
 				})
-				if (log.byte_size && (maxByteSize == undefined || log.byte_size > maxByteSize)) {
-					maxByteSize = log.byte_size
+				minTs = minTsN ? new Date(minTsN).toISOString() : undefined
+				loading = false
+				if (autoRefresh) {
+					timeout && clearTimeout(timeout)
+					timeout = setTimeout(() => {
+						maxTs = new Date().toISOString()
+						getAllLogs()
+					}, 5000)
 				}
 			})
-			minTs = minTsN ? new Date(minTsN).toISOString() : undefined
-			maxTs = maxTsN ? new Date(maxTsN).toISOString() : undefined
-		})
+			.catch((e) => {
+				sendUserToast('Failed to load service logs: ' + e.body, true)
+				console.error(e)
+				loading = false
+				autoRefresh = false
+			})
 	}
 
 	let selected: [string, string, string] | undefined = undefined
@@ -81,7 +112,10 @@
 		if (!selected) {
 			return []
 		}
-		let logs = allLogs[selected[0]][selected[1]][selected[2]]
+		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
+		if (!logs) {
+			return []
+		}
 		if (upTo) {
 			let upToN = new Date(upTo).getTime()
 			logs = logs
@@ -102,8 +136,8 @@
 		if (!selected) {
 			return undefined
 		}
-		let logs = allLogs[selected[0]][selected[1]][selected[2]]
-		return logs[0].ts
+		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
+		return logs?.[0]?.ts
 	}
 
 	function scrollToBottom() {
@@ -112,6 +146,10 @@
 			el.scrollTop = el.scrollHeight
 		}
 	}
+
+	onDestroy(() => {
+		timeout && clearTimeout(timeout)
+	})
 </script>
 
 {#if allLogs}
@@ -142,8 +180,14 @@
 							bind:minTs
 							bind:maxTs
 							on:loadJobs={() => {
+								allLogs = {}
+								timeout && clearTimeout(timeout)
+								maxTs = new Date().toISOString()
+								getAllLogs()
 								console.log('load jobs')
 							}}
+							serviceLogsChoices
+							loadText="Last 1000 logfiles"
 						/>
 						<div class="flex relative">
 							<input
@@ -161,7 +205,21 @@
 							<CalendarPicker label="max datetime" date={maxTs} />
 						</div>
 					</div>
-
+					<div class="flex w-full flex-row-reverse pb-4 -mt-2 gap-2"
+						><Toggle size="xs" bind:checked={withError} options={{ right: 'error only' }} />
+						<Toggle
+							size="xs"
+							bind:checked={autoRefresh}
+							on:change={(e) => {
+								if (e.detail) {
+									getAllLogs()
+								} else {
+									timeout && clearTimeout(timeout)
+								}
+							}}
+							options={{ right: 'auto-refresh' }}
+						/></div
+					>
 					{#if minTs && maxTs}
 						{@const minTsN = new Date(minTs).getTime()}
 						{@const maxTsN = new Date(maxTs).getTime()}
@@ -179,7 +237,7 @@
 												<!-- svelte-ignore a11y-click-events-have-key-events -->
 												<!-- svelte-ignore a11y-no-static-element-interactions -->
 												<div
-													class="w-full flex items-baseline px-1 {selected &&
+													class="w-full flex items-baseline px-1 cursor-pointer {selected &&
 													selected[0] == mode &&
 													selected[1] == wg &&
 													selected[2] == hn
@@ -194,10 +252,18 @@
 													<div style="width: 90px;">{hn}</div>
 													<div class="relative grow h-8 mr-2">
 														{#each files as file}
+															{@const okHeight = 100.0 * ((file.ok_lines * 1.0) / (max_lines ?? 1))}
+															{@const errHeight =
+																100.0 * ((file.err_lines * 1.0) / (max_lines ?? 1))}
+															<div
+																class=" w-2 bg-red-400 absolute"
+																style="left: {((file.ts - minTsN) / diff) *
+																	100}%; height: {errHeight}%; bottom: {okHeight}%;"
+															/>
 															<div
 																class=" w-2 bg-black absolute bottom-0"
-																style="left: {((file.ts - minTsN) / diff) * 100}%; height: {100.0 *
-																	((file.byte_size * 1.0) / (maxByteSize ?? 1))}%"
+																style="left: {((file.ts - minTsN) / diff) *
+																	100}%; height: {okHeight}%"
 															/>
 														{/each}
 													</div>
@@ -217,7 +283,9 @@
 						<div class="grow overflow-auto" id="logviewer">
 							{#each getLogs(selected, upTo) as file}
 								<div
-									style="min-height: {logsContent[file.file_path] ? 10 : file.byte_size / 200}px;"
+									style="min-height: {logsContent[file.file_path]
+										? 10
+										: (file.ok_lines + file.err_lines) / 20}px;"
 								>
 									<div class="bg-gray-200 text-sm font-semibold px-1"
 										>{new Date(file.ts).toLocaleTimeString([], {
