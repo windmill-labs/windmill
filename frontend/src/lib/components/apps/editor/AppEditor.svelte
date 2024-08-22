@@ -120,7 +120,7 @@
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		query: Object.fromEntries($page.url.searchParams.entries()),
-		hash: $page.url.hash,
+		hash: $page.url.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
 		summary: $summaryStore,
