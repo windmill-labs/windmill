@@ -100,9 +100,10 @@
 
 		$app = $app
 	}
+	export let fullWidth = false
 </script>
 
-<SplitPanesWrapper>
+<SplitPanesWrapper class={fullWidth ? 'w-full' : ''}>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={25}>
 			<InlineScriptsPanelList />

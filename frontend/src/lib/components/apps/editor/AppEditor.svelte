@@ -557,13 +557,12 @@
 			{diffDrawer}
 			bind:savedApp
 			{version}
+			leftPanelHidden={leftPanelSize === 0}
+			rightPanelHidden={rightPanelSize === 0}
+			bottomPanelHidden={runnablePanelSize === 0}
 			on:showLeftPanel={() => {
-				animateTo(leftPanelSize, storedLeftPanelSize, (newValue) => (leftPanelSize = newValue))
-				animateTo(
-					centerPanelSize,
-					centerPanelSize - storedLeftPanelSize,
-					(newValue) => (centerPanelSize = newValue)
-				)
+				leftPanelSize = storedLeftPanelSize
+				centerPanelSize = centerPanelSize - storedLeftPanelSize
 				storedLeftPanelSize = 0
 			}}
 			on:showRightPanel={() => {
@@ -571,19 +570,11 @@
 				centerPanelSize = centerPanelSize - storedRightPanelSize
 				storedRightPanelSize = 0
 			}}
-			leftPanelHidden={leftPanelSize === 0}
-			rightPanelHidden={rightPanelSize === 0}
-			bottomPanelHidden={runnablePanelSize === 0}
 			on:hideLeftPanel={() => {
 				storedLeftPanelSize = leftPanelSize
 
-				animateTo(leftPanelSize, 0, (newValue) => (leftPanelSize = newValue))
-
-				animateTo(
-					centerPanelSize,
-					centerPanelSize + storedLeftPanelSize,
-					(newValue) => (centerPanelSize = newValue)
-				)
+				leftPanelSize = 0
+				centerPanelSize = centerPanelSize + storedLeftPanelSize
 			}}
 			on:hideRightPanel={() => {
 				storedRightPanelSize = rightPanelSize
@@ -592,25 +583,12 @@
 			}}
 			on:hideBottomPanel={() => {
 				storedBottomPanelSize = runnablePanelSize
-				animateTo(runnablePanelSize, 0, (newValue) => (runnablePanelSize = newValue))
-
-				animateTo(
-					gridPanelSize,
-					gridPanelSize + storedBottomPanelSize,
-					(newValue) => (gridPanelSize = newValue)
-				)
+				gridPanelSize = 99
+				runnablePanelSize = 0
 			}}
 			on:showBottomPanel={() => {
-				animateTo(
-					runnablePanelSize,
-					storedBottomPanelSize,
-					(newValue) => (runnablePanelSize = newValue)
-				)
-				animateTo(
-					gridPanelSize,
-					gridPanelSize - storedLeftPanelSize,
-					(newValue) => (gridPanelSize = newValue)
-				)
+				runnablePanelSize = storedBottomPanelSize
+				gridPanelSize = gridPanelSize - storedBottomPanelSize
 				storedBottomPanelSize = 0
 			}}
 		/>
@@ -741,126 +719,137 @@
 							</Pane>
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
-									<!-- svelte-ignore a11y-no-static-element-interactions -->
-									<div
-										class="relative h-full w-full overflow-x-visible"
-										on:mouseenter={() => {
-											runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
-											stillInJobEnter = true
-											runnableJobEnterTimeout = setTimeout(() => {
-												if (stillInJobEnter) {
-													$runnableJob.focused = true
-												}
-											}, 200)
-										}}
-										on:mouseleave={() => {
-											stillInJobEnter = false
-											runnableJobEnterTimeout = setTimeout(
-												() => ($runnableJob.focused = false),
-												200
-											)
-										}}
-									>
-										<InlineScriptsPanel />
-										<RunnableJobPanel />
-									</div>
+									{#if rightPanelSize !== 0}
+										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<div
+											class={twMerge('relative h-full w-full overflow-x-visible')}
+											on:mouseenter={() => {
+												runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
+												stillInJobEnter = true
+												runnableJobEnterTimeout = setTimeout(() => {
+													if (stillInJobEnter) {
+														$runnableJob.focused = true
+													}
+												}, 200)
+											}}
+											on:mouseleave={() => {
+												stillInJobEnter = false
+												runnableJobEnterTimeout = setTimeout(
+													() => ($runnableJob.focused = false),
+													200
+												)
+											}}
+										>
+											<InlineScriptsPanel />
+											<RunnableJobPanel />
+										</div>
+									{:else}
+										<div class="flex flex-row relative w-full h-full">
+											<InlineScriptsPanel fullWidth />
+											<RunnableJobPanel float={false} />
+										</div>
+									{/if}
 								</Pane>
 							{/if}
 						</Splitpanes>
 					</Pane>
-					<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
-						<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
-							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
-								<Popover disappearTimeout={0} notClickable placement="bottom">
-									<svelte:fragment slot="text">Component library</svelte:fragment>
-									<Tab
-										value="insert"
-										size="xs"
-										class="h-full"
-										on:pointerdown={() => {
-											if ($cssEditorOpen) {
-												$cssEditorOpen = false
-												selectedTab = 'insert'
-											}
-										}}
-										id="app-editor-component-library-tab"
-									>
-										<div class="m-1 center-center">
-											<Plus size={18} />
-										</div>
-									</Tab>
-								</Popover>
-								<Popover disappearTimeout={0} notClickable placement="bottom">
-									<svelte:fragment slot="text">Component settings</svelte:fragment>
-									<Tab
-										value="settings"
-										size="xs"
-										class="h-full"
-										on:pointerdown={() => {
-											if ($cssEditorOpen) {
-												$cssEditorOpen = false
-												selectedTab = 'settings'
-											}
-										}}
-									>
-										<div class="m-1 center-center">
-											<Component size={18} />
-										</div>
-									</Tab>
-								</Popover>
-								<Popover disappearTimeout={0} notClickable placement="bottom">
-									<svelte:fragment slot="text">Global styling</svelte:fragment>
-									<Tab
-										value="css"
-										size="xs"
-										class="h-full"
-										on:pointerdown={() => {
-											if (!$cssEditorOpen) {
-												$cssEditorOpen = true
-												selectedTab = 'css'
-											}
-										}}
-									>
-										<div class="m-1 center-center">
-											<Paintbrush size={18} />
-										</div>
-									</Tab>
-								</Popover>
-								<div class="h-full w-full flex justify-end px-1">
-									<HideButton
-										on:click={() => {
-											storedRightPanelSize = rightPanelSize
-											rightPanelSize = 0
-											centerPanelSize = centerPanelSize + storedRightPanelSize
-										}}
-									/>
-								</div>
-								<div slot="content" class="h-full overflow-y-auto">
-									<TabContent class="overflow-auto h-full" value="settings">
-										{#if $selectedComponent !== undefined}
-											<SettingsPanel
-												on:delete={() => {
-													befSelected = undefined
+					{#if rightPanelSize === 0}
+						<div class="relative flex flex-col h-full" />
+					{:else}
+						<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
+							<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
+								<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
+									<Popover disappearTimeout={0} notClickable placement="bottom">
+										<svelte:fragment slot="text">Component library</svelte:fragment>
+										<Tab
+											value="insert"
+											size="xs"
+											class="h-full"
+											on:pointerdown={() => {
+												if ($cssEditorOpen) {
+													$cssEditorOpen = false
 													selectedTab = 'insert'
-												}}
-											/>
-											<SecondaryMenu right />
-										{:else}
-											<div class="min-w-[150px] text-sm !text-secondary text-center py-8 px-2">
-												Select a component to see the settings&nbsp;for&nbsp;it
+												}
+											}}
+											id="app-editor-component-library-tab"
+										>
+											<div class="m-1 center-center">
+												<Plus size={18} />
 											</div>
-										{/if}
-									</TabContent>
-									<TabContent value="insert">
-										<ComponentList />
-									</TabContent>
-									<TabContent value="css" class="h-full">
-										<CssSettings />
-									</TabContent>
-								</div>
-							</Tabs>
-						</div>
-					</Pane>
+										</Tab>
+									</Popover>
+									<Popover disappearTimeout={0} notClickable placement="bottom">
+										<svelte:fragment slot="text">Component settings</svelte:fragment>
+										<Tab
+											value="settings"
+											size="xs"
+											class="h-full"
+											on:pointerdown={() => {
+												if ($cssEditorOpen) {
+													$cssEditorOpen = false
+													selectedTab = 'settings'
+												}
+											}}
+										>
+											<div class="m-1 center-center">
+												<Component size={18} />
+											</div>
+										</Tab>
+									</Popover>
+									<Popover disappearTimeout={0} notClickable placement="bottom">
+										<svelte:fragment slot="text">Global styling</svelte:fragment>
+										<Tab
+											value="css"
+											size="xs"
+											class="h-full"
+											on:pointerdown={() => {
+												if (!$cssEditorOpen) {
+													$cssEditorOpen = true
+													selectedTab = 'css'
+												}
+											}}
+										>
+											<div class="m-1 center-center">
+												<Paintbrush size={18} />
+											</div>
+										</Tab>
+									</Popover>
+									<div class="h-full w-full flex justify-end px-1">
+										<HideButton
+											on:click={() => {
+												storedRightPanelSize = rightPanelSize
+												rightPanelSize = 0
+												centerPanelSize = centerPanelSize + storedRightPanelSize
+											}}
+										/>
+									</div>
+									<div slot="content" class="h-full overflow-y-auto">
+										<TabContent class="overflow-auto h-full" value="settings">
+											{#if $selectedComponent !== undefined}
+												<SettingsPanel
+													on:delete={() => {
+														befSelected = undefined
+														selectedTab = 'insert'
+													}}
+												/>
+												<SecondaryMenu right />
+											{:else}
+												<div class="min-w-[150px] text-sm !text-secondary text-center py-8 px-2">
+													Select a component to see the settings&nbsp;for&nbsp;it
+												</div>
+											{/if}
+										</TabContent>
+										<TabContent value="insert">
+											<ComponentList />
+										</TabContent>
+										<TabContent value="css" class="h-full">
+											<CssSettings />
+										</TabContent>
+									</div>
+								</Tabs>
+							</div>
+						</Pane>
+					{/if}
 				</Splitpanes>
 			</SplitPanesWrapper>
 		{/if}
