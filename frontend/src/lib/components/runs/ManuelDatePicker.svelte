@@ -19,6 +19,7 @@
 		let maxTs = new Date().toISOString()
 		return { minTs, maxTs }
 	}
+
 	const manualDates: {
 		label: string
 		computeMinMax: () => { minTs: string; maxTs: string } | undefined
@@ -113,7 +114,7 @@
 			minTs = ts.minTs
 			maxTs = ts.maxTs
 		}
-		dispatch('loadJobs')
+		dispatch('loadJobs', { minTs, maxTs })
 	}}
 	dropdownItems={[
 		...manualDates.map((d, i) => ({

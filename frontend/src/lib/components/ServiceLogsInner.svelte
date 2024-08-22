@@ -8,11 +8,13 @@
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy } from 'svelte'
-	import { time } from 'console'
+	import { Loader2 } from 'lucide-svelte'
 
 	let minTs: undefined | string = undefined
 	let maxTs: undefined | string = undefined
 	let max_lines: undefined | number = undefined
+
+	// let lastSeen: undefined | string = undefined
 
 	let withError = false
 	let autoRefresh = true
@@ -31,9 +33,11 @@
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 
-	let allLogs: ByMode = {}
-	function getAllLogs() {
+	let allLogs: ByMode | undefined = undefined
+
+	function getAllLogs(minTs: string | undefined, maxTs: string | undefined) {
 		loading = true
+		let nallLogs = structuredClone(allLogs) ?? {}
 		ServiceLogsService.listLogFiles({ withError, before: maxTs, after: minTs })
 			.then((res) => {
 				let minTsN = minTs ? new Date(minTs).getTime() : undefined
@@ -46,18 +50,18 @@
 					if (maxTsN == undefined || ts > maxTsN) {
 						maxTsN = ts
 					}
-					if (!allLogs[log.mode]) {
-						allLogs[log.mode] = {}
+					if (!nallLogs[log.mode]) {
+						nallLogs[log.mode] = {}
 					}
 					const wg = log.worker_group ?? ''
-					if (!allLogs[log.mode][wg]) {
-						allLogs[log.mode][wg] = {}
+					if (!nallLogs[log.mode][wg]) {
+						nallLogs[log.mode][wg] = {}
 					}
 					const hn = log.hostname ?? ''
-					if (!allLogs[log.mode][wg][hn]) {
-						allLogs[log.mode][wg][hn] = []
+					if (!nallLogs[log.mode][wg][hn]) {
+						nallLogs[log.mode][wg][hn] = []
 					}
-					allLogs[log.mode][wg][hn].push({
+					nallLogs[log.mode][wg][hn].push({
 						ts: ts,
 						file_path: log.file_path,
 						ok_lines: log.ok_lines ?? 1,
@@ -72,12 +76,13 @@
 					}
 				})
 				minTs = minTsN ? new Date(minTsN).toISOString() : undefined
+				allLogs = nallLogs
 				loading = false
 				if (autoRefresh) {
 					timeout && clearTimeout(timeout)
+					let localMaxTs = maxTs
 					timeout = setTimeout(() => {
-						maxTs = new Date().toISOString()
-						getAllLogs()
+						getAllLogs(localMaxTs, undefined)
 					}, 5000)
 				}
 			})
@@ -104,7 +109,7 @@
 		}
 	}
 
-	getAllLogs()
+	getAllLogs(undefined, undefined)
 
 	let upTo: undefined | string = undefined
 
@@ -177,13 +182,12 @@
 							<CalendarPicker label="min datetime" date={minTs} />
 						</div>
 						<ManuelDatePicker
-							bind:minTs
-							bind:maxTs
+							{minTs}
+							{maxTs}
+							loading
 							on:loadJobs={() => {
 								allLogs = {}
-								timeout && clearTimeout(timeout)
-								maxTs = new Date().toISOString()
-								getAllLogs()
+								getAllLogs(minTs, maxTs)
 								console.log('load jobs')
 							}}
 							serviceLogsChoices
@@ -212,7 +216,7 @@
 							bind:checked={autoRefresh}
 							on:change={(e) => {
 								if (e.detail) {
-									getAllLogs()
+									getAllLogs(maxTs, undefined)
 								} else {
 									timeout && clearTimeout(timeout)
 								}
@@ -220,7 +224,11 @@
 							options={{ right: 'auto-refresh' }}
 						/></div
 					>
-					{#if minTs && maxTs}
+					{#if allLogs == undefined}
+						<div class="text-center pb-2"><Loader2 class="animate-spin" /></div>
+					{:else if Object.keys(allLogs).length == 0}
+						<div class="flex justify-center items-center h-full">No logs</div>
+					{:else if minTs && maxTs}
 						{@const minTsN = new Date(minTs).getTime()}
 						{@const maxTsN = new Date(maxTs).getTime()}
 						{@const diff = maxTsN - minTsN}
@@ -274,6 +282,8 @@
 								{/each}
 							</div>
 						{/each}
+					{:else}
+						<div class="text-tertiary text-sm text-center pt-2">Time range not selected</div>
 					{/if}
 				</div>
 			</Pane>
