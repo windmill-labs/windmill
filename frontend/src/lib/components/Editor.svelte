@@ -803,7 +803,7 @@
 				connectToLanguageServer(
 					`${wsProtocol}://${window.location.host}/ws/ruff`,
 					'ruff',
-					{},
+					{ 'ruff.lint.select': ['E', 'F'], extendSelect: ['I'], 'ruff.logLevel': 'debug' },
 					undefined
 				)
 			} else if (lang === 'go') {
