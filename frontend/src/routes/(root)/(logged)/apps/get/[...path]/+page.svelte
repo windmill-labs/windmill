@@ -51,7 +51,7 @@
 					username: $userStore?.username,
 					groups: $userStore?.groups,
 					query: Object.fromEntries($page.url.searchParams.entries()),
-					hash: $page.url.hash
+					hash: $page.url.hash.substring(1)
 				}}
 				workspace={$workspaceStore ?? ''}
 				summary={app.summary}
@@ -62,8 +62,13 @@
 				isEditor={false}
 				noBackend={false}
 				{hideRefreshBar}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
-				gotoFn={(path, opt) => goto(path, opt)}
+				replaceStateFn={(path) => {
+					goto(path)
+				}}
+				gotoFn={(path, opt) => {
+					console.log(path, opt)
+					goto(path, opt)
+				}}
 			/>
 			{#if can_write && !hideEditBtn}
 				<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
