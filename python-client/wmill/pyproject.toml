@@ -16,7 +16,7 @@ include = ["wmill/py.typed"]
 
 [tool.poetry.dependencies]
 python = "^3.7"
-httpx = "^0.24"
+httpx = ">=0.24"
 
 [build-system]
 requires = ["poetry>=1.0.2", "poetry-dynamic-versioning"]
