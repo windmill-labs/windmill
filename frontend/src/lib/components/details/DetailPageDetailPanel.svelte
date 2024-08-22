@@ -1,13 +1,10 @@
 <script lang="ts">
-	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
-	import { copyToClipboard } from '$lib/utils'
-	import { CalendarCheck2, Clipboard, MailIcon, Terminal, Webhook } from 'lucide-svelte'
-	import { Highlight } from 'svelte-highlight'
-	import { yaml } from 'svelte-highlight/languages'
-	import json from 'svelte-highlight/languages/json'
+	import { Tabs, Tab, TabContent } from '$lib/components/common'
+	import { CalendarCheck2, MailIcon, Terminal, Webhook } from 'lucide-svelte'
+
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import YAML from 'yaml'
 	import HighlightTheme from '../HighlightTheme.svelte'
+	import FlowViewerInner from '../FlowViewerInner.svelte'
 
 	export let triggerSelected: 'webhooks' | 'email' | 'schedule' | 'cli' = 'webhooks'
 	export let flow_json: any | undefined = undefined
@@ -16,8 +13,6 @@
 	export let isOperator: boolean = false
 
 	export let selected: string
-
-	let rawType: 'json' | 'yaml' = 'yaml'
 
 	$: if (hasStepDetails) {
 		selected = 'flow_step'
@@ -97,36 +92,7 @@
 						</Splitpanes>
 					</TabContent>
 					<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto">
-						<Tabs bind:selected={rawType} wrapperClass="mt-4">
-							<Tab value="yaml">YAML</Tab>
-							<Tab value="json">JSON</Tab>
-							<svelte:fragment slot="content">
-								<div class="relative pt-2">
-									<Button
-										on:click={() =>
-											copyToClipboard(
-												rawType === 'yaml'
-													? YAML.stringify(flow_json)
-													: JSON.stringify(flow_json, null, 4)
-											)}
-										color="light"
-										variant="border"
-										size="xs"
-										startIcon={{ icon: Clipboard }}
-										btnClasses="absolute top-2 right-2 w-min"
-									>
-										Copy content
-									</Button>
-									<Highlight
-										class="overflow-auto px-1"
-										language={rawType === 'yaml' ? yaml : json}
-										code={rawType === 'yaml'
-											? YAML.stringify(flow_json)
-											: JSON.stringify(flow_json, null, 4)}
-									/>
-								</div>
-							</svelte:fragment>
-						</Tabs>
+						<FlowViewerInner flow={flow_json} />
 					</TabContent>
 					<TabContent value="flow_step" class="flex flex-col flex-1 h-full">
 						<slot name="flow_step" />
