@@ -2106,6 +2106,13 @@ This is a paragraph.
 
 					tooltip: 'Preselect first item in the options if no default value is set'
 				},
+				nativeHtmlSelect: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+
+					tooltip: 'Use a native html select instead of the Windmill select component'
+				},
 				fullWidth: {
 					type: 'static',
 					fieldType: 'boolean',

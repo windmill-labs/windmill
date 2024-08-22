@@ -5,7 +5,7 @@
 	import StepGen from '$lib/components/copilot/StepGen.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
@@ -18,7 +18,7 @@
 	export let disableAi = false
 
 	$: !open && (funcDesc = '')
-	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 </script>
 
 <Menu
