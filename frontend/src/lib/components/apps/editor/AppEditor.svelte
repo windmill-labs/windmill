@@ -223,7 +223,7 @@
 	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
 
 	$: width =
-		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens
+		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
 			? 'min-w-[400px] max-w-[656px]'
 			: 'min-w-[710px] w-full'
 
