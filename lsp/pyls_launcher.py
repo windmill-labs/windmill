@@ -81,7 +81,7 @@ class DiagnosticLS(LanguageServerWebSocketHandler):
 
 
 class RuffLS(LanguageServerWebSocketHandler):
-    procargs = ["ruff", "server", "--preview"]
+    procargs = ["ruff-lsp"]
 
 
 class DenoLS(LanguageServerWebSocketHandler):
