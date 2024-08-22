@@ -223,7 +223,7 @@
 	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
 
 	$: width =
-		$breakpoint === 'sm' && $appStore.mobileViewOnSmallerScreens
+		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens
 			? 'min-w-[400px] max-w-[656px]'
 			: 'min-w-[710px] w-full'
 
@@ -673,7 +673,7 @@
 												<GridEditor {policy} />
 											</div>
 										{/if}
-										{#if !$appStore.mobileViewOnSmallerScreens && $breakpoint === 'sm'}
+										{#if !$appStore?.mobileViewOnSmallerScreens && $breakpoint === 'sm'}
 											<div
 												class="absolute inset-0 flex bg-surface center-center z-10000 bg-opacity-60"
 											>

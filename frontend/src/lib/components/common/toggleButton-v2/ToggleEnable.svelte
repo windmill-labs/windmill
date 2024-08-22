@@ -10,7 +10,6 @@
 	export let small = false
 	export let light = false
 	export let checked: boolean = false
-
 	export let id: string | undefined = undefined
 </script>
 

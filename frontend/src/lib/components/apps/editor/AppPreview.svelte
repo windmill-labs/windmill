@@ -154,7 +154,7 @@
 	}
 
 	$: width =
-		$breakpoint === 'sm' && $appStore.mobileViewOnSmallerScreens
+		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens
 			? 'max-w-[640px]'
 			: 'w-full min-w-[768px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
