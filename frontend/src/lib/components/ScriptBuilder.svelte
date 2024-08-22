@@ -76,6 +76,7 @@
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let showMeta: boolean = false
+	export let neverShowMeta: boolean = false
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let savedScript: NewScriptWithDraft | undefined = undefined
 	export let searchParams: URLSearchParams = new URLSearchParams()
@@ -85,10 +86,11 @@
 	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
 
 	let metadataOpen =
-		showMeta ||
-		(initialPath == '' &&
-			searchParams.get('state') == undefined &&
-			searchParams.get('collab') == undefined)
+		!neverShowMeta &&
+		(showMeta ||
+			(initialPath == '' &&
+				searchParams.get('state') == undefined &&
+				searchParams.get('collab') == undefined))
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
