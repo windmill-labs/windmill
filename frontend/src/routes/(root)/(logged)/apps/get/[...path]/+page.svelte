@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, replaceState } from '$app/navigation'
+	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
@@ -66,7 +66,6 @@
 					goto(path)
 				}}
 				gotoFn={(path, opt) => {
-					console.log(path, opt)
 					goto(path, opt)
 				}}
 			/>

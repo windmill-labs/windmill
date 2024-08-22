@@ -18,7 +18,7 @@
 	import Login from '$lib/components/Login.svelte'
 	import { getUserExt } from '$lib/user'
 	import { User, UserRoundX } from 'lucide-svelte'
-	import { goto, replaceState } from '$app/navigation'
+	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
