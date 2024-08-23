@@ -1,7 +1,8 @@
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
-	import { Badge, ButtonType } from '$lib/components/common'
+	import { ButtonType } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { getModifierKey } from '$lib/utils'
 	import { PanelBottomClose, PanelLeftClose, PanelRightClose } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -18,8 +19,8 @@
 	}
 
 	const shortcuts = {
-		left: 'j',
-		right: 'k',
+		left: 'b',
+		right: 'u',
 		bottom: 'l'
 	}
 </script>
@@ -27,9 +28,11 @@
 <Popover>
 	<svelte:fragment slot="text">
 		<div class="flex flex-row gap-1">
-			{hidden ? 'Show' : 'Hide '} the {direction} panel. Shortcut: <Badge>
-				{shortcuts[direction]}
-			</Badge>
+			{hidden ? 'Show' : 'Hide '} the {direction} panel.
+
+			<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+				{getModifierKey()}{shortcuts[direction]}
+			</div>
 		</div>
 	</svelte:fragment>
 	<Button

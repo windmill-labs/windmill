@@ -584,23 +584,20 @@
 	}
 
 	function keydown(event: KeyboardEvent) {
-		if (event.key === 'j') {
+		event.preventDefault()
+		if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
 			if (leftPanelSize !== 0) {
 				hideLeftPanel()
 			} else {
 				showLeftPanel()
 			}
-		}
-
-		if (event.key === 'l') {
+		} else if ((event.ctrlKey || event.metaKey) && event.key === 'u') {
 			if (rightPanelSize !== 0) {
 				hideRightPanel()
 			} else {
 				showRightPanel()
 			}
-		}
-
-		if (event.key === 'k') {
+		} else if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
 			if (runnablePanelSize !== 0) {
 				hideBottomPanel()
 			} else {
