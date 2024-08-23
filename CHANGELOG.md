@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.383.1](https://github.com/windmill-labs/windmill/compare/v1.383.0...v1.383.1) (2024-08-22)
+
+
+### Bug Fixes
+
+* fix app navbar query reactivity + hash in ctx handling is more consistent ([7882d4e](https://github.com/windmill-labs/windmill/commit/7882d4ecdd1007e73a51d2a408cf2e6dc1f83213))
+
 ## [1.383.0](https://github.com/windmill-labs/windmill/compare/v1.382.2...v1.383.0) (2024-08-22)
 
 
