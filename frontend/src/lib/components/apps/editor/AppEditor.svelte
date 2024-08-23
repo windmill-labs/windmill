@@ -592,11 +592,11 @@
 			return
 		}
 
-		event.preventDefault()
-
 		switch (event.key) {
 			case 'b': {
 				if (event.ctrlKey || event.metaKey) {
+					event.preventDefault()
+
 					if (leftPanelSize !== 0) {
 						hideLeftPanel()
 					} else {
@@ -608,6 +608,8 @@
 
 			case 'u': {
 				if (event.ctrlKey || event.metaKey) {
+					event.preventDefault()
+
 					if (rightPanelSize !== 0) {
 						hideRightPanel()
 					} else {
@@ -619,6 +621,8 @@
 
 			case 'l': {
 				if (event.ctrlKey || event.metaKey) {
+					event.preventDefault()
+
 					if (runnablePanelSize !== 0) {
 						hideBottomPanel()
 					} else {
