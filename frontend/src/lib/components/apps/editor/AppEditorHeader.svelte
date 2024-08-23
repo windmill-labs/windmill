@@ -31,13 +31,7 @@
 		RefreshCw,
 		Save,
 		Smartphone,
-		FileClock,
-		PanelLeftClose,
-		PanelLeftOpen,
-		PanelRightOpen,
-		PanelRightClose,
-		PanelBottomOpen,
-		PanelBottomClose
+		FileClock
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -90,6 +84,7 @@
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
 	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
+	import HideButton from './settingsPanel/HideButton.svelte'
 
 	async function hash(message) {
 		try {
@@ -1333,8 +1328,10 @@
 		</div>
 	</div>
 
-	<div class="flex gap-2">
-		<button
+	<div class="flex gap-1">
+		<HideButton
+			direction="left"
+			hidden={leftPanelHidden}
 			on:click={() => {
 				if (leftPanelHidden) {
 					dispatch('showLeftPanel')
@@ -1342,14 +1339,10 @@
 					dispatch('hideLeftPanel')
 				}
 			}}
-		>
-			{#if leftPanelHidden}
-				<PanelLeftOpen size={14} />
-			{:else}
-				<PanelLeftClose size={14} />
-			{/if}
-		</button>
-		<button
+		/>
+		<HideButton
+			hidden={bottomPanelHidden}
+			direction="bottom"
 			on:click={() => {
 				if (bottomPanelHidden) {
 					dispatch('showBottomPanel')
@@ -1357,14 +1350,10 @@
 					dispatch('hideBottomPanel')
 				}
 			}}
-		>
-			{#if bottomPanelHidden}
-				<PanelBottomOpen size={14} />
-			{:else}
-				<PanelBottomClose size={14} />
-			{/if}
-		</button>
-		<button
+		/>
+		<HideButton
+			hidden={rightPanelHidden}
+			direction="right"
 			on:click={() => {
 				if (rightPanelHidden) {
 					dispatch('showRightPanel')
@@ -1372,13 +1361,7 @@
 					dispatch('hideRightPanel')
 				}
 			}}
-		>
-			{#if rightPanelHidden}
-				<PanelRightOpen size={14} />
-			{:else}
-				<PanelRightClose size={14} />
-			{/if}
-		</button>
+		/>
 	</div>
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />

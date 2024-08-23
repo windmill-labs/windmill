@@ -545,12 +545,74 @@
 	let storedRightPanelSize = 0
 	let storedBottomPanelSize = 0
 
-	let x = 0
+	let centerPanelWidth = 0
+
+	function hideLeftPanel() {
+		storedLeftPanelSize = leftPanelSize
+		leftPanelSize = 0
+		centerPanelSize = centerPanelSize + storedLeftPanelSize
+	}
+
+	function hideRightPanel() {
+		storedRightPanelSize = rightPanelSize
+		rightPanelSize = 0
+		centerPanelSize = centerPanelSize + storedRightPanelSize
+	}
+
+	function hideBottomPanel() {
+		storedBottomPanelSize = runnablePanelSize
+		gridPanelSize = 99
+		runnablePanelSize = 0
+	}
+
+	function showLeftPanel() {
+		leftPanelSize = storedLeftPanelSize
+		centerPanelSize = centerPanelSize - storedLeftPanelSize
+		storedLeftPanelSize = 0
+	}
+
+	function showRightPanel() {
+		rightPanelSize = storedRightPanelSize
+		centerPanelSize = centerPanelSize - storedRightPanelSize
+		storedRightPanelSize = 0
+	}
+
+	function showBottomPanel() {
+		runnablePanelSize = storedBottomPanelSize
+		gridPanelSize = gridPanelSize - storedBottomPanelSize
+		storedBottomPanelSize = 0
+	}
+
+	function keydown(event: KeyboardEvent) {
+		if (event.key === 'j') {
+			if (leftPanelSize !== 0) {
+				hideLeftPanel()
+			} else {
+				showLeftPanel()
+			}
+		}
+
+		if (event.key === 'l') {
+			if (rightPanelSize !== 0) {
+				hideRightPanel()
+			} else {
+				showRightPanel()
+			}
+		}
+
+		if (event.key === 'k') {
+			if (runnablePanelSize !== 0) {
+				hideBottomPanel()
+			} else {
+				showBottomPanel()
+			}
+		}
+	}
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
 
-<svelte:window on:hashchange={hashchange} />
+<svelte:window on:hashchange={hashchange} on:keydown={keydown} />
 
 {#if !$userStore?.operator}
 	{#if $appStore}
@@ -565,37 +627,12 @@
 			leftPanelHidden={leftPanelSize === 0}
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
-			on:showLeftPanel={() => {
-				leftPanelSize = storedLeftPanelSize
-				centerPanelSize = centerPanelSize - storedLeftPanelSize
-				storedLeftPanelSize = 0
-			}}
-			on:showRightPanel={() => {
-				rightPanelSize = storedRightPanelSize
-				centerPanelSize = centerPanelSize - storedRightPanelSize
-				storedRightPanelSize = 0
-			}}
-			on:hideLeftPanel={() => {
-				storedLeftPanelSize = leftPanelSize
-
-				leftPanelSize = 0
-				centerPanelSize = centerPanelSize + storedLeftPanelSize
-			}}
-			on:hideRightPanel={() => {
-				storedRightPanelSize = rightPanelSize
-				rightPanelSize = 0
-				centerPanelSize = centerPanelSize + storedRightPanelSize
-			}}
-			on:hideBottomPanel={() => {
-				storedBottomPanelSize = runnablePanelSize
-				gridPanelSize = 99
-				runnablePanelSize = 0
-			}}
-			on:showBottomPanel={() => {
-				runnablePanelSize = storedBottomPanelSize
-				gridPanelSize = gridPanelSize - storedBottomPanelSize
-				storedBottomPanelSize = 0
-			}}
+			on:showLeftPanel={() => showLeftPanel()}
+			on:showRightPanel={() => showRightPanel()}
+			on:hideLeftPanel={() => hideLeftPanel()}
+			on:hideRightPanel={() => hideRightPanel()}
+			on:hideBottomPanel={() => hideBottomPanel()}
+			on:showBottomPanel={() => showBottomPanel()}
 		/>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
@@ -641,13 +678,7 @@
 							<!-- {yTop} -->
 
 							<SecondaryMenu right={false} />
-							<ContextPanel
-								on:hidePanel={() => {
-									storedLeftPanelSize = leftPanelSize
-									leftPanelSize = 0
-									centerPanelSize = centerPanelSize + storedLeftPanelSize
-								}}
-							/>
+							<ContextPanel on:hidePanel={() => hideLeftPanel()} />
 						</div>
 					</Pane>
 					<Pane bind:size={centerPanelSize}>
@@ -664,8 +695,39 @@
 										'wm-app-viewer h-full overflow-visible'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
-									bind:clientWidth={x}
+									bind:clientWidth={centerPanelWidth}
 								>
+									{#if leftPanelSize === 0}
+										<div class="absolute top-0.5 left-0.5 z-50">
+											<HideButton
+												on:click={() => showLeftPanel()}
+												direction="right"
+												hidden
+												btnClasses="border bg-surface"
+											/>
+										</div>
+									{/if}
+									{#if rightPanelSize === 0}
+										<div class="absolute top-0.5 right-0.5 z-50">
+											<HideButton
+												on:click={() => showRightPanel()}
+												direction="left"
+												hidden
+												btnClasses="border bg-surface"
+											/>
+										</div>
+									{/if}
+									{#if runnablePanelSize === 0}
+										<div class="absolute bottom-0.5 right-0.5 z-50">
+											<HideButton
+												on:click={() => showBottomPanel()}
+												direction="bottom"
+												hidden
+												btnClasses="border bg-surface"
+											/>
+										</div>
+									{/if}
+
 									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
 										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
@@ -774,24 +836,14 @@
 												)
 											}}
 										>
-											<InlineScriptsPanel
-												on:hidePanel={() => {
-													storedBottomPanelSize = runnablePanelSize
-													gridPanelSize = 99
-													runnablePanelSize = 0
-												}}
-											/>
+											<InlineScriptsPanel on:hidePanel={() => hideBottomPanel()} />
 											<RunnableJobPanel hidden={runnablePanelSize === 0} />
 										</div>
 									{:else}
 										<div class="flex flex-row relative w-full h-full">
 											<InlineScriptsPanel
-												width={x - 400}
-												on:hidePanel={() => {
-													storedBottomPanelSize = runnablePanelSize
-													gridPanelSize = 99
-													runnablePanelSize = 0
-												}}
+												width={centerPanelWidth - 400}
+												on:hidePanel={() => hideBottomPanel()}
 											/>
 
 											<RunnableJobPanel float={false} hidden={runnablePanelSize === 0} />
