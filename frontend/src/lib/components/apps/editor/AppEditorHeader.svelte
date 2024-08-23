@@ -130,7 +130,8 @@
 		jobsById,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen, refreshComponents } =
@@ -1328,41 +1329,43 @@
 		</div>
 	</div>
 
-	<div class="flex gap-1">
-		<HideButton
-			direction="left"
-			hidden={leftPanelHidden}
-			on:click={() => {
-				if (leftPanelHidden) {
-					dispatch('showLeftPanel')
-				} else {
-					dispatch('hideLeftPanel')
-				}
-			}}
-		/>
-		<HideButton
-			hidden={bottomPanelHidden}
-			direction="bottom"
-			on:click={() => {
-				if (bottomPanelHidden) {
-					dispatch('showBottomPanel')
-				} else {
-					dispatch('hideBottomPanel')
-				}
-			}}
-		/>
-		<HideButton
-			hidden={rightPanelHidden}
-			direction="right"
-			on:click={() => {
-				if (rightPanelHidden) {
-					dispatch('showRightPanel')
-				} else {
-					dispatch('hideRightPanel')
-				}
-			}}
-		/>
-	</div>
+	{#if $mode !== 'preview'}
+		<div class="flex gap-1">
+			<HideButton
+				direction="left"
+				hidden={leftPanelHidden}
+				on:click={() => {
+					if (leftPanelHidden) {
+						dispatch('showLeftPanel')
+					} else {
+						dispatch('hideLeftPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={bottomPanelHidden}
+				direction="bottom"
+				on:click={() => {
+					if (bottomPanelHidden) {
+						dispatch('showBottomPanel')
+					} else {
+						dispatch('hideBottomPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={rightPanelHidden}
+				direction="right"
+				on:click={() => {
+					if (rightPanelHidden) {
+						dispatch('showRightPanel')
+					} else {
+						dispatch('hideRightPanel')
+					}
+				}}
+			/>
+		</div>
+	{/if}
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}
