@@ -10,7 +10,8 @@ export const forbiddenIds: string[] = [
 	'for',
 	'delete',
 	'while',
-	'new'
+	'new',
+	'in'
 ]
 
 export function numberToChars(n: number) {

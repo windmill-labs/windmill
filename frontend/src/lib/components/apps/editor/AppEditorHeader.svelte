@@ -83,6 +83,7 @@
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
+	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
 
 	async function hash(message) {
 		try {
@@ -230,6 +231,11 @@
 									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
+								console.log(
+									x.id,
+									getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
+									columnDefs
+								)
 								r.push({
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
@@ -1288,20 +1294,29 @@
 					/>
 				</ToggleButtonGroup>
 			{/if}
-			<div>
+			<div class="flex flex-row gap-2">
 				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
-					<ToggleButton
-						tooltip="Mobile View"
-						icon={Smartphone}
-						value="sm"
-						iconProps={{ size: 16 }}
-					/>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
-						value="lg"
+						value={'lg'}
 						iconProps={{ size: 16 }}
 					/>
+					<ToggleButton
+						tooltip="Mobile View"
+						icon={Smartphone}
+						value={'sm'}
+						iconProps={{ size: 16 }}
+					/>
+					{#if $breakpoint === 'sm'}
+						<ToggleEnable
+							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
+							label="Enable mobile view for smaller screens"
+							bind:checked={$app.mobileViewOnSmallerScreens}
+							iconProps={{ size: 16 }}
+							iconOnly={false}
+						/>
+					{/if}
 				</ToggleButtonGroup>
 			</div>
 		</div>

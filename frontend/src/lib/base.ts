@@ -1,1 +1,1 @@
-export const base: string = import.meta.env.VITE_BASE_URL ?? ''
+export let base: string = import.meta.env.VITE_BASE_URL ?? ''

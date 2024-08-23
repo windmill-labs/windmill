@@ -6,6 +6,7 @@
 
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
+	import { dfs } from './flows/dfs'
 
 	export let flow: {
 		summary: string
@@ -14,6 +15,7 @@
 		schema?: any
 		path?: string
 	}
+
 	export let overflowAuto = false
 	export let noSide = false
 	export let download = false
@@ -37,7 +39,8 @@
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}
 				on:select={(e) => {
-					stepDetail = e.detail
+					const mod = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === e?.detail)
+					stepDetail = mod ?? e.detail
 					dispatch('select', stepDetail)
 				}}
 				on:triggerDetail

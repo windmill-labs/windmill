@@ -32,8 +32,14 @@
 
 	const dispatch = createEventDispatcher()
 
-	let { flowStateStore, retryStatus, suspendStatus } =
-		getContext<FlowStatusViewerContext>('FlowStatusViewer')
+	let {
+		flowStateStore,
+		retryStatus,
+		suspendStatus,
+		hideDownloadInGraph,
+		hideTimeline,
+		hideNodeDefinition
+	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
 	export let workspaceId: string | undefined = undefined
@@ -776,7 +782,7 @@
 						{/if}
 					{/each}
 				</div>
-			{:else if innerModules.length > 0}
+			{:else if innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
@@ -896,6 +902,8 @@
 						</li>
 					{/each}
 				</ul>
+			{:else}
+				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
 	</div>
@@ -922,7 +930,7 @@
 						</div>
 
 						<FlowGraphV2
-							download
+							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
@@ -962,9 +970,14 @@
 						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col z-0 h-full"
 					>
 						<Tabs bind:selected={rightColumnSelect}>
-							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							{#if !hideTimeline}
+								<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							{/if}
 							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
-							<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab>
+							{#if !hideNodeDefinition}
+								<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab
+								>
+							{/if}
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
 							{/if}

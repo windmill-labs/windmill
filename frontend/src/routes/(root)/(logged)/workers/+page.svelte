@@ -189,10 +189,10 @@
 	let queueMetricsDrawer: Drawer
 	let selectedTab: string = 'default'
 
-	$: workerGroups && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
+	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
 
 	function updateSelectedTabIfDefaultDoesNotExist() {
-		if (selectedTab == 'default' && !workerGroups?.hasOwnProperty('default')) {
+		if (selectedTab == 'default' && !groupedWorkers.some((x) => x[0] == 'default')) {
 			selectedTab = Object.keys(workerGroups ?? {})[0] ?? 'default'
 		}
 	}

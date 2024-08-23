@@ -6,6 +6,11 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Continue on disapproval/timeout',
+		href: 'https://www.windmill.dev/changelog/continue-on-disapproval',
+		date: '2024-08-14'
+	},
+	{
 		label: 'Nativets runtime supports npm packages and relative imports',
 		href: 'https://www.windmill.dev/changelog/native-runtime-imports',
 		date: '2024-07-29'

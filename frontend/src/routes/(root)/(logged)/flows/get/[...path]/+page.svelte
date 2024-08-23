@@ -437,7 +437,7 @@
 						overflowAuto
 						noSide={true}
 						on:select={(e) => {
-							if (e.detail.id) {
+							if (e.detail) {
 								stepDetail = e.detail
 							} else {
 								stepDetail = undefined
