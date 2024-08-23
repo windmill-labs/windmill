@@ -584,24 +584,48 @@
 	}
 
 	function keydown(event: KeyboardEvent) {
+		let classes = event.target?.['className']
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+		) {
+			return
+		}
+
 		event.preventDefault()
-		if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
-			if (leftPanelSize !== 0) {
-				hideLeftPanel()
-			} else {
-				showLeftPanel()
+
+		switch (event.key) {
+			case 'b': {
+				if (event.ctrlKey || event.metaKey) {
+					if (leftPanelSize !== 0) {
+						hideLeftPanel()
+					} else {
+						showLeftPanel()
+					}
+				}
+				break
 			}
-		} else if ((event.ctrlKey || event.metaKey) && event.key === 'u') {
-			if (rightPanelSize !== 0) {
-				hideRightPanel()
-			} else {
-				showRightPanel()
+
+			case 'u': {
+				if (event.ctrlKey || event.metaKey) {
+					if (rightPanelSize !== 0) {
+						hideRightPanel()
+					} else {
+						showRightPanel()
+					}
+				}
+				break
 			}
-		} else if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
-			if (runnablePanelSize !== 0) {
-				hideBottomPanel()
-			} else {
-				showBottomPanel()
+
+			case 'l': {
+				if (event.ctrlKey || event.metaKey) {
+					if (runnablePanelSize !== 0) {
+						hideBottomPanel()
+					} else {
+						showBottomPanel()
+					}
+				}
+				break
 			}
 		}
 	}
