@@ -14,6 +14,7 @@
 	import { ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { findNextAvailablePath } from '$lib/path'
+	import { twMerge } from 'tailwind-merge'
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
@@ -100,13 +101,17 @@
 
 		$app = $app
 	}
-	export let fullWidth = false
+
+	export let width: number | undefined = undefined
 </script>
 
-<SplitPanesWrapper class={fullWidth ? 'w-full' : ''}>
-	<Splitpanes class="!overflow-visible">
+<SplitPanesWrapper>
+	<Splitpanes
+		class={twMerge('!overflow-visible')}
+		style={width !== undefined ? `width:${width}px;` : ''}
+	>
 		<Pane size={25}>
-			<InlineScriptsPanelList />
+			<InlineScriptsPanelList on:hidePanel />
 		</Pane>
 		<Pane size={75}>
 			{#if !$selectedComponentInEditor}

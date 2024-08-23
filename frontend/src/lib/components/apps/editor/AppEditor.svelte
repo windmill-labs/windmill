@@ -541,6 +541,8 @@
 	let storedLeftPanelSize = 0
 	let storedRightPanelSize = 0
 	let storedBottomPanelSize = 0
+
+	let x = 0
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -659,6 +661,7 @@
 										'wm-app-viewer h-full overflow-visible'
 									)}
 									style={$appStore.css?.['app']?.['viewer']?.style}
+									bind:clientWidth={x}
 								>
 									<div class="absolute bottom-2 left-2 z-50 border bg-surface">
 										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
@@ -740,13 +743,27 @@
 												)
 											}}
 										>
-											<InlineScriptsPanel />
-											<RunnableJobPanel />
+											<InlineScriptsPanel
+												on:hidePanel={() => {
+													storedBottomPanelSize = runnablePanelSize
+													gridPanelSize = 99
+													runnablePanelSize = 0
+												}}
+											/>
+											<RunnableJobPanel hidden={runnablePanelSize === 0} />
 										</div>
 									{:else}
 										<div class="flex flex-row relative w-full h-full">
-											<InlineScriptsPanel fullWidth />
-											<RunnableJobPanel float={false} />
+											<InlineScriptsPanel
+												width={x - 400}
+												on:hidePanel={() => {
+													storedBottomPanelSize = runnablePanelSize
+													gridPanelSize = 99
+													runnablePanelSize = 0
+												}}
+											/>
+
+											<RunnableJobPanel float={false} hidden={runnablePanelSize === 0} />
 										</div>
 									{/if}
 								</Pane>
@@ -821,6 +838,7 @@
 												rightPanelSize = 0
 												centerPanelSize = centerPanelSize + storedRightPanelSize
 											}}
+											direction="right"
 										/>
 									</div>
 									<div slot="content" class="h-full overflow-y-auto">

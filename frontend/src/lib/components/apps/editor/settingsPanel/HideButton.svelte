@@ -2,11 +2,19 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { ButtonType } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { EyeOff } from 'lucide-svelte'
+	import { PanelBottomClose, PanelLeftClose, PanelRightClose } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let btnClasses: string | undefined = undefined
 	export let size: ButtonType.Size = 'xs'
+
+	export let direction: 'left' | 'right' | 'bottom' = 'right'
+
+	const IconMap = {
+		left: PanelLeftClose,
+		right: PanelRightClose,
+		bottom: PanelBottomClose
+	}
 </script>
 
 <Popover>
@@ -16,7 +24,7 @@
 	<Button
 		iconOnly
 		startIcon={{
-			icon: EyeOff
+			icon: IconMap[direction]
 		}}
 		{size}
 		btnClasses={twMerge(

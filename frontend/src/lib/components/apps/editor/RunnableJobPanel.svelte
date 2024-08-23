@@ -6,6 +6,7 @@
 	import RunnalbeJobPanelInner from './RunnalbeJobPanelInner.svelte'
 
 	export let float: boolean = true
+	export let hidden: boolean = false
 
 	const { runnableJobEditorPanel, selectedComponentInEditor } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -47,7 +48,7 @@
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
-{#if ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen}
+{#if ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen || !float}
 	{@const frontendJob = $runnableJobEditorPanel?.frontendJobs[$selectedComponentInEditor ?? '']}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	{#if float}
@@ -59,7 +60,13 @@
 		</div>
 	{:else}
 		<div class="flex flex-col w-full">
-			<RunnalbeJobPanelInner {frontendJob} {testJob} />
+			{#if $selectedComponentInEditor}
+				<RunnalbeJobPanelInner {frontendJob} {testJob} />
+			{:else if !hidden}
+				<div class="text-sm text-secondary text-center py-8 px-2 border-l h-full">
+					Logs and results will be displayed here
+				</div>
+			{/if}
 		</div>
 	{/if}
 {/if}

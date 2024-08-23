@@ -28,6 +28,7 @@
 				on:click={() => {
 					dispatch('hidePanel')
 				}}
+				direction="left"
 			/>
 			<DocLink docLink="https://www.windmill.dev/docs/apps/outputs" />
 		</div>
