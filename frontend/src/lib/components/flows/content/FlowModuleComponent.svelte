@@ -334,10 +334,11 @@
 										)}
 									/>
 									<DiffEditor
+										open={false}
 										bind:this={diffEditor}
 										automaticLayout
 										fixedOverflowWidgets
-										class="hidden h-full"
+										class="h-full"
 									/>
 								{/key}
 							{/if}

@@ -370,8 +370,9 @@
 				{/if}
 
 				<DiffEditor
+					open={false}
 					bind:this={diffEditor}
-					class="hidden h-full"
+					class="h-full"
 					automaticLayout
 					fixedOverflowWidgets
 				/>

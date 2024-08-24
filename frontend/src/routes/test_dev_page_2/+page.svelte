@@ -62,9 +62,9 @@
 		Uri as mUri,
 		type IRange
 	} from 'monaco-editor'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+	// import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
-	import EditorTheme from './EditorTheme.svelte'
+	// import EditorTheme from './EditorTheme.svelte'
 	import {
 		BIGQUERY_TYPES,
 		MSSQL_TYPES,
@@ -90,7 +90,7 @@
 		| 'powershell'
 		| 'php'
 		| 'css'
-		| 'javascript'
+		| 'javascript' = 'typescript'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -139,7 +139,7 @@
 	let nbWsAttempt = 0
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
-	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let dbSchema: DBSchema | undefined = undefined
 
@@ -362,7 +362,7 @@
 	}
 	$: (!dbSchema || lang !== 'sql') && disposeSqlSchemaCompletor()
 	function disposeGaphqlService() {
-		graphqlService = undefined
+		// graphqlService = undefined
 	}
 	$: (!dbSchema || lang !== 'graphql') && disposeGaphqlService()
 
@@ -952,7 +952,7 @@
 	async function loadMonaco() {
 		try {
 			console.log("Loading Monaco's language client")
-			await initializeVscode('editor')
+			await initializeVscode()
 			console.log('done loading Monaco and vscode')
 		} catch (e) {
 			console.log('error initializing services', e)
@@ -1304,30 +1304,5 @@
 	}
 </script>
 
-<EditorTheme />
+<!-- <EditorTheme /> -->
 <div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}" />
-
-<style global lang="postcss">
-	.editor {
-		@apply p-0;
-	}
-	.yRemoteSelection {
-		background-color: rgb(250, 129, 0, 0.5);
-	}
-	.yRemoteSelectionHead {
-		position: absolute;
-		border-left: orange solid 2px;
-		border-top: orange solid 2px;
-		border-bottom: orange solid 2px;
-		height: 100%;
-		box-sizing: border-box;
-	}
-	.yRemoteSelectionHead::after {
-		position: absolute;
-		content: ' ';
-		border: 3px solid orange;
-		border-radius: 4px;
-		left: -4px;
-		top: -5px;
-	}
-</style>

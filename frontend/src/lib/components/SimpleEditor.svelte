@@ -15,14 +15,21 @@
 		languages,
 		type IRange
 	} from 'monaco-editor'
-	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
-	import 'monaco-editor/esm/vs/language/css/monaco.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	// import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	// import 'monaco-editor/esm/vs/language/json/monaco.contribution'
+	// import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
+	// import 'monaco-editor/esm/vs/language/css/monaco.contribution'
+
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+	import '@codingame/monaco-vscode-standalone-css-language-features'
+	// import '@codingame/monaco-vscode-standalone-yaml-language-features'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import 'vscode/localExtensionHost'
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
@@ -61,7 +68,14 @@
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
-	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	buildWorkerDefinition()
+
+	// monaco.languages.register({
+	// 	id: 'json',
+	// 	extensions: ['.json', '.jsonc'],
+	// 	aliases: ['JSON', 'json'],
+	// 	mimetypes: ['application/json']
+	// })
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -138,26 +152,26 @@
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
+		// languages.typescript.javascriptDefaults.setCompilerOptions({
+		// 	target: languages.typescript.ScriptTarget.Latest,
+		// 	allowNonTsExtensions: true,
+		// 	noSemanticValidation: false,
+		// 	noLib: true,
+		// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		// })
+		// languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+		// 	noSemanticValidation: false,
+		// 	noSyntaxValidation: false,
+		// 	noSuggestionDiagnostics: false,
+		// 	diagnosticCodesToIgnore: [1108]
+		// })
 
-		languages.json.jsonDefaults.setDiagnosticsOptions({
-			validate: true,
-			allowComments: false,
-			schemas: [],
-			enableSchemaRequest: true
-		})
+		// languages.json.jsonDefaults.setDiagnosticsOptions({
+		// 	validate: true,
+		// 	allowComments: false,
+		// 	schemas: [],
+		// 	enableSchemaRequest: true
+		// })
 
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))

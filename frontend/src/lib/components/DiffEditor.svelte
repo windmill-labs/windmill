@@ -2,13 +2,12 @@
 	import { BROWSER } from 'esm-env'
 	import { onMount } from 'svelte'
 
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import { editor as meditor } from 'monaco-editor'
-	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import 'vscode/localExtensionHost'
+
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from './build_workers'
@@ -29,6 +28,7 @@
 	let diffDivEl: HTMLDivElement | null = null
 	let editorWidth: number = SIDE_BY_SIDE_MIN_WIDTH
 
+	export let open = false
 	async function loadDiffEditor() {
 		await initializeVscode()
 
@@ -94,10 +94,10 @@
 	}
 
 	export function show(): void {
-		diffDivEl?.classList.remove('hidden')
+		open = true
 	}
 	export function hide(): void {
-		diffDivEl?.classList.add('hidden')
+		open = false
 	}
 
 	function onWidthChange(editorWidth: number) {
@@ -106,9 +106,10 @@
 
 	$: onWidthChange(editorWidth)
 
+	$: open && diffDivEl && loadDiffEditor()
+
 	onMount(() => {
 		if (BROWSER) {
-			loadDiffEditor()
 			return () => {
 				diffEditor?.dispose()
 			}
@@ -116,6 +117,7 @@
 	})
 </script>
 
-<EditorTheme />
-
-<div bind:this={diffDivEl} class="{$$props.class} editor" bind:clientWidth={editorWidth} />
+{#if open}
+	<EditorTheme />
+	<div bind:this={diffDivEl} class="{$$props.class} editor" bind:clientWidth={editorWidth} />
+{/if}
