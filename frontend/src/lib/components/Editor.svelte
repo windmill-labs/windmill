@@ -1,3 +1,106 @@
+<!-- <script lang="ts"></script> -->
+
+<script context="module">
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	import processStdContent from '$lib/process.d.ts.txt?raw'
+	import windmillFetchContent from '$lib/windmill_fetch.d.ts.txt?raw'
+
+	languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
+
+	// languages.typescript.javascriptDefaults.setModeConfiguration({
+	// 	completionItems: true,
+	// 	hovers: true,
+	// 	documentSymbols: true,
+	// 	definitions: true,
+	// 	references: true,
+	// 	documentHighlights: true,
+	// 	rename: true,
+	// 	diagnostics: true,
+	// 	documentRangeFormattingEdits: true,
+	// 	signatureHelp: true,
+	// 	onTypeFormattingEdits: true,
+	// 	codeActions: true,
+	// 	inlayHints: true
+	// })
+
+	languages.typescript.typescriptDefaults.setModeConfiguration({
+		completionItems: true,
+		hovers: true,
+		documentSymbols: true,
+		definitions: true,
+		references: true,
+		documentHighlights: true,
+		rename: true,
+		diagnostics: true,
+		documentRangeFormattingEdits: true,
+		signatureHelp: true,
+		onTypeFormattingEdits: true,
+		codeActions: true,
+		inlayHints: true
+	})
+
+	// languages.typescript.javascriptDefaults.setEagerModelSync(true)
+	languages.typescript.typescriptDefaults.setEagerModelSync(true)
+
+	// languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+	// 	noSemanticValidation: false,
+	// 	noSyntaxValidation: false,
+	// 	noSuggestionDiagnostics: false,
+	// 	diagnosticCodesToIgnore: [1108]
+	// })
+
+	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		noSuggestionDiagnostics: false,
+		diagnosticCodesToIgnore: [1108]
+	})
+
+	languages.typescript.typescriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		completionItems: true,
+		hovers: true,
+		documentSymbols: true,
+		definitions: true,
+		references: true,
+		documentHighlights: true,
+		rename: true,
+		diagnostics: true,
+		documentRangeFormattingEdits: true,
+		signatureHelp: true,
+		onTypeFormattingEdits: true,
+		codeActions: true,
+		inlayHints: true,
+		checkJs: true,
+		allowJs: true,
+		noUnusedLocals: true,
+		strict: true,
+		noLib: false,
+		allowImportingTsExtensions: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	})
+
+	// languages.typescript.javascriptDefaults.setCompilerOptions({
+	// 	target: languages.typescript.ScriptTarget.Latest,
+	// 	allowNonTsExtensions: true,
+	// 	noSemanticValidation: false,
+	// 	noSyntaxValidation: false,
+	// 	allowImportingTsExtensions: true,
+	// 	checkJs: true,
+	// 	allowJs: true,
+	// 	noUnusedParameters: true,
+	// 	noUnusedLocals: true,
+	// 	strict: true,
+	// 	noLib: true,
+	// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	// })
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
@@ -5,33 +108,15 @@
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import * as vscode from 'vscode'
-
-	import {
-		editor as meditor,
-		languages,
-		KeyCode,
-		KeyMod,
-		Uri as mUri,
-		type IRange
-	} from 'monaco-editor'
-	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/php/php.contribution'
-	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import 'monaco-editor/esm/vs/basic-languages/css/css.contribution'
-
 	// import libStdContent from '$lib/es6.d.ts.txt?raw'
 	// import domContent from '$lib/dom.d.ts.txt?raw'
 
 	// import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
-	import processStdContent from '$lib/process.d.ts.txt?raw'
-	import windmillFetchContent from '$lib/windmill_fetch.d.ts.txt?raw'
+
+	import * as vscode from 'vscode'
+	// import '@codingame/monaco-vscode-typescript-basics-default-extension'
+	// import '@codingame/monaco-vscode-typescript-language-features-default-extension'
+	// import 'vscode/localExtensionHost'
 
 	import { MonacoLanguageClient } from 'monaco-languageclient'
 
@@ -55,15 +140,25 @@
 	} from '$lib/editorUtils'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
-	import { buildWorkerDefinition } from './build_workers'
+	import { buildWorkerDefinition } from '$lib/components/build_workers'
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
+	import { initializeVscode } from '$lib/components/vscode'
+
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 	import { sleep } from '$lib/utils'
-	import { editorCodeCompletion } from './copilot/completion'
-	import { initializeVscode } from './vscode'
+	import { editorCodeCompletion } from '$lib/components/copilot/completion'
+	import {
+		editor as meditor,
+		languages,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		type IRange
+	} from 'monaco-editor'
+	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+
 	import EditorTheme from './EditorTheme.svelte'
 	import {
 		BIGQUERY_TYPES,
@@ -74,10 +169,11 @@
 	} from '$lib/consts'
 	import { setupTypeAcquisition } from '$lib/ata/index'
 	import { initWasm, parseDeps } from '$lib/infer'
+
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
-	let editor: meditor.IStandaloneCodeEditor
+	let editor: meditor.IStandaloneCodeEditor | null = null
 
 	export let lang:
 		| 'typescript'
@@ -463,6 +559,7 @@
 	let copilotCompletor: Disposable | undefined = undefined
 	let copilotTs = Date.now()
 	let abortController: AbortController | undefined = undefined
+
 	function addCopilotSuggestions() {
 		if (copilotCompletor) {
 			copilotCompletor.dispose()
@@ -948,7 +1045,8 @@
 	async function loadMonaco() {
 		try {
 			console.log("Loading Monaco's language client")
-			await initializeVscode()
+			await initializeVscode('editor')
+			console.log('done loading Monaco and vscode')
 		} catch (e) {
 			console.log('error initializing services', e)
 		}
@@ -957,99 +1055,6 @@
 		// console.log('af ready')
 
 		initialized = true
-
-		languages.typescript.typescriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			completionItems: true,
-			hovers: true,
-			documentSymbols: true,
-			definitions: true,
-			references: true,
-			documentHighlights: true,
-			rename: true,
-			diagnostics: true,
-			documentRangeFormattingEdits: true,
-			signatureHelp: true,
-			onTypeFormattingEdits: true,
-			codeActions: true,
-			inlayHints: true,
-			checkJs: true,
-			allowJs: true,
-			noUnusedLocals: true,
-			strict: true,
-			noLib: false,
-			allowImportingTsExtensions: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-
-		languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
-
-		languages.typescript.javascriptDefaults.setModeConfiguration({
-			completionItems: true,
-			hovers: true,
-			documentSymbols: true,
-			definitions: true,
-			references: true,
-			documentHighlights: true,
-			rename: true,
-			diagnostics: true,
-			documentRangeFormattingEdits: true,
-			signatureHelp: true,
-			onTypeFormattingEdits: true,
-			codeActions: true,
-			inlayHints: true
-		})
-
-		languages.typescript.typescriptDefaults.setModeConfiguration({
-			completionItems: true,
-			hovers: true,
-			documentSymbols: true,
-			definitions: true,
-			references: true,
-			documentHighlights: true,
-			rename: true,
-			diagnostics: true,
-			documentRangeFormattingEdits: true,
-			signatureHelp: true,
-			onTypeFormattingEdits: true,
-			codeActions: true,
-			inlayHints: true
-		})
-
-		languages.typescript.javascriptDefaults.setEagerModelSync(true)
-		languages.typescript.typescriptDefaults.setEagerModelSync(true)
-
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
-
-		languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
-
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			allowImportingTsExtensions: true,
-			checkJs: true,
-			allowJs: true,
-			noUnusedParameters: true,
-			noUnusedLocals: true,
-			strict: true,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
 
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
@@ -1075,7 +1080,7 @@
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		let ataModel: NodeJS.Timeout | undefined = undefined
 
-		editor.onDidChangeModelContent((event) => {
+		editor?.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				let ncode = getCode()
@@ -1091,24 +1096,24 @@
 			}, 1000)
 		})
 
-		editor.onDidBlurEditorText(() => {
+		editor?.onDidBlurEditorText(() => {
 			dispatch('blur')
 		})
 
-		editor.onDidFocusEditorText(() => {
+		editor?.onDidFocusEditorText(() => {
 			dispatch('focus')
 
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				code = getCode()
 				shouldBindKey && format && format()
 			})
 
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
 				code = getCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 
-			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
+			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
 				// CMD + slash (toggle comment) on some EU keyboards
 				editor?.trigger('keyboard', 'editor.action.commentLine', {})
 			})

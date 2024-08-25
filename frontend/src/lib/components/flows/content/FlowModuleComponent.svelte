@@ -334,10 +334,12 @@
 										)}
 									/>
 									<DiffEditor
+										open={false}
 										bind:this={diffEditor}
 										automaticLayout
 										fixedOverflowWidgets
-										class="hidden h-full"
+										defaultLang={scriptLangToEditorLang(flowModule.value.language)}
+										class="h-full"
 									/>
 								{/key}
 							{/if}
