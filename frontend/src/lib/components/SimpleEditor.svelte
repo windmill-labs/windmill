@@ -1,6 +1,31 @@
 <script context="module">
 	let cssClassesLoaded = writable(false)
 	let tailwindClassesLoaded = writable(false)
+
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-json-language-features'
+	import '@codingame/monaco-vscode-standalone-css-language-features'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noSemanticValidation: false,
+		noLib: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	})
+	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		noSuggestionDiagnostics: false,
+		diagnosticCodesToIgnore: [1108]
+	})
+	languages.json.jsonDefaults.setDiagnosticsOptions({
+		validate: true,
+		allowComments: false,
+		schemas: [],
+		enableSchemaRequest: true
+	})
 </script>
 
 <script lang="ts">
@@ -135,27 +160,29 @@
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
 
-		languages.json.jsonDefaults.setDiagnosticsOptions({
-			validate: true,
-			allowComments: false,
-			schemas: [],
-			enableSchemaRequest: true
-		})
-
+		// if (lang === 'javascript') {
+		// 	languages.typescript.javascriptDefaults.setCompilerOptions({
+		// 		target: languages.typescript.ScriptTarget.Latest,
+		// 		allowNonTsExtensions: true,
+		// 		noSemanticValidation: false,
+		// 		noLib: true,
+		// 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		// 	})
+		// 	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+		// 		noSemanticValidation: false,
+		// 		noSyntaxValidation: false,
+		// 		noSuggestionDiagnostics: false,
+		// 		diagnosticCodesToIgnore: [1108]
+		// 	})
+		// } else if (lang === 'json') {
+		// 	languages.json.jsonDefaults.setDiagnosticsOptions({
+		// 		validate: true,
+		// 		allowComments: false,
+		// 		schemas: [],
+		// 		enableSchemaRequest: true
+		// 	})
+		// }
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {

@@ -1,5 +1,106 @@
 <!-- <script lang="ts"></script> -->
 
+<script context="module">
+	import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	import processStdContent from '$lib/process.d.ts.txt?raw'
+	import windmillFetchContent from '$lib/windmill_fetch.d.ts.txt?raw'
+
+	languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
+
+	// languages.typescript.javascriptDefaults.setModeConfiguration({
+	// 	completionItems: true,
+	// 	hovers: true,
+	// 	documentSymbols: true,
+	// 	definitions: true,
+	// 	references: true,
+	// 	documentHighlights: true,
+	// 	rename: true,
+	// 	diagnostics: true,
+	// 	documentRangeFormattingEdits: true,
+	// 	signatureHelp: true,
+	// 	onTypeFormattingEdits: true,
+	// 	codeActions: true,
+	// 	inlayHints: true
+	// })
+
+	languages.typescript.typescriptDefaults.setModeConfiguration({
+		completionItems: true,
+		hovers: true,
+		documentSymbols: true,
+		definitions: true,
+		references: true,
+		documentHighlights: true,
+		rename: true,
+		diagnostics: true,
+		documentRangeFormattingEdits: true,
+		signatureHelp: true,
+		onTypeFormattingEdits: true,
+		codeActions: true,
+		inlayHints: true
+	})
+
+	// languages.typescript.javascriptDefaults.setEagerModelSync(true)
+	languages.typescript.typescriptDefaults.setEagerModelSync(true)
+
+	// languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+	// 	noSemanticValidation: false,
+	// 	noSyntaxValidation: false,
+	// 	noSuggestionDiagnostics: false,
+	// 	diagnosticCodesToIgnore: [1108]
+	// })
+
+	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		noSuggestionDiagnostics: false,
+		diagnosticCodesToIgnore: [1108]
+	})
+
+	languages.typescript.typescriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noSemanticValidation: false,
+		noSyntaxValidation: false,
+		completionItems: true,
+		hovers: true,
+		documentSymbols: true,
+		definitions: true,
+		references: true,
+		documentHighlights: true,
+		rename: true,
+		diagnostics: true,
+		documentRangeFormattingEdits: true,
+		signatureHelp: true,
+		onTypeFormattingEdits: true,
+		codeActions: true,
+		inlayHints: true,
+		checkJs: true,
+		allowJs: true,
+		noUnusedLocals: true,
+		strict: true,
+		noLib: false,
+		allowImportingTsExtensions: true,
+		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	})
+
+	// languages.typescript.javascriptDefaults.setCompilerOptions({
+	// 	target: languages.typescript.ScriptTarget.Latest,
+	// 	allowNonTsExtensions: true,
+	// 	noSemanticValidation: false,
+	// 	noSyntaxValidation: false,
+	// 	allowImportingTsExtensions: true,
+	// 	checkJs: true,
+	// 	allowJs: true,
+	// 	noUnusedParameters: true,
+	// 	noUnusedLocals: true,
+	// 	strict: true,
+	// 	noLib: true,
+	// 	moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+	// })
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
@@ -12,16 +113,11 @@
 
 	// import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
 
-	import '@codingame/monaco-vscode-standalone-languages'
-	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
 	import * as vscode from 'vscode'
 	// import '@codingame/monaco-vscode-typescript-basics-default-extension'
 	// import '@codingame/monaco-vscode-typescript-language-features-default-extension'
 	// import 'vscode/localExtensionHost'
 
-	import processStdContent from '$lib/process.d.ts.txt?raw'
-	import windmillFetchContent from '$lib/windmill_fetch.d.ts.txt?raw'
 	import { MonacoLanguageClient } from 'monaco-languageclient'
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
@@ -960,99 +1056,6 @@
 
 		initialized = true
 
-		languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
-
-		languages.typescript.javascriptDefaults.setModeConfiguration({
-			completionItems: true,
-			hovers: true,
-			documentSymbols: true,
-			definitions: true,
-			references: true,
-			documentHighlights: true,
-			rename: true,
-			diagnostics: true,
-			documentRangeFormattingEdits: true,
-			signatureHelp: true,
-			onTypeFormattingEdits: true,
-			codeActions: true,
-			inlayHints: true
-		})
-
-		languages.typescript.typescriptDefaults.setModeConfiguration({
-			completionItems: true,
-			hovers: true,
-			documentSymbols: true,
-			definitions: true,
-			references: true,
-			documentHighlights: true,
-			rename: true,
-			diagnostics: true,
-			documentRangeFormattingEdits: true,
-			signatureHelp: true,
-			onTypeFormattingEdits: true,
-			codeActions: true,
-			inlayHints: true
-		})
-
-		languages.typescript.javascriptDefaults.setEagerModelSync(true)
-		languages.typescript.typescriptDefaults.setEagerModelSync(true)
-
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
-
-		languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
-
-		languages.typescript.typescriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			completionItems: true,
-			hovers: true,
-			documentSymbols: true,
-			definitions: true,
-			references: true,
-			documentHighlights: true,
-			rename: true,
-			diagnostics: true,
-			documentRangeFormattingEdits: true,
-			signatureHelp: true,
-			onTypeFormattingEdits: true,
-			codeActions: true,
-			inlayHints: true,
-			checkJs: true,
-			allowJs: true,
-			noUnusedLocals: true,
-			strict: true,
-			noLib: false,
-			allowImportingTsExtensions: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			allowImportingTsExtensions: true,
-			checkJs: true,
-			allowJs: true,
-			noUnusedParameters: true,
-			noUnusedLocals: true,
-			strict: true,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-
 		try {
 			model = meditor.createModel(code, lang, mUri.parse(uri))
 		} catch (err) {
@@ -1073,23 +1076,6 @@
 			tabSize: lang == 'python' ? 4 : 2,
 			folding
 		})
-
-		// const wrapper = new MonacoEditorLanguageClientWrapper()
-		// const userConfig: UserConfig = {
-		// 	wrapperConfig: {
-		// 		editorAppConfig: {
-		// 			$type: 'classic',
-		// 			codeResources: {
-		// 				main: {
-		// 					text: 'console.log("FOO")")',
-		// 					uri: '/workspace/hello.ts'
-		// 				}
-		// 			}
-		// 		}
-		// 	}
-		// }
-
-		// await wrapper.initAndStart(userConfig, divEl)
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		let ataModel: NodeJS.Timeout | undefined = undefined
