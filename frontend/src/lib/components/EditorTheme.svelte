@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { isInitialized } from './vscode'
+
 	import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
 
 	import { onMount } from 'svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { isInitialized } from './vscode'
 
 	function onThemeChange() {
 		if (isInitialized) {

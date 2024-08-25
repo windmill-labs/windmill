@@ -209,6 +209,7 @@
 							{#key diffType}
 								{#if contentType === 'content'}
 									<DiffEditor
+										open={true}
 										automaticLayout
 										class="h-full"
 										defaultLang={lang}
@@ -219,6 +220,7 @@
 									/>
 								{:else if contentType === 'metadata'}
 									<DiffEditor
+										open={true}
 										automaticLayout
 										class="h-full"
 										defaultLang="yaml"
