@@ -317,7 +317,13 @@
 						{fixedOverflowWidgets}
 						{args}
 					/>
-					<DiffEditor bind:this={diffEditor} automaticLayout {fixedOverflowWidgets} />
+					<DiffEditor
+						class="h-full"
+						bind:this={diffEditor}
+						automaticLayout
+						defaultLang={scriptLangToEditorLang(lang)}
+						{fixedOverflowWidgets}
+					/>
 				{/key}
 			</div>
 		</Pane>

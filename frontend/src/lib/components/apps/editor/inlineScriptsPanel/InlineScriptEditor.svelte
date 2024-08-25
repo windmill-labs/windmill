@@ -375,6 +375,7 @@
 					class="h-full"
 					automaticLayout
 					fixedOverflowWidgets
+					defaultLang={scriptLangToEditorLang(inlineScript?.language)}
 				/>
 			{/if}
 		</div>

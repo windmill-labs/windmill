@@ -4,7 +4,6 @@ import { initServices } from 'monaco-languageclient/vscode/services'
 import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
 import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
-import { is } from 'date-fns/locale'
 
 export let isInitialized = false
 export let isInitializing = false
@@ -24,7 +23,7 @@ export async function initializeVscode(caller?: string) {
 						...getMonarchServiceOverride()
 					},
 					debugLogging: true,
-					enableExtHostWorker: true
+					enableExtHostWorker: false
 				}
 			})
 			isInitialized = true

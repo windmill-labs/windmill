@@ -16,7 +16,6 @@
 	import { buildWorkerDefinition } from './build_workers'
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-	import 'vscode/localExtensionHost'
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'

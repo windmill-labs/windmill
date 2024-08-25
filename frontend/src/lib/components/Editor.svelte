@@ -14,7 +14,6 @@
 
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-	import 'vscode/localExtensionHost'
 
 	import * as vscode from 'vscode'
 	// import '@codingame/monaco-vscode-typescript-basics-default-extension'
@@ -51,7 +50,7 @@
 	import type { Text } from 'yjs'
 	import { initializeVscode } from '$lib/components/vscode'
 
-	// import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
+	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import { sleep } from '$lib/utils'
 	import { editorCodeCompletion } from '$lib/components/copilot/completion'
 	import {
@@ -153,7 +152,6 @@
 
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
-	// buildWorkerDefinition()
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -372,13 +370,13 @@
 			return
 		}
 		if (schemaLang === 'graphql') {
-			// graphqlService ||= initializeMode()
-			// graphqlService?.setSchemaConfig([
-			// 	{
-			// 		uri: 'my-schema.graphql',
-			// 		introspectionJSON: schema
-			// 	}
-			// ])
+			graphqlService ||= initializeMode()
+			graphqlService?.setSchemaConfig([
+				{
+					uri: 'my-schema.graphql',
+					introspectionJSON: schema
+				}
+			])
 		} else {
 			if (sqlSchemaCompletor) {
 				sqlSchemaCompletor.dispose()

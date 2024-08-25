@@ -6,7 +6,6 @@
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import { editor as meditor } from 'monaco-editor'
-	import 'vscode/localExtensionHost'
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
@@ -55,7 +54,10 @@
 			defaultModified !== undefined &&
 			defaultLang !== undefined
 		) {
+			console.log('SETUP')
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
+		} else {
+			console.log('NO SETUP', defaultOriginal, defaultModified, defaultLang)
 		}
 	}
 
@@ -78,7 +80,9 @@
 	}
 
 	export function setOriginal(code: string) {
+		console.log('setOriginal', code)
 		diffEditor?.getModel()?.original?.setValue(code)
+		defaultOriginal = code
 	}
 
 	export function getOriginal(): string {
@@ -87,6 +91,7 @@
 
 	export function setModified(code: string) {
 		diffEditor?.getModel()?.modified?.setValue(code)
+		defaultModified = code
 	}
 
 	export function getModified(): string {
@@ -94,6 +99,7 @@
 	}
 
 	export function show(): void {
+		console.log('show')
 		open = true
 	}
 	export function hide(): void {

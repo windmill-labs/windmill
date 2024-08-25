@@ -338,6 +338,7 @@
 										bind:this={diffEditor}
 										automaticLayout
 										fixedOverflowWidgets
+										defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 										class="h-full"
 									/>
 								{/key}

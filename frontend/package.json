@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.383.1",
+	"version": "1.383.8",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -72,6 +72,9 @@
 	"overrides": {
 		"@rgossiaux/svelte-headlessui": {
 			"svelte": "$svelte"
+		},
+		"monaco-graphql": {
+			"monaco-editor": "$monaco-editor"
 		},
 		"svelte-chartjs": {
 			"svelte": "$svelte"
