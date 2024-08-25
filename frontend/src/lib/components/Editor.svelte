@@ -7,10 +7,10 @@
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import libStdContent from '$lib/es6.d.ts.txt?raw'
-	import domContent from '$lib/dom.d.ts.txt?raw'
+	// import libStdContent from '$lib/es6.d.ts.txt?raw'
+	// import domContent from '$lib/dom.d.ts.txt?raw'
 
-	import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
+	// import denoFetchContent from '$lib/deno_fetch.d.ts.txt?raw'
 
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
@@ -151,7 +151,6 @@
 	console.log('uri', uri)
 
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
-
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -1168,14 +1167,14 @@
 		if (lang === 'typescript' && scriptLang != 'deno') {
 			const hostname = getHostname()
 
-			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
+			// const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
 			if (scriptLang == 'bun' || scriptLang == 'bunnative') {
-				const processLib = { content: processStdContent, filePath: 'process.d.ts' }
-				const domLib = { content: domContent, filePath: 'dom.d.ts' }
-				languages.typescript.typescriptDefaults.setExtraLibs([stdLib, domLib, processLib])
+				// const processLib = { content: processStdContent, filePath: 'process.d.ts' }
+				// const domLib = { content: domContent, filePath: 'dom.d.ts' }
+				// languages.typescript.typescriptDefaults.setExtraLibs([stdLib, domLib, processLib])
 			} else {
-				const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
-				languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
+				// const denoFetch = { content: denoFetchContent, filePath: 'deno_fetch.d.ts' }
+				// languages.typescript.typescriptDefaults.setExtraLibs([stdLib, denoFetch])
 				let localContent = windmillFetchContent
 				let p = '/tmp/monaco/windmill.d.ts'
 				let nuri = mUri.parse(p)
