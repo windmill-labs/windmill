@@ -252,6 +252,7 @@ export type MenuComponent = BaseComponent<'menucomponent'> & {
 export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'> & {

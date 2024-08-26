@@ -195,7 +195,15 @@
 	$: actions && refreshActions(actions)
 
 	let lastActionsOrder: string[] | undefined = undefined
+
 	$: computedOrder && refreshActionsOrder(computedOrder)
+
+	function clearActionOrder() {
+		computedOrder = undefined
+		updateOptions()
+	}
+
+	$: computedOrder && computedOrder.length > 0 && actionsOrder === undefined && clearActionOrder()
 
 	function refreshActionsOrder(actionsOrder: string[]) {
 		if (!deepEqual(actionsOrder, lastActionsOrder)) {
@@ -475,8 +483,7 @@
 	let loading = false
 	let refreshCount: number = 0
 	let footerRenderCount: number = 0
-
-	let computedOrder: string[] = []
+	let computedOrder: string[] | undefined = undefined
 </script>
 
 {#if actionsOrder}

@@ -447,11 +447,7 @@
 				bind:actionsOrder={componentSettings.item.data.actionsOrder}
 			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
-			<TableActions
-				id={component.id}
-				bind:components={componentSettings.item.data.actionButtons}
-				bind:actionsOrder={componentSettings.item.data.actionsOrder}
-			/>
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{:else if componentSettings.item.data.type === 'menucomponent' && Array.isArray(componentSettings.item.data.menuItems)}
 			<MenuItems id={component.id} bind:components={componentSettings.item.data.menuItems} />
 		{/if}
