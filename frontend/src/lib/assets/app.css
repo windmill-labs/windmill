@@ -120,3 +120,7 @@ svelte-virtual-list-contents > * + * {
 	@apply bg-surface;
 	@apply disabled:placeholder:text-gray-200 disabled:placeholder:dark:text-gray-500 disabled:text-gray-200 disabled:dark:text-gray-500 disabled:border-gray-200 disabled:dark:border-gray-600;
 }
+
+.nonmain-editor .cursor.monaco-mouse-cursor-text {
+	width: 1px !important;
+}
