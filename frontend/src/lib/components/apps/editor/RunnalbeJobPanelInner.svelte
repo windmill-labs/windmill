@@ -16,7 +16,6 @@
 
 <Splitpanes horizontal>
 	<Pane size={frontendJob ? 30 : 50} minSize={10}>
-		{testJob?.id}
 		{#if frontendJob}
 			<div class="p-2 bg-surface-secondary h-full w-full">
 				<div class="text-sm text-tertiary pb-4">Frontend Job</div>

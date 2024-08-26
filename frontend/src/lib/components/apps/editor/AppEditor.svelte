@@ -31,7 +31,7 @@
 	import { page } from '$app/stores'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Policy } from '$lib/gen'
+	import { VariableService, type Job, type Policy } from '$lib/gen'
 	import { initHistory } from '$lib/history'
 	import { Component, Minus, Paintbrush, Plus, Smartphone } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
@@ -632,6 +632,8 @@
 			}
 		}
 	}
+	let testJob: Job | undefined = undefined
+	let jobToWatch: { componentId: string; job: string } | undefined = undefined
 </script>
 
 <DarkModeObserver on:change={onThemeChange} />
@@ -864,6 +866,8 @@
 										<RunnableJobPanel
 											float={rightPanelSize !== 0}
 											hidden={runnablePanelSize === 0}
+											bind:testJob
+											bind:jobToWatch
 										/>
 									</AppEditorBottomPanel>
 								</Pane>

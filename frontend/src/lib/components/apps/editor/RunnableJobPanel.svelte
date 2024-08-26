@@ -7,15 +7,15 @@
 
 	export let float: boolean = true
 	export let hidden: boolean = false
+	export let testJob: Job | undefined = undefined
+	export let jobToWatch: { componentId: string; job: string } | undefined = undefined
 
 	const { runnableJobEditorPanel, selectedComponentInEditor } =
 		getContext<AppEditorContext>('AppEditorContext')
-	let testJob: Job | undefined = undefined
 	let testIsLoading = false
 
 	let testJobLoader: TestJobLoader
 
-	let jobToWatch: { componentId: string; job: string } | undefined = undefined
 	$: $runnableJobEditorPanel.focused &&
 		$selectedComponentInEditor &&
 		$runnableJobEditorPanel.jobs &&
