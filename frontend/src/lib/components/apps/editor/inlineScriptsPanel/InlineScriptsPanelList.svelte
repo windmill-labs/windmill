@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import { Plus } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { BG_PREFIX, getAllScriptNames } from '../../utils'
@@ -12,6 +12,7 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import DocLink from '../settingsPanel/DocLink.svelte'
+	import HideButton from '../settingsPanel/HideButton.svelte'
 
 	const PREFIX = 'script-selector-' as const
 
@@ -79,11 +80,22 @@
 	}
 
 	let appTutorials: AppTutorials | undefined = undefined
+	const dispatch = createEventDispatcher()
 </script>
 
 <PanelSection title="Runnables" id="app-editor-runnable-panel">
 	<svelte:fragment slot="action">
-		<DocLink docLink="https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable" />
+		<div class="flex flex-row gap-1">
+			<HideButton
+				direction="bottom"
+				on:click={() => {
+					dispatch('hidePanel')
+				}}
+			/>
+			<DocLink
+				docLink="https://www.windmill.dev/docs/apps/app-runnable-panel#creating-a-runnable"
+			/>
+		</div>
 	</svelte:fragment>
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
