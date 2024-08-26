@@ -28,8 +28,6 @@
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
-	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
-
 	import { page } from '$app/stores'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
@@ -57,6 +55,7 @@
 	import RunnableJobPanel from './RunnableJobPanel.svelte'
 	import { goto, replaceState } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
+	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 
 	export let app: App
 	export let path: string
@@ -840,40 +839,33 @@
 							</Pane>
 							{#if $connectingInput?.opened == false && !$componentActive}
 								<Pane bind:size={runnablePanelSize}>
-									{#if rightPanelSize !== 0}
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
-										<div
-											class={twMerge('relative h-full w-full overflow-x-visible')}
-											on:mouseenter={() => {
-												runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
-												stillInJobEnter = true
-												runnableJobEnterTimeout = setTimeout(() => {
-													if (stillInJobEnter) {
-														$runnableJob.focused = true
-													}
-												}, 200)
-											}}
-											on:mouseleave={() => {
-												stillInJobEnter = false
-												runnableJobEnterTimeout = setTimeout(
-													() => ($runnableJob.focused = false),
-													200
-												)
-											}}
-										>
-											<InlineScriptsPanel on:hidePanel={() => hideBottomPanel()} />
-											<RunnableJobPanel hidden={runnablePanelSize === 0} />
-										</div>
-									{:else}
-										<div class="flex flex-row relative w-full h-full">
-											<InlineScriptsPanel
-												width={centerPanelWidth - 400}
-												on:hidePanel={() => hideBottomPanel()}
-											/>
-
-											<RunnableJobPanel float={false} hidden={runnablePanelSize === 0} />
-										</div>
-									{/if}
+									<AppEditorBottomPanel
+										on:mouseenter={() => {
+											runnableJobEnterTimeout && clearTimeout(runnableJobEnterTimeout)
+											stillInJobEnter = true
+											runnableJobEnterTimeout = setTimeout(() => {
+												if (stillInJobEnter) {
+													$runnableJob.focused = true
+												}
+											}, 200)
+										}}
+										on:hidePanel={() => hideBottomPanel()}
+										on:mouseleave={() => {
+											stillInJobEnter = false
+											runnableJobEnterTimeout = setTimeout(
+												() => ($runnableJob.focused = false),
+												200
+											)
+										}}
+										{rightPanelSize}
+										{centerPanelWidth}
+										{runnablePanelSize}
+									>
+										<RunnableJobPanel
+											float={rightPanelSize !== 0}
+											hidden={runnablePanelSize === 0}
+										/>
+									</AppEditorBottomPanel>
 								</Pane>
 							{/if}
 						</Splitpanes>

@@ -19,9 +19,9 @@
 	}
 
 	const shortcuts = {
-		left: 'b',
-		right: 'u',
-		bottom: 'l'
+		left: 'B',
+		right: 'U',
+		bottom: 'L'
 	}
 </script>
 

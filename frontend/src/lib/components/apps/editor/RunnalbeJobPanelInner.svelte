@@ -5,8 +5,8 @@
 	import type { Job } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let frontendJob: boolean = false
-	export let testJob: Job | undefined = undefined
+	export let frontendJob: boolean | any = false
+	export let testJob: Job | any = undefined
 
 	let testIsLoading = false
 
@@ -16,6 +16,7 @@
 
 <Splitpanes horizontal>
 	<Pane size={frontendJob ? 30 : 50} minSize={10}>
+		{testJob?.id}
 		{#if frontendJob}
 			<div class="p-2 bg-surface-secondary h-full w-full">
 				<div class="text-sm text-tertiary pb-4">Frontend Job</div>
