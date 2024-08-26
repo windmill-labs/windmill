@@ -318,10 +318,11 @@
 						{args}
 					/>
 					<DiffEditor
+						class="h-full"
 						bind:this={diffEditor}
 						automaticLayout
+						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						class="hidden h-full"
 					/>
 				{/key}
 			</div>
