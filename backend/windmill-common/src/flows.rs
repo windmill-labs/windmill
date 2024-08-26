@@ -236,6 +236,8 @@ pub struct FlowModule {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_if: Option<StopAfterIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_after_all_iters_if: Option<StopAfterIf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suspend: Option<Suspend>,
@@ -580,6 +582,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             id: format!("{}-v", modules[modules.len() - 1].id),
             value: crate::worker::to_raw_value(&FlowModuleValue::Identity),
             stop_after_if: None,
+            stop_after_all_iters_if: None,
             summary: Some("Virtual module needed for suspend/sleep when last module".to_string()),
             mock: None,
             retry: None,

@@ -16,12 +16,7 @@
 	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import {
-		FlowGraph,
-		type DurationStatus,
-		type FlowStatusViewerContext,
-		type GraphModuleState
-	} from './graph'
+	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { emptyString, msToSec, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
@@ -33,11 +28,18 @@
 	import { writable, type Writable } from 'svelte/store'
 	import Alert from './common/alert/Alert.svelte'
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
+	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 
 	const dispatch = createEventDispatcher()
 
-	let { flowStateStore, retryStatus, suspendStatus } =
-		getContext<FlowStatusViewerContext>('FlowStatusViewer')
+	let {
+		flowStateStore,
+		retryStatus,
+		suspendStatus,
+		hideDownloadInGraph,
+		hideTimeline,
+		hideNodeDefinition
+	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	export let jobId: string
 	export let workspaceId: string | undefined = undefined
@@ -171,7 +173,7 @@
 					mod.type === 'WaitingForEvents' &&
 					$localModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type == 'Success'
 				) {
-					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args })
+					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
 					$localModuleStates[mod.id ?? '']?.scheduled_for == undefined
@@ -187,7 +189,8 @@
 								scheduled_for: job?.['scheduled_for'],
 								job_id: job?.id,
 								parent_module: mod['parent_module'],
-								args: job?.args
+								args: job?.args,
+								tag: job?.tag
 							}
 							setModuleState(mod.id ?? '', newState)
 						})
@@ -399,6 +402,7 @@
 						job_id: job.id,
 						logs: job.logs,
 						args: job.args,
+						tag: job.tag,
 						started_at,
 						parent_module: mod['parent_module']
 					},
@@ -417,6 +421,7 @@
 						logs: job.logs,
 						result: job['result'],
 						job_id: job.id,
+						tag: job.tag,
 						parent_module: mod['parent_module'],
 						duration_ms: job['duration_ms'],
 						started_at: started_at,
@@ -591,6 +596,7 @@
 	let stepDetail: FlowModule | string | undefined = undefined
 
 	let storedListJobs: Record<number, Job> = {}
+	let wrapperHeight: number = 0
 </script>
 
 {#if notAnonynmous}
@@ -648,6 +654,7 @@
 							<FlowJobResult
 								workspaceId={job?.workspace_id}
 								jobId={job?.id}
+								tag={job?.tag}
 								loading={job['running'] == true}
 								result={job.result}
 								logs={job.logs}
@@ -775,7 +782,7 @@
 						{/if}
 					{/each}
 				</div>
-			{:else if innerModules.length > 0}
+			{:else if innerModules.length > 0 && (job.raw_flow?.modules.length ?? 0) > 0}
 				<ul class="w-full">
 					<h3 class="text-md leading-6 font-bold text-primary border-b mb-4 py-2">
 						Step-by-step
@@ -895,13 +902,15 @@
 						</li>
 					{/each}
 				</ul>
+			{:else}
+				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
 	</div>
 	{#if render}
 		{#if job.raw_flow && !isListJob}
 			<div class="{selected != 'graph' ? 'hidden' : ''} grow mt-4">
-				<div class="grid grid-cols-3 border h-full">
+				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
 					<div class="col-span-2 bg-surface-secondary">
 						<div class="flex flex-col">
 							{#each Object.values($retryStatus) as count}
@@ -920,8 +929,9 @@
 							{/each}
 						</div>
 
-						<FlowGraph
-							download
+						<FlowGraphV2
+							download={!hideDownloadInGraph}
+							minHeight={wrapperHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={$localModuleStates}
 							on:select={(e) => {
@@ -946,6 +956,7 @@
 							}}
 							on:selectedIteration={(e) => {
 								let detail = e.detail
+
 								setModuleState(detail.moduleId, {
 									selectedForloop: detail.id,
 									selectedForloopIndex: detail.index
@@ -953,16 +964,20 @@
 								globalRefreshes[detail.moduleId]?.({ job: detail.id, index: detail.index })
 							}}
 							modules={job.raw_flow?.modules ?? []}
-							failureModule={job.raw_flow?.failure_module}
 						/>
 					</div>
 					<div
 						class="border-l border-tertiary-inverse pt-1 overflow-auto min-h-[700px] flex flex-col z-0 h-full"
 					>
 						<Tabs bind:selected={rightColumnSelect}>
-							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							{#if !hideTimeline}
+								<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+							{/if}
 							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
-							<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab>
+							{#if !hideNodeDefinition}
+								<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab
+								>
+							{/if}
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
 							{/if}
@@ -987,6 +1002,7 @@
 											jobId={job?.id}
 											filename={job.id}
 											loading={job['running']}
+											tag={job?.tag}
 											noBorder
 											col
 											result={job['result']}
@@ -1050,14 +1066,17 @@
 												/>
 											</div>
 										{/if}
+
 										<FlowJobResult
 											workspaceId={job?.workspace_id}
 											jobId={node.job_id}
 											noBorder
 											loading={node.type != 'Success' && node.type != 'Failure'}
+											waitingForExecutor={node.type == 'WaitingForExecutor'}
 											refreshLog={node.type == 'InProgress'}
 											col
 											result={node.result}
+											tag={node.tag}
 											logs={node.logs}
 											durationStates={localDurationStatuses}
 										/>

@@ -19,14 +19,14 @@
 	import { sendUserToast } from '$lib/utils'
 	import { workerTags } from '$lib/stores'
 	import { getLatestHashForScript } from '$lib/scripts'
-	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	export let module: FlowModule
 	const { scriptEditorDrawer, flowStore, selectedId } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
-	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
 	loadWorkerGroups()
 
@@ -71,7 +71,7 @@
 				<svelte:fragment slot="text">Cache</svelte:fragment>
 			</Popover>
 		{/if}
-		{#if module.stop_after_if}
+		{#if module.stop_after_if || module.stop_after_all_iters_if}
 			<Popover
 				placement="bottom"
 				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"

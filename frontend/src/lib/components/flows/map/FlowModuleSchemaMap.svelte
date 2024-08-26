@@ -16,7 +16,6 @@
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	import { dfs } from '../dfs'
-	import { FlowGraph } from '$lib/components/graph'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import { push } from '$lib/history'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -30,6 +29,7 @@
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
+	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -252,13 +252,12 @@
 	</div>
 
 	<div class="z-10 flex-auto grow" bind:clientHeight={minHeight}>
-		<FlowGraph
+		<FlowGraphV2
 			{disableAi}
 			insertable
 			scroll
 			{minHeight}
 			moving={$moving?.module.id}
-			rebuildOnChange={$flowStore}
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
 			{selectedId}
@@ -268,7 +267,9 @@
 				dependents = getDependentComponents(e.id, $flowStore)
 				const cb = () => {
 					push(history, $flowStore)
+
 					selectNextId(e.id)
+
 					removeAtId($flowStore.value.modules, e.id)
 
 					if ($flowInputsStore) {

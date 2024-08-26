@@ -53,7 +53,6 @@ use windmill_common::{
     jobs::{
         get_payload_tag_from_prefixed_path, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode,
     },
-    oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
@@ -1479,16 +1478,6 @@ pub async fn push_error_handler<
         }
     }
 
-    // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
-    if on_failure_path
-        .to_string()
-        .eq("script/hub/5792/workspace-or-schedule-error-handler-slack")
-    {
-        // default slack error handler being used -> we need to inject the slack token
-        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
-    }
-
     let result = sanitize_result(result);
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone(), rsmq);
@@ -1601,15 +1590,6 @@ async fn handle_recovered_schedule<
                 "args of scripts needs to be dict".to_string(),
             ));
         }
-    }
-    // TODO(gbouv): REMOVE THIS after December 1st 2023 and ping users to re-save their error handlers
-    if on_recovery_path
-        .to_string()
-        .eq("script/hub/2430/slack/schedule-recovery-handler-slack")
-    {
-        // default slack error handler being used -> we need to inject the slack token
-        let slack_resource = format!("$res:{WORKSPACE_SLACK_BOT_TOKEN_PATH}");
-        extra.insert("slack".to_string(), to_raw_value(&slack_resource));
     }
 
     let args = error_job
@@ -1987,6 +1967,11 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
          *   or suspend_until <= now() if it has timed out */
         let query = WORKER_SUSPENDED_PULL_QUERY.read().await;
 
+        if query.is_empty() {
+            tracing::warn!("No suspended pull queries available");
+            return Ok(None);
+        }
+
         let r = if suspend_first {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, QueuedJob>(&query)
@@ -2001,6 +1986,11 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<
             let mut highest_priority_job: Option<QueuedJob> = None;
 
             let queries = WORKER_PULL_QUERIES.read().await;
+
+            if queries.is_empty() {
+                tracing::warn!("No pull queries available");
+                return Ok(None);
+            }
 
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
@@ -2608,6 +2598,7 @@ impl DecodeQueries {
 #[derive(Deserialize)]
 pub struct RequestQuery {
     pub raw: Option<bool>,
+    pub wrap_body: Option<bool>,
     pub include_header: Option<String>,
 }
 
@@ -2642,13 +2633,14 @@ impl PushArgsOwned {
     async fn from_json(
         mut extra: HashMap<String, Box<RawValue>>,
         use_raw: bool,
+        force_wrap_body: bool,
         str: String,
     ) -> Result<Self, Response> {
         if use_raw {
             extra.insert("raw_string".to_string(), to_raw_value(&str));
         }
 
-        let wrap_body = str.len() > 0 && str.chars().next().unwrap() != '{';
+        let wrap_body = force_wrap_body || str.len() > 0 && str.chars().next().unwrap() != '{';
 
         if wrap_body {
             let args = serde_json::from_str::<Option<Box<RawValue>>>(&str)
@@ -2753,7 +2745,7 @@ where
         req: Request<axum::body::Body>,
         _state: &S,
     ) -> Result<Self, Self::Rejection> {
-        let (content_type, mut extra, use_raw) = {
+        let (content_type, mut extra, use_raw, wrap_body) = {
             let headers_map = req.headers();
             let content_type_header = headers_map.get(CONTENT_TYPE);
             let content_type = content_type_header.and_then(|value| value.to_str().ok());
@@ -2765,7 +2757,8 @@ where
                 extra.extend(queries);
             }
             let raw = query.raw.as_ref().is_some_and(|x| *x);
-            (content_type, extra, raw)
+            let wrap_body = query.wrap_body.as_ref().is_some_and(|x| *x);
+            (content_type, extra, raw, wrap_body)
         };
 
         if content_type.is_none() || content_type.unwrap().starts_with("application/json") {
@@ -2775,7 +2768,7 @@ where
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
 
-            PushArgsOwned::from_json(extra, use_raw, str).await
+            PushArgsOwned::from_json(extra, use_raw, wrap_body, str).await
         } else if content_type
             .unwrap()
             .starts_with("application/cloudevents+json")
@@ -3137,7 +3130,8 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
             }
 
             let hub_script =
-                get_full_hub_script_by_path(StripPath(path.clone()), &HTTP_CLIENT, _db).await?;
+                get_full_hub_script_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(_db))
+                    .await?;
 
             (
                 None,
@@ -3355,6 +3349,7 @@ pub async fn push<'c, 'd, R: rsmq_async::RsmqConnection + Send + 'c>(
                         },
                     ),
                     stop_after_if: None,
+                    stop_after_all_iters_if: None,
                     summary: None,
                     suspend: None,
                     mock: None,

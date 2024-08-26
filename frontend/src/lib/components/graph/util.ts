@@ -9,16 +9,10 @@ export const NODE = {
 	}
 }
 
-export function* createIdGenerator(): Generator<number, number, unknown> {
-	let id = 0
-	while (true) {
-		yield id++
-	}
-}
-
 export function getStateColor(
 	state: FlowStatusModule['type'] | undefined,
-	isDark: boolean
+	isDark: boolean,
+	lightModeBackground: string = '#dfe6ee'
 ): string {
 	switch (state) {
 		case 'Success':
@@ -32,6 +26,6 @@ export function getStateColor(
 		case 'WaitingForExecutor':
 			return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 		default:
-			return isDark ? '#2e3440' : '#fff'
+			return isDark ? '#2e3440' : lightModeBackground
 	}
 }

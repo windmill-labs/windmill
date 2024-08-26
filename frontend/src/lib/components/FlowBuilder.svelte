@@ -80,7 +80,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
-	import type { WhitelabelCustomUi } from './custom_ui'
+	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -96,7 +96,7 @@
 		  })
 		| undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let customUi: WhitelabelCustomUi = {}
+	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 
 	$: setContext('customUi', customUi)
 
@@ -205,13 +205,16 @@
 				draft?: Flow
 			}
 
+			let savedAtNewPath = false
 			if (newFlow) {
 				dispatch('saveInitial', $pathStore)
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
+				savedAtNewPath = true
 				initialPath = $pathStore
 				// this is so we can use the flow builder outside of sveltekit
 				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
 			}
+			dispatch('saveDraft', { path: $pathStore, savedAtNewPath, newFlow })
 			sendUserToast('Saved as draft')
 		} catch (error) {
 			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
@@ -400,7 +403,8 @@
 		testStepStore,
 		saveDraft,
 		initialPath,
-		flowInputsStore: writable<FlowInput>({})
+		flowInputsStore: writable<FlowInput>({}),
+		customUi
 	})
 
 	async function loadSchedule() {
@@ -486,18 +490,20 @@
 		onClick: () => void
 	}> = []
 
-	if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
-		dropdownItems.push({
-			label: 'Exit & see details',
-			onClick: () => dispatch('details', $pathStore)
-		})
-	}
+	if (customUi.topBar?.extraDeployOptions != false) {
+		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
+			dropdownItems.push({
+				label: 'Exit & see details',
+				onClick: () => dispatch('details', $pathStore)
+			})
+		}
 
-	if (!newFlow) {
-		dropdownItems.push({
-			label: 'Fork',
-			onClick: () => window.open(`/flows/add?template=${initialPath}`)
-		})
+		if (!newFlow) {
+			dropdownItems.push({
+				label: 'Fork',
+				onClick: () => window.open(`/flows/add?template=${initialPath}`)
+			})
+		}
 	}
 
 	let flowCopilotContext: FlowCopilotContext = {
@@ -1023,7 +1029,7 @@
 
 	$: onCustomUiChange(customUi)
 
-	function onCustomUiChange(customUi: WhitelabelCustomUi | undefined) {
+	function onCustomUiChange(customUi: FlowBuilderWhitelabelCustomUi | undefined) {
 		moreItems = [
 			...(customUi?.topBar?.history != false
 				? [

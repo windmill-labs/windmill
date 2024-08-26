@@ -189,10 +189,10 @@
 	let queueMetricsDrawer: Drawer
 	let selectedTab: string = 'default'
 
-	$: workerGroups && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
+	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
 
 	function updateSelectedTabIfDefaultDoesNotExist() {
-		if (selectedTab == 'default' && !workerGroups?.hasOwnProperty('default')) {
+		if (selectedTab == 'default' && !groupedWorkers.some((x) => x[0] == 'default')) {
 			selectedTab = Object.keys(workerGroups ?? {})[0] ?? 'default'
 		}
 	}
@@ -567,7 +567,7 @@
 											<Cell>
 												<div class="flex flex-col gap-1">
 													<div>
-														{vcpus ? (vcpus / 100000).toFixed(1) + ' vCPUs' : '--'}
+														{vcpus ? (vcpus / 100000).toFixed(2) + ' vCPUs' : '--'}
 													</div>
 													<div>
 														{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}

@@ -161,6 +161,7 @@ export type App = {
 	subgrids?: Record<string, GridItem[]>
 	theme: AppTheme | undefined
 	hideLegacyTopBar?: boolean | undefined
+	mobileViewOnSmallerScreens?: boolean | undefined
 }
 
 export type ConnectingInput = {

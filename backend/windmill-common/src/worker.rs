@@ -86,6 +86,10 @@ lazy_static::lazy_static! {
 }
 
 pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
+    if wc.worker_tags.len() == 0 {
+        tracing::error!("Empty tags in worker tags, skipping");
+        return;
+    }
     let query = format!(
         "UPDATE queue
             SET running = true
@@ -114,6 +118,10 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
 pub async fn make_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
     for tags in wc.priority_tags_sorted.iter() {
+        if tags.tags.len() == 0 {
+            tracing::error!("Empty tags in priority tags, skipping");
+            continue;
+        }
         let query = format!("UPDATE queue
         SET running = true
         , started_at = coalesce(started_at, now())
@@ -561,6 +569,18 @@ pub async fn load_worker_config(
             .collect_vec();
         all_tags.dedup();
         config.worker_tags = Some(all_tags);
+    }
+
+    if let Some(force_worker_tags) = std::env::var("FORCE_WORKER_TAGS")
+        .ok()
+        .filter(|x| !x.is_empty())
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<String>>())
+    {
+        tracing::info!(
+            "Detected FORCE_WORKER_TAGS, forcing worker tags to: {:#?}",
+            force_worker_tags
+        );
+        config.worker_tags = Some(force_worker_tags);
     }
 
     // set worker_tags using default if none. If priority tags is set, compute the sorted priority tags as well

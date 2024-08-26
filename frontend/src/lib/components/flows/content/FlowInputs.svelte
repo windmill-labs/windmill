@@ -17,7 +17,7 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
-	import type { WhitelabelCustomUi } from '$lib/components/custom_ui'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -55,7 +55,7 @@
 		return kind == 'script' && !failureModule
 	}
 
-	let customUi: undefined | WhitelabelCustomUi = getContext('customUi')
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 </script>
 
 <div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
