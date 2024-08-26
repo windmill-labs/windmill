@@ -36,7 +36,8 @@
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
-			perPage: 300
+			perPage: 300,
+			kinds: trigger ? 'trigger' : 'script'
 		})
 
 		scripts = loadedScripts
