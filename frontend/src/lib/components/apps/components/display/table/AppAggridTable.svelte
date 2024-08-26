@@ -9,6 +9,7 @@
 		ContextPanelContext,
 		ListContext,
 		ListInputs,
+		RichConfiguration,
 		RichConfigurations
 	} from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -39,6 +40,7 @@
 	import { cellRendererFactory, defaultCellRenderer } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
+	import InputValue from '../../helpers/InputValue.svelte'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -49,6 +51,7 @@
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
 	export let actions: TableAction[] | undefined = undefined
+	export let actionsOrder: RichConfiguration | undefined = undefined
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
 	const contextPanel = getContext<ContextPanelContext>('ContextPanel')
@@ -191,6 +194,17 @@
 	let lastActions: TableAction[] | undefined = undefined
 	$: actions && refreshActions(actions)
 
+	let lastActionsOrder: string[] | undefined = undefined
+	$: computedOrder && refreshActionsOrder(computedOrder)
+
+	function refreshActionsOrder(actionsOrder: string[]) {
+		if (!deepEqual(actionsOrder, lastActionsOrder)) {
+			lastActionsOrder = [...actionsOrder]
+
+			updateOptions()
+		}
+	}
+
 	let inputs = {}
 
 	const tableActionsFactory = cellRendererFactory((c, p) => {
@@ -202,12 +216,18 @@
 			['ContextPanel', contextPanel]
 		])
 
+		const sortedActions: TableAction[] | undefined = computedOrder
+			? (computedOrder
+					.map((key) => actions?.find((a) => a.id === key))
+					.filter(Boolean) as TableAction[])
+			: actions
+
 		let ta = new AppAggridTableActions({
 			target: c.eGui,
 			props: {
 				p,
 				id: id,
-				actions,
+				actions: sortedActions,
 				rowIndex,
 				row,
 				render,
@@ -455,7 +475,13 @@
 	let loading = false
 	let refreshCount: number = 0
 	let footerRenderCount: number = 0
+
+	let computedOrder: string[] = []
 </script>
+
+{#if actionsOrder}
+	<InputValue key="actionsOrder" {id} input={actionsOrder} bind:value={computedOrder} />
+{/if}
 
 {#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig

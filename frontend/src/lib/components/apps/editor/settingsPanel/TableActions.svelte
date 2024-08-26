@@ -4,18 +4,21 @@
 	import { getNextId } from '$lib/components/flows/idUtils'
 	import { classNames, generateRandomString } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
-	import type { AppViewerContext, BaseAppComponent } from '../../types'
+	import type { AppViewerContext, BaseAppComponent, RichConfiguration } from '../../types'
 	import { appComponentFromType } from '../appUtils'
 	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
-	import { GripVertical, Inspect, List, ToggleRightIcon } from 'lucide-svelte'
+	import { GripVertical, Inspect, List, ToggleRightIcon, Code } from 'lucide-svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { flip } from 'svelte/animate'
+	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let components:
 		| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
 		| undefined
+
+	export let actionsOrder: RichConfiguration | undefined = undefined
 
 	// Migration code:
 	onMount(() => {
@@ -141,9 +144,11 @@
 								<CloseButton small on:close={() => deleteComponent(component.id, index)} />
 							</div>
 						</div>
-						<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
-							<GripVertical size={16} />
-						</div>
+						{#if actionsOrder === undefined}
+							<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
+								<GripVertical size={16} />
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</section>
@@ -179,6 +184,70 @@
 			>
 				+ <List size={14} />
 			</Button>
+		</div>
+	</PanelSection>
+	<PanelSection
+		title={`Manage actions programmatically`}
+		tooltip="
+		You can manage the order of the actions programmatically: You need to return an array of action ids in the order you want them to appear in the table. You can also hide actions by not including them in the array."
+	>
+		<div class="w-full flex gap-2 flex-col mt-2">
+			{#if components.length == 0}
+				<span class="text-xs text-tertiary">No action buttons</span>
+			{/if}
+
+			{#if actionsOrder}
+				<InputsSpecEditor
+					key={'Order'}
+					bind:componentInput={actionsOrder}
+					id={$selectedComponent?.[0] ?? ''}
+					userInputEnabled={false}
+					shouldCapitalize={true}
+					resourceOnly={false}
+					fieldType={actionsOrder?.['fieldType']}
+					subFieldType={actionsOrder?.['subFieldType']}
+					format={actionsOrder?.['format']}
+					selectOptions={actionsOrder?.['selectOptions']}
+					tooltip={actionsOrder?.['tooltip']}
+					fileUpload={actionsOrder?.['fileUpload']}
+					placeholder={actionsOrder?.['placeholder']}
+					customTitle={actionsOrder?.['customTitle']}
+					allowTypeChange={false}
+					displayType={false}
+				/>
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{
+						icon: Code
+					}}
+					variant="border"
+					on:click={() => {
+						actionsOrder = undefined
+					}}
+				>
+					Disable
+				</Button>
+			{:else}
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{
+						icon: Code
+					}}
+					variant="border"
+					on:click={() => {
+						actionsOrder = {
+							fieldType: 'text',
+							type: 'evalv2',
+							expr: JSON.stringify(components?.map((x) => x.id) ?? []),
+							connections: []
+						}
+					}}
+				>
+					Enable
+				</Button>
+			{/if}
 		</div>
 	</PanelSection>
 {/if}

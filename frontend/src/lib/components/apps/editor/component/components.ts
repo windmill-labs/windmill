@@ -150,19 +150,23 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'> & {
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> & {
 	actions: TableAction[]
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
 	actions: TableAction[]
 	license: string
+	actionsOrder: RichConfiguration | undefined
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
