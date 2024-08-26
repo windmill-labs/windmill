@@ -32,7 +32,7 @@
 		<Zap size={14} />
 	</button>
 	{#if !disableAi}
-		<StepGen {index} bind:funcDesc bind:open {close} {modules} trigger />
+		<StepGen {index} bind:funcDesc bind:open {close} {modules} trigger on:insert />
 	{/if}
 	{#if funcDesc.length === 0}
 		<div class="font-mono divide-y text-xs w-full text-secondary whitespace-nowrap">
