@@ -3,33 +3,55 @@ import { get, writable } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
-import init, {
+
+import initTs, {
 	parse_deno,
-	parse_bash,
-	parse_go,
-	parse_python,
+	parse_outputs,
+	parse_ts_imports
+} from 'windmill-parser-wasm-ts'
+import initSql, {
 	parse_sql,
 	parse_mysql,
 	parse_bigquery,
 	parse_snowflake,
 	parse_graphql,
-	parse_powershell,
-	parse_outputs,
 	parse_mssql,
-	parse_ts_imports,
 	parse_db_resource,
-	parse_php
-} from 'windmill-parser-wasm'
-import wasmUrl from 'windmill-parser-wasm/windmill_parser_wasm_bg.wasm?url'
+} from 'windmill-parser-wasm-sql'
+import initScriptingLangs, {
+	parse_python,
+	parse_bash,
+	parse_powershell,
+	parse_php,
+} from 'windmill-parser-wasm-script-lang'
+import initCompiledLangs, {
+	parse_go,
+} from 'windmill-parser-wasm-compiled-lang'
+
+import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlSql from 'windmill-parser-wasm-sql/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlScripting from 'windmill-parser-wasm-script-lang/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlCompiled from 'windmill-parser-wasm-compiled-lang/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
-init(wasmUrl)
-
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
-export async function initWasm() {
-	await init(wasmUrl)
+let initializeTsPromise : Promise<any> | undefined = undefined;
+export async function initWasmTs() {
+	if (initializeTsPromise == undefined) {
+		initializeTsPromise = initTs()
+	}
+	await initializeTsPromise
+}
+async function initWasmSql() {
+	await initSql(wasmUrlSql)
+}
+async function initWasmScripting() {
+	await initScriptingLangs(wasmUrlScripting)
+}
+async function initWasmCompiled() {
+	await initCompiledLangs(wasmUrlCompiled)
 }
 
 export function parseDeps(code: string): string[] {
@@ -47,7 +69,13 @@ export async function inferArgs(
 	code: string,
 	schema: Schema
 ): Promise<boolean | null> {
-	await init(wasmUrl)
+	if (language === "bun" || language === "bunnative" || language === "deno" || language === "nativets") {
+		await initWasmTs()
+		await initWasmTs()
+		await initWasmTs()
+		await initWasmTs()
+		await initWasmTs()
+	}
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
 	if (lastRun && code == lastRun[0] && lastRun[1]) {
@@ -59,15 +87,20 @@ export async function inferArgs(
 
 		let inlineDBResource: string | undefined = undefined
 		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql'].includes(language ?? '')) {
+			await initWasmSql()
 			inlineDBResource = parse_db_resource(code)
 		}
 		if (language == 'python3') {
+			await initWasmScripting()
 			inferedSchema = JSON.parse(parse_python(code))
 		} else if (language == 'deno') {
+			await initTs(wasmUrlTs)
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'nativets') {
+			await initWasmTs()
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'bun' || language == 'bunnative') {
+			await initWasmTs()
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'postgresql') {
 			inferedSchema = JSON.parse(parse_sql(code))
@@ -113,15 +146,20 @@ export async function inferArgs(
 				]
 			}
 		} else if (language == 'graphql') {
+			await initWasmSql()
 			inferedSchema = JSON.parse(parse_graphql(code))
 			inferedSchema.args = [{ name: 'api', typ: { resource: 'graphql' } }, ...inferedSchema.args]
 		} else if (language == 'go') {
+			await initWasmCompiled()
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {
+			await initWasmScripting()
 			inferedSchema = JSON.parse(parse_bash(code))
 		} else if (language == 'powershell') {
+			await initWasmScripting()
 			inferedSchema = JSON.parse(parse_powershell(code))
 		} else if (language == 'php') {
+			await initWasmScripting()
 			inferedSchema = JSON.parse(parse_php(code))
 		} else {
 			return null
@@ -233,7 +271,7 @@ export async function parseOutputs(
 	code: string,
 	ignoreError
 ): Promise<[string, string][] | undefined> {
-	await init(wasmUrl)
+	await initWasmTs()
 	const getOutputs = await parse_outputs(code)
 	const outputs = JSON.parse(getOutputs)
 	if (outputs.error) {
