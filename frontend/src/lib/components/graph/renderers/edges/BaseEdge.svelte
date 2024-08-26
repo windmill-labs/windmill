@@ -65,6 +65,14 @@
 				on:new={(e) => {
 					data?.eventHandlers.insert({ modules: data.modules, index: data.index, detail: e.detail })
 				}}
+				on:insert={(e) => {
+					data?.eventHandlers.insert({
+						modules: data.modules,
+						index: data.index,
+						script: e.detail,
+						detail: 'script'
+					})
+				}}
 				bind:open={menuOpen}
 			/>
 		</div>
@@ -80,6 +88,14 @@
 							modules: data.modules,
 							index: data.index,
 							detail: e.detail
+						})
+					}}
+					on:insert={(e) => {
+						data?.eventHandlers.insert({
+							modules: data.modules,
+							index: data.index,
+							script: e.detail,
+							detail: 'script'
 						})
 					}}
 					index={data?.index ?? 0}
