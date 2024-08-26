@@ -608,8 +608,20 @@
 					{/if}
 
 					<div class="flex flex-col h-full w-full overflow-auto text-xs p-4 bg-surface-secondary">
-						{#if fileMetadata !== undefined && filePreview !== undefined}
+						{#if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
+							<div>
+								<img
+									src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${fileMetadata.fileKey}` +
+										(storage ? `&storage=${storage}` : '')}
+									alt="S3 preview"
+								/>
+							</div>
+						{:else if filePreviewLoading}
 							<div class="flex h-6 items-center text-tertiary mb-4">
+								<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
+							</div>
+						{:else if fileMetadata !== undefined && filePreview !== undefined}
+							<div class="flex items-center text-tertiary mb-4">
 								{#if filePreview.contentType === 'Unknown'}
 									Type of file not supported for preview.
 								{:else if filePreview.contentType === 'Csv'}
@@ -653,13 +665,13 @@
 									Previewing a {filePreview.contentType?.toLowerCase()} file.
 								{/if}
 							</div>
-							<pre class="grow whitespace-no-wrap break-words"
-								>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}</pre
-							>
-						{:else if filePreviewLoading}
-							<div class="flex h-6 items-center text-tertiary mb-4">
-								<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
-							</div>
+							<pre class="grow whitespace-no-wrap break-words">
+									{#if !emptyString(filePreview.contentPreview)}
+									{filePreview.contentPreview}
+								{:else if filePreview.contentType !== undefined}
+									Preview impossible.
+								{/if}
+							</pre>
 						{/if}
 					</div>
 				</div>
