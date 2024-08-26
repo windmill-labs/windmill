@@ -318,7 +318,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
+replace_nan = re.compile(r'(?:\bNaN\b|\\*\\u0000)')
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 

@@ -40,7 +40,7 @@ const config = {
 		__pkg__: version
 	},
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core'],
+		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages',
