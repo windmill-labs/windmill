@@ -8,11 +8,12 @@
 	import { appComponentFromType } from '../appUtils'
 	import type { ButtonComponent, CheckboxComponent, SelectComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
-	import { GripVertical, Inspect, List, ToggleRightIcon, Code } from 'lucide-svelte'
+	import { GripVertical, Inspect, List, ToggleRightIcon, ListOrdered } from 'lucide-svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { flip } from 'svelte/animate'
-	import InputsSpecEditor from './InputsSpecEditor.svelte'
+	import TableActionsWizard from '$lib/components/wizards/TableActionsWizard.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	export let components:
 		| (BaseAppComponent & (ButtonComponent | CheckboxComponent | SelectComponent))[]
@@ -93,6 +94,22 @@
 
 {#if components}
 	<PanelSection title={`Table Actions`}>
+		<svelte:fragment slot="action">
+			<TableActionsWizard bind:actionsOrder selectedId={$selectedComponent?.[0] ?? ''} {components}>
+				<svelte:fragment slot="trigger">
+					<Button
+						color="light"
+						size="xs2"
+						nonCaptureEvent={true}
+						btnClasses={actionsOrder ? 'bg-blue-100 dark:bg-blue-900' : 'text-primary'}
+					>
+						<div class="flex flex-row items-center gap-2 text-xs font-normal">
+							<ListOrdered size={16} />
+						</div>
+					</Button>
+				</svelte:fragment>
+			</TableActionsWizard>
+		</svelte:fragment>
 		{#if components.length == 0}
 			<span class="text-xs text-tertiary">No action buttons</span>
 		{/if}
@@ -185,68 +202,21 @@
 				+ <List size={14} />
 			</Button>
 		</div>
-	</PanelSection>
-	<PanelSection
-		title={`Manage actions programmatically`}
-		tooltip="
-		You can manage the order of the actions programmatically: You need to return an array of action ids in the order you want them to appear in the table. You can also hide actions by not including them in the array."
-	>
-		<div class="w-full flex gap-2 flex-col mt-2">
-			{#if components.length == 0}
-				<span class="text-xs text-tertiary">No action buttons</span>
-			{/if}
-
+		<div class="w-full flex flex-col">
 			{#if actionsOrder}
-				<InputsSpecEditor
-					key={'Order'}
-					bind:componentInput={actionsOrder}
-					id={$selectedComponent?.[0] ?? ''}
-					userInputEnabled={false}
-					shouldCapitalize={true}
-					resourceOnly={false}
-					fieldType={actionsOrder?.['fieldType']}
-					subFieldType={actionsOrder?.['subFieldType']}
-					format={actionsOrder?.['format']}
-					selectOptions={actionsOrder?.['selectOptions']}
-					tooltip={actionsOrder?.['tooltip']}
-					fileUpload={actionsOrder?.['fileUpload']}
-					placeholder={actionsOrder?.['placeholder']}
-					customTitle={actionsOrder?.['customTitle']}
-					allowTypeChange={false}
-					displayType={false}
-				/>
-				<Button
-					size="xs"
-					color="light"
-					startIcon={{
-						icon: Code
-					}}
-					variant="border"
-					on:click={() => {
-						actionsOrder = undefined
-					}}
-				>
-					Disable
-				</Button>
-			{:else}
-				<Button
-					size="xs"
-					color="light"
-					startIcon={{
-						icon: Code
-					}}
-					variant="border"
-					on:click={() => {
-						actionsOrder = {
-							fieldType: 'text',
-							type: 'evalv2',
-							expr: JSON.stringify(components?.map((x) => x.id) ?? []),
-							connections: []
-						}
-					}}
-				>
-					Enable
-				</Button>
+				<Alert size="xs" title="Order managed programmatically" type="info">
+					Actions order is managed programmatically. Adding or removing an action will require you
+					to update the order manually.
+					<Button
+						btnClasses="mt-2"
+						size="xs2"
+						on:click={() => {
+							actionsOrder = undefined
+						}}
+					>
+						Disable order management
+					</Button>
+				</Alert>
 			{/if}
 		</div>
 	</PanelSection>

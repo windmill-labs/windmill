@@ -205,8 +205,8 @@
 
 	$: computedOrder && computedOrder.length > 0 && actionsOrder === undefined && clearActionOrder()
 
-	function refreshActionsOrder(actionsOrder: string[]) {
-		if (!deepEqual(actionsOrder, lastActionsOrder)) {
+	function refreshActionsOrder(actionsOrder: string[] | undefined) {
+		if (Array.isArray(actionsOrder) && !deepEqual(actionsOrder, lastActionsOrder)) {
 			lastActionsOrder = [...actionsOrder]
 
 			updateOptions()
