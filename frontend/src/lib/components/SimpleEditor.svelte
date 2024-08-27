@@ -56,7 +56,6 @@
 	import { buildWorkerDefinition } from './build_workers'
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { tailwindClasses } from './apps/editor/componentsPanel/tailwindUtils'
 	import { writable } from 'svelte/store'
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
@@ -82,6 +81,7 @@
 	export let domLib = false
 	export let autofocus = false
 	export let allowVim = false
+	export let tailwindClasses: string[] = []
 
 	const dispatch = createEventDispatcher()
 

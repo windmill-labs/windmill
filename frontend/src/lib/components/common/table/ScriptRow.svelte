@@ -7,12 +7,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
-	import {
-		ScriptService,
-		type Script,
-		DraftService,
-		type WorkspaceDeployUISettings
-	} from '$lib/gen'
+	import { ScriptService, type Script, DraftService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 
 	import { createEventDispatcher } from 'svelte'
@@ -44,6 +39,7 @@
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
 	export let script: Script & { canWrite: boolean; use_codebase: boolean }
 	export let marked: string | undefined
@@ -56,7 +52,6 @@
 	export let showCode: (path: string, summary: string) => void
 	export let depth: number = 0
 	export let menuOpen: boolean = false
-	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -166,7 +161,7 @@
 			{/if}
 		</span>
 		<Dropdown
-			items={() => {
+			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				if (script.draft_only) {
 					return [
@@ -219,7 +214,7 @@
 						disabled: !owner || script.archived,
 						hide: $userStore?.operator
 					},
-					...(isDeployable('script', script.path, deployUiSettings)
+					...(isDeployable('script', script.path, await getDeployUiSettings())
 						? [
 								{
 									displayName: 'Deploy to staging/prod',

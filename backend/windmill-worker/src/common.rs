@@ -570,7 +570,7 @@ where
             _ = interval.tick() => {
                 // update the last_ping column every 5 seconds
                 i+=1;
-                if i % 10 == 0 {
+                if i == 1 || i % 10 == 0 {
                     let memory_usage = get_worker_memory_usage();
                     let wm_memory_usage = get_windmill_memory_usage();
                     tracing::info!("{worker_name}/{job_id} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
