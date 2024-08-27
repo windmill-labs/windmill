@@ -23,7 +23,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import FormatOnSave from './FormatOnSave.svelte'
 
 	import {
 		DollarSign,
@@ -42,10 +41,10 @@
 	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
-	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import Popover from './Popover.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
+	import EditorSettings from './EditorSettings.svelte'
 
 	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
@@ -655,15 +654,11 @@ $res = json_decode(curl_exec($ch));`)
 				</div>
 			{/if}
 
-			{#if customUi?.autoformatting != false}
-				<FormatOnSave />
-			{/if}
 			{#if customUi?.aiGen != false}
 				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
 			{/if}
-			{#if customUi?.aiFix != false}
-				<CodeCompletionStatus />
-			{/if}
+
+			<EditorSettings {customUi} />
 		</div>
 	</div>
 

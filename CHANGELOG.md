@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.385.0](https://github.com/windmill-labs/windmill/compare/v1.384.0...v1.385.0) (2024-08-26)
+
+
+### Features
+
+* s3 image preview ([#4262](https://github.com/windmill-labs/windmill/issues/4262)) ([35d665f](https://github.com/windmill-labs/windmill/commit/35d665f6179e0a52dd30512e378f270c44703f48))
+
+
+### Bug Fixes
+
+* **frontend:** fix inserting Ws scripts from the search menu ([#4290](https://github.com/windmill-labs/windmill/issues/4290)) ([4efc40f](https://github.com/windmill-labs/windmill/commit/4efc40fbb0214fba65f6ff95782e6ead3b20bc71))
+
 ## [1.384.0](https://github.com/windmill-labs/windmill/compare/v1.383.1...v1.384.0) (2024-08-26)
 
 

@@ -20,6 +20,7 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
+	import EditorSettings from '$lib/components/EditorSettings.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -253,6 +254,7 @@
 					}, {})}
 					{transformer}
 				/>
+				<EditorSettings />
 
 				<Button
 					title="Delete"
@@ -349,6 +351,7 @@
 						bind:this={simpleEditor}
 						class="h-full max-w-full"
 						small
+						allowVim
 						{extraLib}
 						bind:code={inlineScript.content}
 						lang="javascript"

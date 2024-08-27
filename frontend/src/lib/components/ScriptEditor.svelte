@@ -297,6 +297,7 @@
 						on:change={(e) => {
 							inferSchema(e.detail)
 						}}
+						on:saveDraft
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
