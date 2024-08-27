@@ -4,7 +4,7 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { RawAppService, type ListableRawApp, type WorkspaceDeployUISettings } from '$lib/gen'
+	import { RawAppService, type ListableRawApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -16,6 +16,7 @@
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { FileUp, Globe, Pen, Share, Trash } from 'lucide-svelte'
 	import { isDeployable } from '$lib/utils_deployable'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
 	export let app: ListableRawApp & { canWrite: boolean }
 	export let marked: string | undefined
@@ -26,7 +27,6 @@
 	export let deploymentDrawer: DeployWorkspaceDrawer
 	export let depth: number = 0
 	export let menuOpen: boolean = false
-	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	let updateAppDrawer: Drawer
 
@@ -88,7 +88,7 @@
 			{/if}
 		</span>
 		<Dropdown
-			items={() => {
+			items={async () => {
 				let { summary, path, canWrite } = app
 
 				return [
@@ -100,7 +100,7 @@
 						},
 						disabled: !canWrite
 					},
-					...(isDeployable('app', path, deployUiSettings)
+					...(isDeployable('app', path, await getDeployUiSettings())
 						? [
 								{
 									displayName: 'Deploy to prod/staging',

@@ -4,12 +4,7 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		AppService,
-		DraftService,
-		type ListableApp,
-		type WorkspaceDeployUISettings
-	} from '$lib/gen'
+	import { AppService, DraftService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -37,6 +32,7 @@
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -47,7 +43,6 @@
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let depth: number = 0
 	export let menuOpen: boolean = false
-	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -120,7 +115,7 @@
 			{/if}
 		</span>
 		<Dropdown
-			items={() => {
+			items={async () => {
 				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
 
 				if (draft_only) {
@@ -170,7 +165,7 @@
 						disabled: !canWrite,
 						hide: $userStore?.operator
 					},
-					...(isDeployable('app', path, deployUiSettings)
+					...(isDeployable('app', path, await getDeployUiSettings())
 						? [
 								{
 									displayName: 'Deploy to staging/prod',
