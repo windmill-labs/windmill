@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { MoreVertical } from 'lucide-svelte'
 	import Menu from './common/menu/MenuV2.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { twMerge } from 'tailwind-merge'
+
+	import DropdownV2Inner from './DropdownV2Inner.svelte'
 
 	type Item = {
 		displayName: string
@@ -14,12 +14,12 @@
 		hide?: boolean | undefined
 	}
 
-	export let items: Item[] | (() => Item[]) = []
+	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let justifyEnd: boolean = true
 
-	function computeItems(): Item[] {
+	async function computeItems(): Promise<Item[]> {
 		if (typeof items === 'function') {
-			return (items() ?? []).filter((item) => !item.hide)
+			return ((await items()) ?? []).filter((item) => !item.hide)
 		} else {
 			return items.filter((item) => !item.hide)
 		}
@@ -38,26 +38,5 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col">
-		{#each computeItems() ?? [] as item}
-			<MenuItem
-				on:click={(e) => item?.action?.(e)}
-				href={item?.href}
-				disabled={item?.disabled}
-				class={twMerge(
-					'px-4 py-2 text-primary hover:bg-surface-hover hover:text-primary cursor-pointer text-xs transition-all',
-					'flex flex-row gap-2 items-center',
-					item?.disabled && 'text-gray-400 cursor-not-allowed',
-					item?.type === 'delete' &&
-						!item?.disabled &&
-						'text-red-500 hover:bg-red-100 hover:text-red-500'
-				)}
-			>
-				{#if item.icon}
-					<svelte:component this={item.icon} size={14} />
-				{/if}
-				{item.displayName}
-			</MenuItem>
-		{/each}
-	</div>
+	<DropdownV2Inner items={computeItems} />
 </Menu>
