@@ -55,7 +55,7 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	const { app, worldStore, selectedComponent, componentControl, darkMode } = context
+	const { app, worldStore, selectedComponent, componentControl, darkMode, mode } = context
 
 	const rowHeights = {
 		normal: 40,
@@ -287,7 +287,6 @@
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
-
 						defaultColDef: {
 							flex: resolvedConfig.flex ? 1 : 0,
 							editable: resolvedConfig?.allEditable,
@@ -514,7 +513,24 @@
 			>
 				{#key resolvedConfig?.pagination}
 					{#if loaded}
-						<div bind:this={eGui} style:height="100%" />
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<div
+							bind:this={eGui}
+							style:height="100%"
+							on:keydown={(e) => {
+								if ((e.ctrlKey || e.metaKey) && e.key === 'c' && $mode !== 'dnd') {
+									const selectedCell = api?.getFocusedCell()
+									if (selectedCell) {
+										const rowIndex = selectedCell.rowIndex
+										const colId = selectedCell.column?.getId()
+										const rowNode = api?.getDisplayedRowAtIndex(rowIndex)
+										const selectedValue = rowNode?.data?.[colId]
+										navigator.clipboard.writeText(selectedValue)
+										sendUserToast('Copied cell value to clipboard', false)
+									}
+								}
+							}}
+						/>
 					{:else}
 						<Loader2 class="animate-spin" />
 					{/if}
