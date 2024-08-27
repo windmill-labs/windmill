@@ -4,7 +4,11 @@ use regex::Regex;
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
 use tokio::process::Command;
-use windmill_common::{error::Error, jobs::QueuedJob, worker::to_raw_value};
+use windmill_common::{
+    error::Error,
+    jobs::QueuedJob,
+    worker::{to_raw_value, write_file},
+};
 use windmill_queue::{append_logs, CanceledBy};
 
 const BIN_BASH: &str = "/bin/bash";
@@ -19,7 +23,7 @@ lazy_static::lazy_static! {
 use crate::{
     common::{
         build_args_map, get_reserved_variables, handle_child, read_file, read_file_content,
-        start_child_process, write_file,
+        start_child_process,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, TZ_ENV,
@@ -47,13 +51,12 @@ pub async fn handle_bash_job(
     let logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
     append_logs(&job.id, &job.workspace_id, logs1, db).await;
 
-    write_file(job_dir, "main.sh", &format!("set -e\n{content}")).await?;
+    write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
     write_file(
         job_dir,
         "wrapper.sh",
         &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n /bin/bash ./main.sh \"$@\" 2>&1 | tee bp\nwait $!"),
-    )
-    .await?;
+    )?;
 
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
@@ -76,9 +79,9 @@ pub async fn handle_bash_job(
         })
         .collect::<Vec<String>>();
     let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
-    let _ = write_file(job_dir, "result.json", "").await?;
-    let _ = write_file(job_dir, "result.out", "").await?;
-    let _ = write_file(job_dir, "result2.out", "").await?;
+    let _ = write_file(job_dir, "result.json", "")?;
+    let _ = write_file(job_dir, "result.out", "")?;
+    let _ = write_file(job_dir, "result2.out", "")?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -88,8 +91,7 @@ pub async fn handle_bash_job(
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
+        )?;
         let mut cmd_args = vec![
             "--config",
             "run.config.proto",
@@ -302,20 +304,19 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
         format!("{}\n{}", profile, content)
     };
 
-    write_file(job_dir, "main.ps1", content.as_str()).await?;
+    write_file(job_dir, "main.ps1", content.as_str())?;
     write_file(
         job_dir,
         "wrapper.sh",
         &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n{} -F ./main.ps1 \"$@\" 2>&1 | tee bp\nwait $!", POWERSHELL_PATH.as_str()),
-    )
-    .await?;
+    )?;
     let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let _ = write_file(job_dir, "result.json", "").await?;
-    let _ = write_file(job_dir, "result.out", "").await?;
-    let _ = write_file(job_dir, "result2.out", "").await?;
+    let _ = write_file(job_dir, "result.json", "")?;
+    let _ = write_file(job_dir, "result.out", "")?;
+    let _ = write_file(job_dir, "result2.out", "")?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -326,8 +327,7 @@ $env:PSModulePath = \"{}:$PSModulePathBackup\"",
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
-        )
-        .await?;
+        )?;
         let mut cmd_args = vec![
             "--config",
             "run.config.proto",

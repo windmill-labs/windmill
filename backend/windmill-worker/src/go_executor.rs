@@ -12,7 +12,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
-    worker::save_cache,
+    worker::{save_cache, write_file},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy};
@@ -20,7 +20,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         capitalize, create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        start_child_process, write_file,
+        start_child_process,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
     GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
@@ -141,7 +141,7 @@ func main() {{
     }}
 }}"#;
 
-            write_file(job_dir, "main.go", WRAPPER_CONTENT).await?;
+            write_file(job_dir, "main.go", WRAPPER_CONTENT)?;
 
             {
                 let spread = &sig
@@ -174,7 +174,7 @@ func Run(req Req) (interface{{}}, error){{
 
 "#,
                 );
-                write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content).await?;
+                write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content)?;
             }
         }
 
@@ -247,8 +247,7 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{CACHE_DIR}", GO_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
+        )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -313,11 +312,11 @@ async fn gen_go_mod(
 
     let md = requirements.split_once(GO_REQ_SPLITTER);
     if let Some((req, sum)) = md {
-        write_file(job_dir, "go.mod", &req).await?;
-        write_file(job_dir, "go.sum", &sum).await?;
+        write_file(job_dir, "go.mod", &req)?;
+        write_file(job_dir, "go.sum", &sum)?;
         Ok((true, true))
     } else {
-        write_file(job_dir, "go.mod", &requirements).await?;
+        write_file(job_dir, "go.mod", &requirements)?;
         Ok((true, false))
     }
 }
@@ -471,7 +470,7 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
         .await
         .expect("could not create go's mymod dir");
 
-    write_file(&mymod_dir, "inner_main.go", &code).await?;
+    write_file(&mymod_dir, "inner_main.go", &code)?;
 
     Ok(())
 }
