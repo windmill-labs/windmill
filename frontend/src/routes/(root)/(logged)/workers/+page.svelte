@@ -541,7 +541,7 @@
 												<Cell>
 													{#if last_job_id}
 														<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
-															View job
+															View last job
 														</a>
 														<br />
 														(workspace {last_job_workspace_id})

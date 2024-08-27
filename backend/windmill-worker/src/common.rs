@@ -576,7 +576,7 @@ where
                     tracing::info!("{worker_name}/{job_id} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     if job_id != Uuid::nil() {
                         sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now(), last_job_id = $1, last_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4 WHERE worker = $5",
+                            "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4 WHERE worker = $5",
                             &job_id,
                             &w_id,
                             memory_usage,
