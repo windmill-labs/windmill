@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_ping SET ping_at = now(), last_job_id = $1, last_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4 WHERE worker = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2544b7a95a8d0bfa6af77bbb1ea711b65fa9fa4433f8fa3702e33ee0a06f73c4"
+}

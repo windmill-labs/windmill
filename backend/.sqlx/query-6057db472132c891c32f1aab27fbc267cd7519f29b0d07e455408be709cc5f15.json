@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as current_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as current_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate, memory, vcpus, memory_usage, wm_memory_usage\n        FROM worker_ping\n        WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)\n        ORDER BY ping_at desc LIMIT $2 OFFSET $3",
+  "query": "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed, CASE WHEN $4 IS TRUE THEN last_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN last_job_workspace_id ELSE NULL END as last_job_workspace_id, custom_tags, worker_group, wm_version, occupancy_rate, memory, vcpus, memory_usage, wm_memory_usage\n        FROM worker_ping\n        WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)\n        ORDER BY ping_at desc LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -35,12 +35,12 @@
       },
       {
         "ordinal": 6,
-        "name": "current_job_id",
+        "name": "last_job_id",
         "type_info": "Uuid"
       },
       {
         "ordinal": 7,
-        "name": "current_job_workspace_id",
+        "name": "last_job_workspace_id",
         "type_info": "Varchar"
       },
       {
@@ -111,5 +111,5 @@
       true
     ]
   },
-  "hash": "55d6c6f887f1cceb311d9ab034d3485b8ccb2d07d723f184cef2696760d3ccf9"
+  "hash": "6057db472132c891c32f1aab27fbc267cd7519f29b0d07e455408be709cc5f15"
 }
