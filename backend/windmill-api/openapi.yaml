@@ -342,6 +342,8 @@ paths:
               properties:
                 is_super_admin:
                   type: boolean
+                name:
+                  type: string
       responses:
         "200":
           description: user updated
@@ -3924,6 +3926,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script details
@@ -4059,6 +4065,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptHash"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script details
@@ -4515,6 +4525,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow details
@@ -4932,6 +4946,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: app details
