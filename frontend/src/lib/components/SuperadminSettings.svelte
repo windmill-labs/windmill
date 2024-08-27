@@ -22,6 +22,7 @@
 	import ChangeInstanceUsername from './ChangeInstanceUsername.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import InstanceNameEditor from './InstanceNameEditor.svelte'
 	let drawer: Drawer
 	let filter = ''
 
@@ -231,6 +232,12 @@
 																		}}
 																	/>
 																{/if}
+																<InstanceNameEditor
+																	value={name}
+																	on:save={(e) => {
+																		// should update the name
+																	}}
+																/>
 																<Button
 																	color="light"
 																	variant="contained"
@@ -239,7 +246,6 @@
 																	btnClasses="text-red-500"
 																	on:click={() => {
 																		deleteConfirmedCallback = async () => {
-																			console.log(email)
 																			await UserService.globalUserDelete({ email })
 																			sendUserToast(`User ${email} removed`)
 																			listUsers()
