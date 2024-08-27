@@ -23,15 +23,18 @@ import initRegexParsers, {
 import initPythonParser, {
 	parse_python,
 } from 'windmill-parser-wasm-py'
-import initOtherParsers, {
-	parse_php,
+import initGoParser, {
 	parse_go,
-} from 'windmill-parser-wasm-other'
+} from 'windmill-parser-wasm-go'
+import initPhpParser, {
+	parse_php,
+} from 'windmill-parser-wasm-php'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlPy from 'windmill-parser-wasm-py/windmill_parser_wasm_bg.wasm?url'
-import wasmUrlOther from 'windmill-parser-wasm-other/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlGo from 'windmill-parser-wasm-go/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlPhp from 'windmill-parser-wasm-php/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
@@ -50,8 +53,11 @@ async function initWasmRegex() {
 async function initWasmPython() {
 	await initPythonParser(wasmUrlPy)
 }
-async function initWasmOther() {
-	await initOtherParsers(wasmUrlOther)
+async function initWasmPhp() {
+	await initPhpParser(wasmUrlPhp)
+}
+async function initWasmGo() {
+	await initGoParser(wasmUrlGo)
 }
 
 export function parseDeps(code: string): string[] {
@@ -69,13 +75,6 @@ export async function inferArgs(
 	code: string,
 	schema: Schema
 ): Promise<boolean | null> {
-	if (language === "bun" || language === "bunnative" || language === "deno" || language === "nativets") {
-		await initWasmTs()
-		await initWasmTs()
-		await initWasmTs()
-		await initWasmTs()
-		await initWasmTs()
-	}
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
 	if (lastRun && code == lastRun[0] && lastRun[1]) {
@@ -150,7 +149,7 @@ export async function inferArgs(
 			inferedSchema = JSON.parse(parse_graphql(code))
 			inferedSchema.args = [{ name: 'api', typ: { resource: 'graphql' } }, ...inferedSchema.args]
 		} else if (language == 'go') {
-			await initWasmOther()
+			await initWasmGo()
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {
 			await initWasmRegex()
@@ -159,7 +158,7 @@ export async function inferArgs(
 			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_powershell(code))
 		} else if (language == 'php') {
-			await initWasmOther()
+			await initWasmPhp()
 			inferedSchema = JSON.parse(parse_php(code))
 		} else {
 			return null
