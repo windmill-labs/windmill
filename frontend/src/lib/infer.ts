@@ -4,12 +4,12 @@ import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
-import initTs, {
+import initTsParser, {
 	parse_deno,
 	parse_outputs,
 	parse_ts_imports
 } from 'windmill-parser-wasm-ts'
-import initSql, {
+import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
 	parse_bigquery,
@@ -17,21 +17,21 @@ import initSql, {
 	parse_graphql,
 	parse_mssql,
 	parse_db_resource,
-} from 'windmill-parser-wasm-sql'
-import initScriptingLangs, {
-	parse_python,
 	parse_bash,
 	parse_powershell,
+} from 'windmill-parser-wasm-regex'
+import initPythonParser, {
+	parse_python,
+} from 'windmill-parser-wasm-py'
+import initOtherParsers, {
 	parse_php,
-} from 'windmill-parser-wasm-script-lang'
-import initCompiledLangs, {
 	parse_go,
-} from 'windmill-parser-wasm-compiled-lang'
+} from 'windmill-parser-wasm-other'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
-import wasmUrlSql from 'windmill-parser-wasm-sql/windmill_parser_wasm_bg.wasm?url'
-import wasmUrlScripting from 'windmill-parser-wasm-script-lang/windmill_parser_wasm_bg.wasm?url'
-import wasmUrlCompiled from 'windmill-parser-wasm-compiled-lang/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlPy from 'windmill-parser-wasm-py/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlOther from 'windmill-parser-wasm-other/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
@@ -40,18 +40,18 @@ const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undef
 let initializeTsPromise : Promise<any> | undefined = undefined;
 export async function initWasmTs() {
 	if (initializeTsPromise == undefined) {
-		initializeTsPromise = initTs()
+		initializeTsPromise = initTsParser()
 	}
 	await initializeTsPromise
 }
-async function initWasmSql() {
-	await initSql(wasmUrlSql)
+async function initWasmRegex() {
+	await initRegexParsers(wasmUrlRegex)
 }
-async function initWasmScripting() {
-	await initScriptingLangs(wasmUrlScripting)
+async function initWasmPython() {
+	await initPythonParser(wasmUrlPy)
 }
-async function initWasmCompiled() {
-	await initCompiledLangs(wasmUrlCompiled)
+async function initWasmOther() {
+	await initOtherParsers(wasmUrlOther)
 }
 
 export function parseDeps(code: string): string[] {
@@ -87,14 +87,14 @@ export async function inferArgs(
 
 		let inlineDBResource: string | undefined = undefined
 		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql'].includes(language ?? '')) {
-			await initWasmSql()
+			await initWasmRegex()
 			inlineDBResource = parse_db_resource(code)
 		}
 		if (language == 'python3') {
-			await initWasmScripting()
+			await initWasmPython()
 			inferedSchema = JSON.parse(parse_python(code))
 		} else if (language == 'deno') {
-			await initTs(wasmUrlTs)
+			await initTsParser(wasmUrlTs)
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'nativets') {
 			await initWasmTs()
@@ -146,20 +146,20 @@ export async function inferArgs(
 				]
 			}
 		} else if (language == 'graphql') {
-			await initWasmSql()
+			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_graphql(code))
 			inferedSchema.args = [{ name: 'api', typ: { resource: 'graphql' } }, ...inferedSchema.args]
 		} else if (language == 'go') {
-			await initWasmCompiled()
+			await initWasmOther()
 			inferedSchema = JSON.parse(parse_go(code))
 		} else if (language == 'bash') {
-			await initWasmScripting()
+			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_bash(code))
 		} else if (language == 'powershell') {
-			await initWasmScripting()
+			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_powershell(code))
 		} else if (language == 'php') {
-			await initWasmScripting()
+			await initWasmOther()
 			inferedSchema = JSON.parse(parse_php(code))
 		} else {
 			return null
