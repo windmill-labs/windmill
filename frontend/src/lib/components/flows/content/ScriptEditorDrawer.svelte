@@ -190,6 +190,9 @@
 		{#if script}
 			{#key script.hash}
 				<ScriptEditor
+					on:saveDraft={() => {
+						saveScript()
+					}}
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}

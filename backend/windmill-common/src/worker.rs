@@ -1,3 +1,4 @@
+use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -5,6 +6,8 @@ use serde_json::value::RawValue;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
+    fs::File,
+    io::Write,
     path::Path,
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
@@ -151,6 +154,17 @@ pub async fn make_pull_query(wc: &WorkerConfig) {
 }
 
 pub const TMP_DIR: &str = "/tmp/windmill";
+pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
+
+pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
+
+pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
+    let path = format!("{}/{}", dir, path);
+    let mut file = File::create(&path)?;
+    file.write_all(content.as_bytes())?;
+    file.flush()?;
+    Ok(file)
+}
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     let q = sqlx::query!(
