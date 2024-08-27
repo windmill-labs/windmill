@@ -1184,6 +1184,9 @@
 			on:format={() => {
 				saveDraft()
 			}}
+			on:saveDraft={() => {
+				saveDraft()
+			}}
 			bind:editor
 			bind:this={scriptEditor}
 			bind:schema={script.schema}

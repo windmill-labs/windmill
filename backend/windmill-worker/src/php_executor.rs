@@ -8,6 +8,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Result},
     jobs::QueuedJob,
+    worker::write_file,
 };
 use windmill_parser::Typ;
 use windmill_queue::{append_logs, CanceledBy};
@@ -15,7 +16,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_result, start_child_process, write_file,
+        read_result, start_child_process,
     },
     AuthedClientBackgroundTask, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
     NSJAIL_PATH, PHP_PATH,
@@ -70,10 +71,10 @@ pub async fn composer_install(
     requirements: String,
     lock: Option<String>,
 ) -> Result<String> {
-    write_file(job_dir, "composer.json", &requirements).await?;
+    write_file(job_dir, "composer.json", &requirements)?;
 
     if let Some(lock) = lock.as_ref() {
-        write_file(job_dir, "composer.lock", lock).await?;
+        write_file(job_dir, "composer.lock", lock)?;
     }
 
     let mut child_cmd = Command::new(&*COMPOSER_PATH);
@@ -178,7 +179,7 @@ pub async fn handle_php_job(
 
     append_logs(&job.id, job.workspace_id.to_string(), init_logs, db).await;
 
-    let _ = write_file(job_dir, "main.php", inner_content).await?;
+    let _ = write_file(job_dir, "main.php", inner_content)?;
 
     let main_override = get_main_override(job.args.as_ref());
 
@@ -241,7 +242,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.php", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.php", &wrapper_content)?;
         Ok(()) as error::Result<()>
     };
 
@@ -269,8 +270,7 @@ try {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
+        )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let args = vec![

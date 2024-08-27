@@ -3,7 +3,6 @@
 <script context="module">
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
 	import processStdContent from '$lib/process.d.ts.txt?raw'
 	import windmillFetchContent from '$lib/windmill_fetch.d.ts.txt?raw'
 
@@ -129,7 +128,8 @@
 		copilotInfo,
 		codeCompletionSessionEnabled,
 		lspTokenStore,
-		formatOnSave
+		formatOnSave,
+		vimMode
 	} from '$lib/stores'
 
 	import {
@@ -155,7 +155,8 @@
 		KeyCode,
 		KeyMod,
 		Uri as mUri,
-		type IRange
+		type IRange,
+		type IDisposable
 	} from 'monaco-editor'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
@@ -169,6 +170,7 @@
 	} from '$lib/consts'
 	import { setupTypeAcquisition } from '$lib/ata/index'
 	import { initWasm, parseDeps } from '$lib/infer'
+	import { initVim } from './monaco_keybindings'
 
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -1042,6 +1044,26 @@
 	let initialized = false
 	let ata: ((s: string) => void) | undefined = undefined
 
+	let statusDiv: Element | null = null
+
+	function saveDraft() {
+		dispatch('saveDraft', code)
+	}
+
+	let vimDisposable: IDisposable | undefined = undefined
+	$: editor && $vimMode && statusDiv && onVimMode()
+	$: !$vimMode && vimDisposable && onVimDisable()
+
+	function onVimDisable() {
+		vimDisposable?.dispose()
+	}
+
+	function onVimMode() {
+		if (editor && statusDiv) {
+			vimDisposable = initVim(editor, statusDiv, saveDraft)
+		}
+	}
+
 	async function loadMonaco() {
 		try {
 			console.log("Loading Monaco's language client")
@@ -1076,6 +1098,8 @@
 			tabSize: lang == 'python' ? 4 : 2,
 			folding
 		})
+
+		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		let ataModel: NodeJS.Timeout | undefined = undefined
@@ -1140,6 +1164,7 @@
 			ata = undefined
 			try {
 				closeWebsockets()
+				vimDisposable?.dispose()
 				model?.dispose()
 				editor && editor.dispose()
 				console.log('disposed editor')
@@ -1289,6 +1314,9 @@
 
 <EditorTheme />
 <div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}" />
+{#if $vimMode}
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+{/if}
 
 <style global lang="postcss">
 	.editor {

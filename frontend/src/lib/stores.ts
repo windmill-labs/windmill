@@ -2,6 +2,7 @@ import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
 import { type WorkspaceDefaultScripts, type TokenResponse, type UserWorkspaceList } from './gen'
 import type { IntrospectionQuery } from 'graphql'
+import { getLocalSetting } from './utils'
 
 export interface UserExt {
 	email: string
@@ -76,10 +77,18 @@ export const copilotInfo = writable<{
 	code_completion_enabled: false
 })
 export const codeCompletionLoading = writable<boolean>(false)
-export const codeCompletionSessionEnabled = writable<boolean>(true)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)
-export const formatOnSave = writable<boolean>(true)
+export const FORMAT_ON_SAVE_SETTING_NAME = 'formatOnSave'
+export const VIM_MODE_SETTING_NAME = 'vimMode'
+export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
+export const formatOnSave = writable<boolean>(
+	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
+)
+export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
+export const codeCompletionSessionEnabled = writable<boolean>(
+	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
+)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

@@ -38,7 +38,8 @@
 		KeyMod,
 		Uri as mUri,
 		languages,
-		type IRange
+		type IRange,
+		type IDisposable
 	} from 'monaco-editor'
 
 	import '@codingame/monaco-vscode-standalone-languages'
@@ -57,6 +58,8 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import { tailwindClasses } from './apps/editor/componentsPanel/tailwindUtils'
 	import { writable } from 'svelte/store'
+	import { vimMode } from '$lib/stores'
+	import { initVim } from './monaco_keybindings'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -78,6 +81,7 @@
 	export let small = false
 	export let domLib = false
 	export let autofocus = false
+	export let allowVim = false
 
 	const dispatch = createEventDispatcher()
 
@@ -156,6 +160,24 @@
 
 	let disableTabCond: meditor.IContextKey<boolean> | undefined
 	$: disableTabCond?.set(!code && !!suggestion)
+
+	let statusDiv: Element | null = null
+
+	let vimDisposable: IDisposable | undefined = undefined
+	$: allowVim && editor && $vimMode && statusDiv && onVimMode()
+	$: !$vimMode && vimDisposable && onVimDisable()
+
+	function onVimDisable() {
+		vimDisposable?.dispose()
+	}
+
+	function onVimMode() {
+		if (editor && statusDiv) {
+			vimDisposable = initVim(editor, statusDiv, () => {
+				console.log('vim save not possible for simple editor')
+			})
+		}
+	}
 
 	async function loadMonaco() {
 		await initializeVscode()
@@ -378,6 +400,7 @@
 
 	onDestroy(() => {
 		try {
+			vimDisposable?.dispose()
 			model && model.dispose()
 			editor && editor.dispose()
 		} catch (err) {}
@@ -394,7 +417,14 @@
 		{suggestion}
 	</div>
 {/if}
-<div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
+<div
+	bind:this={divEl}
+	class="{$$props.class ?? ''} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	bind:clientWidth={width}
+/>
+{#if allowVim && $vimMode}
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+{/if}
 
 <style lang="postcss">
 	.editor {
