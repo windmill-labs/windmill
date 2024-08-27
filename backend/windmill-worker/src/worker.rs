@@ -1397,7 +1397,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             };
 
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
                 worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
