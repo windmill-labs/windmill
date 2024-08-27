@@ -69,6 +69,7 @@
 		{#if showDiff}
 			{#key previousCode + code}
 				<DiffEditor
+					open={true}
 					class="h-screen"
 					readOnly
 					automaticLayout

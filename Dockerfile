@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.79-slim-bookworm
+ARG RUST_IMAGE=rust:1.80-slim-bookworm
 ARG PYTHON_IMAGE=python:3.11.8-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
@@ -163,7 +163,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=denoland/deno:1.45.4 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.1.21 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.1.25 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
@@ -177,9 +177,7 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
-RUN windmill cache ${APP}/hubPaths.json
-
-RUN rm ${APP}/hubPaths.json
+RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 777 /tmp/windmill
 
 EXPOSE 8000
 

@@ -96,6 +96,7 @@
 					summary: `${x.summary} (${x.app})`
 				})
 			)
+			hubNotAvailable = false
 		} catch (err) {
 			hubNotAvailable = true
 			console.error('Hub not available')

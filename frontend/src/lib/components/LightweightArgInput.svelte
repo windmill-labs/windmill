@@ -277,11 +277,9 @@
 								dispatch('focus')
 							}}
 							type="number"
-							class={twMerge(
-								valid && error == ''
-									? ''
-									: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'
-							)}
+							class={valid && error == ''
+								? ''
+								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
 							placeholder={placeholder ?? defaultValue ?? ''}
 							bind:value
 							min={extra['min']}
@@ -293,12 +291,9 @@
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 						}}
-						class={twMerge(
-							valid && error == ''
-								? ''
-								: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30',
-							'w-full'
-						)}
+						class={valid && error == ''
+							? ''
+							: 'border !border-red-700 !border-opacity-70 focus:!border-red-700 focus:!border-opacity-30'}
 						bind:checked={value}
 					/>
 					{#if type == 'boolean' && value == undefined}

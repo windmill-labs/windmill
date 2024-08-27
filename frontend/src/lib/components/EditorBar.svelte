@@ -23,7 +23,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
-	import FormatOnSave from './FormatOnSave.svelte'
 
 	import {
 		DollarSign,
@@ -42,9 +41,10 @@
 	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
-	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import Popover from './Popover.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
+	import type { EditorBarUi } from './custom_ui'
+	import EditorSettings from './EditorSettings.svelte'
 
 	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
@@ -68,6 +68,7 @@
 	export let args: Record<string, any>
 	export let noHistory = false
 	export let saveToWorkspace = false
+	export let customUi: EditorBarUi = {}
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -313,6 +314,7 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
+
 <ItemPicker
 	bind:this={contextualVariablePicker}
 	pickCallback={(path, name) => {
@@ -513,7 +515,7 @@ $res = json_decode(curl_exec($ch));`)
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		/>
 		<div class="flex items-center gap-0.5">
-			{#if showContextVarPicker}
+			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
 					title="Add context variable"
 					color="light"
@@ -526,7 +528,7 @@ $res = json_decode(curl_exec($ch));`)
 					>+Context Var
 				</Button>
 			{/if}
-			{#if showVarPicker}
+			{#if showVarPicker && customUi?.variable != false}
 				<Button
 					title="Add variable"
 					color="light"
@@ -556,7 +558,7 @@ $res = json_decode(curl_exec($ch));`)
 				</Button>
 			{/if}
 
-			{#if showResourceTypePicker}
+			{#if showResourceTypePicker && customUi?.type != false}
 				<Button
 					title="Add resource type"
 					btnClasses="!font-medium text-tertiary"
@@ -584,37 +586,41 @@ $res = json_decode(curl_exec($ch));`)
 				Reset
 			</Button>
 
-			{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
-				<Button
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
-					on:click={() => editor?.reloadWebsocket()}
-					startIcon={{
-						icon: RotateCw,
-						classes: websocketAlive[lang] == false ? 'animate-spin' : ''
-					}}
-					title="Reload assistants"
-				>
-					{#if !iconOnly}
-						Assistants
-					{/if}
-					<span class="-my-1">
-						{#if lang == 'deno'}
-							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-						{:else if lang == 'go'}
-							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-						{:else if lang == 'python3'}
-							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-							<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
-						{:else if lang == 'bash'}
-							(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span>)
+			{#if customUi?.assistants != false}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+					<Button
+						btnClasses="!font-medium text-tertiary"
+						size="xs"
+						spacingSize="md"
+						color="light"
+						on:click={() => editor?.reloadWebsocket()}
+						startIcon={{
+							icon: RotateCw,
+							classes: websocketAlive[lang] == false ? 'animate-spin' : ''
+						}}
+						title="Reload assistants"
+					>
+						{#if !iconOnly}
+							Assistants
 						{/if}
-					</span>
-				</Button>
+						<span class="-my-1">
+							{#if lang == 'deno'}
+								(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+							{:else if lang == 'go'}
+								(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+							{:else if lang == 'python3'}
+								(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+								<span class={websocketAlive.ruff ? 'green' : 'text-red-700'}>Ruff</span>)
+							{:else if lang == 'bash'}
+								(<span class={websocketAlive.shellcheck ? 'green' : 'text-red-700'}>Shellcheck</span
+								>)
+							{/if}
+						</span>
+					</Button>
+				{/if}
 			{/if}
-			{#if collabMode}
+
+			{#if collabMode && customUi?.multiplayer != false}
 				<div class="flex items-center px-3">
 					<Toggle
 						options={{ right: '' }}
@@ -648,11 +654,11 @@ $res = json_decode(curl_exec($ch));`)
 				</div>
 			{/if}
 
-			<FormatOnSave />
+			{#if customUi?.aiGen != false}
+				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+			{/if}
 
-			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
-
-			<CodeCompletionStatus />
+			<EditorSettings {customUi} />
 		</div>
 	</div>
 
@@ -671,7 +677,7 @@ $res = json_decode(curl_exec($ch));`)
 				History
 			</Button>
 		{/if}
-		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
+		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS && customUi?.library != false}
 			<Button
 				btnClasses="!font-medium text-tertiary"
 				size="xs"

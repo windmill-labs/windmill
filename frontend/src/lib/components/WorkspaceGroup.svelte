@@ -4,11 +4,11 @@
 	import Multiselect from 'svelte-multiselect'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { ConfigService, WorkspaceService, type Workspace } from '$lib/gen'
+	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, pluralize } from '$lib/utils'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import Editor from './Editor.svelte'
@@ -32,6 +32,25 @@
 		  }
 	export let activeWorkers: number
 	export let customTags: string[] | undefined
+	export let workers: [string, WorkerPing[]][]
+
+	$: vcpus_memory = computeVCpuAndMemory(workers)
+
+	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
+		let vcpus = 0
+		let memory = 0
+		for (const [_, pings] of workers) {
+			for (const ping of pings) {
+				if (ping.vcpus) {
+					vcpus += ping.vcpus
+				}
+				if (ping.memory_usage) {
+					memory += ping.memory_usage
+				}
+			}
+		}
+		return { vcpus, memory }
+	}
 
 	let nconfig: {
 		dedicated_worker?: string
@@ -800,81 +819,89 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex gap-2 items-center justify-end flex-row my-2">
-	{#if $superadmin}
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				dirty = false
-				loadNConfig()
-				drawer.openDrawer()
-			}}
-			startIcon={{ icon: config == undefined ? Plus : Settings }}
-		>
-			<div class="flex flex-row gap-1 items-center">
-				{config == undefined ? 'Create' : 'Edit'} config
-			</div>
-		</Button>
-
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				navigator.clipboard.writeText(
-					YAML.stringify({
-						name,
-						...config
-					})
-				)
-				sendUserToast('Worker config copied to clipboard as YAML')
-			}}
-			startIcon={{ icon: Copy }}
-		>
-			Copy config
-		</Button>
-
-		{#if config}
+<div class=" flex items-center justify-between pt-1">
+	<div class="text-xs"
+		>{pluralize(activeWorkers, 'worker')}
+		{#if vcpus_memory?.vcpus}
+			- {vcpus_memory?.vcpus} vCPUs{/if}{#if vcpus_memory?.memory}
+			- {vcpus_memory?.memory} MB{/if}</div
+	>
+	<div class="flex gap-2 items-center justify-end flex-row my-2">
+		{#if $superadmin}
 			<Button
 				color="light"
 				size="xs"
 				on:click={() => {
-					if (!$enterpriseLicense) {
-						sendUserToast('Worker Management UI is an EE feature', true)
-					} else {
-						openDelete = true
-					}
+					dirty = false
+					loadNConfig()
+					drawer.openDrawer()
 				}}
-				startIcon={{ icon: Trash }}
-				btnClasses="text-red-400"
+				startIcon={{ icon: config == undefined ? Plus : Settings }}
 			>
-				Delete config
+				<div class="flex flex-row gap-1 items-center">
+					{config == undefined ? 'Create' : 'Edit'} config
+				</div>
+			</Button>
+
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					navigator.clipboard.writeText(
+						YAML.stringify({
+							name,
+							...config
+						})
+					)
+					sendUserToast('Worker config copied to clipboard as YAML')
+				}}
+				startIcon={{ icon: Copy }}
+			>
+				Copy config
+			</Button>
+
+			{#if config}
+				<Button
+					color="light"
+					size="xs"
+					on:click={() => {
+						if (!$enterpriseLicense) {
+							sendUserToast('Worker Management UI is an EE feature', true)
+						} else {
+							openDelete = true
+						}
+					}}
+					startIcon={{ icon: Trash }}
+					btnClasses="text-red-400"
+				>
+					Delete config
+				</Button>
+			{/if}
+
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					loadNConfig()
+
+					openClean = true
+				}}
+				btnClasses="text-red-400"
+				startIcon={{ icon: RefreshCcwIcon }}
+			>
+				Clean cache
+			</Button>
+		{:else if config}
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					loadNConfig()
+					drawer.openDrawer()
+				}}
+			>
+				<div class="flex flex-row gap-1 items-center"> config </div>
 			</Button>
 		{/if}
-
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				loadNConfig()
-
-				openClean = true
-			}}
-			btnClasses="text-red-400"
-			startIcon={{ icon: RefreshCcwIcon }}
-		>
-			Clean cache
-		</Button>
-	{:else if config}
-		<Button
-			color="light"
-			size="xs"
-			on:click={() => {
-				loadNConfig()
-				drawer.openDrawer()
-			}}
-		>
-			<div class="flex flex-row gap-1 items-center"> config </div>
-		</Button>
-	{/if}
+	</div>
 </div>
