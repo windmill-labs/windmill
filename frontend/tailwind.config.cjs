@@ -63,7 +63,14 @@ function hexToRgb(hex) {
 
 /** @type {import('tailwindcss').Config} */
 const config = {
-	content: ['./src/**/*.{html,js,svelte,ts}'],
+	//to generatd tailwind full, only include ./src/lib/components/apps/editor/componentsPanel/tailwindUtils.ts and run:
+	//npx tailwindcss -i src/lib/assets/app.css -o static/tailwind_full.css
+	//then copy content in that file
+	content: [
+		'./src/**/*.{html,js,svelte,ts}',
+		'!./src/lib/components/apps/utils.ts',
+		'!./src/lib/components/apps/editor/componentsPanel/tailwindUtils.ts'
+	],
 	safelist: [
 		'hljs',
 		'splitpanes__pane',
@@ -73,19 +80,7 @@ const config = {
 		'autocomplete-list-item',
 		'autocomplete-list-item-create',
 		'selected',
-		'wm-tab-selected',
-		...(process.env.NODE_ENV === 'production'
-			? [
-					{ pattern: /^m(\w?)-.*$/ },
-					{ pattern: /^p(\w?)-.*$/ },
-					{ pattern: /^rounded-.*$/ },
-					{ pattern: /^shadow-.*$/, variants: ['hover'] },
-					{ pattern: /^text-[^/]*$/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^bg-[^/]*$/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^border-[^/]*$/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^ring-[^/]*$/, variants: ['hover', 'active', 'focus'] }
-			  ]
-			: [])
+		'wm-tab-selected'
 	],
 	theme: {
 		colors: {

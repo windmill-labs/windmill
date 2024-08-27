@@ -1,0 +1,1 @@
+BUILD_FULL_APP="true" npx tailwindcss -i src/lib/assets/app.css -o src/lib/assets/tailwind_full.js --postcss

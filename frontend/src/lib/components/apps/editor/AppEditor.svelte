@@ -636,6 +636,10 @@
 	let jobToWatch: { componentId: string; job: string } | undefined = undefined
 </script>
 
+<svelte:head>
+	<link rel="stylesheet" href="/tailwind_full.css" />
+</svelte:head>
+
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} on:keydown={keydown} />
