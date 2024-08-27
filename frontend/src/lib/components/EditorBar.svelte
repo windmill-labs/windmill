@@ -13,7 +13,7 @@
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Drawer, Popup } from './common'
+	import { Drawer } from './common'
 	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
 	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'

@@ -3,7 +3,12 @@
 
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../../types'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
@@ -28,6 +33,7 @@
 	export let render: boolean
 	export let customCss: ComponentCustomCSS<'aggridinfinitecomponent'> | undefined = undefined
 	export let actions: TableAction[] | undefined = undefined
+	export let actionsOrder: RichConfiguration | undefined = undefined
 
 	let runnableComponent: RunnableComponent | undefined = undefined
 

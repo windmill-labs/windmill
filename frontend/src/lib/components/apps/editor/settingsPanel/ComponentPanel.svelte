@@ -387,7 +387,11 @@
 			/>
 		{:else if componentSettings.item.data.type === 'aggridcomponentee'}
 			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'agchartscomponentee'}
 			<GridAgChartsLicenseKe bind:license={componentSettings.item.data.license} />
 		{:else if componentSettings.item.data.type === 'steppercomponent'}
@@ -418,14 +422,30 @@
 				bind:component={componentSettings.item.data}
 			/>
 		{:else if componentSettings.item.data.type === 'aggridcomponent'}
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'aggridinfinitecomponent'}
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'aggridinfinitecomponentee'}
 			<GridAgGridLicenseKey bind:license={componentSettings.item.data.license} />
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'dbexplorercomponent'}
-			<TableActions id={component.id} bind:components={componentSettings.item.data.actions} />
+			<TableActions
+				id={component.id}
+				bind:components={componentSettings.item.data.actions}
+				bind:actionsOrder={componentSettings.item.data.actionsOrder}
+			/>
 		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{:else if componentSettings.item.data.type === 'menucomponent' && Array.isArray(componentSettings.item.data.menuItems)}
