@@ -4,7 +4,6 @@
 	import { classNames, displayDate, emptyString } from '$lib/utils'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import AppPreview from './AppPreview.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -179,7 +178,10 @@
 							</Button>
 						</div>
 					</div>
-					<AppPreview noBackend app={selected.value} context={{}} />
+
+					{#await import('$lib/components/apps/editor/AppPreview.svelte') then Module}
+						<Module.default noBackend app={selected.value} context={{}} />
+					{/await}
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}

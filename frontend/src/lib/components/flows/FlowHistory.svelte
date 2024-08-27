@@ -5,7 +5,6 @@
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
-	import FlowViewer from '../FlowViewer.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -206,7 +205,9 @@
 										>Redeploy with that version
 									</Button>
 								</div>
-								<FlowViewer flow={selected} />
+								{#await import('$lib/components/FlowViewer.svelte') then Module}
+									<Module.default flow={selected} />
+								{/await}
 							</div>
 						{:else}
 							<Skeleton layout={[[40]]} />
