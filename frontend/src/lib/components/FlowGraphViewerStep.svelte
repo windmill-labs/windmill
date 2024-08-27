@@ -191,7 +191,7 @@
 						</Button>
 					</div>
 					<iframe
-						class="w-full grow text-sm"
+						class="w-full grow text-sm h-full"
 						title="embedded script from hub"
 						frameborder="0"
 						src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
