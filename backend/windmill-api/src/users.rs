@@ -756,6 +756,7 @@ pub struct DeclineInvite {
 #[derive(Deserialize)]
 pub struct EditUser {
     pub is_super_admin: Option<bool>,
+    pub name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1697,6 +1698,16 @@ async fn update_user(
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
             sa,
+            &email_to_update
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(n) = eu.name {
+        sqlx::query_scalar!(
+            "UPDATE password SET name = $1 WHERE email = $2",
+            n,
             &email_to_update
         )
         .execute(&mut *tx)

@@ -10,6 +10,7 @@ use crate::{
     db::{ApiAuthed, DB},
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache},
+    utils::WithStarredInfoQuery,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -526,7 +527,7 @@ async fn create_script_internal<'c>(
                 )));
             };
 
-            let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash).await?;
+            let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash, None).await?;
 
             if ps.path != ns.path {
                 require_owner_of_path(&authed, &ps.path)?;
@@ -826,19 +827,40 @@ async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<WithStarredInfoQuery>,
 ) -> JsonResult<Script> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let script_o = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE path = $1 AND workspace_id = $2 \
-         AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-         workspace_id = $2)",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let script_o = if query.with_starred_info.unwrap_or(false) {
+        sqlx::query_as::<_, Script>(
+            "SELECT s.*, favorite.path IS NOT NULL as starred
+            FROM script s
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'script' 
+                AND favorite.workspace_id = s.workspace_id 
+                AND favorite.path = s.path 
+                AND favorite.usr = $3
+            WHERE s.path = $1
+                AND s.workspace_id = $2
+                AND s.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+        )
+        .bind(path)
+        .bind(w_id)
+        .bind(&authed.username)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_as::<_, Script>(
+            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
+             workspace_id = $2)",
+        )
+        .bind(path)
+        .bind(w_id)
+        .fetch_optional(&mut *tx)
+        .await?
+    };
     tx.commit().await?;
 
     let script = not_found_if_none(script_o, "Script", path)?;
@@ -1096,13 +1118,33 @@ async fn get_script_by_hash_internal<'c>(
     db: &mut Transaction<'c, Postgres>,
     workspace_id: &str,
     hash: &ScriptHash,
+    with_starred_info_for_username: Option<&str>,
 ) -> Result<Script> {
-    let script_o =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(hash)
-            .bind(workspace_id)
-            .fetch_optional(&mut **db)
-            .await?;
+    let script_o = if let Some(username) = with_starred_info_for_username {
+        sqlx::query_as::<_, Script>(
+            "SELECT s.*, favorite.path IS NOT NULL as starred
+            FROM script s
+            LEFT JOIN favorite 
+            ON favorite.favorite_kind = 'script' 
+                AND favorite.workspace_id = s.workspace_id 
+                AND favorite.path = s.path 
+                AND favorite.usr = $1 
+            WHERE s.hash = $2 AND s.workspace_id = $3",
+        )
+        .bind(&username)
+        .bind(hash)
+        .bind(workspace_id)
+        .fetch_optional(&mut **db)
+        .await?
+    } else {
+        sqlx::query_as::<_, Script>(
+            "SELECT *, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
+        )
+        .bind(hash)
+        .bind(workspace_id)
+        .fetch_optional(&mut **db)
+        .await?
+    };
 
     let script = not_found_if_none(script_o, "Script", hash.to_string())?;
     Ok(script)
@@ -1111,9 +1153,23 @@ async fn get_script_by_hash_internal<'c>(
 async fn get_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
+    Query(query): Query<WithStarredInfoQuery>,
+    Extension(authed): Extension<ApiAuthed>,
 ) -> JsonResult<Script> {
     let mut tx = db.begin().await?;
-    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    let r = get_script_by_hash_internal(
+        &mut tx,
+        &w_id,
+        &hash,
+        query.with_starred_info.and_then(|x| {
+            if x {
+                Some(authed.username.as_str())
+            } else {
+                None
+            }
+        }),
+    )
+    .await?;
     tx.commit().await?;
 
     Ok(Json(r))
@@ -1127,7 +1183,7 @@ async fn raw_script_by_hash(
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
-    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash, None).await?;
     tx.commit().await?;
 
     Ok(r.content)

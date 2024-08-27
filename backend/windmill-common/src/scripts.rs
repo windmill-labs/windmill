@@ -160,6 +160,8 @@ pub struct Script {
     pub kind: ScriptKind,
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
