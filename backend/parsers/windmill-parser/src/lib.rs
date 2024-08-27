@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use convert_case::{Case, Casing};
+use convert_case::{Boundary, Case, Casing};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -78,23 +78,20 @@ pub fn json_to_typ(js: &Value) -> Typ {
 }
 
 pub fn to_snake_case(s: &str) -> String {
-    let r = s.to_case(Case::Snake);
+    s.from_case(Case::Camel)
+        .without_boundaries(&Boundary::letter_digit())
+        .to_case(Case::Snake)
+}
 
-    let parts: Vec<&str> = r.split('_').collect();
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    let mut result = String::new();
-
-    // s_3 => s3
-    for i in 0..parts.len() {
-        if i == parts.len() - 1 && parts[i].chars().all(char::is_numeric) {
-            result.push_str(parts[i]);
-        } else {
-            result.push_str(parts[i]);
-
-            if i < parts.len() - 2 || (i < parts.len() - 1 && !parts[i + 1].chars().all(char::is_numeric)) {
-                result.push('_');
-            }
-        }
+    #[test]
+    fn test_snake_case() {
+        assert_eq!("s3", to_snake_case("S3"));
+        assert_eq!("s3", to_snake_case("s3"));
+        assert_eq!("s_3", to_snake_case("S_3"));
+        assert_eq!("type_name_here", to_snake_case("typeNameHere"));
     }
-    result
 }
