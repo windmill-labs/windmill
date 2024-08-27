@@ -446,6 +446,7 @@
 				<WorkspaceGroup
 					{customTags}
 					name={worker_group[0]}
+					workers={worker_group[1]}
 					{config}
 					on:reload={() => {
 						loadWorkerGroups()
@@ -605,6 +606,7 @@
 				{#if worker_group}
 					<WorkspaceGroup
 						{customTags}
+						workers={worker_group[1]}
 						on:reload={() => {
 							loadWorkerGroups()
 						}}
