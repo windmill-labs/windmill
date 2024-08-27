@@ -7,12 +7,18 @@
  */
 
 use regex::Regex;
+use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
     auth::is_super_admin_email,
     error::{self, Error},
     DB,
 };
+
+#[derive(Deserialize)]
+pub struct WithStarredInfoQuery {
+    pub with_starred_info: Option<bool>,
+}
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     let is_admin = is_super_admin_email(db, email).await?;
