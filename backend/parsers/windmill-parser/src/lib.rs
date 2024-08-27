@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use convert_case::{Case, Casing};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -74,4 +75,26 @@ pub fn json_to_typ(js: &Value) -> Typ {
         Value::Array(a) => Typ::List(Box::new(a.first().map(json_to_typ).unwrap_or(Typ::Unknown))),
         _ => Typ::Unknown,
     }
+}
+
+pub fn to_snake_case(s: &str) -> String {
+    let r = s.to_case(Case::Snake);
+
+    let parts: Vec<&str> = r.split('_').collect();
+
+    let mut result = String::new();
+
+    // s_3 => s3
+    for i in 0..parts.len() {
+        if i == parts.len() - 1 && parts[i].chars().all(char::is_numeric) {
+            result.push_str(parts[i]);
+        } else {
+            result.push_str(parts[i]);
+
+            if i < parts.len() - 2 || (i < parts.len() - 1 && !parts[i + 1].chars().all(char::is_numeric)) {
+                result.push('_');
+            }
+        }
+    }
+    result
 }

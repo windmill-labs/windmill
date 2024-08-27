@@ -10700,6 +10700,7 @@ dependencies = [
 name = "windmill-parser"
 version = "1.382.2"
 dependencies = [
+ "convert_case 0.6.0",
  "serde",
  "serde_json",
 ]
@@ -10711,6 +10712,7 @@ dependencies = [
  "anyhow",
  "lazy_static",
  "regex",
+ "regex-lite",
  "serde_json",
  "windmill-parser",
 ]
@@ -10734,6 +10736,7 @@ dependencies = [
  "anyhow",
  "lazy_static",
  "regex",
+ "regex-lite",
  "serde_json",
  "windmill-parser",
 ]
@@ -10743,11 +10746,8 @@ name = "windmill-parser-php"
 version = "1.382.2"
 dependencies = [
  "anyhow",
- "convert_case 0.6.0",
  "itertools 0.13.0",
- "lazy_static",
  "php-parser-rs",
- "regex",
  "serde_json",
  "windmill-parser",
 ]
@@ -10773,6 +10773,7 @@ dependencies = [
  "lazy_static",
  "phf",
  "regex",
+ "regex-lite",
  "rustpython-parser",
  "serde_json",
  "sqlx",
@@ -10787,6 +10788,7 @@ dependencies = [
  "anyhow",
  "lazy_static",
  "regex",
+ "regex-lite",
  "serde_json",
  "windmill-parser",
 ]
@@ -10796,7 +10798,6 @@ name = "windmill-parser-ts"
 version = "1.382.2"
 dependencies = [
  "anyhow",
- "convert_case 0.6.0",
  "lazy_static",
  "regex",
  "serde-wasm-bindgen",
