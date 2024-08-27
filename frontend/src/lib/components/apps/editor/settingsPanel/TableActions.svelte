@@ -102,6 +102,7 @@
 						size="xs2"
 						nonCaptureEvent={true}
 						btnClasses={actionsOrder ? 'bg-blue-100 dark:bg-blue-900' : 'text-primary'}
+						title="Edit order programmatically"
 					>
 						<div class="flex flex-row items-center gap-2 text-xs font-normal">
 							<ListOrdered size={16} />
