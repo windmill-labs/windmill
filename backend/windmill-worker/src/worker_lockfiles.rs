@@ -12,7 +12,7 @@ use windmill_common::flows::{FlowModule, FlowModuleValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::{get_annotation, to_raw_value, to_raw_value_owned};
+use windmill_common::worker::{get_annotation, to_raw_value, to_raw_value_owned, write_file};
 use windmill_common::{
     error::{self, to_anyhow},
     flows::FlowValue,
@@ -28,7 +28,6 @@ use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
 use crate::{
     bun_executor::gen_lockfile,
-    common::write_file,
     deno_executor::generate_deno_lock,
     go_executor::install_go_dependencies,
     php_executor::{composer_install, parse_php_imports},
@@ -1328,7 +1327,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                db,
+                Some(db),
                 w_id,
                 worker_name,
                 base_internal_url,
@@ -1339,7 +1338,7 @@ async fn capture_dependency_job(
             let npm_mode = npm_mode
                 .unwrap_or_else(|| windmill_common::worker::get_annotation(job_raw_code).npm_mode);
             if !raw_deps {
-                let _ = write_file(job_dir, "main.ts", job_raw_code).await?;
+                let _ = write_file(job_dir, "main.ts", job_raw_code)?;
             }
             let req = gen_lockfile(
                 mem_peak,
