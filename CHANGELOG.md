@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.386.0](https://github.com/windmill-labs/windmill/compare/v1.385.0...v1.386.0) (2024-08-28)
+
+
+### Features
+
+* add vim support for monaco/webeditor ([1ec45e5](https://github.com/windmill-labs/windmill/commit/1ec45e5ad6436d36d3951a75663b4f310025d765))
+* **frontend:** add support to copy a cell value in the clipboard in aggrid tables ([#4286](https://github.com/windmill-labs/windmill/issues/4286)) ([d1ba9b1](https://github.com/windmill-labs/windmill/commit/d1ba9b14040f9c21612a46b36379cce95448fba6))
+* **frontend:** manage ag grid actions programmatically ([#4289](https://github.com/windmill-labs/windmill/issues/4289)) ([a411179](https://github.com/windmill-labs/windmill/commit/a4111798d54f5aa1539dd917eb59ec825c9a4a0b))
+* show last job instead of current job on workers page ([#4293](https://github.com/windmill-labs/windmill/issues/4293)) ([84ce3d8](https://github.com/windmill-labs/windmill/commit/84ce3d819d19254e89c0da9ddf0b9f3819fe6025))
+
+
+### Bug Fixes
+
+* cache hub scripts in more cases + pre-cache hub scripts deps in deno ([16465e4](https://github.com/windmill-labs/windmill/commit/16465e47c8acf6320694a821b375aa20ee51067c))
+* items with starred info ([#4298](https://github.com/windmill-labs/windmill/issues/4298)) ([e16bd4a](https://github.com/windmill-labs/windmill/commit/e16bd4a9d25d945b13696f8f7d9e39b10acdb444))
+* show vCPU, mem aggregate on top of worker group ([e083177](https://github.com/windmill-labs/windmill/commit/e0831777a1a8798ba4234f299035c6f471078553))
+* smtp server build without parquet feature ([#4292](https://github.com/windmill-labs/windmill/issues/4292)) ([906cf10](https://github.com/windmill-labs/windmill/commit/906cf1006e5447be075694d7d4903cea04b85737))
+
 ## [1.385.0](https://github.com/windmill-labs/windmill/compare/v1.384.0...v1.385.0) (2024-08-26)
 
 
