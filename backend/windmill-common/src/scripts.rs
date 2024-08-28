@@ -160,8 +160,6 @@ pub struct Script {
     pub kind: ScriptKind,
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub starred: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
@@ -191,6 +189,15 @@ pub struct Script {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ScriptWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub script: Script,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
