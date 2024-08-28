@@ -1,10 +1,12 @@
 #[cfg(feature = "ts-parser")]
 use serde_json::json;
+#[allow(unused_imports)]
 use wasm_bindgen::prelude::*;
 use windmill_parser::MainArgSignature;
 #[cfg(feature = "ts-parser")]
 use windmill_parser_ts::{parse_expr_for_ids, parse_expr_for_imports};
 
+#[allow(dead_code)]
 fn wrap_sig(r: anyhow::Result<MainArgSignature>) -> String {
     if let Ok(r) = r {
         return serde_json::to_string(&r).unwrap();
