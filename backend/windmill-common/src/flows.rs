@@ -33,8 +33,6 @@ pub struct Flow {
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub starred: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
@@ -46,6 +44,15 @@ pub struct Flow {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     pub visible_to_runner_only: Option<bool>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct FlowWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub flow: Flow,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {
