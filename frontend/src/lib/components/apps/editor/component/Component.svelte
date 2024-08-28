@@ -139,11 +139,11 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-	{#if locked && componentActive && $componentActive}
+	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id}
 		<div
 			class={twMerge(
 				'absolute inset-0 bg-locked center-center flex-col',
-				component.id !== $selectedComponent?.[0] && overlapped ? 'bg-locked-hover' : ''
+				overlapped ? 'bg-locked-hover' : ''
 			)}
 		>
 			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
