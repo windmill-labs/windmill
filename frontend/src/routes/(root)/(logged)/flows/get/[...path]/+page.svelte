@@ -54,6 +54,7 @@
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
+	import Star from '$lib/components/Star.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -93,8 +94,15 @@
 	}
 
 	let schedule: Schedule | undefined = undefined
+	let starred: boolean | undefined = undefined
+
 	async function loadFlow(): Promise<void> {
-		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
+		flow = await FlowService.getFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			withStarredInfo: true
+		})
+		starred = flow.starred
 		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
@@ -351,6 +359,17 @@
 				errorHandlerKind="flow"
 				tag={flow.tag}
 			>
+				{#if $workspaceStore}
+					<Star
+						kind="flow"
+						path={flow.path}
+						{starred}
+						workspace_id={$workspaceStore}
+						on:starred={() => {
+							starred = !starred
+						}}
+					/>
+				{/if}
 				{#if flow?.value?.priority != undefined}
 					<div class="hidden md:block">
 						<HeaderBadge color="blue" variant="outlined" size="xs">

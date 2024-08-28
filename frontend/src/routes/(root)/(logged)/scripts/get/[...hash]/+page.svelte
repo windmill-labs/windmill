@@ -71,6 +71,7 @@
 	import { loadScriptSchedule, type ScriptSchedule } from '$lib/scripts'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
+	import Star from '$lib/components/Star.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -141,12 +142,23 @@
 		}
 	}
 	let schedule: ScriptSchedule | undefined = undefined
+	let starred: boolean | undefined = undefined
 
 	async function loadScript(hash: string): Promise<void> {
 		try {
-			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
+			script = await ScriptService.getScriptByHash({
+				workspace: $workspaceStore!,
+				hash,
+				withStarredInfo: true
+			})
+			starred = script.starred
 		} catch {
-			script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: hash })
+			script = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path: hash,
+				withStarredInfo: true
+			})
+			starred = script.starred
 			hash = script.hash
 		}
 		can_write =
@@ -504,7 +516,18 @@
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
 				>
-					{#if script.codebase}
+					{#if $workspaceStore}
+						<Star
+							kind="script"
+							path={script.path}
+							{starred}
+							workspace_id={$workspaceStore}
+							on:starred={() => {
+								starred = !starred
+							}}
+						/>
+					{/if}
+					{#if script.codebase}sad
 						<Badge
 							>bundle<Tooltip
 								>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
