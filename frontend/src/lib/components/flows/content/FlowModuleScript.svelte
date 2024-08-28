@@ -1,11 +1,11 @@
 <script lang="ts">
 	import type { SupportedLanguage } from '$lib/common'
-	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { ScriptService } from '$lib/gen'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let path: string
 	export let hash: string | undefined = undefined
@@ -68,15 +68,19 @@
 	{:else if showAllCode}
 		{#if showDiff}
 			{#key previousCode + code}
-				<DiffEditor
-					open={true}
-					class="h-screen"
-					readOnly
-					automaticLayout
-					defaultLang={scriptLangToEditorLang(language)}
-					defaultOriginal={previousCode}
-					defaultModified={code}
-				/>
+				{#await import('$lib/components/DiffEditor.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default
+						open={true}
+						class="h-screen"
+						readOnly
+						automaticLayout
+						defaultLang={scriptLangToEditorLang(language)}
+						defaultOriginal={previousCode}
+						defaultModified={code}
+					/>
+				{/await}
 			{/key}
 		{:else}
 			<HighlightCode {language} {code} />

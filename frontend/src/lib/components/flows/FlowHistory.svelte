@@ -5,11 +5,10 @@
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
-	import FlowViewer from '../FlowViewer.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ArrowRight, Pencil, X } from 'lucide-svelte'
+	import { ArrowRight, Loader2, Pencil, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	export let path: string
@@ -206,7 +205,11 @@
 										>Redeploy with that version
 									</Button>
 								</div>
-								<FlowViewer flow={selected} />
+								{#await import('$lib/components/FlowViewer.svelte')}
+									<Loader2 class="animate-spin" />
+								{:then Module}
+									<Module.default flow={selected} />
+								{/await}
 							</div>
 						{:else}
 							<Skeleton layout={[[40]]} />
