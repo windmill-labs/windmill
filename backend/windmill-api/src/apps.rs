@@ -117,6 +117,13 @@ pub struct AppWithLastVersion {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, FromRow)]
+pub struct AppWithLastVersionAndStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
 }
@@ -320,12 +327,12 @@ async fn get_app(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<AppWithLastVersion> {
+) -> JsonResult<AppWithLastVersionAndStarred> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = if query.with_starred_info.unwrap_or(false) {
-        sqlx::query_as::<_, AppWithLastVersion>(
+        sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy,
             app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred
@@ -345,7 +352,7 @@ async fn get_app(
         .fetch_optional(&mut *tx)
         .await?
     } else {
-        sqlx::query_as::<_, AppWithLastVersion>(
+        sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy,
             app.extra_perms, app_version.value, 
             app_version.created_at, app_version.created_by, NULL as starred
