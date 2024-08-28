@@ -266,3 +266,4 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "<0.1.12"
 
 tantivy = "0.22.0"
+regex-lite = "0.1.6"
