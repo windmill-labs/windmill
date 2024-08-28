@@ -4,12 +4,17 @@ set -eou pipefail
 args=${1:-}
 
 # bun and deno
-cd "pkg-ts" && npm publish ${args}
+pushd "pkg-ts" && npm publish ${args}
+popd
 
-cd "pkg-regex" && npm publish ${args}
+pushd "pkg-regex" && npm publish ${args}
+popd
 
-cd "pkg-py" && npm publish ${args}
+pushd "pkg-py" && npm publish ${args}
+popd
 
-cd "pkg-go" && npm publish ${args}
+pushd "pkg-go" && npm publish ${args}
+popd
 
-cd "pkg-php" && npm publish ${args}
+pushd "pkg-php" && npm publish ${args}
+popd
