@@ -6,9 +6,8 @@
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { importFlowStore } from '$lib/components/flows/flowStore'
-	import { Plus } from 'lucide-svelte'
+	import { Loader2, Plus } from 'lucide-svelte'
 	import YAML from 'yaml'
 
 	let drawer: Drawer | undefined = undefined
@@ -58,12 +57,16 @@
 		title={'Import flow from ' + (importType === 'yaml' ? 'YAML' : 'JSON')}
 		on:close={() => drawer?.toggleDrawer?.()}
 	>
-		<SimpleEditor
-			bind:code={pendingRaw}
-			lang={importType}
-			class="h-full"
-			fixedOverflowWidgets={false}
-		/>
+		{#await import('$lib/components/SimpleEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				bind:code={pendingRaw}
+				lang={importType}
+				class="h-full"
+				fixedOverflowWidgets={false}
+			/>
+		{/await}
 		<svelte:fragment slot="actions">
 			<Button size="sm" on:click={importRaw}>Import</Button>
 		</svelte:fragment>
