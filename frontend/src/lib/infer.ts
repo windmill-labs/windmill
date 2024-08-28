@@ -43,7 +43,7 @@ const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undef
 let initializeTsPromise : Promise<any> | undefined = undefined;
 export async function initWasmTs() {
 	if (initializeTsPromise == undefined) {
-		initializeTsPromise = initTsParser()
+		initializeTsPromise = initTsParser(wasmUrlTs)
 	}
 	await initializeTsPromise
 }
@@ -93,7 +93,7 @@ export async function inferArgs(
 			await initWasmPython()
 			inferedSchema = JSON.parse(parse_python(code))
 		} else if (language == 'deno') {
-			await initTsParser(wasmUrlTs)
+			await initWasmTs()
 			inferedSchema = JSON.parse(parse_deno(code))
 		} else if (language == 'nativets') {
 			await initWasmTs()
