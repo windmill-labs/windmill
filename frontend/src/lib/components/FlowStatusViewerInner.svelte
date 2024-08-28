@@ -951,6 +951,7 @@
 											(m) => m?.id === e?.detail
 										)
 										stepDetail = mod
+										selectedNode = e?.detail
 									}
 								} else {
 									stepDetail = e.detail

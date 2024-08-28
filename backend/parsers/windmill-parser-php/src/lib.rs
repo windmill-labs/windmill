@@ -1,7 +1,5 @@
-use convert_case::{Case, Casing};
-use regex::Regex;
 use serde_json::Value;
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, Typ};
 
 use php_parser_rs::parser::{
     self,
@@ -13,17 +11,6 @@ use php_parser_rs::parser::{
     },
 };
 
-lazy_static::lazy_static! {
-    static ref RE_SNK_CASE: Regex = Regex::new(r"_(\d)").unwrap();
-}
-
-fn to_snake_case(s: String) -> String {
-    let r = s.to_case(Case::Snake);
-
-    // s_3 => s3
-    RE_SNK_CASE.replace_all(&r, "$1").to_string()
-}
-
 fn parse_php_type(e: Type) -> Typ {
     match e {
         Type::Float(_) => Typ::Float,
@@ -32,7 +19,7 @@ fn parse_php_type(e: Type) -> Typ {
         Type::String(_) => Typ::Str(None),
         Type::Array(_) => Typ::List(Box::new(Typ::Str(None))),
         Type::Object(_) => Typ::Object(vec![]),
-        Type::Named(_, name) => Typ::Resource(to_snake_case(name.to_string())),
+        Type::Named(_, name) => Typ::Resource(to_snake_case(name.to_string().as_ref())),
         _ => Typ::Unknown,
     }
 }

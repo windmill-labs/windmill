@@ -169,7 +169,7 @@
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
 	import { setupTypeAcquisition } from '$lib/ata/index'
-	import { initWasm, parseDeps } from '$lib/infer'
+	import { initWasmTs, parseDeps } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
 
 	// import EditorTheme from './EditorTheme.svelte'
@@ -1232,7 +1232,7 @@
 						}
 					}
 				}
-				await initWasm()
+				await initWasmTs()
 				const root = await genRoot(hostname)
 				console.log('SETUP TYPE ACQUISITION', { root, path })
 				ata = setupTypeAcquisition({

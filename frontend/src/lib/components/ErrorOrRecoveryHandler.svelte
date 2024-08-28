@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import type { Schema, SupportedLanguage } from '$lib/common'
@@ -231,13 +230,17 @@
 	{/if}
 	{#if handlerPath}
 		<p class="font-semibold text-sm mt-4 mb-2">Extra arguments</p>
-		<SchemaForm
-			disabled={!isEditable}
-			schema={customHandlerSchema}
-			bind:args={handlerExtraArgs}
-			shouldHideNoInputs
-			class="text-xs"
-		/>
+		{#await import('$lib/components/SchemaForm.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				disabled={!isEditable}
+				schema={customHandlerSchema}
+				bind:args={handlerExtraArgs}
+				shouldHideNoInputs
+				class="text-xs"
+			/>
+		{/await}
 		{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
 			<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
 		{/if}
@@ -260,19 +263,23 @@
 		/>
 	</span>
 	{#if workspaceConnectedToSlack}
-		<SchemaForm
-			disabled={!$enterpriseLicense || !isSlackHandler(handlerPath)}
-			schema={slackHandlerSchema}
-			schemaSkippedValues={['slack']}
-			schemaFieldTooltip={{
-				channel: 'Slack channel name without the "#" - example: "windmill-alerts"'
-			}}
-			bind:args={handlerExtraArgs}
-			shouldHideNoInputs
-			class="text-xs"
-		/>
+		{#await import('$lib/components/SchemaForm.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				disabled={!$enterpriseLicense || !isSlackHandler(handlerPath)}
+				schema={slackHandlerSchema}
+				schemaSkippedValues={['slack']}
+				schemaFieldTooltip={{
+					channel: 'Slack channel name without the "#" - example: "windmill-alerts"'
+				}}
+				bind:args={handlerExtraArgs}
+				shouldHideNoInputs
+				class="text-xs"
+			/>
+		{/await}
 	{:else if workspaceConnectedToSlack == undefined}
-		<Loader2 class="animate-spin" />
+		<Loader2 class="animate-spin" size={10} />
 	{/if}
 	{#if $enterpriseLicense && isSlackHandler(handlerPath)}
 		{#if workspaceConnectedToSlack == false}
