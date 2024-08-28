@@ -7,7 +7,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { Pencil, ArrowRight, X } from 'lucide-svelte'
+	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
 
 	export let appPath: string | undefined
 	let loading: boolean = false
@@ -179,7 +179,9 @@
 						</div>
 					</div>
 
-					{#await import('$lib/components/apps/editor/AppPreview.svelte') then Module}
+					{#await import('$lib/components/apps/editor/AppPreview.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
 						<Module.default noBackend app={selected.value} context={{}} />
 					{/await}
 				{:else}

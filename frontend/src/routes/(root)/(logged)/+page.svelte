@@ -144,7 +144,9 @@
 		</svelte:fragment>
 
 		{#if flowViewerFlow?.flow}
-			{#await import('$lib/components/FlowViewer.svelte') then Module}
+			{#await import('$lib/components/FlowViewer.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
 				<Module.default flow={flowViewerFlow.flow} />
 			{/await}
 		{:else}
@@ -185,7 +187,9 @@
 
 		{#if appViewerApp?.app}
 			<div class="p-4">
-				{#await import('$lib/components/apps/editor/AppPreview.svelte') then Module}
+				{#await import('$lib/components/apps/editor/AppPreview.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
 					<Module.default
 						app={appViewerApp?.app?.value}
 						appPath="''"
