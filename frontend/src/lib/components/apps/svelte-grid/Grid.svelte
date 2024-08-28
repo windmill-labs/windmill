@@ -24,7 +24,6 @@
 	export let sensor = 20
 
 	export let parentWidth: number | undefined = undefined
-	export let isMoving = false
 
 	let getComputedCols
 
@@ -131,9 +130,6 @@
 				'redraw',
 				sortGridItemsPosition(JSON.parse(JSON.stringify(sortedItems)), getComputedCols)
 			)
-			isMoving = false
-		} else {
-			isMoving = true
 		}
 	}
 
@@ -177,6 +173,7 @@
 			}
 		})
 	}
+	let overlapped: string | undefined = undefined
 </script>
 
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
@@ -206,9 +203,16 @@
 				{sensor}
 				container={scroller}
 				nativeContainer={container}
+				on:overlap={(e) => {
+					if (e.detail.targetId) {
+						overlapped = e.detail.targetId.split('-')[1]
+					} else {
+						overlapped = undefined
+					}
+				}}
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} hidden={false} />
+					<slot dataItem={item} hidden={false} {overlapped} />
 				{/if}
 			</MoveResize>
 		{/if}

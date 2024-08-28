@@ -231,6 +231,8 @@
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
 		dispatch('move', { cordDiff, clientY })
+
+		checkForOverlap()
 	}
 
 	export function updateMove(newCoordDiff, clientY) {
@@ -348,6 +350,45 @@
 
 		window.removeEventListener('pointermove', resizePointerMove)
 		window.removeEventListener('pointerup', resizePointerUp)
+	}
+
+	let currentlyOverlappingComponent: HTMLElement | null = null
+
+	function checkForOverlap() {
+		const draggedElement = document.getElementById(divId)
+		if (!draggedElement) return
+
+		const draggedRect = draggedElement.getBoundingClientRect()
+
+		const otherComponents = Array.from(nativeContainer.querySelectorAll('.svlt-grid-item')).filter(
+			(el) => el?.['id'] !== divId
+		) as HTMLElement[]
+
+		let isOverlappingNow: HTMLElement | null = null
+
+		for (const otherComponent of otherComponents) {
+			const otherRect = otherComponent.getBoundingClientRect()
+
+			const overlapX = draggedRect.left < otherRect.right && draggedRect.right > otherRect.left
+			const overlapY = draggedRect.top < otherRect.bottom && draggedRect.bottom > otherRect.top
+
+			if (overlapX && overlapY) {
+				isOverlappingNow = otherComponent
+				break
+			}
+		}
+
+		if (isOverlappingNow && currentlyOverlappingComponent !== isOverlappingNow) {
+			currentlyOverlappingComponent = isOverlappingNow
+
+			dispatch('overlap', { id: divId, targetId: isOverlappingNow.id })
+		}
+
+		if (!isOverlappingNow && currentlyOverlappingComponent) {
+			currentlyOverlappingComponent = null
+
+			dispatch('overlap', { id: divId, targetId: null })
+		}
 	}
 </script>
 
