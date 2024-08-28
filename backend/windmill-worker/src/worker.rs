@@ -7,7 +7,7 @@
  */
 
 use windmill_common::{
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, TMP_DIR}
+    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms, JWT_SECRET}, scripts::PREVIEW_IS_TAR_CODEBASE_HASH, worker::{get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, write_file, ROOT_CACHE_DIR, TMP_DIR}
 };
 
 use anyhow::{Context, Result};
@@ -86,7 +86,7 @@ use crate::{
     bun_executor::handle_bun_job,
     common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
-        read_result, save_in_cache, write_file, NO_LOGS_AT_ALL, SLOW_LOGS,
+        read_result, save_in_cache,  NO_LOGS_AT_ALL, SLOW_LOGS,
     },
     deno_executor::handle_deno_job,
     go_executor::handle_go_job,
@@ -224,7 +224,6 @@ pub async fn create_token_for_owner(
 
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 
-pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub const LOCK_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "lock");
@@ -239,7 +238,6 @@ pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
 
-pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
 pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
@@ -780,7 +778,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     if let Some(ref netrc) = *NETRC {
         tracing::info!("Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc)
-            .await
             .expect("could not write netrc");
     }
 
@@ -795,8 +792,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             &worker_dir,
             "download_deps.py.sh",
             INCLUDE_DEPS_PY_SH_CONTENT,
-        )
-        .await;
+        );
     }
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
@@ -1401,7 +1397,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             };
 
             if let Err(e) = sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, current_job_id = NULL, current_job_workspace_id = NULL, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2, occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus), memory = COALESCE($8, memory) WHERE worker = $6",
                 jobs_executed,
                 tags.as_slice(),
                 worker_code_execution_metric / start_time.elapsed().as_secs_f32(),
@@ -2743,28 +2739,9 @@ pub async fn get_hub_script_content_and_requirements(
     let script_path = script_path
         .clone()
         .ok_or_else(|| Error::InternalErr(format!("expected script path for hub script")))?;
-    let mut script_path_iterator = script_path.split("/");
-    script_path_iterator.next();
-    let version = script_path_iterator
-        .next()
-        .ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
-    let cache_path = format!("{HUB_CACHE_DIR}/{version}");
-    let script;
-    if tokio::fs::metadata(&cache_path).await.is_err() {
-        script = get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, db)
+
+    let  script = get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, db)
             .await?;
-        write_file(
-            HUB_CACHE_DIR,
-            &version,
-            &serde_json::to_string(&script).map_err(to_anyhow)?,
-        )
-        .await?;
-        tracing::info!("wrote hub script {script_path} to cache");
-    } else {
-        let cache_content = tokio::fs::read_to_string(cache_path).await?;
-        script = serde_json::from_str(&cache_content).unwrap();
-        tracing::info!("read hub script {script_path} from cache");
-    }
     Ok(ContentReqLangEnvs {
         content: script.content,
         lockfile: script.lockfile,

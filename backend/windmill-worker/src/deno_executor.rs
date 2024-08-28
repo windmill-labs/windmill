@@ -8,13 +8,13 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_result, start_child_process, write_file,
+        parse_npm_config, read_result, start_child_process,
     },
     AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
     NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::{error::Result, BASE_URL};
+use windmill_common::{error::Result, worker::write_file, BASE_URL};
 use windmill_common::{
     error::{self},
     jobs::QueuedJob,
@@ -88,12 +88,12 @@ pub async fn generate_deno_lock(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: Option<&sqlx::Pool<sqlx::Postgres>>,
     w_id: &str,
     worker_name: &str,
     base_internal_url: &str,
 ) -> error::Result<String> {
-    let _ = write_file(job_dir, "main.ts", code).await?;
+    let _ = write_file(job_dir, "main.ts", code)?;
 
     let import_map_path = format!("{job_dir}/import_map.json");
     let import_map = format!(
@@ -103,14 +103,11 @@ pub async fn generate_deno_lock(
         }}
       }}"#,
     );
-    write_file(job_dir, "import_map.json", &import_map).await?;
-    write_file(job_dir, "empty.ts", "").await?;
+    write_file(job_dir, "import_map.json", &import_map)?;
+    write_file(job_dir, "empty.ts", "")?;
 
-    let mut deno_envs = HashMap::new();
-    if let Some(ref s) = NPM_CONFIG_REGISTRY.read().await.clone() {
-        let (url, _token_opt) = parse_npm_config(s);
-        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), url);
-    }
+    let deno_envs = get_common_deno_proc_envs("", base_internal_url).await;
+
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
@@ -132,22 +129,26 @@ pub async fn generate_deno_lock(
         .envs(deno_envs)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, DENO_PATH.as_str()).await?;
+    let mut child_process = start_child_process(child_cmd, DENO_PATH.as_str()).await?;
 
-    handle_child(
-        job_id,
-        db,
-        mem_peak,
-        canceled_by,
-        child_process,
-        false,
-        worker_name,
-        w_id,
-        "deno cache",
-        None,
-        false,
-    )
-    .await?;
+    if let Some(db) = db {
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            canceled_by,
+            child_process,
+            false,
+            worker_name,
+            w_id,
+            "deno cache",
+            None,
+            false,
+        )
+        .await?;
+    } else {
+        child_process.wait().await?;
+    }
 
     let path_lock = format!("{job_dir}/lock.json");
     let mut file = File::open(path_lock).await?;
@@ -176,7 +177,7 @@ pub async fn handle_deno_job(
 
     let main_override = get_main_override(job.args.as_ref());
 
-    let write_main_f = write_file(job_dir, "main.ts", inner_content);
+    write_file(job_dir, "main.ts", inner_content)?;
 
     let write_wrapper_f = async {
         // let mut start = Instant::now();
@@ -231,7 +232,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.ts", &wrapper_content)?;
         Ok(()) as error::Result<()>
     };
 
@@ -256,9 +257,8 @@ try {{
         Ok(reserved_variables) as error::Result<(HashMap<String, String>, String)>
     };
 
-    let ((reserved_variables, token), _, _, _) = tokio::try_join!(
+    let ((reserved_variables, token), _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
-        write_main_f,
         write_wrapper_f,
         write_import_map_f
     )?;
@@ -288,7 +288,7 @@ try {{
         args.push("--unstable-http");
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {
-                let _ = write_file(job_dir, "lock.json", &reqs).await?;
+                let _ = write_file(job_dir, "lock.json", &reqs)?;
                 args.push("--lock=lock.json");
                 args.push("--lock-write");
             }
@@ -388,7 +388,7 @@ async fn build_import_map(
             }}
           }}"#,
     );
-    write_file(job_dir, "import_map.json", &import_map).await?;
+    write_file(job_dir, "import_map.json", &import_map)?;
     Ok(()) as error::Result<()>
 }
 
@@ -417,7 +417,7 @@ pub async fn start_worker(
 
     use crate::common::build_envs_map;
 
-    let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    let _ = write_file(job_dir, "main.ts", inner_content)?;
     let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
 
     let context = variables::get_reserved_variables(
@@ -494,7 +494,7 @@ for await (const chunk of Deno.stdin.readable) {{
 }}
 "#,
         );
-        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.ts", &wrapper_content)?;
     }
 
     build_import_map(w_id, script_path, base_internal_url, job_dir).await?;

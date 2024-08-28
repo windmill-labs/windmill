@@ -938,6 +938,7 @@
 								if (rightColumnSelect != 'node_definition') {
 									rightColumnSelect = 'node_status'
 								}
+								console.log('BAR', e.detail)
 								if (typeof e.detail == 'string') {
 									if (e.detail == 'Input') {
 										selectedNode = 'start'
@@ -946,8 +947,11 @@
 										selectedNode = 'end'
 										stepDetail = 'end'
 									} else {
-										selectedNode = e.detail
-										stepDetail = e.detail
+										const mod = dfs(job?.raw_flow?.modules ?? [], (m) => m).find(
+											(m) => m?.id === e?.detail
+										)
+										stepDetail = mod
+										selectedNode = e?.detail
 									}
 								} else {
 									stepDetail = e.detail

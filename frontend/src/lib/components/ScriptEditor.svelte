@@ -297,6 +297,7 @@
 						on:change={(e) => {
 							inferSchema(e.detail)
 						}}
+						on:saveDraft
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -318,10 +319,11 @@
 						{args}
 					/>
 					<DiffEditor
+						class="h-full"
 						bind:this={diffEditor}
 						automaticLayout
+						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						class="hidden h-full"
 					/>
 				{/key}
 			</div>

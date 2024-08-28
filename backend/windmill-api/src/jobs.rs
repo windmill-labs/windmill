@@ -1029,17 +1029,17 @@ pub struct ListableCompletedJob {
 
 #[derive(Deserialize, Clone, Default)]
 pub struct RunJobQuery {
-    scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
-    scheduled_in_secs: Option<i64>,
-    parent_job: Option<Uuid>,
-    root_job: Option<Uuid>,
-    invisible_to_owner: Option<bool>,
-    queue_limit: Option<i64>,
-    payload: Option<String>,
-    job_id: Option<Uuid>,
-    tag: Option<String>,
-    timeout: Option<i32>,
-    cache_ttl: Option<i32>,
+    pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
+    pub scheduled_in_secs: Option<i64>,
+    pub parent_job: Option<Uuid>,
+    pub root_job: Option<Uuid>,
+    pub invisible_to_owner: Option<bool>,
+    pub queue_limit: Option<i64>,
+    pub payload: Option<String>,
+    pub job_id: Option<Uuid>,
+    pub tag: Option<String>,
+    pub timeout: Option<i32>,
+    pub cache_ttl: Option<i32>,
 }
 
 impl RunJobQuery {

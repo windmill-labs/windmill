@@ -75,11 +75,10 @@
 					const queryParams = url.search
 					const hash = url.hash
 					replaceStateFn?.(`${window.location.pathname}${queryParams}${hash}`)
-
 					$worldStore.outputsById['ctx'].query.set(
 						Object.fromEntries(new URLSearchParams(queryParams).entries())
 					)
-					$worldStore.outputsById['ctx'].hash.set(url.hash)
+					$worldStore.outputsById['ctx'].hash.set(hash.substring(1))
 
 					$selected = resolvedPath === extractPathDetails() ? resolvedPath : undefined
 				},

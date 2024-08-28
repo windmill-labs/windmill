@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.382.2
+  version: 1.385.0
   title: Windmill API
 
   contact:
@@ -342,6 +342,8 @@ paths:
               properties:
                 is_super_admin:
                   type: boolean
+                name:
+                  type: string
       responses:
         "200":
           description: user updated
@@ -3924,6 +3926,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script details
@@ -4059,6 +4065,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptHash"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: script details
@@ -4515,6 +4525,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow details
@@ -4932,6 +4946,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: with_starred_info
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: app details
@@ -10626,9 +10644,9 @@ components:
           type: string
         wm_version:
           type: string
-        current_job_id:
+        last_job_id:
           type: string
-        current_job_workspace_id:
+        last_job_workspace_id:
           type: string
         occupancy_rate:
           type: number

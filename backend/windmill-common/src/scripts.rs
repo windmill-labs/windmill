@@ -16,6 +16,8 @@ use crate::{
     utils::http_get_from_hub,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
+
+use crate::worker::HUB_CACHE_DIR;
 use anyhow::Context;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
@@ -187,6 +189,15 @@ pub struct Script {
     pub no_main_func: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ScriptWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub script: Script,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -434,6 +445,33 @@ pub async fn get_full_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
+    let mut path_iterator = path.split("/");
+    let version = path_iterator
+        .next()
+        .ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
+    let cache_path = format!("{HUB_CACHE_DIR}/{version}");
+    let script;
+    if tokio::fs::metadata(&cache_path).await.is_err() {
+        script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
+        crate::worker::write_file(
+            HUB_CACHE_DIR,
+            &version,
+            &serde_json::to_string(&script).map_err(to_anyhow)?,
+        )?;
+        tracing::info!("wrote hub script {path} to cache");
+    } else {
+        let cache_content = tokio::fs::read_to_string(cache_path).await?;
+        script = serde_json::from_str(&cache_content).unwrap();
+        tracing::info!("read hub script {path} from cache");
+    }
+    Ok(script)
+}
+
+async fn get_full_hub_script_by_path_inner(
+    path: &str,
+    http_client: &reqwest::Client,
+    db: Option<&DB>,
+) -> crate::error::Result<HubScript> {
     let hub_base_url = HUB_BASE_URL.read().await.clone();
 
     let result = http_get_from_hub(

@@ -636,15 +636,26 @@
 								</button>
 							{/if}
 						</div>
-						{#if typeof result?.s3 == 'string' && (result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv'))}
-							{#key result.s3}
-								<ParqetTableRenderer
-									disable_download={result?.disable_download}
-									{workspaceId}
-									s3resource={result?.s3}
-									storage={result?.storage}
-								/>
-							{/key}
+						{#if typeof result?.s3 === 'string'}
+							{#if result?.s3?.endsWith('.parquet') || result?.s3?.endsWith('.csv')}
+								{#key result.s3}
+									<ParqetTableRenderer
+										disable_download={result?.disable_download}
+										{workspaceId}
+										s3resource={result?.s3}
+										storage={result?.storage}
+									/>
+								{/key}
+							{:else if result?.s3?.endsWith('.png') || result?.s3?.endsWith('.jpeg') || result?.s3?.endsWith('.jpg') || result?.s3?.endsWith('.webp')}
+								<div class="h-full mt-2">
+									<img
+										alt="preview rendered"
+										class="w-auto h-full"
+										src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${result.s3}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
+									/>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind == 's3object-list'}
@@ -691,6 +702,25 @@
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
 											>open table preview <ArrowDownFromLine />
+										</button>
+									{/if}
+								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
+									{#if seeS3PreviewFileFromList == s3object?.s3}
+										<div class="h-full mt-2">
+											<img
+												alt="preview rendered"
+												class="w-auto h-full"
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
+													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										</div>
+									{:else}
+										<button
+											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											on:click={() => {
+												seeS3PreviewFileFromList = s3object?.s3
+											}}
+											>open image preview <ArrowDownFromLine />
 										</button>
 									{/if}
 								{/if}
