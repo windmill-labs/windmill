@@ -62,6 +62,8 @@
 		}
 		$app = $app
 	}
+
+	let isMoving = false
 </script>
 
 <div class="w-full z-[1000] overflow-visible h-full">
@@ -145,6 +147,7 @@
 				let:dataItem
 				let:hidden
 				cols={columnConfiguration}
+				bind:isMoving
 			>
 				<ComponentWrapper
 					id={dataItem.id}
@@ -184,6 +187,7 @@
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
+							isAnyComponentMoving={isMoving}
 						/>
 					</GridEditorMenu>
 				</ComponentWrapper>

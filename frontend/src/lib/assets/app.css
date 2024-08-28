@@ -124,3 +124,13 @@ svelte-virtual-list-contents > * + * {
 .nonmain-editor .cursor.monaco-mouse-cursor-text {
 	width: 1px !important;
 }
+
+.bg-locked {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		rgba(128, 128, 128, 0.2),
+		rgba(128, 128, 128, 0.2) 10px,
+		rgba(192, 192, 192, 0.2) 10px,
+		rgba(192, 192, 192, 0.2) 20px
+	);
+}

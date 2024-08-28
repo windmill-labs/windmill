@@ -8,6 +8,7 @@
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import type { AppComponent } from './components'
+	import { Lock } from 'lucide-svelte'
 
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 	import AppMultiSelectV2 from '../../components/inputs/AppMultiSelectV2.svelte'
@@ -87,6 +88,7 @@
 	export let render: boolean
 	export let hidden: boolean
 	export let fullHeight: boolean
+	export let isAnyComponentMoving: boolean
 
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -129,10 +131,20 @@
 		}
 	}}
 	on:mouseout|stopPropagation={mouseOut}
-	class="h-full flex flex-col w-full component {initializing
-		? 'overflow-hidden h-0'
-		: ''} {hidden && $mode === 'preview' ? 'hidden' : ''} "
+	class={twMerge(
+		'h-full flex flex-col w-full component relative',
+		initializing ? 'overflow-hidden h-0' : '',
+		hidden && $mode === 'preview' ? 'hidden' : ''
+	)}
 >
+	{#if locked && isAnyComponentMoving}
+		<div class="absolute inset-0 bg-locked z-50 flex center-center flex-col">
+			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
+				<Lock size={24} class="text-primary " />
+				<div class="text-xs">Locked. The component cannot be moved.</div>
+			</div>
+		</div>
+	{/if}
 	{#if $mode !== 'preview'}
 		<ComponentHeader
 			on:mouseover={() => {

@@ -24,6 +24,7 @@
 	export let sensor = 20
 
 	export let parentWidth: number | undefined = undefined
+	export let isMoving = false
 
 	let getComputedCols
 
@@ -130,6 +131,9 @@
 				'redraw',
 				sortGridItemsPosition(JSON.parse(JSON.stringify(sortedItems)), getComputedCols)
 			)
+			isMoving = false
+		} else {
+			isMoving = true
 		}
 	}
 
