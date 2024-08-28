@@ -88,7 +88,7 @@
 	export let render: boolean
 	export let hidden: boolean
 	export let fullHeight: boolean
-	export let isAnyComponentMoving: boolean
+	export let isAnyComponentMoving: boolean = false
 
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
