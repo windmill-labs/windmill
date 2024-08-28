@@ -6,7 +6,7 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { FlowService, type Flow, DraftService, type WorkspaceDeployUISettings } from '$lib/gen'
+	import { FlowService, type Flow, DraftService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -33,6 +33,7 @@
 		HistoryIcon
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
 	export let flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -44,7 +45,6 @@
 	export let errorHandlerMuted: boolean
 	export let depth: number = 0
 	export let menuOpen: boolean = false
-	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -135,7 +135,7 @@
 		</span>
 
 		<Dropdown
-			items={() => {
+			items={async () => {
 				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				if (draft_only) {
@@ -193,7 +193,7 @@
 							copyToClipboard(path)
 						}
 					},
-					...(isDeployable('flow', path, deployUiSettings)
+					...(isDeployable('flow', path, await getDeployUiSettings())
 						? [
 								{
 									displayName: 'Deploy to staging/prod',

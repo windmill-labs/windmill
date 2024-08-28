@@ -213,6 +213,10 @@
 	$: maxRow = maxHeight($appStore.grid, appHeight, $breakpoint)
 </script>
 
+<svelte:head>
+	<link rel="stylesheet" href="/tailwind_full.css" />
+</svelte:head>
+
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window on:hashchange={hashchange} on:resize={resizeWindow} />
