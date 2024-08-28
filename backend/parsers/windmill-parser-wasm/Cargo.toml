@@ -18,7 +18,7 @@ opt-level = 's'
 wasm-bindgen-test.workspace = true
 
 [features]
-default = []
+default = ["ts-parser", "bash-parser"]
 go-parser = [ "dep:windmill-parser-go"]
 bash-parser = [ "dep:windmill-parser-bash"]
 sql-parser = [ "dep:windmill-parser-sql"]
