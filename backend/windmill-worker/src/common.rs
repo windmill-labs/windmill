@@ -28,7 +28,8 @@ use windmill_common::s3_helpers::{
 };
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt_value_with_mc};
 use windmill_common::worker::{
-    get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED, TMP_DIR, WORKER_CONFIG,
+    get_windmill_memory_usage, get_worker_memory_usage, write_file, CLOUD_HOSTED, ROOT_CACHE_DIR,
+    TMP_DIR, WORKER_CONFIG,
 };
 use windmill_common::{
     error::{self, Error},
@@ -73,7 +74,7 @@ use futures::{
 
 use crate::{
     AuthedClient, AuthedClientBackgroundTask, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM, ROOT_CACHE_DIR,
+    MAX_TIMEOUT_DURATION, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM,
 };
 
 pub async fn build_args_map<'a>(
@@ -112,34 +113,22 @@ pub async fn create_args_and_out_file(
                 job_dir,
                 "args.json",
                 &serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .await?;
+            )?;
         } else {
             write_file(
                 job_dir,
                 "args.json",
                 &serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .await?;
+            )?;
         }
     } else {
-        write_file(job_dir, "args.json", "{}").await?;
+        write_file(job_dir, "args.json", "{}")?;
     };
 
-    write_file(job_dir, "result.json", "").await?;
+    write_file(job_dir, "result.json", "")?;
     Ok(())
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path).await?;
-    file.write_all(content.as_bytes()).await?;
-    file.flush().await?;
-    Ok(file)
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
 pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path).await?;
@@ -581,7 +570,7 @@ where
             _ = interval.tick() => {
                 // update the last_ping column every 5 seconds
                 i+=1;
-                if i % 10 == 0 {
+                if i == 1 || i % 10 == 0 {
                     let memory_usage = get_worker_memory_usage();
                     let wm_memory_usage = get_windmill_memory_usage();
                     tracing::info!("{worker_name}/{job_id} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);

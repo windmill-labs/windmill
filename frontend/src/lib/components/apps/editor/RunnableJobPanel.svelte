@@ -1,21 +1,21 @@
 <script lang="ts">
-	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { getContext } from 'svelte'
-	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import type { AppEditorContext } from '../types'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import type { Job } from '$lib/gen'
-	import { Loader2 } from 'lucide-svelte'
+	import RunnalbeJobPanelInner from './RunnalbeJobPanelInner.svelte'
+
+	export let float: boolean = true
+	export let hidden: boolean = false
+	export let testJob: Job | undefined = undefined
+	export let jobToWatch: { componentId: string; job: string } | undefined = undefined
 
 	const { runnableJobEditorPanel, selectedComponentInEditor } =
 		getContext<AppEditorContext>('AppEditorContext')
-	let testJob: Job | undefined = undefined
 	let testIsLoading = false
 
 	let testJobLoader: TestJobLoader
 
-	let jobToWatch: { componentId: string; job: string } | undefined = undefined
 	$: $runnableJobEditorPanel.focused &&
 		$selectedComponentInEditor &&
 		$runnableJobEditorPanel.jobs &&
@@ -48,57 +48,25 @@
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
-{#if ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen}
+{#if ($runnableJobEditorPanel.focused && $selectedComponentInEditor) || logDrawerOpen || resultDrawerOpen || !float}
 	{@const frontendJob = $runnableJobEditorPanel?.frontendJobs[$selectedComponentInEditor ?? '']}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
-		class="absolute z-[100] top-0 right-0 border-t h-full"
-		style="width: {$runnableJobEditorPanel.width}px; transform: translateX({$runnableJobEditorPanel.width}px);"
-	>
-		<Splitpanes horizontal>
-			<Pane size={frontendJob ? 30 : 50} minSize={10}>
-				{#if frontendJob}
-					<div class="p-2 bg-surface-secondary h-full w-full">
-						<div class="text-sm text-tertiary pb-4">Frontend Job</div>
-						<div class="text-2xs text-tertiary">Check your browser console to see the logs</div>
-					</div>
-				{:else}
-					<LogViewer
-						bind:drawerOpen={logDrawerOpen}
-						small
-						jobId={testJob?.id}
-						duration={testJob?.['duration_ms']}
-						mem={testJob?.['mem_peak']}
-						content={testJob?.logs}
-						isLoading={testIsLoading && testJob?.['running'] == false}
-						tag={testJob?.tag}
-					/>
-				{/if}
-			</Pane>
-			<Pane size={frontendJob ? 70 : 50} minSize={10} class="text-sm text-tertiary">
-				{#if frontendJob}
-					<div class="break-words relative h-full px-1">
-						<DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} />
-					</div>
-				{:else if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<div class="break-words relative h-full px-1">
-						<DisplayResult
-							bind:drawerOpen={resultDrawerOpen}
-							workspaceId={testJob?.workspace_id}
-							jobId={testJob?.id}
-							result={testJob.result}
-						/></div
-					>
-				{:else}
-					<div class="px-1 pt-1">
-						{#if testIsLoading}
-							<Loader2 class="animate-spin" />
-						{:else}
-							Test to see the result here
-						{/if}
-					</div>
-				{/if}
-			</Pane>
-		</Splitpanes>
-	</div>
+	{#if float}
+		<div
+			class="absolute z-[100] top-0 right-0 border-t h-full"
+			style="width: {$runnableJobEditorPanel.width}px; transform: translateX({$runnableJobEditorPanel.width}px);"
+		>
+			<RunnalbeJobPanelInner {frontendJob} {testJob} />
+		</div>
+	{:else}
+		<div class="flex flex-col w-full">
+			{#if $selectedComponentInEditor}
+				<RunnalbeJobPanelInner {frontendJob} {testJob} />
+			{:else if !hidden}
+				<div class="text-sm text-secondary text-center py-8 px-2 border-l h-full">
+					Logs and results will be displayed here
+				</div>
+			{/if}
+		</div>
+	{/if}
 {/if}

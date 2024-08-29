@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use crate::db::ApiAuthed;
+use crate::utils::WithStarredInfoQuery;
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -35,7 +36,7 @@ use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
+    flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
     scripts::Schema,
@@ -876,13 +877,31 @@ async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Flow> {
+    Query(query): Query<WithStarredInfoQuery>,
+) -> JsonResult<FlowWithStarred> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let flow_o =
-        sqlx::query_as::<_, Flow>(
-            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+    let flow_o = if query.with_starred_info.unwrap_or(false) {
+        sqlx::query_as::<_, FlowWithStarred>(
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
+            FROM flow
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'flow' 
+                AND favorite.workspace_id = flow.workspace_id 
+                AND favorite.path = flow.path 
+                AND favorite.usr = $3
+            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+            WHERE flow.path = $1 AND flow.workspace_id = $2"
+        )
+            .bind(path)
+            .bind(w_id)
+            .bind(&authed.username)
+            .fetch_optional(&mut *tx)
+            .await?
+    } else {
+        sqlx::query_as::<_, FlowWithStarred>(
+            "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
             FROM flow
             LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
             WHERE flow.path = $1 AND flow.workspace_id = $2"
@@ -890,7 +909,8 @@ async fn get_flow_by_path(
             .bind(path)
             .bind(w_id)
             .fetch_optional(&mut *tx)
-            .await?;
+            .await?
+    };
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
@@ -1144,6 +1164,7 @@ mod tests {
                         tag_override: None,
                     }),
                     stop_after_if: None,
+                    stop_after_all_iters_if: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -1172,6 +1193,7 @@ mod tests {
                         expr: "foo = 'bar'".to_string(),
                         skip_if_stopped: false,
                     }),
+                    stop_after_all_iters_if: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -1198,6 +1220,7 @@ mod tests {
                         expr: "previous.isEmpty()".to_string(),
                         skip_if_stopped: false,
                     }),
+                    stop_after_all_iters_if: None,
                     summary: None,
                     suspend: Default::default(),
                     retry: None,
@@ -1223,6 +1246,7 @@ mod tests {
                     expr: "previous.isEmpty()".to_string(),
                     skip_if_stopped: false,
                 }),
+                stop_after_all_iters_if: None,
                 summary: None,
                 suspend: Default::default(),
                 retry: None,

@@ -12,6 +12,9 @@
 	export let flowStateStore: Writable<FlowState> = writable({})
 	export let selectedJobStep: string | undefined = undefined
 	export let hideFlowResult = false
+	export let hideTimeline = false
+	export let hideDownloadInGraph = false
+	export let hideNodeDefinition = false
 
 	export let isOwner = false
 	export let wideResults = false
@@ -23,7 +26,10 @@
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
 		flowStateStore,
 		suspendStatus,
-		retryStatus
+		retryStatus,
+		hideDownloadInGraph,
+		hideNodeDefinition,
+		hideTimeline
 	})
 
 	function loadOwner(path: string) {

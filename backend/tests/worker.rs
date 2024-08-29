@@ -1113,6 +1113,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     }
                     .into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1152,6 +1153,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             }
                             .into(),
                             stop_after_if: Default::default(),
+                            stop_after_all_iters_if: Default::default(),
                             summary: Default::default(),
                             suspend: Default::default(),
                             retry: None,
@@ -1166,6 +1168,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     }
                     .into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1270,6 +1273,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrency_time_window_s: None,
                     }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1319,6 +1323,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrency_time_window_s: None,
                                 }.into(),
                                 stop_after_if: Default::default(),
+                                stop_after_all_iters_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
@@ -1354,6 +1359,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     concurrency_time_window_s: None,
                                 }.into(),
                                 stop_after_if: Default::default(),
+                                stop_after_all_iters_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
@@ -1369,6 +1375,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         ],
                     }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -1411,6 +1418,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         concurrency_time_window_s: None,
                     }.into(),
                     stop_after_if: Default::default(),
+                    stop_after_all_iters_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
@@ -2702,7 +2710,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
     in_test_worker(&db, listen_first_job, port).await;
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all")
+        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
         .await
         .unwrap()
         .into_inner()

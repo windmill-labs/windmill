@@ -11,6 +11,7 @@ use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
+    utils::WithStarredInfoQuery,
     variables::encrypt,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -116,6 +117,15 @@ pub struct AppWithLastVersion {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub extra_perms: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, FromRow)]
+pub struct AppWithLastVersionAndStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub app: AppWithLastVersion,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -316,20 +326,44 @@ async fn get_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<AppWithLastVersion> {
+    Query(query): Query<WithStarredInfoQuery>,
+) -> JsonResult<AppWithLastVersionAndStarred> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let app_o = sqlx::query_as::<_, AppWithLastVersion>(
-        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
-        app.extra_perms, app_version.value, 
-        app_version.created_at, app_version.created_by from app, app_version 
-        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
-    )
-    .bind(path.to_owned())
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let app_o = if query.with_starred_info.unwrap_or(false) {
+        sqlx::query_as::<_, AppWithLastVersionAndStarred>(
+            "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+            app.extra_perms, app_version.value, 
+            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred
+            FROM app
+            JOIN app_version
+            ON app_version.id = app.versions[array_upper(app.versions, 1)]
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'app' 
+                AND favorite.workspace_id = app.workspace_id 
+                AND favorite.path = app.path 
+                AND favorite.usr = $3
+            WHERE app.path = $1 AND app.workspace_id = $2",
+        )
+        .bind(path.to_owned())
+        .bind(&w_id)
+        .bind(&authed.username)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_as::<_, AppWithLastVersionAndStarred>(
+            "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+            app.extra_perms, app_version.value, 
+            app_version.created_at, app_version.created_by, NULL as starred
+            FROM app, app_version
+            WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
+        )
+        .bind(path.to_owned())
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?
+    };
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", path)?;

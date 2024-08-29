@@ -4,6 +4,7 @@ import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { Schedule } from './scheduleUtils'
+import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 
 export type FlowInput = Record<
 	string,
@@ -39,4 +40,5 @@ export type FlowEditorContext = {
 	saveDraft: () => void
 	initialPath: string
 	flowInputsStore: Writable<FlowInput>
+	customUi: FlowBuilderWhitelabelCustomUi
 }

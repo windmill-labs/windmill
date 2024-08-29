@@ -14,8 +14,7 @@ use crate::common::build_envs_map;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        parse_npm_config, read_file_content, read_result, start_child_process, write_file,
-        write_file_binary,
+        parse_npm_config, read_file_content, read_result, start_child_process, write_file_binary,
     },
     AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
@@ -37,7 +36,7 @@ use windmill_common::{
     get_latest_hash_for_path,
     jobs::QueuedJob,
     scripts::ScriptLang,
-    worker::{exists_in_cache, get_annotation, save_cache},
+    worker::{exists_in_cache, get_annotation, save_cache, write_file},
     DB,
 };
 
@@ -77,7 +76,7 @@ pub async fn gen_lockfile(
 
     if let Some(raw_deps) = raw_deps {
         gen_bunfig(job_dir).await?;
-        write_file(job_dir, "package.json", raw_deps.as_str()).await?;
+        write_file(job_dir, "package.json", raw_deps.as_str())?;
     } else {
         let _ = write_file(
             &job_dir,
@@ -98,8 +97,7 @@ pub async fn gen_lockfile(
                     )
                     .replace("RAW_GET_ENDPOINT", "raw")
             ),
-        )
-        .await?;
+        )?;
 
         gen_bunfig(job_dir).await?;
 
@@ -210,7 +208,7 @@ registry = {}
                 .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
-        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml).await?;
+        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml)?;
     }
     Ok(())
 }
@@ -260,7 +258,7 @@ pub async fn install_lockfile(
             ));
 
             child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
-            write_file(job_dir, ".npmrc", content).await?;
+            write_file(job_dir, ".npmrc", content)?;
             true
         } else {
             false
@@ -356,8 +354,7 @@ if (!bo.success) {{
 "#,
                 loader
             ),
-        )
-        .await?;
+        )?;
     } else if mode == LoaderMode::Bun {
         write_file(
             &job_dir,
@@ -372,8 +369,7 @@ plugin(p)
 "#,
                 loader
             ),
-        )
-        .await?;
+        )?;
     } else if mode == LoaderMode::BunBundle
         || mode == LoaderMode::NodeBundle
         || mode == LoaderMode::BrowserBundle
@@ -412,8 +408,7 @@ if (!bo.success) {{
                     "browser"
                 }
             ),
-        )
-        .await?;
+        )?;
     }
     Ok(())
 }
@@ -571,6 +566,7 @@ pub fn copy_recursively(
                     }
                 }
             }
+
             let original = entry.path();
 
             if filetype.is_dir() {
@@ -607,7 +603,7 @@ pub async fn prebundle_script(
         return Ok(());
     }
     let origin = format!("{job_dir}/main.js");
-    write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+    write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
     build_loader(
         job_dir,
         base_internal_url,
@@ -729,9 +725,9 @@ pub async fn handle_bun_job(
         };
 
     if !codebase.is_some() && !has_bundle_cache {
-        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+        let _ = write_file(job_dir, "main.ts", inner_content)?;
     } else if !annotation.native_mode && codebase.is_none() {
-        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+        let _ = write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
     };
 
     let common_bun_proc_envs: HashMap<String, String> =
@@ -767,7 +763,7 @@ pub async fn handle_bun_job(
             ));
         }
 
-        let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
+        let _ = write_file(job_dir, "package.json", &splitted[0])?;
         let lockb = if annotation.npm_mode { "" } else { splitted[1] };
         if lockb != EMPTY_FILE {
             let mut skip_install = false;
@@ -878,10 +874,10 @@ pub async fn handle_bun_job(
     } else if annotation.native_mode {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if annotation.nodejs_mode {
-        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
         "\n\n--- NODE CODE EXECUTION ---\n".to_string()
     } else {
-        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?).await?;
+        write_file(job_dir, "main.ts", &remove_pinned_imports(inner_content)?)?;
         "\n\n--- BUN CODE EXECUTION ---\n".to_string()
     };
 
@@ -962,7 +958,7 @@ try {{
 }}
     "#,
         );
-        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
         Ok(()) as error::Result<()>
     };
 
@@ -1067,9 +1063,8 @@ try {{
                         "import * as Main from \"./main.ts\"",
                         "import * as Main from \"./main.js\"",
                     ),
-                )
-                .await?;
-                write_file(job_dir, "package.json", r#"{ "type": "module" }"#).await?;
+                )?;
+                write_file(job_dir, "package.json", r#"{ "type": "module" }"#)?;
             }
             fs::remove_file(format!("{job_dir}/main.ts"))?;
             has_bundle_cache = true;
@@ -1156,8 +1151,7 @@ try {{
                         },
                     ),
                 ),
-        )
-        .await?;
+        )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         let args = if annotation.nodejs_mode {
@@ -1290,6 +1284,10 @@ pub async fn get_common_bun_proc_envs(base_internal_url: &str) -> HashMap<String
             String::from("BUN_INSTALL_CACHE_DIR"),
             BUN_CACHE_DIR.to_string(),
         ),
+        (
+            String::from("BUN_RUNTIME_TRANSPILER_CACHE_PATH"),
+            "0".to_string(),
+        ),
     ]);
 
     if let Some(ref node_path) = NODE_PATH.as_ref() {
@@ -1324,7 +1322,7 @@ pub async fn start_worker(
     let mut canceled_by: Option<CanceledBy> = None;
     tracing::info!("Starting worker {w_id};{script_path} (codebase: {codebase:?}");
     if !codebase.is_some() {
-        let _ = write_file(job_dir, "main.ts", inner_content).await?;
+        let _ = write_file(job_dir, "main.ts", inner_content)?;
     }
 
     let common_bun_proc_envs: HashMap<String, String> =
@@ -1364,7 +1362,7 @@ pub async fn start_worker(
                 format!("Invalid requirements, expected to find //bun.lockb split pattern in reqs. Found: |{reqs}|")
             ));
         }
-        let _ = write_file(job_dir, "package.json", &splitted[0]).await?;
+        let _ = write_file(job_dir, "package.json", &splitted[0])?;
         let lockb = splitted[1];
         if lockb != EMPTY_FILE {
             let _ = write_file_binary(
@@ -1413,7 +1411,7 @@ pub async fn start_worker(
     }
 
     let main_code = remove_pinned_imports(inner_content)?;
-    let _ = write_file(job_dir, "main.ts", &main_code).await?;
+    let _ = write_file(job_dir, "main.ts", &main_code)?;
 
     {
         // let mut start = Instant::now();
@@ -1474,7 +1472,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
 }}
 "#,
         );
-        write_file(job_dir, "wrapper.mjs", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
     if !codebase.is_some() {

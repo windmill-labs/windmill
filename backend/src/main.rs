@@ -20,6 +20,7 @@ use tokio::{
     fs::{create_dir_all, DirBuilder, File},
     io::AsyncReadExt,
 };
+use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
 
 #[cfg(feature = "enterprise")]
@@ -36,9 +37,10 @@ use windmill_common::{
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
     },
+    scripts::ScriptLang,
     stats_ee::schedule_stats,
     utils::{rd_string, Mode},
-    worker::{reload_custom_tags_setting, WORKER_GROUP},
+    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
 
@@ -61,8 +63,8 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
     BUN_DEPSTAR_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HUB_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
+    GO_BIN_CACHE_DIR, GO_CACHE_DIR, LOCK_CACHE_DIR, PIP_CACHE_DIR, POWERSHELL_CACHE_DIR,
+    RUST_CACHE_DIR, TAR_PIP_CACHE_DIR, TMP_LOGS_DIR,
 };
 
 use crate::monitor::{
@@ -134,7 +136,25 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(HUB_CACHE_DIR).await?;
 
     for path in paths.values() {
-        get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
+        tracing::info!("Caching hub script at {path}");
+        let res = get_hub_script_content_and_requirements(Some(path.to_string()), None).await?;
+        if res.language.is_some_and(|x| x == ScriptLang::Deno) {
+            let job_dir = format!("{}/cache_init/{}", TMP_DIR, Uuid::new_v4());
+            create_dir_all(&job_dir).await?;
+            let _ = windmill_worker::generate_deno_lock(
+                &Uuid::nil(),
+                &res.content,
+                &mut 0,
+                &mut None,
+                "/tmp/windmill/",
+                None,
+                "global",
+                "global",
+                "",
+            )
+            .await?;
+            tokio::fs::remove_dir_all(job_dir).await?;
+        }
     }
     Ok(())
 }

@@ -46,6 +46,15 @@ pub struct Flow {
     pub visible_to_runner_only: Option<bool>,
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+pub struct FlowWithStarred {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub flow: Flow,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub starred: Option<bool>,
+}
+
 fn is_none_or_false(b: &Option<bool>) -> bool {
     b.is_none() || !b.unwrap()
 }
@@ -235,6 +244,8 @@ pub struct FlowModule {
     pub value: Box<serde_json::value::RawValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_if: Option<StopAfterIf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_after_all_iters_if: Option<StopAfterIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -580,6 +591,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             id: format!("{}-v", modules[modules.len() - 1].id),
             value: crate::worker::to_raw_value(&FlowModuleValue::Identity),
             stop_after_if: None,
+            stop_after_all_iters_if: None,
             summary: Some("Virtual module needed for suspend/sleep when last module".to_string()),
             mock: None,
             retry: None,

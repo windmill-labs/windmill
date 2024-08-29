@@ -4,12 +4,7 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		AppService,
-		DraftService,
-		type ListableApp,
-		type WorkspaceDeployUISettings
-	} from '$lib/gen'
+	import { AppService, DraftService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -28,15 +23,16 @@
 		Pen,
 		Share,
 		Trash,
-		Clipboard
+		Clipboard,
+		Loader2
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE, copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
-	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
+	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
 	export let app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 	export let marked: string | undefined
@@ -47,20 +43,23 @@
 	export let deleteConfirmedCallback: (() => void) | undefined
 	export let depth: number = 0
 	export let menuOpen: boolean = false
-	export let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
-	let appExport: AppJsonEditor
+	let appExport: { open: (path: string) => void } | undefined = undefined
 	let appDeploymentHistory: AppDeploymentHistory | undefined = undefined
 
 	async function loadAppJson() {
-		appExport.open(app.path)
+		appExport?.open(app.path)
 	}
 </script>
 
 {#if menuOpen}
-	<AppJsonEditor on:change bind:this={appExport} />
+	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte')}
+		<Loader2 class="animate-spin" />
+	{:then Module}
+		<Module.default on:change bind:this={appExport} />
+	{/await}
 	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}
 
@@ -120,7 +119,7 @@
 			{/if}
 		</span>
 		<Dropdown
-			items={() => {
+			items={async () => {
 				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
 
 				if (draft_only) {
@@ -170,7 +169,7 @@
 						disabled: !canWrite,
 						hide: $userStore?.operator
 					},
-					...(isDeployable('app', path, deployUiSettings)
+					...(isDeployable('app', path, await getDeployUiSettings())
 						? [
 								{
 									displayName: 'Deploy to staging/prod',

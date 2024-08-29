@@ -4,10 +4,12 @@ import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { workspaceStore } from './stores'
 
-export function scriptLangToEditorLang(lang: Script['language'] | 'bunnative' | undefined) {
+export function scriptLangToEditorLang(
+	lang: Script['language'] | 'bunnative' | 'frontend' | undefined
+) {
 	if (lang == 'deno') {
 		return 'typescript'
-	} else if (lang == 'bun' || lang == 'bunnative') {
+	} else if (lang == 'bun' || lang == 'bunnative' || lang == 'frontend') {
 		return 'typescript'
 	} else if (lang == 'nativets') {
 		return 'typescript'

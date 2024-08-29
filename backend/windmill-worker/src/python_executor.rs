@@ -16,7 +16,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::QueuedJob,
     utils::calculate_hash,
-    worker::WORKER_CONFIG,
+    worker::{write_file, WORKER_CONFIG},
     DB,
 };
 
@@ -56,7 +56,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 use crate::{
     common::{
         create_args_and_out_file, get_main_override, get_reserved_variables, handle_child,
-        read_result, start_child_process, write_file,
+        read_result, start_child_process,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, HTTPS_PROXY, HTTP_PROXY,
     LOCK_CACHE_DIR, NO_PROXY, NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, PIP_EXTRA_INDEX_URL,
@@ -150,7 +150,7 @@ pub async fn pip_compile(
     }
     let file = "requirements.in";
 
-    write_file(job_dir, file, &requirements).await?;
+    write_file(job_dir, file, &requirements)?;
 
     let mut args = vec![
         "-q",
@@ -318,7 +318,7 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_nan = re.compile(r'(?:\bNaN\b|\\u0000)')
+replace_nan = re.compile(r'(?:\bNaN\b|\\*\\u0000)')
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
@@ -352,7 +352,7 @@ except BaseException as e:
         sys.exit(1)
 "#,
     );
-    write_file(job_dir, "wrapper.py", &wrapper_content).await?;
+    write_file(job_dir, "wrapper.py", &wrapper_content)?;
 
     let client = client.get_authed().await;
     let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
@@ -387,8 +387,7 @@ mount {{
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
                 ),
-        )
-        .await?;
+        )?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }
@@ -506,9 +505,9 @@ async fn prepare_wrapper(
     let module_dir = format!("{}/{}", job_dir, dirs);
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
 
-    let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
+    let _ = write_file(&module_dir, &format!("{last}.py"), inner_content)?;
     if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
+        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
     }
 
     let sig = windmill_parser_py::parse_python_signature(inner_content, main_override.clone())?;
@@ -779,8 +778,7 @@ pub async fn handle_python_reqs(
                 .replace("{WORKER_DIR}", &worker_dir)
                 .replace("{CACHE_DIR}", PIP_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )
-        .await?;
+        )?;
     };
 
     let mut req_with_penv: Vec<(String, String)> = vec![];
@@ -1153,7 +1151,7 @@ for line in sys.stdin:
     sys.stdout.flush()
 "#,
         );
-        write_file(job_dir, "wrapper.py", &wrapper_content).await?;
+        write_file(job_dir, "wrapper.py", &wrapper_content)?;
     }
 
     let reserved_variables = windmill_common::variables::get_reserved_variables(

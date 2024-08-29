@@ -55,7 +55,8 @@
 		flowStore,
 		pathStore,
 		saveDraft,
-		flowInputsStore
+		flowInputsStore,
+		customUi
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -265,6 +266,7 @@
 			{#if flowModule.value.type === 'rawscript' && !noEditor}
 				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
+						customUi={customUi?.editorBar}
 						{validCode}
 						{editor}
 						{diffEditor}
@@ -332,10 +334,12 @@
 										)}
 									/>
 									<DiffEditor
+										open={false}
 										bind:this={diffEditor}
 										automaticLayout
 										fixedOverflowWidgets
-										class="hidden h-full"
+										defaultLang={scriptLangToEditorLang(flowModule.value.language)}
+										class="h-full"
 									/>
 								{/key}
 							{/if}
@@ -402,7 +406,12 @@
 									{#if !$selectedId.includes('failure')}
 										<Tab value="runtime">Runtime</Tab>
 										<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
-										<Tab value="early-stop" active={Boolean(flowModule.stop_after_if)}>
+										<Tab
+											value="early-stop"
+											active={Boolean(
+												flowModule.stop_after_if || flowModule.stop_after_all_iters_if
+											)}
+										>
 											Early Stop
 										</Tab>
 										<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>

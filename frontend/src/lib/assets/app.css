@@ -28,7 +28,7 @@
 
 	@font-face {
 		font-family: 'Inter';
-		src: url('/Inter-Variable.ttf');
+		src: url('/Inter-Variable.woff2') format('woff2');
 		font-weight: 100 900;
 		font-display: swap;
 	}
@@ -119,4 +119,8 @@ svelte-virtual-list-contents > * + * {
 	@apply placeholder:text-gray-400 dark:placeholder:text-gray-200;
 	@apply bg-surface;
 	@apply disabled:placeholder:text-gray-200 disabled:placeholder:dark:text-gray-500 disabled:text-gray-200 disabled:dark:text-gray-500 disabled:border-gray-200 disabled:dark:border-gray-600;
+}
+
+.nonmain-editor .cursor.monaco-mouse-cursor-text {
+	width: 1px !important;
 }

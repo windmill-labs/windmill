@@ -1,82 +1,48 @@
-import type { Environment } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { useWorkerFactory } from 'monaco-editor-wrapper/workerFactory'
+import cssWorker from 'monaco-editor-wrapper/workers/module/css?worker'
+import htmlWorker from 'monaco-editor-wrapper/workers/module/html?worker'
+import tsWorker from 'monaco-editor-wrapper/workers/module/ts?worker'
+import jsonWorker from 'monaco-editor-wrapper/workers/module/json?worker'
+import editorWorker from 'monaco-editor-wrapper/workers/module/editor?worker'
 
-// inline to make it a library component easy to be imported until this if fixed: https://github.com/vitejs/vite/pull/16418
-// import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker&inline'
-// import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker&inline'
-// import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker&inline'
-// import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker&inline'
-// import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker&inline'
-
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-
-interface MonacoEnvironmentEnhanced extends Environment {
-	workerOverrideGlobals: WorkerOverrideGlobals
-}
-
-type WorkerOverrideGlobals = {
-	basePath: string
-	workerPath: string
-	workerOptions: WorkerOptions
-}
-
-export function buildWorkerDefinition(
-	workerPath: string,
-	basePath: string,
-	useModuleWorker: boolean
-) {
-	const monWin = self as Window
-	const workerOverrideGlobals: WorkerOverrideGlobals = {
-		basePath: basePath,
-		workerPath: workerPath,
-		workerOptions: {
-			type: useModuleWorker ? 'module' : 'classic'
-		}
-	}
-
-	if (!monWin.MonacoEnvironment) {
-		monWin.MonacoEnvironment = {
-			workerOverrideGlobals: workerOverrideGlobals,
-			createTrustedTypesPolicy: (_policyName: string) => {
-				return undefined
-			}
-		} as MonacoEnvironmentEnhanced
-	}
-	const monEnv = monWin.MonacoEnvironment as MonacoEnvironmentEnhanced
-	monEnv.workerOverrideGlobals = workerOverrideGlobals
-
-	const getWorker = (_: string, label: string) => {
-		console.log('getWorker: workerId: ' + _ + ' label: ' + label)
-
-		switch (label) {
-			case 'template':
-			case 'typescript':
-			case 'javascript':
-				return new tsWorker()
-			case 'html':
-			case 'handlebars':
-			case 'razor':
-				return new htmlWorker()
-			case 'css':
-			case 'scss':
-			case 'less':
-				return new cssWorker()
-			case 'json':
-				return new jsonWorker()
-			case 'graphql':
-				const workerFilename = `graphql.worker.bundle.js`
-				const workerPathLocal = `${workerOverrideGlobals.workerPath}/${workerFilename}`
-				const workerUrl = new URL(workerPathLocal, workerOverrideGlobals.basePath)
-				return new Worker(workerUrl.href, {
-					name: label
-				})
-			default:
+export function buildWorkerDefinition(workerPath: string, basePath: string, ...args: any[]) {
+	useWorkerFactory({
+		ignoreMapping: true,
+		workerLoaders: {
+			editorWorkerService: () => {
+				console.log('editorWorkerService')
 				return new editorWorker()
-		}
-	}
+			},
+			javascript: () => {
+				console.log('javascript')
+				return new tsWorker()
+			},
 
-	monWin.MonacoEnvironment.getWorker = getWorker
+			typescript: () => {
+				console.log('typescript')
+				return new tsWorker()
+			},
+			json: () => {
+				console.log('json')
+				return new jsonWorker()
+			},
+			html: () => {
+				console.log('html')
+				return new htmlWorker()
+			},
+			css: () => {
+				console.log('html')
+				return new cssWorker()
+			},
+			graphql: () => {
+				console.log('graphql')
+				const workerFilename = `graphql.worker.bundle.js`
+				const workerPathLocal = `${workerPath}/${workerFilename}`
+				const workerUrl = new URL(workerPathLocal, basePath)
+				return new Worker(workerUrl.href, {
+					name: 'graphql'
+				})
+			}
+		}
+	})
 }

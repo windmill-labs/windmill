@@ -33,7 +33,7 @@
 		Smartphone,
 		FileClock
 	} from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
 		classNames,
@@ -83,6 +83,8 @@
 	import { getDeleteInput } from '../components/display/dbtable/queries/delete'
 	import { collectOneOfFields } from './appUtils'
 	import Summary from '$lib/components/Summary.svelte'
+	import ToggleEnable from '$lib/components/common/toggleButton-v2/ToggleEnable.svelte'
+	import HideButton from './settingsPanel/HideButton.svelte'
 
 	async function hash(message) {
 		try {
@@ -115,6 +117,9 @@
 		  }
 		| undefined = undefined
 	export let version: number | undefined = undefined
+	export let leftPanelHidden: boolean = false
+	export let rightPanelHidden: boolean = false
+	export let bottomPanelHidden: boolean = false
 
 	const {
 		app,
@@ -125,7 +130,8 @@
 		jobsById,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		mode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, jobsDrawerOpen, refreshComponents } =
@@ -230,6 +236,11 @@
 									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
+								console.log(
+									x.id,
+									getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
+									columnDefs
+								)
 								r.push({
 									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
 									id: x.id + '_insert'
@@ -737,6 +748,8 @@
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1288,25 +1301,71 @@
 					/>
 				</ToggleButtonGroup>
 			{/if}
-			<div>
+			<div class="flex flex-row gap-2">
 				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
-					<ToggleButton
-						tooltip="Mobile View"
-						icon={Smartphone}
-						value="sm"
-						iconProps={{ size: 16 }}
-					/>
 					<ToggleButton
 						tooltip="Computer View"
 						icon={Laptop2}
-						value="lg"
+						value={'lg'}
 						iconProps={{ size: 16 }}
 					/>
+					<ToggleButton
+						tooltip="Mobile View"
+						icon={Smartphone}
+						value={'sm'}
+						iconProps={{ size: 16 }}
+					/>
+					{#if $breakpoint === 'sm'}
+						<ToggleEnable
+							tooltip="Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view"
+							label="Enable mobile view for smaller screens"
+							bind:checked={$app.mobileViewOnSmallerScreens}
+							iconProps={{ size: 16 }}
+							iconOnly={false}
+						/>
+					{/if}
 				</ToggleButtonGroup>
 			</div>
 		</div>
 	</div>
 
+	{#if $mode !== 'preview'}
+		<div class="flex gap-1">
+			<HideButton
+				direction="left"
+				hidden={leftPanelHidden}
+				on:click={() => {
+					if (leftPanelHidden) {
+						dispatch('showLeftPanel')
+					} else {
+						dispatch('hideLeftPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={bottomPanelHidden}
+				direction="bottom"
+				on:click={() => {
+					if (bottomPanelHidden) {
+						dispatch('showBottomPanel')
+					} else {
+						dispatch('hideBottomPanel')
+					}
+				}}
+			/>
+			<HideButton
+				hidden={rightPanelHidden}
+				direction="right"
+				on:click={() => {
+					if (rightPanelHidden) {
+						dispatch('showRightPanel')
+					} else {
+						dispatch('hideRightPanel')
+					}
+				}}
+			/>
+		</div>
+	{/if}
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}

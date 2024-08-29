@@ -3,13 +3,13 @@ use std::{collections::HashMap, process::Stdio};
 
 use itertools::Itertools;
 use tokio::process::Command;
-use windmill_common::{error::Error, jobs::QueuedJob, utils::calculate_hash, worker::save_cache};
+use windmill_common::{error::Error, jobs::QueuedJob, utils::calculate_hash, worker::{save_cache, write_file}};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, handle_child, read_result,
-        start_child_process, write_file,
+        start_child_process,
     },
     AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     RUST_CACHE_DIR, TZ_ENV,
@@ -66,7 +66,6 @@ pub async fn handle_rust_job(
 
     let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
 
-
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
         std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
@@ -98,7 +97,7 @@ pub async fn handle_rust_job(
 
         let sig = windmill_parser_rust::parse_rust_signature(&inner_content)?;
         let manifest = windmill_parser_rust::parse_rust_deps_into_manifest(&inner_content)?;
-        write_file(job_dir, "Cargo.toml", &manifest).await?;
+        write_file(job_dir, "Cargo.toml", &manifest)?;
 
         const WRAPPER_CONTENT: &str = r#"
 use std::fs::File;
@@ -119,7 +118,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 "#;
-        write_file(job_dir, "main.rs", WRAPPER_CONTENT).await?;
+        write_file(job_dir, "main.rs", WRAPPER_CONTENT)?;
 
         let spread = &sig
             .args
@@ -164,7 +163,7 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
 "#
         );
 
-        write_file(job_dir, "inner.rs", &mod_content).await?;
+        write_file(job_dir, "inner.rs", &mod_content)?;
 
         let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
         build_rust_cmd
@@ -239,8 +238,7 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
+        )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)

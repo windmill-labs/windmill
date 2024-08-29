@@ -10,20 +10,37 @@ crate-type = ["cdylib"]
 name = "windmill_parser_wasm"
 path = "./src/lib.rs"
 
+[profile.release]
+lto = true
+opt-level = 's'
+
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-bash.workspace = true
+
+[features]
+default = []
+go-parser = [ "dep:windmill-parser-go"]
+bash-parser = [ "dep:windmill-parser-bash"]
+sql-parser = [ "dep:windmill-parser-sql"]
+py-parser = [ "dep:windmill-parser-py"]
+ts-parser = [ "dep:windmill-parser-ts"]
+php-parser = [ "dep:windmill-parser-php"]
+rust-parser = [ "dep:windmill-parser-rust"]
+graphql-parser = [ "dep:windmill-parser-graphql"]
 
 [dependencies]
 anyhow.workspace = true
 windmill-parser.workspace = true
-windmill-parser-go.workspace = true
-windmill-parser-bash.workspace = true
-windmill-parser-sql.workspace = true
-windmill-parser-py.workspace = true
-windmill-parser-ts.workspace = true
-windmill-parser-php.workspace = true
-windmill-parser-rust.workspace = true
-windmill-parser-graphql.workspace = true
+windmill-parser-go = { workspace = true, optional = true }
+windmill-parser-bash = { workspace = true, optional = true }
+windmill-parser-sql = { workspace = true, optional = true }
+windmill-parser-py = { workspace = true, optional = true }
+windmill-parser-ts = { workspace = true, optional = true }
+windmill-parser-php = { workspace = true, optional = true }
+windmill-parser-graphql = { workspace = true, optional = true }
+windmill-parser-rust = { workspace = true, optional = true }
 wasm-bindgen.workspace = true
 serde_json.workspace = true
 getrandom = { workspace = true, features = ["js"] }
