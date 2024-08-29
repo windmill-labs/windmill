@@ -11,12 +11,25 @@
 			.st3 {
 				fill: #3b82f6;
 			}
+
+			/* Background color for dark mode */
+			@media (prefers-color-scheme: dark) {
+				#mainbg {
+					background-color: #3b4252; /* Example: dark gray background for dark mode */
+				}
+				#loading-text {
+					color: #a8aeb7 !important;
+				}
+			}
 		</style>
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-code="viewport" class="outline-none focus:outline-none">
 		<div style="display: contents">
+			<div id="mainbg" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 100vh">
+			</div>
+
 			<div style="position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%)">
 				<svg
 					version="1.1"
@@ -60,6 +73,7 @@
 					</g>
 				</svg>
 				<div
+					id="loading-text"
 					style="
 						text-align: center;
 						margin-top: 30px;
