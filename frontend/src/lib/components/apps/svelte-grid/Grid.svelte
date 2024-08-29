@@ -114,8 +114,10 @@
 						...shadows[id]
 					}
 				}
+				let { items, overlap } = moveItem(activeItem, sortedItems, getComputedCols)
 
-				sortedItems = moveItem(activeItem, sortedItems, getComputedCols)
+				sortedItems = items
+				overlapped = overlap ? id : undefined
 			}
 		}
 
@@ -203,13 +205,6 @@
 				{sensor}
 				container={scroller}
 				nativeContainer={container}
-				on:overlap={(e) => {
-					if (e.detail.targetId) {
-						overlapped = e.detail.targetId.split('-')[1]
-					} else {
-						overlapped = undefined
-					}
-				}}
 			>
 				{#if item[getComputedCols]}
 					<slot dataItem={item} hidden={false} {overlapped} />

@@ -185,7 +185,7 @@
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
-							overlapped={overlapped === dataItem.id}
+							overlapped={overlapped !== undefined}
 						/>
 					</GridEditorMenu>
 				</ComponentWrapper>
