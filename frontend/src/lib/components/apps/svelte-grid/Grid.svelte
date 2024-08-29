@@ -207,8 +207,6 @@
 		})
 	}
 	let overlapped: string | undefined = undefined
-
-	
 </script>
 
 <svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
@@ -226,7 +224,13 @@
 				id={item.id}
 				{xPerPx}
 				{yPerPx}
-				on:dropped
+				on:dropped={(e) => {
+					if (!isCtrlOrMetaPressed) {
+						return
+					}
+
+					dispatch('dropped', e.detail)
+				}}
 				width={xPerPx == 0
 					? 0
 					: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -

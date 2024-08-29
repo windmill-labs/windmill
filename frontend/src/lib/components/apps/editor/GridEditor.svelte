@@ -68,8 +68,6 @@
 		$app = $app
 	}
 
-	let gridEditorMenu: GridEditorMenu | undefined = undefined
-
 	export function moveComponentBetweenSubgrids(
 		componentId: string,
 		parentComponentId: string,
@@ -218,7 +216,6 @@
 						on:fillHeight={() => {
 							handleFillHeight(dataItem.id)
 						}}
-						bind:this={gridEditorMenu}
 						locked={isFixed(dataItem)}
 						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 					>

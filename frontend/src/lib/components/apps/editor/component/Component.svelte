@@ -88,10 +88,10 @@
 	export let render: boolean
 	export let hidden: boolean
 	export let fullHeight: boolean
-	export let overlapped: boolean = false
+	export let overlapped: string | undefined = undefined
 	export let moveMode: string | undefined = undefined
 
-	const { mode, app, hoverStore, connectingInput, selectedComponent } =
+	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -140,7 +140,7 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id && moveMode === 'move'}
+	{#if locked && componentActive && $componentActive && overlapped === component.id && moveMode === 'move'}
 		<div
 			class={twMerge(
 				'absolute inset-0 bg-locked center-center flex-col z-50',
@@ -152,8 +152,7 @@
 				<div class="text-xs">Anchored: The component cannot be moved</div>
 			</div>
 		</div>
-	{/if}
-	{#if moveMode === 'insert' && component.type === 'containercomponent'}
+	{:else if moveMode === 'insert' && overlapped === component.id && component.type === 'containercomponent'}
 		<div
 			class={twMerge(
 				'absolute inset-0 center-center flex-col z-50',
