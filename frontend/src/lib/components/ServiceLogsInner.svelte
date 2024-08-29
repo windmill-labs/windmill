@@ -38,7 +38,9 @@
 	let timeout: NodeJS.Timeout | undefined = undefined
 
 	let allLogs: ByMode | undefined = undefined
+	let manualPicker: ManuelDatePicker | undefined = undefined
 
+	$: minTsManual || maxTsManual || getAllLogs(minTsManual ?? maxTs, maxTsManual)
 	function getAllLogs(queryMinTs: string | undefined, queryMaxTs: string | undefined) {
 		timeout && clearTimeout(timeout)
 		loading = true
@@ -87,11 +89,12 @@
 				maxTs = maxTsN ? new Date(maxTsN).toISOString() : undefined
 				allLogs = nallLogs
 				loading = false
-				if (autoRefresh && !queryMaxTs) {
-					timeout && clearTimeout(timeout)
-					let localMaxTs = maxTs
+				if (autoRefresh) {
 					timeout = setTimeout(() => {
-						getAllLogs(localMaxTs, undefined)
+						console.log('refreshing')
+						let minMax = manualPicker?.computeMinMax()
+						maxTsManual = minMax?.maxTs ?? maxTs
+						minTsManual = minMax?.minTs ?? minTs
 					}, 5000)
 				}
 			})
@@ -194,6 +197,7 @@
 					<ManuelDatePicker
 						bind:minTs={minTsManual}
 						bind:maxTs={maxTsManual}
+						bind:this={manualPicker}
 						{loading}
 						on:loadJobs={() => {
 							minTs = undefined

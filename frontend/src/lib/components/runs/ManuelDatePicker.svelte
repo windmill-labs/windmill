@@ -47,6 +47,12 @@
 			  ]
 			: []),
 		{
+			label: 'Within 30 seconds',
+			computeMinMax: () => {
+				return computeMinMaxInc(30 * 1000)
+			}
+		},
+		{
 			label: 'Within last 5 minutes',
 			computeMinMax: () => {
 				return computeMinMaxInc(5 * 60 * 1000)
