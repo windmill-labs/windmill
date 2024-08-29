@@ -203,10 +203,6 @@
 {/if}
 
 <style global>
-	.svlt-grid-shadow {
-		/* Back shadow */
-		background: #93c4fdd0 !important;
-	}
 	.svlt-grid-active {
 		opacity: 1 !important;
 	}

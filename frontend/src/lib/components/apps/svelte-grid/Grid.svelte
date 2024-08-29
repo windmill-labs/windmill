@@ -205,6 +205,7 @@
 				{sensor}
 				container={scroller}
 				nativeContainer={container}
+				{overlapped}
 			>
 				{#if item[getComputedCols]}
 					<slot dataItem={item} hidden={false} {overlapped} />
