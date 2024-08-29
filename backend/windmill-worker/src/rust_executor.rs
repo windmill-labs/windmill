@@ -1,9 +1,16 @@
 use serde_json::value::RawValue;
 use std::{collections::HashMap, process::Stdio};
+use uuid::Uuid;
+use windmill_parser_rust::parse_rust_deps_into_manifest;
 
 use itertools::Itertools;
-use tokio::process::Command;
-use windmill_common::{error::Error, jobs::QueuedJob, utils::calculate_hash, worker::{save_cache, write_file}};
+use tokio::{fs::File, io::AsyncReadExt, process::Command};
+use windmill_common::{
+    error::{self, Error},
+    jobs::QueuedJob,
+    utils::calculate_hash,
+    worker::{save_cache, write_file},
+};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -23,83 +30,11 @@ lazy_static::lazy_static! {
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
 
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn handle_rust_job(
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
-    inner_content: &str,
-    job_dir: &str,
-    requirements_o: Option<String>,
-    shared_mount: &str,
-    base_internal_url: &str,
-    worker_name: &str,
-    envs: HashMap<String, String>,
-) -> Result<Box<RawValue>, Error> {
-    tracing::error!(
-        ?mem_peak,
-        ?canceled_by,
-        ?job,
-        ?db,
-        ?inner_content,
-        ?job_dir,
-        ?requirements_o,
-        ?shared_mount,
-        ?base_internal_url,
-        ?worker_name,
-        ?envs,
-        "this is all folks",
-    );
+fn gen_cargo_crate(code: &str, job_dir: &str) -> anyhow::Result<()> {
+    let manifest = parse_rust_deps_into_manifest(code)?;
+    write_file(job_dir, "Cargo.toml", &manifest)?;
 
-    let hash = calculate_hash(&format!(
-        "{}{}",
-        inner_content,
-        requirements_o
-            .as_ref()
-            .map(|x| x.to_string())
-            .unwrap_or_default()
-    ));
-    let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
-    let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
-
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
-
-    let cache_logs = if cache {
-        let target = format!("{job_dir}/main");
-        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
-            Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
-            ))
-        })?;
-
-        create_args_and_out_file(client, job, job_dir, db).await?;
-        cache_logs
-    } else {
-        let logs1 = format!("{cache_logs}\n\n--- CARGO BUILD ---\n");
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
-
-        // install_rust_dependencies(
-        //     &job.id,
-        //     inner_content,
-        //     mem_peak,
-        //     canceled_by,
-        //     job_dir,
-        //     db,
-        //     true,
-        //     worker_name,
-        //     &job.workspace_id,
-        // )
-        // .await?;
-
-        create_args_and_out_file(client, job, job_dir, db).await?;
-
-        let sig = windmill_parser_rust::parse_rust_signature(&inner_content)?;
-        let manifest = windmill_parser_rust::parse_rust_deps_into_manifest(&inner_content)?;
-        write_file(job_dir, "Cargo.toml", &manifest)?;
-
-        const WRAPPER_CONTENT: &str = r#"
+    const WRAPPER_CONTENT: &str = r#"
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::error::Error;
@@ -113,34 +48,34 @@ fn main() -> Result<(), Box<dyn Error>> {
     let result = inner::__WINDMILL_RUN__(args)?;
 
     let mut result_file = File::create("result.json")?;
-    result_file.write_all(serde_json::to_string(&result)?.into_bytes().as_ref())?;
+    result_file.write_all(result.into_bytes().as_ref())?;
 
     Ok(())
 }
 "#;
-        write_file(job_dir, "main.rs", WRAPPER_CONTENT)?;
+    write_file(job_dir, "main.rs", WRAPPER_CONTENT)?;
 
-        let spread = &sig
-            .args
-            .clone()
-            .into_iter()
-            .map(|x| format!("_args.{}", &x.name))
-            .join(", ");
-        let arg_struct_body = &sig
-            .args
-            .into_iter()
-            .map(|x| {
-                format!(
-                    "{}: {},",
-                    &x.name,
-                    windmill_parser_rust::otyp_to_string(x.otyp),
-                )
-            })
-            .join("\n");
-
-        let mod_content: String = format!(
-            r#"
-{inner_content}
+    let sig = windmill_parser_rust::parse_rust_signature(code)?;
+    let spread = &sig
+        .args
+        .clone()
+        .into_iter()
+        .map(|x| format!("_args.{}", &x.name))
+        .join(", ");
+    let arg_struct_body = &sig
+        .args
+        .into_iter()
+        .map(|x| {
+            format!(
+                "{}: {},",
+                &x.name,
+                windmill_parser_rust::otyp_to_string(x.otyp),
+            )
+        })
+        .join("\n");
+    let mod_content: String = format!(
+        r#"
+{code}
 
 #[derive(serde::Deserialize)]
 #[allow(non_camel_case_types)]
@@ -161,66 +96,191 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
     Ok(windmill_runner(|| main({spread}))?)
 }}
 "#
-        );
+    );
 
-        write_file(job_dir, "inner.rs", &mod_content)?;
+    write_file(job_dir, "inner.rs", &mod_content)?;
+    Ok(())
+}
 
-        let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
-        build_rust_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            // .env("RUSTC_PATH", RUST_CACHE_DIR)
-            .env("HOME", HOME_ENV.as_str())
-            .args(vec!["build", "--release"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
-        handle_child(
-            &job.id,
-            db,
-            mem_peak,
-            canceled_by,
-            build_rust_process,
-            false,
-            worker_name,
-            &job.workspace_id,
-            "rust build",
-            None,
-            false,
-        )
-        .await?;
-        append_logs(&job.id, &job.workspace_id, "\n\n", db).await;
+pub async fn generate_cargo_lockfile(
+    job_id: &Uuid,
+    code: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    w_id: &str,
+) -> error::Result<String> {
+    gen_cargo_crate(code, job_dir)?;
 
-        tokio::fs::copy(
-            &format!("{job_dir}/target/release/main"),
-            format! {"{job_dir}/main"},
-        )
-        .await
-        .map_err(|e| {
+    let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
+    gen_lockfile_cmd
+        .current_dir(job_dir)
+        .args(vec!["generate-lockfile"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by,
+        gen_lockfile_process,
+        false,
+        worker_name,
+        w_id,
+        "cargo generate-lockfile",
+        None,
+        false,
+    )
+    .await?;
+
+    let path_lock = format!("{job_dir}/Cargo.lock");
+    let mut file = File::open(path_lock).await?;
+    let mut req_content = String::new();
+    file.read_to_string(&mut req_content).await?;
+    Ok(req_content)
+}
+
+pub async fn build_rust_crate(
+    job_id: &Uuid,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    w_id: &str,
+    base_internal_url: &str,
+    hash: &str,
+) -> error::Result<String> {
+    let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
+
+    let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
+    build_rust_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .env("PATH", PATH_ENV.as_str())
+        .env("BASE_INTERNAL_URL", base_internal_url)
+        .env("HOME", HOME_ENV.as_str())
+        .args(vec!["build", "--release"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by,
+        build_rust_process,
+        false,
+        worker_name,
+        w_id,
+        "rust build",
+        None,
+        false,
+    )
+    .await?;
+    append_logs(job_id, w_id, "\n\n", db).await;
+
+    tokio::fs::copy(
+        &format!("{job_dir}/target/release/main"),
+        format! {"{job_dir}/main"},
+    )
+    .await
+    .map_err(|e| {
+        Error::ExecutionErr(format!(
+            "could not copy built binary from [...]/target/release/main to {job_dir}/main: {e:?}"
+        ))
+    })?;
+
+    match save_cache(
+        &bin_path,
+        &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
+        &format!("{job_dir}/main"),
+    )
+    .await
+    {
+        Err(e) => {
+            let em = format!(
+                "could not save {bin_path} to {} to rust cache: {e:?}",
+                format!("{job_dir}/main"),
+            );
+            tracing::error!(em);
+            Ok(em)
+        }
+        Ok(logs) => Ok(logs),
+    }
+}
+
+pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String {
+    calculate_hash(&format!(
+        "{}{}",
+        code,
+        requirements_o
+            .as_ref()
+            .map(|x| x.to_string())
+            .unwrap_or_default()
+    ))
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn handle_rust_job(
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    client: &AuthedClientBackgroundTask,
+    inner_content: &str,
+    job_dir: &str,
+    requirements_o: Option<String>,
+    shared_mount: &str,
+    base_internal_url: &str,
+    worker_name: &str,
+    envs: HashMap<String, String>,
+) -> Result<Box<RawValue>, Error> {
+    let hash = compute_rust_hash(inner_content, requirements_o.as_ref());
+    let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
+    let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
+
+    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+
+    let cache_logs = if cache {
+        let target = format!("{job_dir}/main");
+        std::os::unix::fs::symlink(&bin_path, &target).map_err(|e| {
             Error::ExecutionErr(format!(
-                "could not copy built binary from [...]/target/release/main to {job_dir}/main: {e:?}"
+                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
             ))
         })?;
 
-        match save_cache(
-            &bin_path,
-            &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
-            &format!("{job_dir}/main"),
-        )
-        .await
-        {
-            Err(e) => {
-                let em = format!(
-                    "could not save {bin_path} to {} to rust cache: {e:?}",
-                    format!("{job_dir}/main"),
-                );
-                tracing::error!(em);
-                em
+        create_args_and_out_file(client, job, job_dir, db).await?;
+        cache_logs
+    } else {
+        let logs1 = format!("{cache_logs}\n\n--- CARGO BUILD ---\n");
+        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+
+        gen_cargo_crate(inner_content, job_dir)?;
+
+        if let Some(reqs) = requirements_o {
+            if !reqs.is_empty() {
+                write_file(job_dir, "Cargo.lock", &reqs)?;
             }
-            Ok(logs) => logs,
         }
+
+        create_args_and_out_file(client, job, job_dir, db).await?;
+
+        build_rust_crate(
+            &job.id,
+            mem_peak,
+            canceled_by,
+            job_dir,
+            db,
+            worker_name,
+            &job.workspace_id,
+            base_internal_url,
+            &hash,
+        )
+        .await?
     };
 
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");

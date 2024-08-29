@@ -26,6 +26,7 @@ use windmill_parser_ts::parse_expr_for_imports;
 use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
 
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, pip_compile};
+use crate::rust_executor::{build_rust_crate, compute_rust_hash, generate_cargo_lockfile};
 use crate::{
     bun_executor::gen_lockfile,
     deno_executor::generate_deno_lock,
@@ -1406,9 +1407,38 @@ async fn capture_dependency_job(
             .await
         }
         ScriptLang::Rust => {
-            tracing::error!("woops");
-            Ok("No logs elemao".to_string())
-        },
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for rust".to_string(),
+                ));
+            }
+
+            let lockfile = generate_cargo_lockfile(
+                job_id,
+                job_raw_code,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+            )
+            .await?;
+
+            build_rust_crate(
+                job_id,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                base_internal_url,
+                &compute_rust_hash(&job_raw_code, Some(&lockfile)),
+            )
+            .await?;
+            Ok(lockfile)
+        }
         ScriptLang::Postgresql => Ok("".to_owned()),
         ScriptLang::Mysql => Ok("".to_owned()),
         ScriptLang::Bigquery => Ok("".to_owned()),

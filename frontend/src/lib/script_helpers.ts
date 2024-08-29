@@ -265,9 +265,9 @@ export const RUST_INIT_CODE = `//! Add dependencies in the following partial Car
 
 use anyhow::anyhow;
 use rand::seq::SliceRandom;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(serde::Serialize, Debug)]
+#[derive(Serialize, Debug)]
 struct Ret {
     msg: String,
     number: i8,
@@ -275,7 +275,7 @@ struct Ret {
 
 fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
     println!(
-        "person to gree:{} -  numbers to choose: {:?}",
+        "Person to greet: {} -  numbers to choose: {:?}",
         who_to_greet, numbers
     );
     Ok(Ret {
