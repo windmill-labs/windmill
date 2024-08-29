@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Settings } from 'lucide-svelte'
+	import { Pencil } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Popup from './common/popup/Popup.svelte'
@@ -27,7 +27,7 @@
 	}}
 >
 	<svelte:fragment slot="button">
-		<Button nonCaptureEvent={true} size="xs" color="light" startIcon={{ icon: Settings }} />
+		<Button nonCaptureEvent={true} size="xs" color="light" endIcon={{ icon: Pencil }}>Edit</Button>
 	</svelte:fragment>
 	<div class="flex flex-col gap-8 max-w-sm">
 		{#if automateUsernameCreation && username}
