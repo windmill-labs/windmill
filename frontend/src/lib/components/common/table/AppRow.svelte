@@ -23,14 +23,14 @@
 		Pen,
 		Share,
 		Trash,
-		Clipboard
+		Clipboard,
+		Loader2
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { DELETE, copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
-	import AppJsonEditor from '$lib/components/apps/editor/AppJsonEditor.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
@@ -46,16 +46,20 @@
 
 	const dispatch = createEventDispatcher()
 
-	let appExport: AppJsonEditor
+	let appExport: { open: (path: string) => void } | undefined = undefined
 	let appDeploymentHistory: AppDeploymentHistory | undefined = undefined
 
 	async function loadAppJson() {
-		appExport.open(app.path)
+		appExport?.open(app.path)
 	}
 </script>
 
 {#if menuOpen}
-	<AppJsonEditor on:change bind:this={appExport} />
+	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte')}
+		<Loader2 class="animate-spin" />
+	{:then Module}
+		<Module.default on:change bind:this={appExport} />
+	{/await}
 	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}
 

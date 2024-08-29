@@ -1,16 +1,15 @@
 <script lang="ts">
-	import ResourceEditor from './ResourceEditor.svelte'
 	import { Button, Drawer } from './common'
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
-	import { Save } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 
 	let drawer: Drawer
 	let canSave = true
 	let resource_type: string | undefined = undefined
 
-	let resourceEditor: ResourceEditor | undefined = undefined
+	let resourceEditor: { editResource: () => void } | undefined = undefined
 
 	let path: string | undefined = undefined
 
@@ -32,14 +31,18 @@
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title={path ? 'Edit ' + path : 'Add a resource'} on:close={drawer.closeDrawer}>
-		<ResourceEditor
-			{newResource}
-			{path}
-			{resource_type}
-			on:refresh
-			bind:this={resourceEditor}
-			bind:canSave
-		/>
+		{#await import('./ResourceEditor.svelte')}
+			<Loader2 class="animate-spin" />
+		{:then Module}
+			<Module.default
+				{newResource}
+				{path}
+				{resource_type}
+				on:refresh
+				bind:this={resourceEditor}
+				bind:canSave
+			/>
+		{/await}
 		<svelte:fragment slot="actions">
 			<Button
 				startIcon={{ icon: Save }}
