@@ -98,8 +98,6 @@
 	$: ismoving =
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
 
-	const componentActive = editorContext?.componentActive
-
 	let initializing: boolean | undefined = undefined
 	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0
@@ -139,7 +137,8 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id}
+
+	{#if locked && $selectedComponent?.[0] !== component.id && overlapped}
 		<div
 			class={twMerge(
 				'absolute inset-0 bg-locked center-center flex-col z-50',
