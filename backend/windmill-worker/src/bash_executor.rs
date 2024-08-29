@@ -257,7 +257,7 @@ pub async fn handle_powershell_job(
     if !install_string.is_empty() {
         logs1.push_str("\n\nInstalling modules...");
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
-        let child = Command::new("pwsh")
+        let child = Command::new(POWERSHELL_PATH.as_str())
             .args(&["-Command", &install_string])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
