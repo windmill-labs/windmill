@@ -230,6 +230,7 @@
 					}
 
 					dispatch('dropped', e.detail)
+					overlapped = undefined
 				}}
 				width={xPerPx == 0
 					? 0
@@ -246,6 +247,7 @@
 				container={scroller}
 				nativeContainer={container}
 				{overlapped}
+				moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
 			>
 				{#if item[getComputedCols]}
 					<slot

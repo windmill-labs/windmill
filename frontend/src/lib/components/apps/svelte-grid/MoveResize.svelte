@@ -28,6 +28,7 @@
 	export let onTop
 	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
 	export let overlapped: string | undefined = undefined
+	export let moveMode: 'move' | 'insert' = 'move'
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
@@ -388,7 +389,8 @@
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			overlapped ? 'svlte-grid-shadow-forbidden' : ''
+			overlapped && moveMode === 'move' ? 'svlte-grid-shadow-forbidden' : '',
+			overlapped && moveMode === 'insert' ? 'svlte-grid-shadow-drop' : ''
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +
@@ -475,5 +477,9 @@
 
 	.svlte-grid-shadow-forbidden {
 		background: rgba(255, 99, 71, 0.2) !important;
+	}
+
+	.svlte-grid-shadow-drop {
+		background: rgba(0, 255, 0, 0.2) !important;
 	}
 </style>

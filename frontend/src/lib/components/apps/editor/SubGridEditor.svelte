@@ -3,10 +3,17 @@
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
+	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
-	import { expandGriditem, findGridItem, maxHeight, selectId } from './appUtils'
+	import {
+		expandGriditem,
+		findGridItem,
+		findGridItemParentGrid,
+		insertNewGridItem,
+		maxHeight,
+		selectId
+	} from './appUtils'
 	import Component from './component/Component.svelte'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
@@ -68,6 +75,41 @@
 	let container: HTMLElement | undefined = undefined
 
 	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+
+	export function moveComponentBetweenSubgrids(
+		componentId: string,
+		parentComponentId: string,
+		subGridIndex: number
+	) {
+		// Find the component in the source subgrid
+		const component = findGridItem($app, componentId)
+
+		if (!component) {
+			return
+		}
+
+		let parentGrid = findGridItemParentGrid($app, component.id)
+		if (parentGrid) {
+			$app.subgrids &&
+				($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+					(item) => item.id !== component?.id
+				))
+		} else {
+			$app.grid = $app.grid.filter((item) => item.id !== component?.id)
+		}
+
+		const gridItem = component
+		insertNewGridItem(
+			$app,
+			(id) => ({ ...gridItem.data, id }),
+			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
+			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
+			component.id
+		)
+
+		// Update the app state
+		$app = { ...$app }
+	}
 </script>
 
 <div
@@ -108,10 +150,25 @@
 					selectedIds={$selectedComponent}
 					let:dataItem
 					let:hidden
+					let:overlapped
+					let:moveMode
 					cols={columnConfiguration}
 					scroller={container}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
+					on:dropped={(e) => {
+						const { id, overlapped } = e.detail
+
+						if (!overlapped) {
+							return
+						}
+
+						if (id === overlapped) {
+							return
+						}
+
+						moveComponentBetweenSubgrids(id, overlapped, 0)
+					}}
 				>
 					<ComponentWrapper
 						id={dataItem.id}
@@ -158,6 +215,8 @@
 									}
 									$app = $app
 								}}
+								{overlapped}
+								{moveMode}
 							/>
 						</GridEditorMenu>
 					</ComponentWrapper>
