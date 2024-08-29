@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.387.0](https://github.com/windmill-labs/windmill/compare/v1.386.0...v1.387.0) (2024-08-29)
+
+
+### Features
+
+* **frontend:** add a favorite button on detail pages ([#4297](https://github.com/windmill-labs/windmill/issues/4297)) ([8148518](https://github.com/windmill-labs/windmill/commit/8148518c5c7780d7999b884b0a9e0e540ece09fd))
+* **frontend:** add indicator when a component is locked ([#4296](https://github.com/windmill-labs/windmill/issues/4296)) ([d9b358b](https://github.com/windmill-labs/windmill/commit/d9b358bcc20d2603ef94ada765d395e370d58fc7))
+
 ## [1.386.0](https://github.com/windmill-labs/windmill/compare/v1.385.0...v1.386.0) (2024-08-28)
 
 
