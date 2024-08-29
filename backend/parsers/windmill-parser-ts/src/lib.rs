@@ -1,5 +1,3 @@
-use convert_case::{Case, Casing};
-use regex::Regex;
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2022
@@ -11,7 +9,9 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 use swc_ecma_visit::{noop_visit_type, Visit, VisitWith};
-use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ};
+use windmill_parser::{
+    json_to_typ, to_snake_case, Arg, MainArgSignature, ObjectProperty, OneOfVariant, Typ,
+};
 
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
@@ -23,6 +23,7 @@ use swc_ecma_ast::{
 };
 use swc_ecma_parser::{lexer::Lexer, EsConfig, Parser, StringInput, Syntax, TsConfig};
 
+use regex::Regex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -294,7 +295,6 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
 }
 
 lazy_static::lazy_static! {
-    static ref RE_SNK_CASE: Regex = Regex::new(r"_(\d)").unwrap();
      static ref IMPORTS_VERSION: Regex = Regex::new(r"^((?:\@[^\/\@]+\/[^\/\@]+)|(?:[^\/\@]+))(?:\@(?:[^\/]+))?(.*)$").unwrap();
 
 }
@@ -318,13 +318,6 @@ pub fn remove_pinned_imports(code: &str) -> anyhow::Result<String> {
         }
     }
     Ok(content)
-}
-
-fn to_snake_case(s: &str) -> String {
-    let r = s.to_case(Case::Snake);
-
-    // s_3 => s3
-    RE_SNK_CASE.replace_all(&r, "$1").to_string()
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
