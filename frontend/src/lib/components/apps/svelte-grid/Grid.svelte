@@ -114,8 +114,10 @@
 						...shadows[id]
 					}
 				}
+				let { items, overlap } = moveItem(activeItem, sortedItems, getComputedCols)
 
-				sortedItems = moveItem(activeItem, sortedItems, getComputedCols)
+				sortedItems = items
+				overlapped = overlap ? id : undefined
 			}
 		}
 
@@ -173,6 +175,7 @@
 			}
 		})
 	}
+	let overlapped: string | undefined = undefined
 </script>
 
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
@@ -202,9 +205,10 @@
 				{sensor}
 				container={scroller}
 				nativeContainer={container}
+				{overlapped}
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} hidden={false} />
+					<slot dataItem={item} hidden={false} {overlapped} />
 				{/if}
 			</MoveResize>
 		{/if}
