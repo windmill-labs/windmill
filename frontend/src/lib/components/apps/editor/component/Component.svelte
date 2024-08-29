@@ -142,7 +142,7 @@
 	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id}
 		<div
 			class={twMerge(
-				'absolute inset-0 bg-locked center-center flex-col',
+				'absolute inset-0 bg-locked center-center flex-col z-50',
 				overlapped ? 'bg-locked-hover' : ''
 			)}
 		>
