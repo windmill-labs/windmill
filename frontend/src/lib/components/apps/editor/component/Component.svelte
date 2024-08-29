@@ -8,6 +8,7 @@
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import type { AppComponent } from './components'
+	import { Lock } from 'lucide-svelte'
 
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 	import AppMultiSelectV2 from '../../components/inputs/AppMultiSelectV2.svelte'
@@ -87,14 +88,17 @@
 	export let render: boolean
 	export let hidden: boolean
 	export let fullHeight: boolean
+	export let overlapped: boolean = false
 
-	const { mode, app, hoverStore, connectingInput } =
+	const { mode, app, hoverStore, connectingInput, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const movingcomponents = editorContext?.movingcomponents
 	$: ismoving =
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
+
+	const componentActive = editorContext?.componentActive
 
 	let initializing: boolean | undefined = undefined
 	let errorHandledByComponent: boolean = false
@@ -129,10 +133,25 @@
 		}
 	}}
 	on:mouseout|stopPropagation={mouseOut}
-	class="h-full flex flex-col w-full component {initializing
-		? 'overflow-hidden h-0'
-		: ''} {hidden && $mode === 'preview' ? 'hidden' : ''} "
+	class={twMerge(
+		'h-full flex flex-col w-full component relative',
+		initializing ? 'overflow-hidden h-0' : '',
+		hidden && $mode === 'preview' ? 'hidden' : ''
+	)}
 >
+	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id}
+		<div
+			class={twMerge(
+				'absolute inset-0 bg-locked center-center flex-col z-50',
+				overlapped ? 'bg-locked-hover' : ''
+			)}
+		>
+			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
+				<Lock size={24} class="text-primary " />
+				<div class="text-xs">Locked. The component cannot be moved.</div>
+			</div>
+		</div>
+	{/if}
 	{#if $mode !== 'preview'}
 		<ComponentHeader
 			on:mouseover={() => {

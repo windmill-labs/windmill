@@ -133,7 +133,12 @@ export function moveItem(active, items, cols) {
 	const fixed = closeObj.find((value) => value[cols].fixed)
 
 	// If found fixed, reset the active to its original position
-	if (fixed) return items
+	if (fixed) {
+		return {
+			items: items,
+			overlap: true
+		}
+	}
 
 	// Update items
 	items = updateItem(items, active, item, cols)
@@ -171,7 +176,10 @@ export function moveItem(active, items, cols) {
 	})
 
 	// Return result
-	return tempItems
+	return {
+		items: tempItems,
+		overlap: false
+	}
 }
 
 // Helper function
@@ -181,7 +189,7 @@ export function normalize(items, col) {
 	result.forEach((value) => {
 		const getItem = value[col]
 		if (!getItem.static) {
-			result = moveItem(getItem, result, col)
+			result = moveItem(getItem, result, col).items
 		}
 	})
 
