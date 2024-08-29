@@ -136,7 +136,7 @@ export function moveItem(active, items, cols) {
 	if (fixed) {
 		return {
 			items: items,
-			overlap: true
+			overlap: closeBlocks[0]
 		}
 	}
 
@@ -178,7 +178,7 @@ export function moveItem(active, items, cols) {
 	// Return result
 	return {
 		items: tempItems,
-		overlap: false
+		overlap: undefined
 	}
 }
 

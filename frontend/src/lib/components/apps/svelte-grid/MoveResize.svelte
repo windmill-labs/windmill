@@ -286,6 +286,8 @@
 		} else {
 			dragClosure = undefined
 		}
+
+		dispatch('dropped', { id, overlapped })
 	}
 
 	let resizeInitPos = { x: 0, y: 0 }

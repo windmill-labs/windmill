@@ -89,6 +89,7 @@
 	export let hidden: boolean
 	export let fullHeight: boolean
 	export let overlapped: boolean = false
+	export let moveMode: string | undefined = undefined
 
 	const { mode, app, hoverStore, connectingInput, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -139,7 +140,7 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id}
+	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id && moveMode === 'move'}
 		<div
 			class={twMerge(
 				'absolute inset-0 bg-locked center-center flex-col z-50',
@@ -149,6 +150,18 @@
 			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
 				<Anchor size={24} class="text-primary " />
 				<div class="text-xs">Anchored: The component cannot be moved</div>
+			</div>
+		</div>
+	{/if}
+	{#if moveMode === 'insert' && component.type === 'containercomponent'}
+		<div
+			class={twMerge(
+				'absolute inset-0 center-center flex-col z-50',
+				overlapped ? 'bg-blue-100 dark:bg-blue-900' : ''
+			)}
+		>
+			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2 border">
+				<div class="text-xs">Drop component inside container</div>
 			</div>
 		</div>
 	{/if}

@@ -81,6 +81,20 @@
 	let sortedItems: FilledItem<T>[] = []
 	$: sortedItems = JSON.parse(JSON.stringify(items)).sort((a, b) => a.id.localeCompare(b.id))
 
+	let isCtrlOrMetaPressed = false
+
+	function handleKeyDown(event) {
+		if (event.key === 'Control' || event.key === 'Meta') {
+			isCtrlOrMetaPressed = true
+		}
+	}
+
+	function handleKeyUp(event) {
+		if (event.key === 'Control' || event.key === 'Meta') {
+			isCtrlOrMetaPressed = false
+		}
+	}
+
 	let initItems: FilledItem<T>[] | undefined = undefined
 	const updateMatrix = ({ detail }) => {
 		let isPointerUp = detail.isPointerUp
@@ -114,10 +128,27 @@
 						...shadows[id]
 					}
 				}
-				let { items, overlap } = moveItem(activeItem, sortedItems, getComputedCols)
 
-				sortedItems = items
-				overlapped = overlap ? id : undefined
+				if (isCtrlOrMetaPressed) {
+					const fixedContainer = sortedItems.map((item) => {
+						if (item.data['type'] === 'containercomponent') {
+							item[3].fixed = true
+							item[12].fixed = true
+						}
+						return item
+					})
+
+					let { overlap } = moveItem(activeItem, fixedContainer, getComputedCols)
+
+					sortedItems = sortedItems
+
+					overlapped = overlap
+				} else {
+					let { items, overlap } = moveItem(activeItem, sortedItems, getComputedCols)
+
+					sortedItems = items
+					overlapped = overlap
+				}
 			}
 		}
 
@@ -176,7 +207,11 @@
 		})
 	}
 	let overlapped: string | undefined = undefined
+
+	
 </script>
+
+<svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
 
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
 	{#each sortedItems as item (item.id)}
@@ -191,6 +226,7 @@
 				id={item.id}
 				{xPerPx}
 				{yPerPx}
+				on:dropped
 				width={xPerPx == 0
 					? 0
 					: Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
@@ -208,7 +244,12 @@
 				{overlapped}
 			>
 				{#if item[getComputedCols]}
-					<slot dataItem={item} hidden={false} {overlapped} />
+					<slot
+						dataItem={item}
+						hidden={false}
+						{overlapped}
+						moveMode={isCtrlOrMetaPressed ? 'insert' : 'move'}
+					/>
 				{/if}
 			</MoveResize>
 		{/if}

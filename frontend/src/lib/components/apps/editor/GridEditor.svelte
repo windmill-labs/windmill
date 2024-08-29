@@ -1,13 +1,19 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
+	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { push } from '$lib/history'
-	import { dfs, expandGriditem, findGridItem } from './appUtils'
+	import {
+		dfs,
+		expandGriditem,
+		findGridItem,
+		findGridItemParentGrid,
+		insertNewGridItem
+	} from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
@@ -60,6 +66,43 @@
 			gridItem[b].fullHeight = !gridItem[b].fullHeight
 		}
 		$app = $app
+	}
+
+	let gridEditorMenu: GridEditorMenu | undefined = undefined
+
+	export function moveComponentBetweenSubgrids(
+		componentId: string,
+		parentComponentId: string,
+		subGridIndex: number
+	) {
+		// Find the component in the source subgrid
+		const component = findGridItem($app, componentId)
+
+		if (!component) {
+			return
+		}
+
+		let parentGrid = findGridItemParentGrid($app, component.id)
+		if (parentGrid) {
+			$app.subgrids &&
+				($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+					(item) => item.id !== component?.id
+				))
+		} else {
+			$app.grid = $app.grid.filter((item) => item.id !== component?.id)
+		}
+
+		const gridItem = component
+		insertNewGridItem(
+			$app,
+			(id) => ({ ...gridItem.data, id }),
+			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
+			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
+			component.id
+		)
+
+		// Update the app state
+		$app = { ...$app }
 	}
 </script>
 
@@ -137,7 +180,21 @@
 				let:dataItem
 				let:hidden
 				let:overlapped
+				let:moveMode
 				cols={columnConfiguration}
+				on:dropped={(e) => {
+					const { id, overlapped } = e.detail
+
+					if (!overlapped) {
+						return
+					}
+
+					if (id === overlapped) {
+						return
+					}
+
+					moveComponentBetweenSubgrids(id, overlapped, 0)
+				}}
 			>
 				<ComponentWrapper
 					id={dataItem.id}
@@ -161,6 +218,7 @@
 						on:fillHeight={() => {
 							handleFillHeight(dataItem.id)
 						}}
+						bind:this={gridEditorMenu}
 						locked={isFixed(dataItem)}
 						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 					>
@@ -177,7 +235,8 @@
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
-							overlapped={overlapped !== undefined}
+							{overlapped}
+							{moveMode}
 						/>
 					</GridEditorMenu>
 				</ComponentWrapper>
