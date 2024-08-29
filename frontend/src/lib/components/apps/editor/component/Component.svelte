@@ -8,7 +8,6 @@
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import type { AppComponent } from './components'
-	import { Lock } from 'lucide-svelte'
 
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 	import AppMultiSelectV2 from '../../components/inputs/AppMultiSelectV2.svelte'
@@ -81,6 +80,7 @@
 	import AppDisplayComponentByJobId from '../../components/display/AppRecomputeAll.svelte'
 	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
 	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
+	import { Anchor } from 'lucide-svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -147,8 +147,8 @@
 			)}
 		>
 			<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
-				<Lock size={24} class="text-primary " />
-				<div class="text-xs">Locked. The component cannot be moved.</div>
+				<Anchor size={24} class="text-primary " />
+				<div class="text-xs">Anchored: The component cannot be moved</div>
 			</div>
 		</div>
 	{/if}

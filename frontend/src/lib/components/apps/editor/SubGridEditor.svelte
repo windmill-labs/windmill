@@ -92,7 +92,7 @@
 					? `animate-border border-dashed border-2 min-h-full ${
 							isActive && !$selectedComponent?.includes(id)
 								? 'border-orange-600'
-								: 'border-gray-600'
+								: 'dark:border-gray-600 border-gray-400'
 					  }`
 					: ''}
 			>
