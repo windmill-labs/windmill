@@ -111,7 +111,7 @@ pub fn setup_flamegraph() -> impl Drop {
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 use tracing::Event;
 use tracing_subscriber::layer::Context;

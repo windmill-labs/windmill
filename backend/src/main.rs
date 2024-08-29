@@ -40,7 +40,7 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode},
-    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP, WORKER_GROUP},
+    worker::{reload_custom_tags_setting, HUB_CACHE_DIR, TMP_DIR, WORKER_GROUP},
     DB, METRICS_ENABLED,
 };
 

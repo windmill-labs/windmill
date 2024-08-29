@@ -8,7 +8,6 @@
 
 use crate::utils::content_plain;
 use axum::{body::Body, extract::Query, response::Response, routing::get, Extension, Json, Router};
-use chrono::NaiveDateTime;
 use serde::Serialize;
 
 use windmill_common::{
