@@ -94,6 +94,8 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+	const componentActive = editorContext?.componentActive
+
 	const movingcomponents = editorContext?.movingcomponents
 	$: ismoving =
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
@@ -137,8 +139,7 @@
 		hidden && $mode === 'preview' ? 'hidden' : ''
 	)}
 >
-
-	{#if locked && $selectedComponent?.[0] !== component.id && overlapped}
+	{#if locked && componentActive && $componentActive && $selectedComponent?.[0] !== component.id && overlapped}
 		<div
 			class={twMerge(
 				'absolute inset-0 bg-locked center-center flex-col z-50',
