@@ -73,6 +73,21 @@
 		sendUserToast('Automatic username creation enabled')
 		listUsers()
 	}
+
+	async function updateName(name: string | undefined, email: string) {
+		try {
+			await UserService.globalUserUpdate({
+				email,
+				requestBody: {
+					name
+				}
+			})
+			sendUserToast('User updated')
+			listUsers()
+		} catch (e) {
+			sendUserToast('Error updating user', true)
+		}
+	}
 </script>
 
 <SearchItems
@@ -235,7 +250,7 @@
 																<InstanceNameEditor
 																	value={name}
 																	on:save={(e) => {
-																		// should update the name
+																		updateName(e.detail, email)
 																	}}
 																/>
 																<Button
