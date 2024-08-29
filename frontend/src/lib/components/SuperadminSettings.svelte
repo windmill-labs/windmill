@@ -238,20 +238,17 @@
 														</td>
 														<td>
 															<div class="flex flex-row gap-x-1 justify-end">
-																{#if automateUsernameCreation && username}
-																	<ChangeInstanceUsername
-																		{username}
-																		{email}
-																		on:renamed={() => {
-																			listUsers()
-																		}}
-																	/>
-																{/if}
 																<InstanceNameEditor
 																	value={name}
+																	{username}
+																	{email}
 																	on:save={(e) => {
 																		updateName(e.detail, email)
 																	}}
+																	on:renamed={() => {
+																		listUsers()
+																	}}
+																	{automateUsernameCreation}
 																/>
 																<Button
 																	color="light"

@@ -1,11 +1,16 @@
 <script lang="ts">
-	import { ArrowRight, Pencil } from 'lucide-svelte'
+	import { Settings } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
 	import Popup from './common/popup/Popup.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
+	import ChangeInstanceUsernameInner from './ChangeInstanceUsernameInner.svelte'
 
 	export let value: string | undefined
+	export let email: string
+	export let username: string | undefined = undefined
+	export let automateUsernameCreation: boolean = false
+
 	const dispatch = createEventDispatcher()
 
 	function save() {
@@ -22,39 +27,42 @@
 	}}
 >
 	<svelte:fragment slot="button">
-		<Button nonCaptureEvent={true} size="xs" color="light" startIcon={{ icon: Pencil }}>
-			Edit name
-		</Button>
+		<Button nonCaptureEvent={true} size="xs" color="light" startIcon={{ icon: Settings }} />
 	</svelte:fragment>
-	<label class="block text-primary">
-		<div class="pb-1 text-sm text-secondary">Name</div>
-		<div class="flex w-full">
-			<input
-				type="text"
-				bind:value
-				class="!w-auto grow"
-				on:click|stopPropagation={() => {}}
-				on:keydown|stopPropagation
-				on:keypress|stopPropagation={({ key }) => {
-					if (key === 'Enter') {
-						save()
-						close(null)
-					}
-				}}
-			/>
+	<div class="flex flex-col gap-8 max-w-sm">
+		{#if automateUsernameCreation && username}
+			<ChangeInstanceUsernameInner {email} {username} on:renamed />
+		{/if}
+		<label class="block text-primary">
+			<div class="pb-1 text-xs text-secondary">Name</div>
+			<div class="flex w-full">
+				<input
+					type="text"
+					bind:value
+					class="!w-auto grow"
+					on:click|stopPropagation={() => {}}
+					on:keydown|stopPropagation
+					on:keypress|stopPropagation={({ key }) => {
+						if (key === 'Enter') {
+							save()
+							close(null)
+						}
+					}}
+				/>
+			</div>
 			<Button
 				size="xs"
 				color="blue"
 				buttonType="button"
-				btnClasses="!p-1 !w-[34px] !ml-1"
+				btnClasses="mt-2 "
 				aria-label="Save ID"
 				on:click={() => {
 					save()
 					close(null)
 				}}
 			>
-				<ArrowRight size={18} />
+				Update name
 			</Button>
-		</div>
-	</label>
+		</label>
+	</div>
 </Popup>
