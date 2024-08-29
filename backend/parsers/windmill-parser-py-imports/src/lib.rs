@@ -10,7 +10,11 @@ use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use phf::phf_map;
+
+#[cfg(not(target_arch = "wasm32"))]
 use regex::Regex;
+#[cfg(target_arch = "wasm32")]
+use regex_lite::Regex;
 
 use rustpython_parser::{
     ast::{Stmt, StmtImport, StmtImportFrom, Suite},
