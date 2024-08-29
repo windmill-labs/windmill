@@ -136,7 +136,7 @@ export function moveItem(active, items, cols) {
 	if (fixed) {
 		return {
 			items: items,
-			overlap: true
+			overlap: closeBlocks.length > 0
 		}
 	}
 
