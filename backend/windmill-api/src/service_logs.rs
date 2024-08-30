@@ -75,6 +75,7 @@ async fn list_files(
         );
     }
     if let Some(dt) = &lq.after {
+        tracing::info!("after: {:?}", dt);
         sqlb.and_where_ge(
             "log_ts",
             format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),

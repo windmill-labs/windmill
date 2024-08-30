@@ -40,35 +40,60 @@
 	let allLogs: ByMode | undefined = undefined
 	let manualPicker: ManuelDatePicker | undefined = undefined
 
-	$: minTsManual || maxTsManual || getAllLogs(minTsManual ?? maxTs, maxTsManual)
+	$: minTsManual || maxTsManual || onManualChanges()
+
+	function onManualChanges() {
+		getAllLogs(minTsManual ?? maxTs, maxTsManual)
+	}
+
 	function getAllLogs(queryMinTs: string | undefined, queryMaxTs: string | undefined) {
 		timeout && clearTimeout(timeout)
 		loading = true
-		let nallLogs = structuredClone(allLogs) ?? {}
+		console.log(allLogs)
+		allLogs = allLogs ?? {}
 		ServiceLogsService.listLogFiles({ withError, before: queryMaxTs, after: queryMinTs })
 			.then((res) => {
-				let minTsN = queryMinTs ? new Date(queryMinTs).getTime() : undefined
-				let maxTsN = queryMaxTs ? new Date(queryMaxTs).getTime() : undefined
+				loading = false
+
+				console.log('newres:', res, queryMaxTs, queryMinTs)
+				let minTsN: number | undefined = undefined
+				let maxTsN: number | undefined = undefined
+				if (minTsManual) {
+					minTsN = new Date(minTsManual).getTime()
+					Object.values(allLogs ?? {}).forEach((mode) => {
+						Object.values(mode).forEach((wg) => {
+							Object.keys(wg).forEach((key) => {
+								wg[key] = wg[key].filter(
+									(x) => !minTsManual || x.ts >= new Date(minTsManual).getTime()
+								)
+							})
+						})
+					})
+				}
+
 				res.forEach((log) => {
-					let ts = new Date(log.log_ts).getTime()
+					let ts = new Date(log.log_ts + 'Z').getTime()
 					if (minTsN == undefined || ts < minTsN) {
 						minTsN = ts
 					}
 					if (maxTsN == undefined || ts > maxTsN) {
 						maxTsN = ts
 					}
-					if (!nallLogs[log.mode]) {
-						nallLogs[log.mode] = {}
+					if (allLogs == undefined) {
+						allLogs = {}
+					}
+					if (!allLogs[log.mode]) {
+						allLogs[log.mode] = {}
 					}
 					const wg = log.worker_group ?? ''
-					if (!nallLogs[log.mode][wg]) {
-						nallLogs[log.mode][wg] = {}
+					if (!allLogs[log.mode][wg]) {
+						allLogs[log.mode][wg] = {}
 					}
 					const hn = log.hostname ?? ''
-					if (!nallLogs[log.mode][wg][hn]) {
-						nallLogs[log.mode][wg][hn] = []
+					if (!allLogs[log.mode][wg][hn]) {
+						allLogs[log.mode][wg][hn] = []
 					}
-					nallLogs[log.mode][wg][hn].push({
+					allLogs[log.mode][wg][hn].push({
 						ts: ts,
 						file_path: log.file_path,
 						ok_lines: log.ok_lines ?? 1,
@@ -82,19 +107,26 @@
 						max_lines = log.ok_lines + log.err_lines
 					}
 				})
+
+				loading = false
 				console.log(minTs, minTsN, maxTsN)
 				if (minTs == undefined) {
 					minTs = minTsN ? new Date(minTsN).toISOString() : undefined
 				}
-				maxTs = maxTsN ? new Date(maxTsN).toISOString() : undefined
-				allLogs = nallLogs
-				loading = false
-				if (autoRefresh) {
+				if (maxTsN) {
+					maxTs = new Date(maxTsN).toISOString()
+				}
+				if (autoRefresh && !maxTsManual) {
 					timeout = setTimeout(() => {
-						console.log('refreshing')
 						let minMax = manualPicker?.computeMinMax()
-						maxTsManual = minMax?.maxTs ?? maxTs
-						minTsManual = minMax?.minTs ?? minTs
+						if (minMax) {
+							console.log('minMax')
+							maxTsManual = minMax?.maxTs
+							minTsManual = minMax?.minTs
+						}
+						let maxTsPlus1 = maxTs ? new Date(new Date(maxTs).getTime() + 1000) : undefined
+						console.log('refreshing', maxTsPlus1)
+						getAllLogs(maxTsPlus1?.toISOString(), undefined)
 					}, 5000)
 				}
 			})
@@ -169,8 +201,6 @@
 	})
 </script>
 
-{minTs}
-{maxTs}
 <div class="w-full h-[70vh]" on:scroll|preventDefault>
 	<Splitpanes>
 		<Pane size={40} minSize={20}>
@@ -226,7 +256,16 @@
 					</div>
 				</div>
 				<div class="flex w-full flex-row-reverse pb-4 -mt-2 gap-2"
-					><Toggle size="xs" bind:checked={withError} options={{ right: 'error only' }} />
+					><Toggle
+						size="xs"
+						bind:checked={withError}
+						options={{ right: 'error only' }}
+						on:change={() => {
+							allLogs = undefined
+							getAllLogs(minTs, maxTs)
+							console.log('errorOnly')
+						}}
+					/>
 					<Toggle
 						size="xs"
 						bind:checked={autoRefresh}
@@ -248,6 +287,27 @@
 					{@const minTsN = new Date(minTs).getTime()}
 					{@const maxTsN = new Date(maxTs).getTime()}
 					{@const diff = maxTsN - minTsN}
+					<div class="flex w-full text-2xs text-tertiary pb-4">
+						<div style="width: 60px;" />
+
+						<div class="flex justify-between w-full"
+							><div
+								>{new Date(minTs).toLocaleTimeString([], {
+									day: '2-digit',
+									month: '2-digit',
+									hour: '2-digit',
+									minute: '2-digit'
+								})}</div
+							><div
+								>{new Date(maxTs).toLocaleTimeString([], {
+									day: '2-digit',
+									month: '2-digit',
+									hour: '2-digit',
+									minute: '2-digit'
+								})}</div
+							></div
+						>
+					</div>
 					{#each Object.entries(allLogs) as [mode, o1]}
 						<div class="w-full pb-6">
 							<h2 class="pb-2">{mode}s</h2>

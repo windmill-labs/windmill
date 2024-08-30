@@ -10,19 +10,23 @@
 	export let loadText: string | undefined = undefined
 	export let serviceLogsChoices: boolean = false
 
-	export function computeMinMax(): { minTs: string; maxTs: string } | undefined {
+	export function computeMinMax(): { minTs: string; maxTs: string | undefined } | undefined {
 		return manualDates[selectedManualDate].computeMinMax()
+	}
+
+	export function resetChoice() {
+		selectedManualDate = 0
 	}
 
 	function computeMinMaxInc(inc: number) {
 		let minTs = new Date(new Date().getTime() - inc).toISOString()
-		let maxTs = new Date().toISOString()
+		let maxTs = undefined
 		return { minTs, maxTs }
 	}
 
 	const manualDates: {
 		label: string
-		computeMinMax: () => { minTs: string; maxTs: string } | undefined
+		computeMinMax: () => { minTs: string; maxTs: string | undefined } | undefined
 	}[] = [
 		{
 			label: loadText ?? 'Last 1000 runs',
@@ -34,77 +38,34 @@
 			? [
 					{
 						label: 'Within 30 seconds',
-						computeMinMax: () => {
-							return computeMinMaxInc(30 * 1000)
-						}
+						computeMinMax: () => computeMinMaxInc(30 * 1000)
 					},
 					{
 						label: 'Within last minute',
-						computeMinMax: () => {
-							return computeMinMaxInc(60 * 1000)
-						}
+						computeMinMax: () => computeMinMaxInc(60 * 1000)
 					}
 			  ]
 			: []),
 		{
-			label: 'Within 30 seconds',
-			computeMinMax: () => {
-				return computeMinMaxInc(30 * 1000)
-			}
-		},
-		{
 			label: 'Within last 5 minutes',
-			computeMinMax: () => {
-				return computeMinMaxInc(5 * 60 * 1000)
-			}
+			computeMinMax: () => computeMinMaxInc(5 * 60 * 1000)
 		},
 		{
 			label: 'Within last 30 minutes',
-			computeMinMax: () => {
-				return computeMinMaxInc(30 * 60 * 1000)
-			}
+			computeMinMax: () => computeMinMaxInc(30 * 60 * 1000)
 		},
-		...(serviceLogsChoices
-			? [
-					{
-						label: 'Within last hour',
-						computeMinMax: () => {
-							return computeMinMaxInc(60 * 60 * 1000)
-						}
-					},
-					{
-						label: 'Within last 6 hours',
-						computeMinMax: () => {
-							return computeMinMaxInc(6 * 60 * 60 * 1000)
-						}
-					},
-					{
-						label: 'Within last 12 hours',
-						computeMinMax: () => {
-							return computeMinMaxInc(12 * 60 * 60 * 1000)
-						}
-					}
-			  ]
-			: [
-					{
-						label: 'Within last 24 hours',
-						computeMinMax: () => {
-							return computeMinMaxInc(24 * 60 * 60 * 1000)
-						}
-					},
-					{
-						label: 'Within last 7 days',
-						computeMinMax: () => {
-							return computeMinMaxInc(7 * 24 * 60 * 60 * 1000)
-						}
-					},
-					{
-						label: 'Within last month',
-						computeMinMax: () => {
-							return computeMinMaxInc(30 * 24 * 60 * 60 * 1000)
-						}
-					}
-			  ])
+		{
+			label: 'Within last 24 hours',
+			computeMinMax: () => computeMinMaxInc(24 * 60 * 60 * 1000)
+		},
+		{
+			label: 'Within last 7 days',
+			computeMinMax: () => computeMinMaxInc(7 * 24 * 60 * 60 * 1000)
+		},
+		{
+			label: 'Within last month',
+			computeMinMax: () => computeMinMaxInc(30 * 24 * 60 * 60 * 1000)
+		}
 	]
 
 	const dispatch = createEventDispatcher()

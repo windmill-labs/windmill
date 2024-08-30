@@ -683,6 +683,7 @@
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
+						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
@@ -1040,6 +1041,7 @@
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
+						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
