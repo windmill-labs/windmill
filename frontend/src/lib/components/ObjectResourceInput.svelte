@@ -16,7 +16,7 @@
 		return typeof value === 'string' || value instanceof String
 	}
 
-	let path: string = ''
+	export let path: string = ''
 
 	function resourceToValue() {
 		if (path) {
