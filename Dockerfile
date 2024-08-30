@@ -168,6 +168,11 @@ COPY --from=oven/bun:1.1.25 /usr/local/bin/bun /usr/bin/bun
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
 
+COPY --from=rust:1.80.1 /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.72.0 /usr/local/rustup /usr/local/rustup
+ENV RUSTUP_HOME="/usr/local/rustup"
+ENV CARGO_HOME="/usr/local/cargo"
+
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 

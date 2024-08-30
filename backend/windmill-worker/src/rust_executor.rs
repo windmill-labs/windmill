@@ -25,7 +25,9 @@ use crate::{
 const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.config.proto");
 
 lazy_static::lazy_static! {
-    static ref CARGO_PATH: String = std::env::var("RUST_PATH").unwrap_or_else(|_| "/home/wendrul/.cargo/bin/cargo".to_string());
+    static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| "/usr/local/cargo/bin/cargo".to_string());
+    static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| "/usr/local/cargo".to_string());
+    static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| "/usr/local/rustup".to_string());
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
@@ -163,6 +165,8 @@ pub async fn build_rust_crate(
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
+        .env("CARGO_HOME", CARGO_HOME.as_str())
+        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
         .args(vec!["build", "--release"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -323,7 +327,6 @@ pub async fn handle_rust_job(
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            // .env("GOPATH", RUST_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -346,17 +349,3 @@ pub async fn handle_rust_job(
     .await?;
     read_result(job_dir).await
 }
-
-// async fn install_rust_dependencies(
-//     id: _,
-//     inner_content: _,
-//     mem_peak: _,
-//     canceled_by: _,
-//     job_dir: _,
-//     db: _,
-//     arg: _,
-//     worker_name: _,
-//     workspace_id: _,
-// ) -> _ {
-//     todo!()
-// }
