@@ -409,7 +409,8 @@
 														/>
 													{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
 														<ObjectResourceInput
-															bind:value={v}
+															value={v ? `$res:${v}` : undefined}
+															bind:path={v}
 															format={'resource-' + itemsType?.resourceType}
 															defaultValue={undefined}
 														/>
