@@ -40,6 +40,9 @@
 	let allLogs: ByMode | undefined = undefined
 	let manualPicker: ManuelDatePicker | undefined = undefined
 
+	let upTo: undefined | string = undefined
+	let upToIsLatest = true
+
 	$: minTsManual || maxTsManual || onManualChanges()
 
 	function onManualChanges() {
@@ -49,13 +52,12 @@
 	function getAllLogs(queryMinTs: string | undefined, queryMaxTs: string | undefined) {
 		timeout && clearTimeout(timeout)
 		loading = true
-		console.log(allLogs)
 		allLogs = allLogs ?? {}
 		ServiceLogsService.listLogFiles({ withError, before: queryMaxTs, after: queryMinTs })
 			.then((res) => {
+				console.log('res', res)
 				loading = false
 
-				console.log('newres:', res, queryMaxTs, queryMinTs)
 				let minTsN: number | undefined = undefined
 				let maxTsN: number | undefined = undefined
 				if (minTsManual) {
@@ -108,24 +110,35 @@
 					}
 				})
 
+				Object.values(allLogs ?? {}).forEach((mode) => {
+					Object.values(mode).forEach((wg) => {
+						Object.keys(wg).forEach((key) => {
+							wg[key] = wg[key].filter(
+								(x) => !minTsManual || x.ts >= new Date(minTsManual).getTime()
+							)
+						})
+					})
+				})
+
 				loading = false
-				console.log(minTs, minTsN, maxTsN)
 				if (minTs == undefined) {
 					minTs = minTsN ? new Date(minTsN).toISOString() : undefined
 				}
 				if (maxTsN) {
 					maxTs = new Date(maxTsN).toISOString()
 				}
+				if (upToIsLatest && selected) {
+					console.log('upToIsLatest')
+					upTo = getLatestUpTo(selected)
+				}
 				if (autoRefresh && !maxTsManual) {
 					timeout = setTimeout(() => {
 						let minMax = manualPicker?.computeMinMax()
 						if (minMax) {
-							console.log('minMax')
 							maxTsManual = minMax?.maxTs
 							minTsManual = minMax?.minTs
 						}
 						let maxTsPlus1 = maxTs ? new Date(new Date(maxTs).getTime() + 1000) : undefined
-						console.log('refreshing', maxTsPlus1)
 						getAllLogs(maxTsPlus1?.toISOString(), undefined)
 					}, 5000)
 				}
@@ -154,8 +167,6 @@
 	}
 
 	getAllLogs(undefined, undefined)
-
-	let upTo: undefined | string = undefined
 
 	function getLogs(selected: [string, string, string], upTo: string | undefined) {
 		if (!selected) {
@@ -186,6 +197,7 @@
 			return undefined
 		}
 		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
+		console.log('logs', logs?.[0]?.ts)
 		return logs?.[0]?.ts
 	}
 
@@ -329,6 +341,7 @@
 													: ''}"
 												on:click={() => {
 													selected = [mode, wg, hn]
+													upToIsLatest = true
 													upTo = getLatestUpTo(selected)
 													scrollToBottom()
 												}}
@@ -408,6 +421,7 @@
 								<button
 									on:click={() => {
 										if (upTo) {
+											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() - 5 * 60 * 1000).toISOString()
 										}
 									}}>{'<'} prev 5 minutes</button
@@ -436,6 +450,7 @@
 								<button
 									on:click={() => {
 										if (upTo) {
+											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() + 5 * 60 * 1000).toISOString()
 										}
 									}}>next 5 minutes {'>'}</button
@@ -448,6 +463,7 @@
 							<button
 								on:click={() => {
 									upTo = new Date().toISOString()
+									upToIsLatest = true
 								}}>now</button
 							>
 						</div>
