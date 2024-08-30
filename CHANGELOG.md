@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.387.1](https://github.com/windmill-labs/windmill/compare/v1.387.0...v1.387.1) (2024-08-30)
+
+
+### Bug Fixes
+
+* fix resource list in args being pre-pended with $res ([2397588](https://github.com/windmill-labs/windmill/commit/239758835503ead5bbb1830c04b4fea5d13ad425))
+* improve history navigation on the runs page ([487e7ca](https://github.com/windmill-labs/windmill/commit/487e7ca715d37b4b59a3a03ba8ff2bb644118635))
+
 ## [1.387.0](https://github.com/windmill-labs/windmill/compare/v1.386.0...v1.387.0) (2024-08-29)
 
 
