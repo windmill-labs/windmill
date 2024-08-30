@@ -25,9 +25,9 @@ use crate::{
 const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.config.proto");
 
 lazy_static::lazy_static! {
-    static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| "/usr/local/cargo/bin/cargo".to_string());
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| "/usr/local/cargo".to_string());
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| "/usr/local/rustup".to_string());
+    static ref CARGO_PATH: String = format!("{}/bin/cargo", std::env::var("CARGO_HOME").unwrap_or("/usr/local/cargo/bin/cargo".to_string()));
 }
 
 const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
