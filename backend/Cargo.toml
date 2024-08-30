@@ -18,6 +18,7 @@ members = [
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-go",
+    "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
@@ -85,6 +86,7 @@ serde_json.workspace = true
 serde.workspace = true
 deno_core.workspace = true
 pg-embed = {git = "https://github.com/faokunega/pg-embed", optional = true, default-features = false, features = ['rt_tokio']}
+quote.workspace = true
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -114,6 +116,7 @@ windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
 windmill-parser-py-imports = { path = "./parsers/windmill-parser-py-imports" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
+windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
@@ -266,4 +269,9 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "<0.1.12"
 
 tantivy = "0.22.0"
+
+pulldown-cmark = "0.9"
+toml = "0.7"
+syn = { version = "2.0.74", features = ["full"] }
+quote = "1.0.36"
 regex-lite = "0.1.6"

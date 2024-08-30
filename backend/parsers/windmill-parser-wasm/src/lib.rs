@@ -116,3 +116,9 @@ pub fn parse_graphql(code: &str) -> String {
 pub fn parse_php(code: &str) -> String {
     wrap_sig(windmill_parser_php::parse_php_signature(code, None))
 }
+
+#[cfg(feature = "rust-parser")]
+#[wasm_bindgen]
+pub fn parse_rust(code: &str) -> String {
+    wrap_sig(windmill_parser_rust::parse_rust_signature(code))
+}

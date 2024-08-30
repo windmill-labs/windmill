@@ -188,6 +188,7 @@
 		| 'php'
 		| 'css'
 		| 'javascript'
+		| 'rust'
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined

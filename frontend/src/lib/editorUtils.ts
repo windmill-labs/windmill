@@ -67,6 +67,8 @@ export function langToExt(lang: string): string {
 			return 'ps1'
 		case 'php':
 			return 'php'
+		case 'rust':
+			return 'rs'
 		case 'deno':
 			return 'ts'
 		case 'nativets':

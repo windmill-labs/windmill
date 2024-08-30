@@ -9187,6 +9187,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         kind:
           type: string
@@ -9285,6 +9286,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         kind:
           type: string
@@ -9502,6 +9504,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         email:
           type: string
@@ -9617,6 +9620,7 @@ components:
               nativets,
               bun,
               php,
+              rust,
             ]
         is_skipped:
           type: boolean
@@ -10155,7 +10159,8 @@ components:
               graphql,
               nativets,
               bun,
-              php
+              php,
+              rust,
             ]
         tag:
           type: string
@@ -11285,7 +11290,8 @@ components:
               graphql,
               nativets,
               bun,
-              php
+              php,
+              rust,
             ]
       required:
         - raw_code

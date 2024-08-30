@@ -112,7 +112,8 @@
 		'flow',
 		'other',
 		'bun',
-		'php'
+		'php',
+		'rust'
 	]
 	const nativeTags = [
 		'nativets',
