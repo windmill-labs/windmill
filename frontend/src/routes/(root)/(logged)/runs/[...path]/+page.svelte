@@ -36,7 +36,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { replaceState } from '$app/navigation'
+	import { goto } from '$app/navigation'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -89,6 +89,52 @@
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
 
+	function loadFromQuery() {
+		path = $page.params.path
+		user = $page.url.searchParams.get('user')
+		folder = $page.url.searchParams.get('folder')
+		label = $page.url.searchParams.get('label')
+		concurrencyKey = $page.url.searchParams.get('concurrency_key')
+		tag = $page.url.searchParams.get('tag')
+		// Rest of filters handled by RunsFilter
+		success = ($page.url.searchParams.get('success') ?? undefined) as
+			| 'running'
+			| 'success'
+			| 'failure'
+			| undefined
+		isSkipped =
+			$page.url.searchParams.get('is_skipped') != undefined
+				? $page.url.searchParams.get('is_skipped') == 'true'
+				: false
+
+		showSchedules =
+			$page.url.searchParams.get('show_schedules') != undefined
+				? $page.url.searchParams.get('show_schedules') == 'true'
+				: localStorage.getItem('show_schedules_in_run') == 'false'
+				? false
+				: true
+		showFutureJobs =
+			$page.url.searchParams.get('show_future_jobs') != undefined
+				? $page.url.searchParams.get('show_future_jobs') == 'true'
+				: localStorage.getItem('show_future_jobs') == 'false'
+				? false
+				: true
+
+		argFilter = $page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+			: undefined
+		resultFilter = $page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+			: undefined
+
+		// Handled on the main page
+		minTs = $page.url.searchParams.get('min_ts') ?? undefined
+		maxTs = $page.url.searchParams.get('max_ts') ?? undefined
+		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
+		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
+		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+	}
+
 	let queue_count: Tweened<number> | undefined = undefined
 	let suspended_count: Tweened<number> | undefined = undefined
 
@@ -133,13 +179,14 @@
 		concurrencyKey ||
 		tag ||
 		graph ||
-		minTs ||
 		maxTs ||
 		allWorkspaces ||
 		$workspaceStore) &&
-		setQuery()
+		setQuery(false)
 
-	function setQuery() {
+	$: minTs || setQuery(true)
+
+	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
 
 		if (user) {
@@ -243,9 +290,16 @@
 			searchParams.delete('graph')
 		}
 
-		let newPath = path ? `/${path}` : '/'
+		let newPath = path ? `/${path}` : ''
+
 		let newUrl = `/runs${newPath}?${searchParams.toString()}`
-		replaceState(newUrl.toString(), $page.state)
+		if (
+			$page.url.searchParams.toString() != searchParams.toString() ||
+			$page.url.pathname != newUrl.split('?')[0]
+		) {
+			// replaceState(newUrl.toString(), $page.state)
+			goto(newUrl.toString(), { replaceState: replaceState })
+		}
 	}
 
 	function reloadJobsWithoutFilterError() {
@@ -566,7 +620,13 @@
 	</DrawerContent>
 </Drawer>
 
-<svelte:window bind:innerWidth />
+<svelte:window
+	bind:innerWidth
+	on:popstate={() => {
+		reset()
+		loadFromQuery()
+	}}
+/>
 
 {#if innerWidth > 900}
 	<div class="w-full h-screen">
@@ -608,6 +668,11 @@
 					bind:allWorkspaces
 					bind:schedulePath
 					on:change={reloadJobsWithoutFilterError}
+					on:successChange={(e) => {
+						if (e.detail == 'running' && maxTs != undefined) {
+							maxTs = undefined
+						}
+					}}
 					{usernames}
 					{folders}
 					{paths}
@@ -977,6 +1042,11 @@
 					bind:schedulePath
 					mobile={true}
 					on:change={reloadJobsWithoutFilterError}
+					on:sucessChange={(e) => {
+						if (e.detail == 'running' && maxTs != undefined) {
+							maxTs = undefined
+						}
+					}}
 				/>
 			</div>
 		</div>

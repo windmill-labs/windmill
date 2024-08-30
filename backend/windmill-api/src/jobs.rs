@@ -1595,6 +1595,11 @@ async fn list_jobs(
             sqlq.limit(per_page).offset(offset).query()?
         }
     } else {
+        if sqlc.is_none() {
+            return Err(error::Error::BadRequest(
+                "cannot specify success, label, created_or_started_before, or started_before with running".to_string(),
+            ));
+        }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
     let mut tx = user_db.begin(&authed).await?;

@@ -1,0 +1,22 @@
+[package]
+name = "windmill-parser-rust"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser_rust"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+itertools.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+convert_case.workspace = true
+lazy_static.workspace = true
+regex.workspace = true
+pulldown-cmark.workspace = true
+toml.workspace = true
+syn.workspace = true
+quote.workspace = true

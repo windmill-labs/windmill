@@ -82,9 +82,7 @@ use rand::Rng;
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
-    bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE},
-    bun_executor::handle_bun_job,
-    common::{
+    bash_executor::{handle_bash_job, handle_powershell_job, ANSI_ESCAPE_RE}, bun_executor::handle_bun_job, common::{
         build_args_map, get_cached_resource_value_if_valid, get_reserved_variables, hash_args,
         read_result, save_in_cache,  NO_LOGS_AT_ALL, SLOW_LOGS,
     },
@@ -94,14 +92,14 @@ use crate::{
     js_eval::{eval_fetch_timeout, transpile_ts},
     mysql_executor::do_mysql,
     pg_executor::do_postgresql,
+    rust_executor::handle_rust_job,
     php_executor::handle_php_job,
     python_executor::handle_python_job,
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    },
-    worker_lockfiles::{
+    }, worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
-    },
+    }
 };
 
 #[cfg(feature = "enterprise")]
@@ -234,6 +232,7 @@ pub const DENO_CACHE_DIR_DEPS: &str = concatcp!(ROOT_CACHE_DIR, "deno/deps");
 pub const DENO_CACHE_DIR_NPM: &str = concatcp!(ROOT_CACHE_DIR, "deno/npm");
 
 pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const BUN_DEPSTAR_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "buntar");
@@ -3153,6 +3152,23 @@ mount {{
                 &shared_mount,
             )
             .await
+        },
+        Some(ScriptLang::Rust) => {
+            handle_rust_job(
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                &inner_content,
+                job_dir,
+                requirements_o,
+                &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+            )
+                .await
         }
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };

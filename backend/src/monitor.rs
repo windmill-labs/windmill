@@ -22,6 +22,8 @@ use windmill_api::{
     oauth2_ee::{build_oauth_clients, OAuthClient},
     DEFAULT_BODY_LIMIT, IS_SECURE, OAUTH_CLIENTS, REQUEST_SIZE_LIMIT, SAML_METADATA, SCIM_TOKEN,
 };
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::worker_groups_alerts;
 use windmill_common::{
     auth::JWT_SECRET,
     ee::CriticalErrorChannel,
@@ -41,7 +43,7 @@ use windmill_common::{
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_server_config,
     users::truncate_token,
-    utils::{now_from_db, rd_string, Mode},
+    utils::{now_from_db, rd_string, report_critical_error, Mode},
     worker::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
         DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, SERVER_CONFIG, WORKER_CONFIG,
@@ -1018,11 +1020,19 @@ pub async fn monitor_db(
         }
     };
 
+    let worker_groups_alerts_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode {
+            worker_groups_alerts(&db).await;
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
         expose_queue_metrics_f,
-        verify_license_key_f
+        verify_license_key_f,
+        worker_groups_alerts_f
     );
 }
 
@@ -1234,12 +1244,12 @@ async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
         }
         for r in restarted {
-            tracing::error!(
+            let error_message = format!(
                 "Zombie job detected, restarting it: {} {} {:?}",
-                r.id,
-                r.workspace_id,
-                r.last_ping
+                r.id, r.workspace_id, r.last_ping
             );
+            tracing::error!(error_message);
+            report_critical_error(error_message, db.clone()).await;
         }
     }
 
@@ -1342,11 +1352,12 @@ async fn handle_zombie_flows(
                 .get(0)
                 .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
         }) {
-            tracing::error!(
+            let error_message = format!(
                 "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
-                flow.id,
-                flow.workspace_id
+                flow.id, flow.workspace_id
             );
+            tracing::error!(error_message);
+            report_critical_error(error_message, db.clone()).await;
             // if the flow hasn't started and is a zombie, we can simply restart it
             sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null WHERE id = $1 AND canceled = false",
@@ -1366,6 +1377,7 @@ async fn handle_zombie_flows(
                     format!("Flow {id} was cancelled because it")
                 }
             );
+            report_critical_error(reason.clone(), db.clone()).await;
             cancel_zombie_flow_job(db, flow, &rsmq, reason).await?;
         }
     }

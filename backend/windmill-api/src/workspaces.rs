@@ -2576,6 +2576,7 @@ async fn tarball_workspace(
                     }
                 }
                 ScriptLang::Php => "php",
+                ScriptLang::Rust => "rs",
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))

@@ -75,6 +75,11 @@ export function parse_graphql(code: string): string;
 * @returns {string}
 */
 export function parse_php(code: string): string;
+/**
+* @param {string} code
+* @returns {string}
+*/
+export function parse_rust(code: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -95,6 +100,7 @@ export interface InitOutput {
   readonly parse_db_resource: (a: number, b: number, c: number) => void;
   readonly parse_graphql: (a: number, b: number, c: number) => void;
   readonly parse_php: (a: number, b: number, c: number) => void;
+  readonly parse_rust: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

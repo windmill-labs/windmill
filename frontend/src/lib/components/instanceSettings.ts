@@ -120,9 +120,9 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Critical Error Channels',
+			label: 'Critical Alert Channels',
 			description:
-				'Channels to send critical errors to. SMTP must be configured for the email channel.',
+				'Channels to send critical alerts to. SMTP must be configured for the email channel.',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
