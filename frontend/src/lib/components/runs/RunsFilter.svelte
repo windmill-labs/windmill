@@ -434,7 +434,10 @@
 		</div>
 		<div class="relative">
 			<span class="text-xs absolute -top-4">Status</span>
-			<ToggleButtonGroup bind:selected={success}>
+			<ToggleButtonGroup
+				bind:selected={success}
+				on:selected={() => dispatch('successChange', success)}
+			>
 				<ToggleButton value={undefined} label="All" />
 				<ToggleButton
 					value={'running'}
