@@ -1,0 +1,4 @@
+FROM ghcr.io/windmill-labs/windmill-ee:dev
+
+COPY --from=rust:1.80.1 /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.80.1 /usr/local/rustup /usr/local/rustup

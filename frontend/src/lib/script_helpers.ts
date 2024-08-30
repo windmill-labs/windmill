@@ -252,6 +252,43 @@ function main(
 }
 `
 
+export const RUST_INIT_CODE = `//! Add dependencies in the following partial Cargo.toml manifest
+//!
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! rand = "0.7.2"
+//! \`\`\`
+//!
+//! Note that serde is used by default with the \`derive\` feature.
+//! You can still reimport it if you need additional features.
+
+use anyhow::anyhow;
+use rand::seq::SliceRandom;
+use serde::Serialize;
+
+#[derive(Serialize, Debug)]
+struct Ret {
+    msg: String,
+    number: i8,
+}
+
+fn main(who_to_greet: String, numbers: Vec<i8>) -> anyhow::Result<Ret> {
+    println!(
+        "Person to greet: {} -  numbers to choose: {:?}",
+        who_to_greet, numbers
+    );
+    Ok(Ret {
+        msg: format!("Greetings {}!", who_to_greet),
+        number: *numbers
+            .choose(&mut rand::thread_rng())
+            .ok_or(anyhow!("There should be some numbers to choose from"))?,
+    })
+}
+`
+
+
+
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -465,7 +502,8 @@ const ALL_INITIAL_CODE = [
 	BUN_INIT_CODE_APPROVAL,
 	BASH_INIT_CODE,
 	POWERSHELL_INIT_CODE,
-	PHP_INIT_CODE
+	PHP_INIT_CODE,
+	RUST_INIT_CODE,
 ]
 
 export function isInitialCode(content: string): boolean {
@@ -552,6 +590,8 @@ export function initialCode(
 		return GRAPHQL_INIT_CODE
 	} else if (language == 'php') {
 		return PHP_INIT_CODE
+	} else if (language == 'rust') {
+		return RUST_INIT_CODE
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (language == 'bunnative' || subkind === 'bunnative') {
 			return BUNNATIVE_INIT_CODE

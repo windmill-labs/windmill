@@ -6380,6 +6380,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57206b407293d2bcd3af849ce869d52068623f19e1b5ff8e8778e3309439682b"
+dependencies = [
+ "bitflags 2.6.0",
+ "getopts",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "pulp"
 version = "0.18.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10471,6 +10483,7 @@ dependencies = [
  "once_cell",
  "pg-embed",
  "prometheus",
+ "quote",
  "rand 0.8.5",
  "reqwest 0.12.7",
  "rsmq_async",
@@ -10773,6 +10786,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-rust"
+version = "1.387.0"
+dependencies = [
+ "anyhow",
+ "convert_case 0.6.0",
+ "itertools 0.10.5",
+ "lazy_static",
+ "pulldown-cmark",
+ "quote",
+ "regex",
+ "serde_json",
+ "syn 2.0.76",
+ "toml 0.7.8",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-sql"
 version = "1.387.1"
 dependencies = [
@@ -10817,6 +10847,7 @@ dependencies = [
  "windmill-parser-graphql",
  "windmill-parser-php",
  "windmill-parser-py",
+ "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
 ]
@@ -10931,6 +10962,7 @@ dependencies = [
  "windmill-parser-php",
  "windmill-parser-py",
  "windmill-parser-py-imports",
+ "windmill-parser-rust",
  "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",

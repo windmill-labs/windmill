@@ -171,6 +171,9 @@ COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 
+ENV RUSTUP_HOME="/usr/local/rustup"
+ENV CARGO_HOME="/usr/local/cargo"
+
 WORKDIR ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill

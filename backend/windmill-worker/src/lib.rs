@@ -20,6 +20,7 @@ mod mysql_executor;
 mod pg_executor;
 mod php_executor;
 mod python_executor;
+mod rust_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
