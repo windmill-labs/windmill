@@ -51,9 +51,12 @@
 	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 	let tag: string | null = $page.url.searchParams.get('tag')
 	// Rest of filters handled by RunsFilter
-	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = ($page.url.searchParams.get(
-		'success'
-	) ?? undefined) as 'running' | 'success' | 'failure' | undefined
+	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined =
+		($page.url.searchParams.get('success') ?? undefined) as
+			| 'running'
+			| 'success'
+			| 'failure'
+			| undefined
 	let isSkipped: boolean | undefined =
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
@@ -88,7 +91,7 @@
 
 	let queue_count: Tweened<number> | undefined = undefined
 	let suspended_count: Tweened<number> | undefined = undefined
-		
+
 	let jobKinds: string | undefined = undefined
 	let loading: boolean = false
 	let paths: string[] = []
@@ -297,7 +300,6 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
-
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -398,27 +400,31 @@
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
-			running: (success == 'running' || success == 'suspended' ) ? true : (success == 'waiting' ) ? false : undefined,
+			running:
+				success == 'running' || success == 'suspended'
+					? true
+					: success == 'waiting'
+					? false
+					: undefined,
 			isSkipped: isSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
-				path != undefined || path != undefined || jobKindsCat != 'all'
-					? true
-					: undefined,
+				path != undefined || path != undefined || jobKindsCat != 'all' ? true : undefined,
 			label: label === null || label === '' ? undefined : label,
 			tag: tag === null || tag === '' ? undefined : tag,
 			isNotSchedule: showSchedules == false ? true : undefined,
 			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
-			scheduledForBeforeNow: showFutureJobs == false || (success == 'waiting' || success == 'suspended') ? true : undefined,
-			args:
-				argFilter && argFilter != '{}' && argFilter != '' && argError == ''
-					? argFilter
+			scheduledForBeforeNow:
+				showFutureJobs == false || success == 'waiting' || success == 'suspended'
+					? true
 					: undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
 			result:
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined,
+			allWorkspaces: allWorkspaces ? true : undefined
 		}
 
 		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
@@ -450,7 +456,6 @@
 		graph === 'ConcurrencyChart' &&
 		extendedJobs !== undefined &&
 		extendedJobs.jobs.length + extendedJobs.obscured_jobs.length >= 1000
-
 
 	function jobsFilter(f: 'waiting' | 'suspended') {
 		path = null
@@ -678,6 +683,7 @@
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
+						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
@@ -697,11 +703,17 @@
 		</div>
 		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
 			<div class="flex gap-2 grow flex-row">
-				<RunsQueue {success} {queue_count} {suspended_count} on:jobs_waiting={() => {
-					jobsFilter('waiting')
-				}} on:jobs_suspended={() => {
-					jobsFilter('suspended')
-				}} />
+				<RunsQueue
+					{success}
+					{queue_count}
+					{suspended_count}
+					on:jobs_waiting={() => {
+						jobsFilter('waiting')
+					}}
+					on:jobs_suspended={() => {
+						jobsFilter('suspended')
+					}}
+				/>
 				<div class="flex flex-row">
 					{#if isSelectingJobsToCancel}
 						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
@@ -774,7 +786,9 @@
 						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
 					}}
 				/>
-				<span class="text-xs absolute -top-4"><span class="hidden xl:inline">CRON</span> Schedules</span>
+				<span class="text-xs absolute -top-4"
+					><span class="hidden xl:inline">CRON</span> Schedules</span
+				>
 
 				<Calendar size={16} />
 			</div>
@@ -1027,6 +1041,7 @@
 					on:zoom={async (e) => {
 						minTs = e.detail.min.toISOString()
 						maxTs = e.detail.max.toISOString()
+						manualDatePicker?.resetChoice()
 						jobLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
@@ -1047,11 +1062,17 @@
 		<div class="flex flex-col gap-4 md:flex-row w-full p-4 overflow-x-auto">
 			<div class="flex items-center flex-row gap-2 grow">
 				{#if queue_count}
-					<RunsQueue {success} {queue_count} {suspended_count} on:jobs_waiting={() => {
-						jobsFilter('waiting')
-					}} on:jobs_suspended={() => {
-						jobsFilter('suspended')
-					}} />
+					<RunsQueue
+						{success}
+						{queue_count}
+						{suspended_count}
+						on:jobs_waiting={() => {
+							jobsFilter('waiting')
+						}}
+						on:jobs_suspended={() => {
+							jobsFilter('suspended')
+						}}
+					/>
 				{/if}
 				<div class="flex flex-row">
 					{#if isSelectingJobsToCancel}

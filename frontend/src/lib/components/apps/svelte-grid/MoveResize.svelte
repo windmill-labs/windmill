@@ -2,6 +2,7 @@
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
+	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
 
@@ -26,6 +27,7 @@
 	export let nativeContainer
 	export let onTop
 	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
+	export let overlapped: string | undefined = undefined
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
@@ -382,7 +384,10 @@
 
 {#if xPerPx > 0 && (active || trans) && shadow}
 	<div
-		class="svlt-grid-shadow shadow-active"
+		class={twMerge(
+			'svlt-grid-shadow shadow-active',
+			overlapped ? 'svlte-grid-shadow-forbidden' : ''
+		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +
 			gapY}px); "
@@ -460,10 +465,13 @@
 
 	.svlt-grid-shadow {
 		position: absolute;
-		background: red;
 		will-change: transform;
-		background: pink;
 		backface-visibility: hidden;
 		-webkit-backface-visibility: hidden;
+		background: #93c4fdd0;
+	}
+
+	.svlte-grid-shadow-forbidden {
+		background: rgba(255, 99, 71, 0.2) !important;
 	}
 </style>

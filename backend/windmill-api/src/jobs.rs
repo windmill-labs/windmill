@@ -1578,7 +1578,11 @@ async fn list_jobs(
         None
     };
 
-    let sql = if lq.success.is_none() && lq.label.is_none() {
+    let sql = if lq.success.is_none()
+        && lq.label.is_none()
+        && lq.created_or_started_before.is_none()
+        && lq.started_before.is_none()
+    {
         let mut sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
