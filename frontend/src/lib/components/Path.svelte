@@ -107,7 +107,7 @@
 			while (await pathExists(metaToPath(newMeta), kind)) {
 				disabled = true
 				error = 'finding an available name...'
-				newMeta.name = random_adj() + '_' + fullNamePlaceholder ?? namePlaceholder
+				newMeta.name = random_adj() + '_' + (fullNamePlaceholder ?? namePlaceholder)
 			}
 			error = ''
 			disabled = false
@@ -262,7 +262,9 @@
 		!dirty && (dirty = true)
 	}
 
-	const openSearchWithPrefilledText: (t?: string) => void = getContext("openSearchWithPrefilledText")
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
 </script>
 
 <Drawer bind:this={newFolder}>
@@ -457,7 +459,7 @@
 					variant="border"
 					color="dark"
 					on:click={() => {
-						openSearchWithPrefilledText("#")
+						openSearchWithPrefilledText('#')
 					}}
 					startIcon={{ icon: SearchCode }}
 				>
