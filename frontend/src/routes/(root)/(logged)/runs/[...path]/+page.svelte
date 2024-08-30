@@ -668,6 +668,11 @@
 					bind:allWorkspaces
 					bind:schedulePath
 					on:change={reloadJobsWithoutFilterError}
+					on:successChange={(e) => {
+						if (e.detail == 'running' && maxTs != undefined) {
+							maxTs = undefined
+						}
+					}}
 					{usernames}
 					{folders}
 					{paths}
@@ -1037,6 +1042,11 @@
 					bind:schedulePath
 					mobile={true}
 					on:change={reloadJobsWithoutFilterError}
+					on:sucessChange={(e) => {
+						if (e.detail == 'running' && maxTs != undefined) {
+							maxTs = undefined
+						}
+					}}
 				/>
 			</div>
 		</div>
