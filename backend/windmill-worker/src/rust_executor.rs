@@ -1,5 +1,5 @@
 use serde_json::value::RawValue;
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::Path, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
@@ -114,6 +114,8 @@ pub async fn generate_cargo_lockfile(
     worker_name: &str,
     w_id: &str,
 ) -> error::Result<String> {
+    check_cargo_exists()?;
+
     gen_cargo_crate(code, job_dir)?;
 
     let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
@@ -228,6 +230,14 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
     ))
 }
 
+fn check_cargo_exists() -> Result<(), Error> {
+    if !Path::new(CARGO_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` (for Windmill Community) or `windmill-full-ee` (for EE) for your instance in order to run rust jobs.", CARGO_PATH.as_str());
+        return Err(Error::NotFound(msg));
+    }
+    Ok(())
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_rust_job(
     mem_peak: &mut i32,
@@ -243,6 +253,8 @@ pub async fn handle_rust_job(
     worker_name: &str,
     envs: HashMap<String, String>,
 ) -> Result<Box<RawValue>, Error> {
+    check_cargo_exists()?;
+
     let hash = compute_rust_hash(inner_content, requirements_o.as_ref());
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");

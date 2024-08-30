@@ -2,7 +2,7 @@ use convert_case::{Case, Casing};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::Path, process::Stdio};
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
@@ -71,6 +71,8 @@ pub async fn composer_install(
     requirements: String,
     lock: Option<String>,
 ) -> Result<String> {
+    check_php_exists()?;
+
     write_file(job_dir, "composer.json", &requirements)?;
 
     if let Some(lock) = lock.as_ref() {
@@ -126,6 +128,15 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
     )
 }
 
+fn check_php_exists() -> error::Result<()> {
+    if !Path::new(PHP_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` (for Windmill Community) or `windmill-full-ee` (for EE) for your instance in order to run php jobs.", PHP_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
+
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_php_job(
     requirements_o: Option<String>,
@@ -141,6 +152,8 @@ pub async fn handle_php_job(
     envs: HashMap<String, String>,
     shared_mount: &str,
 ) -> error::Result<Box<RawValue>> {
+    check_php_exists()?;
+
     let (composer_json, composer_lock) = match requirements_o {
         Some(reqs_and_lock) if !reqs_and_lock.is_empty() => {
             let splitted = reqs_and_lock.split(COMPOSER_LOCK_SPLIT).collect_vec();

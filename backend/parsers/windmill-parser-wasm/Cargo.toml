@@ -10,10 +10,6 @@ crate-type = ["cdylib"]
 name = "windmill_parser_wasm"
 path = "./src/lib.rs"
 
-[profile.release]
-lto = true
-opt-level = 's'
-
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
 windmill-parser-ts.workspace = true
