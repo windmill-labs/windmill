@@ -230,9 +230,19 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
     ))
 }
 
+#[cfg(not(feature = "enterprise"))]
 fn check_cargo_exists() -> Result<(), Error> {
     if !Path::new(CARGO_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` (for Windmill Community) or `windmill-full-ee` (for EE) for your instance in order to run rust jobs.", CARGO_PATH.as_str());
+        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
+        return Err(Error::NotFound(msg));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+fn check_cargo_exists() -> Result<(), Error> {
+    if !Path::new(CARGO_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find cargo at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run rust jobs.", CARGO_PATH.as_str());
         return Err(Error::NotFound(msg));
     }
     Ok(())

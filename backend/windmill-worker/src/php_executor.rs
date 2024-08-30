@@ -128,14 +128,23 @@ $args->{arg_name} = new {rt_name}($args->{arg_name});"
     )
 }
 
+#[cfg(not(feature = "enterprise"))]
 fn check_php_exists() -> error::Result<()> {
     if !Path::new(PHP_PATH.as_str()).exists() {
-        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` (for Windmill Community) or `windmill-full-ee` (for EE) for your instance in order to run php jobs.", PHP_PATH.as_str());
+        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full` for your instance in order to run php jobs.", PHP_PATH.as_str());
         return Err(error::Error::NotFound(msg));
     }
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
+fn check_php_exists() -> error::Result<()> {
+    if !Path::new(PHP_PATH.as_str()).exists() {
+        let msg = format!("Couldn't find php at {}. This probably means that you are not using the windmill-full image. Please use the image `windmill-full-ee` for your instance in order to run php jobs.", PHP_PATH.as_str());
+        return Err(error::Error::NotFound(msg));
+    }
+    Ok(())
+}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_php_job(
