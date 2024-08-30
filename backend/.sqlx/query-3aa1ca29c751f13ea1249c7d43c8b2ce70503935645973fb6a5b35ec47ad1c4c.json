@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO healthchecks (check_type, healthy) \n                        VALUES ('min_alive_workers_' || $1, false)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3aa1ca29c751f13ea1249c7d43c8b2ce70503935645973fb6a5b35ec47ad1c4c"
+}
