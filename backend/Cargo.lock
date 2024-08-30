@@ -10786,7 +10786,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.386.0"
+version = "1.387.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
