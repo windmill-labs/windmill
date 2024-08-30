@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.388.0](https://github.com/windmill-labs/windmill/compare/v1.387.1...v1.388.0) (2024-08-30)
+
+
+### Features
+
+* add rust ([#4253](https://github.com/windmill-labs/windmill/issues/4253)) ([a2beed9](https://github.com/windmill-labs/windmill/commit/a2beed9d7335856bc956ff34343cdaf5a9b8d281))
+* min workers in worker group alert + zombie job critical alert ([#4307](https://github.com/windmill-labs/windmill/issues/4307)) ([aa6fd84](https://github.com/windmill-labs/windmill/commit/aa6fd84079b6015d82d7603218b2c8cb7a156c40))
+
 ## [1.387.1](https://github.com/windmill-labs/windmill/compare/v1.387.0...v1.387.1) (2024-08-30)
 
 
