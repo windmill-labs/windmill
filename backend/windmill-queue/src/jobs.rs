@@ -886,16 +886,19 @@ pub async fn add_completed_job<
         if queued_job.email == ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
             let w_id = &queued_job.workspace_id;
-            report_critical_error(format!(
-                "Workspace error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
-                queued_job.id,
-                queued_job
-                    .parent_job
-                    .map(|id| format!(
-                        " trying to handle failed job ({base_url}/run/{id}?workspace={w_id})"
-                    ))
-                    .unwrap_or("".to_string()),
-            ))
+            report_critical_error(
+                format!(
+                    "Workspace error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
+                    queued_job.id,
+                    queued_job
+                        .parent_job
+                        .map(|id| format!(
+                            " trying to handle failed job ({base_url}/run/{id}?workspace={w_id})"
+                        ))
+                        .unwrap_or("".to_string()),
+                ),
+                db.clone(),
+            )
             .await;
         } else if queued_job.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL {
             let base_url = BASE_URL.read().await;
@@ -961,7 +964,7 @@ pub async fn add_completed_job<
                             "Could not push workspace error handler for failed job ({base_url}/run/{}?workspace={w_id}): {}",
                             queued_job.id,
                             err
-                        ))
+                        ), db.clone())
                         .await;
                     }
                 }
@@ -1143,10 +1146,10 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel<
                 queued_job.id,
                 err
             );
-            report_critical_error(error_message).await;
+            report_critical_error(error_message, db.clone()).await;
         }
     } else {
-        report_critical_error(error_message).await;
+        report_critical_error(error_message, db.clone()).await;
     }
 }
 
