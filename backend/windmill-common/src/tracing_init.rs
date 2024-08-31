@@ -26,15 +26,16 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
     tracing_subscriber::fmt::layer().compact()
 }
 
+lazy_static::lazy_static! {
+    pub static ref JSON_FMT: bool = std::env::var("JSON_FMT").map(|x| x == "true").unwrap_or(false);
+}
+
 pub const LOGS_SERVICE: &str = "logs/services/";
 
 pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
 
 pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
-    let json_fmt = std::env::var("JSON_FMT")
-        .map(|x| x == "true")
-        .unwrap_or(false);
 
     if std::env::var("RUST_LOG").is_ok_and(|x| x == "debug" || x == "info") {
         std::env::set_var(
@@ -71,13 +72,14 @@ pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
         ts_base.with(layer)
     };
 
-    match json_fmt {
+    match *JSON_FMT {
         true => ts_base
             .with(
                 json_layer()
                     .with_writer(stdout_and_log_file_writer)
                     .flatten_event(true),
             )
+            .with(CountingLayer::new())
             .init(),
         false => ts_base
             .with(
