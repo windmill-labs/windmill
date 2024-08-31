@@ -43,6 +43,7 @@ pub struct LogFile {
     pub file_path: String,
     pub ok_lines: Option<i64>,
     pub err_lines: Option<i64>,
+    pub json_fmt: bool,
 }
 async fn list_files(
     ApiAuthed { email, .. }: ApiAuthed,
@@ -62,6 +63,7 @@ async fn list_files(
             "file_path",
             "ok_lines",
             "err_lines",
+            "json_fmt",
         ])
         .order_by("log_ts", true)
         .offset(offset)

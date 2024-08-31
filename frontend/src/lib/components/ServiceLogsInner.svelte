@@ -9,6 +9,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { truncateRev } from '$lib/utils'
 
 	let minTs: undefined | string = undefined
 	let maxTs: undefined | string = undefined
@@ -29,6 +30,7 @@
 		file_path: string
 		ok_lines: number
 		err_lines: number
+		json_fmt: boolean
 	}
 
 	type ByHostname = Record<string, LogFile[]>
@@ -98,7 +100,8 @@
 						ts: ts,
 						file_path: log.file_path,
 						ok_lines: log.ok_lines ?? 1,
-						err_lines: log.err_lines ?? 0
+						err_lines: log.err_lines ?? 0,
+						json_fmt: log.json_fmt
 					})
 					if (
 						log.ok_lines != undefined &&
@@ -213,6 +216,50 @@
 	onDestroy(() => {
 		timeout && clearTimeout(timeout)
 	})
+
+	function processLogWithJsonFmt(log: string | undefined, jsonFmt: boolean): string {
+		if (!log) {
+			return ''
+		}
+		if (!jsonFmt) {
+			return log
+		}
+		try {
+			let res = ''
+			log.split('\n').forEach((line) => {
+				if (line.startsWith('{') && line.endsWith('}')) {
+					let obj = JSON.parse(line)
+					if (typeof obj == 'object') {
+						let nl = ''
+						if (obj['timestamp']) {
+							nl += obj['timestamp'] + ' '
+						}
+						if (obj['level']) {
+							nl += obj['level'] + ' '
+						}
+						if (obj['message']) {
+							nl += obj['message'] + ' '
+						}
+						delete obj['timestamp']
+						delete obj['level']
+						delete obj['message']
+						Object.keys(obj).forEach((key) => {
+							nl +=
+								key +
+								'=' +
+								(typeof obj[key] == 'object' ? JSON.stringify(obj[key]) : obj[key]) +
+								' '
+						})
+						res += nl + '\n'
+					}
+				}
+			})
+
+			return res
+		} catch (e) {
+			return log
+		}
+	}
 </script>
 
 <div class="w-full h-[70vh]" on:scroll|preventDefault>
@@ -346,7 +393,11 @@
 													scrollToBottom()
 												}}
 											>
-												<div class="text-sm pt-2 pl-0.5" style="width: 90px;">{hn}</div>
+												<div
+													class="text-sm pt-2 pl-0.5 whitespace-nowrap"
+													title={hn}
+													style="width: 90px;">{truncateRev(hn, 8)}</div
+												>
 												<div class="relative grow h-8 mr-2">
 													{#each files as file}
 														{@const okHeight = 100.0 * ((file.ok_lines * 1.0) / (max_lines ?? 1))}
@@ -421,7 +472,10 @@
 												noMaxH
 												isLoading={false}
 												tag={undefined}
-												content={logsContent[file.file_path].content}
+												content={processLogWithJsonFmt(
+													logsContent[file.file_path].content,
+													file.json_fmt
+												)}
 											/></div
 										>
 									{:else}

@@ -8642,11 +8642,14 @@ paths:
                       type: integer
                     err_lines:
                       type: integer
+                    json_fmt:
+                      type: boolean
                   required:
                     - hostname
                     - mode
                     - log_ts
                     - file_path
+                    - json_fmt
 
   /service_logs/get_log_file/{path}:
     get:
