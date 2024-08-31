@@ -14,6 +14,7 @@ use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::server::Smtp;
 use crate::DB;
 use anyhow::Context;
+use gethostname::gethostname;
 use git_version::git_version;
 use mail_send::mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
@@ -53,6 +54,13 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub fn hostname() -> String {
+    gethostname()
+        .to_str()
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| rd_string(5))
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -191,6 +199,18 @@ pub enum Mode {
     Server,
     Standalone,
     Indexer,
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Worker => write!(f, "worker"),
+            Mode::Agent => write!(f, "agent"),
+            Mode::Server => write!(f, "server"),
+            Mode::Standalone => write!(f, "standalone"),
+            Mode::Indexer => write!(f, "indexer"),
+        }
+    }
 }
 
 pub async fn send_email(

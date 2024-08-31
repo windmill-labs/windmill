@@ -186,7 +186,7 @@
 		await loadWorkerGroups()
 	}
 
-	let queueMetricsDrawer: Drawer
+	let queueMetricsDrawer: QueueMetricsDrawer
 	let selectedTab: string = 'default'
 
 	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
@@ -240,7 +240,7 @@
 </script>
 
 {#if $superadmin}
-	<QueueMetricsDrawer bind:drawer={queueMetricsDrawer} />
+	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
 {/if}
 
 <Drawer bind:this={importConfigDrawer} size="800px">

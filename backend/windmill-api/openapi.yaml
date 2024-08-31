@@ -6137,7 +6137,7 @@ paths:
 
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
-      summary: cancel queued job
+      summary: cancel queued or running job
       operationId: cancelQueuedJob
       tags:
         - job
@@ -8603,6 +8603,68 @@ paths:
                     items:
                       $ref: "#/components/schemas/TimeseriesMetric"
 
+  /service_logs/list_files:
+    get:
+      summary: list log files ordered by timestamp
+      operationId: listLogFiles
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Before"
+        - $ref: "#/components/parameters/After"
+        - name: with_error
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: time
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    hostname:
+                      type: string
+                    mode:
+                      type: string
+                    worker_group:
+                      type: string
+                    log_ts:
+                      type: string
+                      format: date-time
+                    file_path:
+                      type: string
+                    ok_lines:
+                      type: integer
+                    err_lines:
+                      type: integer
+                  required:
+                    - hostname
+                    - mode
+                    - log_ts
+                    - file_path
+
+  /service_logs/get_log_file/{path}:
+    get:
+      summary: get log file by path
+      operationId: getLogFile
+      tags:
+        - service_logs
+      parameters:
+        - $ref: "#/components/parameters/Path"            
+      responses:
+        "200":
+          description: log stream
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /concurrency_groups/list:
     get:
       summary: List all concurrency groups
@@ -8974,6 +9036,13 @@ components:
       schema:
         type: string
         format: date-time
+    Before:
+      name: before
+      description: filter on started before (inclusive) timestamp
+      in: query
+      schema:
+        type: string
+        format: date-time
     CreatedOrStartedAfter:
       name: created_or_started_after
       description:
@@ -9046,13 +9115,6 @@ components:
     After:
       name: after
       description: filter on created after (exclusive) timestamp
-      in: query
-      schema:
-        type: string
-        format: date-time
-    Before:
-      name: before
-      description: filter on created before (exclusive) timestamp
       in: query
       schema:
         type: string

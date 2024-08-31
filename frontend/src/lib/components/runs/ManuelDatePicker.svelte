@@ -7,6 +7,8 @@
 	export let maxTs: string | undefined
 	export let loading: boolean = false
 	export let selectedManualDate = 0
+	export let loadText: string | undefined = undefined
+	export let serviceLogsChoices: boolean = false
 
 	export function computeMinMax(): { minTs: string; maxTs: string | undefined } | undefined {
 		return manualDates[selectedManualDate].computeMinMax()
@@ -27,19 +29,23 @@
 		computeMinMax: () => { minTs: string; maxTs: string | undefined } | undefined
 	}[] = [
 		{
-			label: 'Last 1000 runs',
+			label: loadText ?? 'Last 1000 runs',
 			computeMinMax: () => {
 				return undefined
 			}
 		},
-		{
-			label: 'Within 30 seconds',
-			computeMinMax: () => computeMinMaxInc(30 * 1000)
-		},
-		{
-			label: 'Within last minute',
-			computeMinMax: () => computeMinMaxInc(1 * 60 * 1000)
-		},
+		...(!serviceLogsChoices
+			? [
+					{
+						label: 'Within 30 seconds',
+						computeMinMax: () => computeMinMaxInc(30 * 1000)
+					},
+					{
+						label: 'Within last minute',
+						computeMinMax: () => computeMinMaxInc(60 * 1000)
+					}
+			  ]
+			: []),
 		{
 			label: 'Within last 5 minutes',
 			computeMinMax: () => computeMinMaxInc(5 * 60 * 1000)
@@ -75,12 +81,13 @@
 			minTs = ts.minTs
 			maxTs = ts.maxTs
 		}
-		dispatch('loadJobs')
+		dispatch('loadJobs', { minTs, maxTs })
 	}}
 	dropdownItems={[
 		...manualDates.map((d, i) => ({
 			label: d.label,
-			onClick: () => {
+			onClick: (e) => {
+				e.preventDefault()
 				selectedManualDate = i
 				const ts = d.computeMinMax()
 				if (ts) {
