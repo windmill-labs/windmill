@@ -166,8 +166,10 @@ async fn windmill_main() -> anyhow::Result<()> {
         std::env::set_var("RUST_LOG", "info")
     }
 
+    let hostname = hostname();
+
     #[cfg(not(feature = "flamegraph"))]
-    let _guard = windmill_common::tracing_init::initialize_tracing();
+    let _guard = windmill_common::tracing_init::initialize_tracing(&hostname);
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
     tracing::info!("jemalloc enabled");
@@ -369,8 +371,6 @@ Windmill Community Edition {GIT_VERSION}
     display_config(&ENV_SETTINGS);
 
     let worker_mode = num_workers > 0;
-
-    let hostname = hostname();
 
     if server_mode || worker_mode || indexer_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());

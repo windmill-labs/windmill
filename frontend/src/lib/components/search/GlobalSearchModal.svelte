@@ -33,7 +33,7 @@
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
@@ -606,7 +606,17 @@
 						/>
 					{:else if tab === 'logs'}
 						<div class="p-2">
-							<ServiceLogsInner />
+							{#if !$superadmin}
+								<Alert title="Service logs are only available to superadmins" type="warning">
+									Service logs are only available to superadmins
+								</Alert>
+							{:else if searchTerm.length == 1}
+								<ServiceLogsInner />
+							{:else}
+								<Alert title="Not yet supported" type="info">
+									Full-text search across Windmill logs is not yet supported
+								</Alert>
+							{/if}
 						</div>
 					{:else if tab === 'runs'}
 						<div class="flex h-full p-2 divide-x">

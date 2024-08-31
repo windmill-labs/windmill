@@ -27,9 +27,10 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
 }
 
 pub const LOGS_SERVICE: &str = "logs/services/";
+
 pub const TMP_WINDMILL_LOGS_SERVICE: &str = concatcp!("/tmp/windmill/", LOGS_SERVICE);
 
-pub fn initialize_tracing() -> WorkerGuard {
+pub fn initialize_tracing(hostname: &str) -> WorkerGuard {
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
     let json_fmt = std::env::var("JSON_FMT")
         .map(|x| x == "true")
@@ -44,14 +45,14 @@ pub fn initialize_tracing() -> WorkerGuard {
 
     let env_filter = EnvFilter::from_default_env();
     use tracing_appender::rolling::{RollingFileAppender, Rotation};
-    let hostname = crate::utils::hostname();
 
-    std::fs::create_dir_all(TMP_WINDMILL_LOGS_SERVICE).unwrap();
+    let log_dir = format!("{}/{}/", TMP_WINDMILL_LOGS_SERVICE, hostname);
+    std::fs::create_dir_all(&log_dir).unwrap();
     let file_appender = RollingFileAppender::builder()
         .rotation(Rotation::MINUTELY)
         .filename_prefix(format!("{}.log", hostname))
         .max_log_files(20)
-        .build(TMP_WINDMILL_LOGS_SERVICE)
+        .build(log_dir)
         .expect("Can build tracing file appender");
 
     let (log_file_writer, _guard) = NonBlockingBuilder::default()

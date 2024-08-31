@@ -348,8 +348,9 @@ async fn sleep_until_next_minute_start_plus_one_s() {
 }
 
 use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
-async fn find_two_highest_files() -> (Option<String>, Option<String>) {
-    let rd_dir = tokio::fs::read_dir(TMP_WINDMILL_LOGS_SERVICE).await;
+async fn find_two_highest_files(hostname: &str) -> (Option<String>, Option<String>) {
+    let log_dir = format!("{}/{}/", TMP_WINDMILL_LOGS_SERVICE, hostname);
+    let rd_dir = tokio::fs::read_dir(log_dir).await;
     if let Ok(mut log_files) = rd_dir {
         let mut highest_file: Option<String> = None;
         let mut second_highest_file: Option<String> = None;
@@ -394,7 +395,7 @@ pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
         sleep_until_next_minute_start_plus_one_s().await;
         loop {
             interval.tick().await;
-            let (_, snd_highest_file) = find_two_highest_files().await;
+            let (_, snd_highest_file) = find_two_highest_files(&hostname).await;
             send_log_file_to_object_store(
                 &hostname,
                 &mode,
@@ -410,7 +411,7 @@ pub fn send_logs_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
 
 pub async fn send_current_log_file_to_object_store(db: &DB, hostname: &str, mode: &Mode) {
     tracing::info!("Sending current log file to object store");
-    let (highest_file, _) = find_two_highest_files().await;
+    let (highest_file, _) = find_two_highest_files(hostname).await;
     let worker_group = get_worker_group(&mode);
     send_log_file_to_object_store(hostname, mode, &worker_group, db, highest_file, true).await;
 }
@@ -461,7 +462,6 @@ async fn send_log_file_to_object_store(
 
         match exists {
             Ok(Some(true)) => {
-                tracing::info!("Log file already uploaded");
                 return;
             }
             Err(e) => {
@@ -471,21 +471,29 @@ async fn send_log_file_to_object_store(
             _ => (),
         }
 
-        let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE).join(&highest_file);
+        let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
+            .join(hostname)
+            .join(&highest_file);
 
         #[cfg(feature = "parquet")]
         let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
             //read file as byte stream
-            let bytes = tokio::fs::read(&path).await.unwrap();
+            let bytes = tokio::fs::read(&path).await;
+            if let Err(e) = bytes {
+                tracing::error!("Error reading log file: {:?}", e);
+                return;
+            }
             let path = object_store::path::Path::from_url_path(format!(
-                "{}{highest_file}",
+                "{}{hostname}/{highest_file}",
                 windmill_common::tracing_init::LOGS_SERVICE
-            ))
-            .unwrap();
-            tracing::info!("Sending logs to object store at {path}");
-            if let Err(e) = s3_client.put(&path, bytes.into()).await {
+            ));
+            if let Err(e) = path {
+                tracing::error!("Error creating log file path: {:?}", e);
+                return;
+            }
+            if let Err(e) = s3_client.put(&path.unwrap(), bytes.unwrap().into()).await {
                 tracing::error!("Error sending logs to object store: {:?}", e);
             }
         }
@@ -652,6 +660,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             .await
                             {
                                 tracing::error!("Error deleting  custom concurrency key: {:?}", e);
+                            }
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval ",
+                                job_retention_secs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting log file: {:?}", e);
                             }
                         }
                     }

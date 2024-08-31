@@ -75,7 +75,6 @@ async fn list_files(
         );
     }
     if let Some(dt) = &lq.after {
-        tracing::info!("after: {:?}", dt);
         sqlb.and_where_ge(
             "log_ts",
             format!("to_timestamp({}  / 1000.0)", dt.timestamp_millis()),
@@ -90,34 +89,6 @@ async fn list_files(
     Ok(Json(rows))
 }
 
-#[cfg(feature = "parquet")]
-async fn get_log_file(
-    ApiAuthed { email, .. }: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(path): Path<windmill_common::utils::StripPath>,
-) -> windmill_common::error::Result<Response> {
-    use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
-
-    require_super_admin(&db, &email).await?;
-    let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
-    if let Some(s3_client) = s3_client {
-        let path = path.to_path();
-        let file = s3_client.get(&object_store::path::Path::from(path)).await;
-        if let Ok(file) = file {
-            if let Ok(bytes) = file.bytes().await {
-                Ok(content_plain(Body::from(bytes::Bytes::from(bytes))))
-            } else {
-                Err(Error::InternalErr("Error pulling the bytes".to_string()))
-            }
-        } else {
-            Err(Error::InternalErr("Error fetching the file".to_string()))
-        }
-    } else {
-        Err(Error::InternalErr("object store not enabled".to_string()))
-    }
-}
-
-#[cfg(not(feature = "parquet"))]
 async fn get_log_file(
     ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -127,7 +98,38 @@ async fn get_log_file(
 
     require_super_admin(&db, &email).await?;
     let path = path.to_path();
-    tracing::error!("{}{}", TMP_WINDMILL_LOGS_SERVICE, path);
+    #[cfg(feature = "parquet")]
+    let s3_client = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        .read()
+        .await
+        .clone();
+    #[cfg(feature = "parquet")]
+    if let Some(s3_client) = s3_client {
+        let path = format!("{}{}", windmill_common::tracing_init::LOGS_SERVICE, path);
+        let file = s3_client.get(&object_store::path::Path::from(path)).await;
+        match file {
+            Ok(file) => {
+                let bytes = file.bytes().await;
+                match bytes {
+                    Ok(bytes) => {
+                        return Ok(content_plain(Body::from(bytes::Bytes::from(bytes))));
+                    }
+                    Err(e) => {
+                        return Err(Error::InternalErr(format!(
+                            "Error pulling the bytes: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(Error::InternalErr(format!(
+                    "Error fetching the file: {}",
+                    e
+                )));
+            }
+        }
+    }
     let file = tokio::fs::read(format!("{}{}", TMP_WINDMILL_LOGS_SERVICE, path)).await;
     if let Ok(bytes) = file {
         Ok(content_plain(Body::from(bytes::Bytes::from(bytes))))
@@ -135,88 +137,3 @@ async fn get_log_file(
         Err(Error::NotFound(format!("File {path} not found")))
     }
 }
-
-// #[derive(Debug, serde::Deserialize)]
-// struct LogStreamRequest {
-//     log_files: Vec<String>,
-// }
-// #[cfg(feature = "parquet")]
-// async fn get_log_stream(
-//     ApiAuthed { email, .. }: ApiAuthed,
-//     Extension(db): Extension<DB>,
-//     Json(req_body): Json<LogStreamRequest>,
-// ) -> windmill_common::error::Result<Response> {
-//     use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
-
-//     require_super_admin(&db, &email).await?;
-//     let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
-//     if let Some(s3_client) = s3_client {
-//         let stream = async_stream::stream! {
-//             for file_p in req_body.log_files {
-//                 let file_p_2 = file_p.clone();
-//                 let file = s3_client.get(&object_store::path::Path::from(file_p)).await;
-//                 if let Ok(file) = file {
-//                     if let Ok(bytes) = file.bytes().await {
-//                         yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-//                     }
-//                 } else {
-//                     tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-//                 }
-//             }
-//         };
-//         Ok(content_plain(Body::from_stream(stream)))
-//     } else {
-//         Err(Error::InternalErr("object store not enabled".to_string()))
-//     }
-// }
-
-// #[cfg(feature = "parquet")]
-// async fn get_log_stream(
-//     ApiAuthed { email, .. }: ApiAuthed,
-//     Extension(db): Extension<DB>,
-//     Json(req_body): Json<LogStreamRequest>,
-// ) -> windmill_common::error::Result<Response> {
-//     use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
-
-//     require_super_admin(&db, &email).await?;
-//     let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
-//     if let Some(s3_client) = s3_client {
-//         let stream = async_stream::stream! {
-//             for file_p in req_body.log_files {
-//                 let file_p_2 = file_p.clone();
-//                 let file = s3_client.get(&object_store::path::Path::from(file_p)).await;
-//                 if let Ok(file) = file {
-//                     if let Ok(bytes) = file.bytes().await {
-//                         yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-//                     }
-//                 } else {
-//                     tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-//                 }
-//             }
-//         };
-//         Ok(content_plain(Body::from_stream(stream)))
-//     } else {
-//         Err(Error::InternalErr("object store not enabled".to_string()))
-//     }
-// }
-
-// #[cfg(not(feature = "parquet"))]
-// async fn get_log_stream(
-//     ApiAuthed { email, .. }: ApiAuthed,
-//     Extension(db): Extension<DB>,
-//     Json(lf): Json<Vec<String>>,
-// ) -> windmill_common::error::Result<Response> {
-//     require_super_admin(&db, &email).await?;
-//     let stream = async_stream::stream! {
-//         for file_p in lf {
-//             let file_p_2 = file_p.clone();
-//             let file = tokio::fs::read(file_p).await;
-//             if let Ok(file) = file {
-//                 yield Ok(bytes::Bytes::from(file)) as anyhow::Result<bytes::Bytes>;
-//             } else {
-//                 tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-//             }
-//         }
-//     };
-//     Ok(content_plain(Body::from_stream(stream)))
-// }

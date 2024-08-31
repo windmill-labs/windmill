@@ -55,7 +55,6 @@
 		allLogs = allLogs ?? {}
 		ServiceLogsService.listLogFiles({ withError, before: queryMaxTs, after: queryMinTs })
 			.then((res) => {
-				console.log('res', res)
 				loading = false
 
 				let minTsN: number | undefined = undefined
@@ -73,7 +72,7 @@
 					})
 				}
 
-				res.forEach((log) => {
+				res.reverse().forEach((log) => {
 					let ts = new Date(log.log_ts + 'Z').getTime()
 					if (minTsN == undefined || ts < minTsN) {
 						minTsN = ts
@@ -128,7 +127,6 @@
 					maxTs = new Date(maxTsN).toISOString()
 				}
 				if (upToIsLatest && selected) {
-					console.log('upToIsLatest')
 					upTo = getLatestUpTo(selected)
 				}
 				if (autoRefresh && !maxTsManual) {
@@ -154,15 +152,15 @@
 	let selected: [string, string, string] | undefined = undefined
 
 	let logsContent: Record<string, { content?: string; error?: string }> = {}
-	export async function getLogFile(path: string) {
+	export async function getLogFile(hostname: string, path: string) {
 		if (logsContent[path]) {
 			return
 		}
 		try {
-			const res = await ServiceLogsService.getLogFile({ path: path })
+			const res = await ServiceLogsService.getLogFile({ path: `${hostname}/${path}` })
 			logsContent[path] = { content: res }
 		} catch (e) {
-			logsContent[path] = { error: e.message }
+			logsContent[path] = { error: `${e.message}: ${e.body}` }
 		}
 	}
 
@@ -178,17 +176,19 @@
 		}
 		if (upTo) {
 			let upToN = new Date(upTo).getTime()
-			logs = logs
-				.filter((x) => x.ts <= upToN)
-				.slice(undefined, 5)
-				.reverse()
-			getFiles(logs.map((x) => x.file_path))
+			let nlogs = logs.filter((x) => x.ts <= upToN)
+			logs = nlogs.slice(nlogs.length - 5, undefined)
+
+			getFiles(
+				selected[2],
+				logs.map((x) => x.file_path)
+			)
 		}
 		return logs
 	}
 
-	async function getFiles(logs: string[]) {
-		await Promise.all(logs.map((x) => getLogFile(x)))
+	async function getFiles(hostname: string, logs: string[]) {
+		await Promise.all(logs.map((x) => getLogFile(hostname, x)))
 		scrollToBottom()
 	}
 
@@ -197,8 +197,10 @@
 			return undefined
 		}
 		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
-		console.log('logs', logs?.[0]?.ts)
-		return logs?.[0]?.ts
+		if (!logs) {
+			return undefined
+		}
+		return logs[logs.length - 1]?.ts
 	}
 
 	function scrollToBottom() {
@@ -246,7 +248,6 @@
 							maxTs = undefined
 							allLogs = undefined
 							getAllLogs(minTsManual, maxTsManual)
-							console.log('load jobs')
 						}}
 						serviceLogsChoices
 						loadText="Last 1000 logfiles"
@@ -271,11 +272,10 @@
 					><Toggle
 						size="xs"
 						bind:checked={withError}
-						options={{ right: 'error only' }}
+						options={{ right: 'errors > 0' }}
 						on:change={() => {
 							allLogs = undefined
 							getAllLogs(minTs, maxTs)
-							console.log('errorOnly')
 						}}
 					/>
 					<Toggle
@@ -299,7 +299,7 @@
 					{@const minTsN = new Date(minTs).getTime()}
 					{@const maxTsN = new Date(maxTs).getTime()}
 					{@const diff = maxTsN - minTsN}
-					<div class="flex w-full text-2xs text-tertiary pb-4">
+					<div class="flex w-full text-2xs text-tertiary pb-6">
 						<div style="width: 60px;" />
 
 						<div class="flex justify-between w-full"
@@ -321,19 +321,19 @@
 						>
 					</div>
 					{#each Object.entries(allLogs) as [mode, o1]}
-						<div class="w-full pb-6">
-							<h2 class="pb-2">{mode}s</h2>
+						<div class="w-full pb-8">
+							<h2 class="pb-2 text-2xl">{mode}s</h2>
 							{#each Object.entries(o1) as [wg, o2]}
-								<div class="w-full">
+								<div class="w-full px-1">
 									{#if wg && wg != ''}
-										<h3 class="pb-2">{wg}</h3>
+										<h4 class="pt-4">{wg}</h4>
 									{/if}
 									<div class="divide-y flex flex-col">
 										{#each Object.entries(o2) as [hn, files]}
 											<!-- svelte-ignore a11y-click-events-have-key-events -->
 											<!-- svelte-ignore a11y-no-static-element-interactions -->
 											<div
-												class="w-full flex items-baseline px-1 cursor-pointer {selected &&
+												class="w-full flex items-baseline rounded px-1 hover:bg-surface-hover cursor-pointer {selected &&
 												selected[0] == mode &&
 												selected[1] == wg &&
 												selected[2] == hn
@@ -346,7 +346,7 @@
 													scrollToBottom()
 												}}
 											>
-												<div style="width: 90px;">{hn}</div>
+												<div class="text-sm pt-2 pl-0.5" style="width: 90px;">{hn}</div>
 												<div class="relative grow h-8 mr-2">
 													{#each files as file}
 														{@const okHeight = 100.0 * ((file.ok_lines * 1.0) / (max_lines ?? 1))}
@@ -357,7 +357,7 @@
 																100}%; height: {errHeight}%; bottom: {okHeight}%;"
 														/>
 														<div
-															class=" w-2 bg-black absolute bottom-0"
+															class="w-2 bg-surface-secondary-inverse absolute bottom-0"
 															style="left: {((file.ts - minTsN) / diff) *
 																100}%; height: {okHeight}%"
 														/>
@@ -375,7 +375,10 @@
 		</Pane>
 		<Pane size={60} minSize={20}
 			><div class="relative h-full flex flex-col gap-1"
-				>{#if selected}
+				><div class="w-full bg-surface-primary-inverse text-tertiary text-xs text-center"
+					>1 min delay: logs are compacted before being available</div
+				>
+				{#if selected}
 					<div class="grow overflow-auto" id="logviewer">
 						{#each getLogs(selected, upTo) as file}
 							<div
@@ -392,10 +395,23 @@
 									})}</div
 								>
 								{#if logsContent[file.file_path] == undefined}
-									<div>Loading...</div>
+									<div
+										class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
+									/>
 								{:else if logsContent[file.file_path]}
 									{#if logsContent[file.file_path].error}
-										<div>{logsContent[file.file_path].error}</div>
+										{#if logsContent[file.file_path].error?.startsWith('Not Found')}
+											<div class="text-xs pb-4 pt-2 text-secondary"
+												>Log file is missing. Log files require a shared log volume to be mounted
+												across servers and workers or to use the EE S3/object storage integration
+												for logs. To avoid mounting a shared volume, set the EE object store logs in
+												the instance settings</div
+											>
+										{:else}
+											<div class="text-xs text-red-400 pb-4"
+												>{logsContent[file.file_path].error}</div
+											>
+										{/if}
 									{:else if logsContent[file.file_path].content}
 										<!-- svelte-ignore a11y-click-events-have-key-events -->
 										<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -415,8 +431,9 @@
 							</div>
 						{/each}
 					</div>
-					<div class="flex w-full items-center">
-						<div class="flex grow text-xs justify-between px-2">
+					<div class="flex w-full items-center gap-4">
+						<div class="text-tertiary px-1 text-2xs">Last 5 log files up to:</div>
+						<div class="flex grow text-xs justify-center px-2 items-center gap-2">
 							{#if upTo}
 								<button
 									on:click={() => {
@@ -424,14 +441,14 @@
 											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() - 5 * 60 * 1000).toISOString()
 										}
-									}}>{'<'} prev 5 minutes</button
+									}}>{'<'} 5m</button
 								>
 							{:else}
 								<div />
 							{/if}
 
 							<div class="flex gap-1 relative items-center"
-								>Up to <div class="flex gap-1 relative">
+								><div class="flex gap-1 relative">
 									<input
 										type="text"
 										value={upTo
@@ -453,7 +470,7 @@
 											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() + 5 * 60 * 1000).toISOString()
 										}
-									}}>next 5 minutes {'>'}</button
+									}}>5m {'>'}</button
 								>
 							{:else}
 								<div />
@@ -461,6 +478,7 @@
 						</div>
 						<div>
 							<button
+								class="text-xs"
 								on:click={() => {
 									upTo = new Date().toISOString()
 									upToIsLatest = true
@@ -469,7 +487,7 @@
 						</div>
 					</div>
 				{:else}
-					<div class="flex justify-center items-center">Select a host to see its logs</div>
+					<div class="flex justify-center items-center pt-8">Select a host to see its logs</div>
 				{/if}</div
 			></Pane
 		>

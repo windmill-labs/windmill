@@ -76,7 +76,7 @@ async fn initialize_tracing() {
 
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        let _ = windmill_common::tracing_init::initialize_tracing();
+        let _ = windmill_common::tracing_init::initialize_tracing("test");
     });
 }
 
